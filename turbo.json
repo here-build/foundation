@@ -1,0 +1,28 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "NODE_ENV",
+    "DISABLE_BWRAP",
+    "HOST_URL",
+    "REACT_APP_DEFAULT_HOST_URL",
+    "REACT_APP_API_HOST",
+    "API_HOST",
+    "PARTYKIT_HOST",
+    "PUBLIC_URL"
+  ],
+  "tasks": {
+    "typecheck": {},
+    "test": {},
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist"
+      ]
+    }
+  },
+  "remoteCache": {
+    "enabled": true
+  }
+}

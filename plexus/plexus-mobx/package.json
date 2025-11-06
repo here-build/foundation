@@ -1,0 +1,78 @@
+{
+  "name": "@here.build/plexus-mobx",
+  "version": "0.1.0",
+  "description": "Enhanced MobX observer components with Plexus tracking integration",
+  "keywords": [
+    "mobx",
+    "observer",
+    "here.build",
+    "plexus",
+    "react",
+    "reactivity"
+  ],
+  "license": "SEE LICENSE IN LICENSE.md",
+  "author": "here.build",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "plexus/plexus-mobx"
+  },
+  "homepage": "https://github.com/here-build/foundation#readme",
+  "bugs": {
+    "url": "https://github.com/here-build/foundation/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "import": "./dist/env.js",
+      "default": "./dist/env.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@here.build/plexus": "workspace:^",
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@types/react": "^19.2",
+    "@types/react-dom": "^19.2",
+    "eslint": "^9.35.0",
+    "globals": "^16.3.0",
+    "mobx": "^6.15.0",
+    "mobx-react-lite": "^4.1.1",
+    "nanoid": "^5.1.5",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tslib": "^2.8.1",
+    "typescript": "5.9",
+    "vitest": "^3.2.4",
+    "yjs": "^13.6.27"
+  },
+  "peerDependencies": {
+    "@here.build/plexus": "workspace:^",
+    "mobx": "^6.15.0",
+    "mobx-react-lite": "^4.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

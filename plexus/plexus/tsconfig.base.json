@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "importHelpers": true,
+    "resolveJsonModule": true,
+    "baseUrl": "./",
+    "noFallthroughCasesInSwitch": true,
+    "jsx": "react",
+    "target": "ES2022",
+    "lib": ["ESNext", "dom"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": false,
+    "noImplicitReturns": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}

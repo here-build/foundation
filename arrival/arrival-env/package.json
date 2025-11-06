@@ -1,0 +1,42 @@
+{
+  "name": "@here.build/arrival-env",
+  "version": "0.1.0",
+  "description": "Type definitions and protocol for Arrival S-expression serialization",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rm -rf dist"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "keywords": [
+    "arrival",
+    "s-expressions",
+    "serialization",
+    "lisp"
+  ],
+  "license": "SEE LICENSE IN LICENSE.md",
+  "author": "here.build",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "arrival/arrival-env"
+  },
+  "homepage": "https://github.com/here-build/foundation#readme",
+  "bugs": {
+    "url": "https://github.com/here-build/foundation/issues"
+  },
+  "devDependencies": {
+    "@here.build/tsconfig": "workspace:^",
+    "typescript": "5.9"
+  }
+}

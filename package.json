@@ -1,0 +1,30 @@
+{
+  "name": "@here.build/foundation",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "turbo build --cache=local:r,remote:r",
+    "test": "turbo test --cache=local:r,remote:r",
+    "build:host": "NODE_ENV=production turbo build --filter=@here.build/internals-host",
+    "build:landing": "turbo build --filter=@herebuild/landing",
+    "build:studio": "NODE_ENV=production turbo build --filter=wab",
+    "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
+    "dev:landing": "cd platform/landing && pnpm dev",
+    "react-devtools": "react-devtools",
+    "sort-package-json": "sort-package-json package.json studiopkgs/*/package.json packages/*/package.json platform/*/package.json",
+    "syncpack:list-mismatches": "syncpack list-mismatches --specs '!workspace-protocol' --types '!peer'",
+    "typecheck": "turbo run typecheck"
+  },
+  "dependencies": {
+    "turbo": "^2.5.6"
+  },
+  "devDependencies": {
+    "npm-check": "^6.0.1",
+    "sort-package-json": "^2.14.0",
+    "syncpack": "^13.0.0"
+  },
+  "packageManager": "pnpm@10.3.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

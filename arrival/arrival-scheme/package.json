@@ -1,0 +1,66 @@
+{
+  "name": "@here.build/arrival-scheme",
+  "version": "0.1.0",
+  "description": "Scheme/LIPS interpreter for Arrival constraint-based execution",
+  "keywords": [
+    "scheme",
+    "lisp",
+    "lips",
+    "interpreter",
+    "sandbox",
+    "s-expressions"
+  ],
+  "license": "SEE LICENSE IN LICENSE.md",
+  "author": "here.build",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "arrival/arrival-scheme"
+  },
+  "homepage": "https://github.com/here-build/foundation#readme",
+  "bugs": {
+    "url": "https://github.com/here-build/foundation/issues"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./test-env": {
+      "types": "./dist/custom-matchers.d.ts",
+      "import": "./dist/custom-matchers.js"
+    }
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@here.build/arrival-env": "workspace:^",
+    "fantasy-land": "^5.0.1",
+    "ramda": "^0.31.3",
+    "ramda-adjunct": "^5.1.0"
+  },
+  "devDependencies": {
+    "@here.build/eslint-configs": "workspace:^",
+    "@types/ramda": "^0.31.1",
+    "@types/node": "24",
+    "eslint": "^9.35.0",
+    "prettier": "^3.6.2",
+    "globals": "^16.3.0",
+    "typescript": "5.9",
+    "vitest": "^3.2.4"
+  }
+}

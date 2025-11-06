@@ -1,0 +1,8 @@
+{
+  "extends": "@here.build/tsconfig/lib",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"]
+}
