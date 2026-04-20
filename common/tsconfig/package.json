@@ -1,0 +1,24 @@
+{
+  "name": "@here.build/tsconfig",
+  "description": "Shared TypeScript configuration for Here.build packages",
+  "version": "0.1.0",
+  "author": "here.build",
+  "devDependencies": {
+    "typescript": "6.0.2"
+  },
+  "exports": {
+    "./purpose/lib": "./purpose/lib.json",
+    "./purpose/app": "./purpose/app.json",
+    "./env/node": "./env/node.json",
+    "./env/cf": "./env/cf.json",
+    "./env/browser": "./env/browser.json",
+    "./env/browser-widespread": "./env/browser-widespread.json",
+    "./env/consumer": "./env/consumer.json"
+  },
+  "files": [
+    "purpose/*.json",
+    "env/*.json",
+    "package.json"
+  ],
+  "license": "FSL-1.1-MIT"
+}

@@ -1,0 +1,18 @@
+{
+  "extends": [
+    "@here.build/tsconfig/purpose/lib",
+    "@here.build/tsconfig/env/node"
+  ],
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/__tests__/**/*"]
+}

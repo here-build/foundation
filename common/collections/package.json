@@ -1,0 +1,50 @@
+{
+  "name": "@here.build/collections",
+  "version": "0.1.0",
+  "description": "Collection utilities: DefaultedMap, DefaultedWeakMap, and MobX-reactive variants",
+  "license": "FSL-1.1-MIT",
+  "author": "here.build",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./mobx": {
+      "types": "./dist/mobx.d.ts",
+      "import": "./dist/mobx.js",
+      "require": "./dist/mobx.js",
+      "default": "./dist/mobx.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@types/node": "24.0.0",
+    "eslint": "9.39.2",
+    "mobx": "6.15.0",
+    "typescript": "6.0.2"
+  },
+  "peerDependencies": {
+    "mobx": "^6.15.0"
+  },
+  "peerDependenciesMeta": {
+    "mobx": {
+      "optional": true
+    }
+  }
+}

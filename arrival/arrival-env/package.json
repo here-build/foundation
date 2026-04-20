@@ -1,0 +1,48 @@
+{
+  "name": "@here.build/arrival-env",
+  "version": "0.1.0",
+  "description": "Type definitions and protocol for Arrival S-expression serialization",
+  "keywords": [
+    "arrival",
+    "s-expressions",
+    "serialization",
+    "lisp"
+  ],
+  "homepage": "https://github.com/here-build/foundation#readme",
+  "bugs": {
+    "url": "https://github.com/here-build/foundation/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "arrival/arrival-env"
+  },
+  "license": "FSL-1.1-MIT",
+  "author": "here.build",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc --build --force",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@types/node": "24.0.0",
+    "eslint": "9.39.2",
+    "typescript": "6.0.2"
+  }
+}

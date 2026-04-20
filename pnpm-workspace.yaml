@@ -1,0 +1,11 @@
+packages:
+  - plexus
+  - mcp-typescript-lsp
+  - arrival/*
+  - delta/*
+  - common/*
+
+# Supply-chain defense: refuse to install any package published less than
+# 7 days ago. Blocks short-window attacks (e.g. axios March 2026 — malicious
+# versions were live on npm for ~3 hours before removal).
+minimumReleaseAge: 10080 # 7 days, in minutes
