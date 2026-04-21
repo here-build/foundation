@@ -51,7 +51,7 @@ describe("Sandbox Boundary", () => {
         }
       }
       const instance = new MyClass();
-      (instance as any).ownProp = "own";
+      (instance as { ownProp?: string }).ownProp = "own";
 
       expect(sandboxedAccess(instance, "ownProp")).toBe("own");
       expect(sandboxedAccess(instance, "inheritedMethod")).toBeInstanceOf(Function);
@@ -72,7 +72,7 @@ describe("Sandbox Boundary", () => {
       }
 
       const instance = new UserClass();
-      (instance as any).ownProp = "own";
+      (instance as { ownProp?: string }).ownProp = "own";
 
       // Own property - accessible
       expect(sandboxedAccess(instance, "ownProp")).toBe("own");
@@ -128,7 +128,7 @@ describe("Sandbox Boundary", () => {
         method() {}
       }
       const instance = new MyClass();
-      (instance as any).own = "value";
+      (instance as { own?: string }).own = "value";
 
       const keys = sandboxedKeys(instance);
       expect(keys).toEqual(["own"]);
@@ -203,7 +203,7 @@ describe("Sandbox Boundary", () => {
     it("marks an object as a boundary", () => {
       const obj = {};
       markAsSandboxBoundary(obj);
-      expect((obj as any)[SANDBOX_BOUNDARY]).toBe(true);
+      expect((obj as Record<symbol, unknown>)[SANDBOX_BOUNDARY]).toBe(true);
     });
   });
 

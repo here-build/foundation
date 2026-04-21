@@ -290,7 +290,7 @@ export function fromJS(value: unknown): SchemeValue {
 export function toJS(value: unknown): unknown {
   // Check for wrapper protocol first
   if (value && typeof value === "object" && TO_JS in value) {
-    return (value as any)[TO_JS]();
+    return (value as Record<symbol, () => unknown>)[TO_JS]!();
   }
 
   // nil → null

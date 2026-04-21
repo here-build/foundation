@@ -128,7 +128,7 @@ describe("Evaluator Benchmarks", () => {
 
       console.log(`Generator evaluator: 10000 level nesting in ${elapsed.toFixed(2)}ms`);
       // LIPS returns SchemeExact objects, so use valueOf()
-      const value = (result as any)?.valueOf?.() ?? result;
+      const value = (result as { valueOf?: () => unknown })?.valueOf?.() ?? result;
       expect(value).toBe(10001);
     });
   });
@@ -171,8 +171,8 @@ describe("Evaluator Benchmarks", () => {
       // Verify correctness (LIPS returns SchemeExact, so use valueOf)
       const lipsResult = await lipsExec(lipsAst);
       const genResult = await genExec(genAst, { env: lipsEnv });
-      expect((lipsResult[0] as any)?.valueOf?.() ?? lipsResult[0]).toBe(15);
-      expect((genResult as any)?.valueOf?.() ?? genResult).toBe(15);
+      expect((lipsResult[0] as { valueOf?: () => unknown })?.valueOf?.() ?? lipsResult[0]).toBe(15);
+      expect((genResult as { valueOf?: () => unknown })?.valueOf?.() ?? genResult).toBe(15);
     });
 
     it("compare: nested function calls", async () => {
@@ -215,8 +215,8 @@ describe("Evaluator Benchmarks", () => {
       // Verify correctness (LIPS returns SchemeExact, so use valueOf)
       const lipsResult = await lipsExec(lipsAst);
       const genResult = await genExec(genAst, { env: lipsEnv });
-      expect((lipsResult[0] as any)?.valueOf?.() ?? lipsResult[0]).toBe(26);
-      expect((genResult as any)?.valueOf?.() ?? genResult).toBe(26);
+      expect((lipsResult[0] as { valueOf?: () => unknown })?.valueOf?.() ?? lipsResult[0]).toBe(26);
+      expect((genResult as { valueOf?: () => unknown })?.valueOf?.() ?? genResult).toBe(26);
     });
   });
 });

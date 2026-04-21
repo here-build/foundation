@@ -18,7 +18,7 @@ export function promise_all(arg: unknown[]): Promise<unknown[]> | unknown[] {
 // ----------------------------------------------------------------------
 export function escape_quoted_promises(array: unknown[]): unknown[] {
   // using loops for performance
-  const escaped = Array.from({ length: array.length }) as unknown[];
+  const escaped: unknown[] = Array.from({ length: array.length });
   let i = array.length;
   while (i--) {
     const value = array[i];
@@ -29,7 +29,7 @@ export function escape_quoted_promises(array: unknown[]): unknown[] {
 
 // ----------------------------------------------------------------------
 export function unescape_quoted_promises(array: unknown[]): unknown[] {
-  const unescaped = Array.from({ length: array.length }) as unknown[];
+  const unescaped: unknown[] = Array.from({ length: array.length });
   let i = array.length;
   while (i--) {
     const value = array[i];

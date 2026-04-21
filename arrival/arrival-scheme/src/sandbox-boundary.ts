@@ -155,7 +155,7 @@ export function isSandboxBoundary(proto: object | null): boolean {
 
   // Check for explicit boundary marker on the prototype itself (OWN property only)
   // Use hasOwnProperty to avoid inheriting boundary status from parent prototypes
-  if (Object.prototype.hasOwnProperty.call(proto, SANDBOX_BOUNDARY) && (proto as any)[SANDBOX_BOUNDARY] === true) {
+  if (Object.prototype.hasOwnProperty.call(proto, SANDBOX_BOUNDARY) && (proto as Record<symbol, unknown>)[SANDBOX_BOUNDARY] === true) {
     boundaryCache.set(proto, true);
     return true;
   }
@@ -165,7 +165,7 @@ export function isSandboxBoundary(proto: object | null): boolean {
   const ctor = proto.constructor;
   if (ctor && typeof ctor === "function") {
     // Again, use hasOwnProperty to avoid inheritance issues
-    if (Object.prototype.hasOwnProperty.call(ctor, SANDBOX_BOUNDARY) && (ctor as any)[SANDBOX_BOUNDARY] === true) {
+    if (Object.prototype.hasOwnProperty.call(ctor, SANDBOX_BOUNDARY) && (ctor as unknown as Record<symbol, unknown>)[SANDBOX_BOUNDARY] === true) {
       boundaryCache.set(proto, true);
       return true;
     }
@@ -181,7 +181,7 @@ export function isSandboxBoundary(proto: object | null): boolean {
  * This prevents Scheme code from accessing inherited properties through it.
  */
 export function markAsSandboxBoundary(target: object | Function): void {
-  (target as any)[SANDBOX_BOUNDARY] = true;
+  (target as unknown as Record<symbol, unknown>)[SANDBOX_BOUNDARY] = true;
   // Invalidate cache — for classes, clear prototype; for plain objects, clear the object itself
   if (typeof target === "function" && target.prototype) {
     boundaryCache.delete(target.prototype);

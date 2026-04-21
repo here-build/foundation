@@ -184,8 +184,8 @@ function is_js_function_wrapper(o: unknown): boolean {
     o !== null &&
     typeof o === "object" &&
     "source" in o &&
-    typeof (o as any).source === "function" &&
-    (o as any).constructor?.__class__ === "js-function"
+    typeof (o as { source: unknown }).source === "function" &&
+    (o as { constructor?: { __class__?: string } }).constructor?.__class__ === "js-function"
   );
 }
 
