@@ -45,6 +45,7 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
+    "benchmarks": "vitest run --config vitest.benchmarks.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
