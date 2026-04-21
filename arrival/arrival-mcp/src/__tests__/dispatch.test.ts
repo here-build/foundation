@@ -86,7 +86,7 @@ function createMockContext(): Context {
     get: () => {},
     set: () => {},
     header: () => {},
-  } as any;
+  } as unknown as Context;
 }
 
 describe("Tool Dispatch", () => {
@@ -108,7 +108,7 @@ describe("Tool Dispatch", () => {
         arguments: { operation: "read" },
       });
 
-      const data = JSON.parse((result.content[0] as any).text);
+      const data = JSON.parse((result.content[0] as { text: string }).text);
       expect(data.data.value).toBe("test-value");
     });
 
@@ -120,21 +120,21 @@ describe("Tool Dispatch", () => {
         name: "session-state-tool",
         arguments: { operation: "increment" },
       });
-      let data = JSON.parse((result.content[0] as any).text);
+      let data = JSON.parse((result.content[0] as { text: string }).text);
       expect(data.counter).toBe(1);
 
       result = await dispatchTool(tools, context, state, {
         name: "session-state-tool",
         arguments: { operation: "increment" },
       });
-      data = JSON.parse((result.content[0] as any).text);
+      data = JSON.parse((result.content[0] as { text: string }).text);
       expect(data.counter).toBe(2);
 
       result = await dispatchTool(tools, context, state, {
         name: "session-state-tool",
         arguments: { operation: "increment" },
       });
-      data = JSON.parse((result.content[0] as any).text);
+      data = JSON.parse((result.content[0] as { text: string }).text);
       expect(data.counter).toBe(3);
     });
 
@@ -156,7 +156,7 @@ describe("Tool Dispatch", () => {
         arguments: { operation: "append", value: "third" },
       });
 
-      const data = JSON.parse((result.content[0] as any).text);
+      const data = JSON.parse((result.content[0] as { text: string }).text);
       expect(data.list).toEqual(["first", "second", "third"]);
     });
   });
@@ -182,7 +182,7 @@ describe("Tool Dispatch", () => {
         name: "session-state-tool",
         arguments: { operation: "read" },
       });
-      const data1 = JSON.parse((result1.content[0] as any).text);
+      const data1 = JSON.parse((result1.content[0] as { text: string }).text);
       expect(data1.data.value).toBe("session-1-value");
 
       // Read from state2
@@ -190,7 +190,7 @@ describe("Tool Dispatch", () => {
         name: "session-state-tool",
         arguments: { operation: "read" },
       });
-      const data2 = JSON.parse((result2.content[0] as any).text);
+      const data2 = JSON.parse((result2.content[0] as { text: string }).text);
       expect(data2.data.value).toBe("session-2-value");
     });
 
@@ -213,7 +213,7 @@ describe("Tool Dispatch", () => {
         name: "session-state-tool",
         arguments: { operation: "increment" },
       });
-      const data = JSON.parse((result.content[0] as any).text);
+      const data = JSON.parse((result.content[0] as { text: string }).text);
       expect(data.counter).toBe(1); // Not 3
     });
   });
@@ -230,7 +230,7 @@ describe("Tool Dispatch", () => {
         },
       );
 
-      const data = JSON.parse((result.content[0] as any).text);
+      const data = JSON.parse((result.content[0] as { text: string }).text);
       expect(data.echo).toBe("test");
     });
 
@@ -257,7 +257,7 @@ describe("Tool Dispatch", () => {
         },
       );
 
-      const data = JSON.parse((result.content[0] as any).text);
+      const data = JSON.parse((result.content[0] as { text: string }).text);
       expect(data.data).toEqual({});
     });
   });

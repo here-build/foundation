@@ -108,7 +108,7 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
         },
         ...Object.fromEntries(
           Object.entries(this.contextSchema).map(([key, value]) => {
-            const { $schema, ...schema } = z.toJSONSchema(value) as any;
+            const { $schema: _, ...schema } = z.toJSONSchema(value);
             return [
               key,
               {

@@ -17,7 +17,7 @@ const mockDatabase = {
 };
 
 // Make database available globally for the example
-(global as any).database = mockDatabase;
+(global as Record<string, unknown>).database = mockDatabase;
 
 class UpdateTasks extends ActionToolInteraction<{ projectId: string }> {
   static readonly name = "update_tasks";
@@ -80,7 +80,7 @@ function createMockContext(): Context {
     },
     get: () => {},
     set: () => {},
-  } as any;
+  } as unknown as Context;
 }
 
 describe("README Action Example", () => {

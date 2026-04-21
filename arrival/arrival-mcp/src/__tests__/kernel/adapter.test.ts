@@ -13,7 +13,7 @@ function createMockContext(): Context {
     req: { header: () => undefined },
     get: () => undefined,
     set: () => undefined,
-  } as any;
+  } as unknown as Context;
 }
 
 interface TestSvc extends Record<string, any> {
@@ -40,7 +40,7 @@ describe("toLegacyDiscoveryClass", () => {
       description: "A discovery tool",
       context: { projectId: str("project UUID") },
       fns: (b) => [
-        b.fn({ name: "echo", desc: "echo ctx", impl: (ctx) => (ctx as any).projectId }),
+        b.fn({ name: "echo", desc: "echo ctx", impl: (ctx) => (ctx as { projectId: string }).projectId }),
         b.fn({ name: "ping", desc: "ping", impl: () => "pong" }),
       ],
     });
@@ -54,11 +54,15 @@ describe("toLegacyDiscoveryClass", () => {
   it("getToolSchema returns the inputSchema with expected properties", async () => {
     const Cls = toLegacyDiscoveryClass(buildDiscoveryTool(), extractServices);
     const inst = new Cls(mockContext);
-    const schema = await inst.getToolSchema();
-    expect((schema as any).type).toBe("object");
-    expect((schema as any).properties.expr).toBeDefined();
-    expect((schema as any).properties.projectId).toBeDefined();
-    expect((schema as any).required).toEqual(["expr"]);
+    const schema = (await inst.getToolSchema()) as {
+      type: string;
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(schema.type).toBe("object");
+    expect(schema.properties.expr).toBeDefined();
+    expect(schema.properties.projectId).toBeDefined();
+    expect(schema.required).toEqual(["expr"]);
   });
 
   it("getToolDescription returns the full Tool descriptor", async () => {
@@ -174,14 +178,14 @@ describe("toLegacyActionClass", () => {
           name: "ping",
           needs: ["projectId"],
           desc: "",
-          handle: (ctx) => ({ pong: (ctx as any).projectId }),
+          handle: (ctx) => ({ pong: (ctx as { projectId: string }).projectId }),
         }),
         b.act({
           name: "create",
           needs: ["projectId"],
           desc: "",
           props: { name: str() },
-          handle: (ctx, _recv, props) => ({ project: (ctx as any).projectId, name: props.name }),
+          handle: (ctx, _recv, props) => ({ project: (ctx as { projectId: string }).projectId, name: props.name }),
         }),
       ],
     });
@@ -195,9 +199,12 @@ describe("toLegacyActionClass", () => {
   it("getToolSchema returns inputSchema with intent+actions required", async () => {
     const Cls = toLegacyActionClass(buildActionTool(), extractServices);
     const inst = new Cls(mockContext);
-    const schema = await inst.getToolSchema();
-    expect((schema as any).required).toEqual(["intent", "actions"]);
-    expect((schema as any).properties.projectId).toBeDefined();
+    const schema = (await inst.getToolSchema()) as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(schema.required).toEqual(["intent", "actions"]);
+    expect(schema.properties.projectId).toBeDefined();
   });
 
   it("getToolDescription returns the full Tool descriptor", async () => {

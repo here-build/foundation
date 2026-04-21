@@ -118,7 +118,7 @@ export abstract class ActionToolInteraction<
         ...Object.fromEntries(
           this.contextSchema
             ? Object.entries(this.contextSchema).map(([key, value]) => {
-                const { $schema, ...schema } = z.toJSONSchema(value, { io: "input" }) as any;
+                const { $schema: _, ...schema } = z.toJSONSchema(value, { io: "input" });
                 return [
                   key,
                   {
@@ -162,7 +162,7 @@ export abstract class ActionToolInteraction<
     if (value && typeof value === "object") {
       const keys = Object.keys(value);
       if (keys.length > 0 && keys.every((k) => /^\d+$/.test(k))) {
-        return keys.sort((a, b) => Number(a) - Number(b)).map((k) => (value as any)[k]);
+        return keys.sort((a, b) => Number(a) - Number(b)).map((k) => (value as Record<string, unknown>)[k]);
       }
     }
     invariant(false, `${label}: expected array, got ${typeof value}: ${JSON.stringify(value)?.slice(0, 200)}`);
@@ -206,7 +206,7 @@ export abstract class ActionToolInteraction<
       z.ZodType<ExecutionContext[keyof ExecutionContext], CallContext[keyof ExecutionContext], any>,
     ][]) {
       try {
-        let input = (contextInput as any)[key];
+        let input = (contextInput as Record<string, unknown>)[key as string];
         // Some models double-serialize nested values as JSON strings
         if (typeof input === "string" && (input.startsWith("{") || input.startsWith("["))) {
           try {
@@ -225,7 +225,7 @@ export abstract class ActionToolInteraction<
             // Extract received value from different issue types
             let received: string | undefined;
             if ("received" in issue) {
-              received = String((issue as any).received);
+              received = String((issue as { received: unknown }).received);
             }
 
             validationErrors.push({
@@ -264,7 +264,7 @@ export abstract class ActionToolInteraction<
       if (action.args.length > 0) {
         try {
           // Use parseAsync to handle async transforms, store transformed values
-          const transformed = await z.tuple(action.args as any).parseAsync(actionArgs);
+          const transformed = await z.tuple(action.args as [z.ZodType, ...z.ZodType[]]).parseAsync(actionArgs);
           transformedActionArgs.push(transformed);
         } catch (error) {
           if (error instanceof z.ZodError) {
@@ -278,7 +278,7 @@ export abstract class ActionToolInteraction<
               // Extract received value from different issue types
               let received: string | undefined;
               if ("received" in issue) {
-                received = String((issue as any).received);
+                received = String((issue as { received: unknown }).received);
               }
 
               validationErrors.push({

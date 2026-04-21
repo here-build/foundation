@@ -275,16 +275,21 @@ describe("compileActionTool — getToolDescription / schema", () => {
   it("returns intent+actions+context schema with required intent,actions", () => {
     const d = compileActionTool(buildTool()).getToolDescription();
     expect(d.name).toBe("t");
-    const s = d.inputSchema as any;
+    const s = d.inputSchema as unknown as {
+      required: string[];
+      properties: Record<string, { type?: string }>;
+    };
     expect(s.required).toEqual(["intent", "actions"]);
     expect(s.properties.intent).toBeDefined();
-    expect(s.properties.actions.type).toBe("array");
+    expect(s.properties.actions!.type).toBe("array");
     expect(s.properties.projectId).toBeDefined();
   });
 
   it("actions oneOf contains an item schema per action", () => {
     const d = compileActionTool(buildTool()).getToolDescription();
-    const items = (d.inputSchema as any).properties.actions.items.oneOf;
+    const items = (d.inputSchema as unknown as {
+      properties: { actions: { items: { oneOf: { items: { const?: string }[] }[] } } };
+    }).properties.actions.items.oneOf;
     expect(items).toHaveLength(1);
     expect(items[0].items[0]).toEqual({ const: "create" });
   });
@@ -300,7 +305,9 @@ describe("compileActionTool — getToolDescription / schema", () => {
       ],
     });
     const d = compileActionTool(tool).getToolDescription();
-    const actionsDesc = (d.inputSchema as any).properties.actions.description as string;
+    const actionsDesc = (d.inputSchema as unknown as {
+      properties: { actions: { description: string } };
+    }).properties.actions.description;
     expect(actionsDesc).toContain("Please be careful");
     expect(actionsDesc).toContain("nop");
   });
@@ -429,7 +436,7 @@ describe("compileActionTool — action validation", () => {
   it("non-tuple action entries fail", async () => {
     const compiled = compileActionTool(build());
     const r = await compiled.dispatch(
-      { intent: "x", actions: ["not-a-tuple" as unknown], contextInput: {} },
+      { intent: "x", actions: ["not-a-tuple"], contextInput: {} },
       { apiName: "a" },
     );
     expect(r).toMatchObject({ success: false, validation: "failed" });
@@ -481,7 +488,7 @@ describe("compileActionTool — action validation", () => {
     const tool = defineActionTool<{ element?: Widget | Gadget }, TestSvc>({
       name: "t",
       description: "",
-      context: { element: elementRef as any },
+      context: { element: elementRef },
       actions: (b) => [
         b.act({
           name: "touch",
@@ -511,7 +518,7 @@ describe("compileActionTool — dispatch & receiver-key", () => {
     const tool = defineActionTool<{ element?: Widget | Gadget }, TestSvc>({
       name: "t",
       description: "",
-      context: { element: elementRef as any },
+      context: { element: elementRef },
       actions: (b) => [
         b.act({
           name: "touch",

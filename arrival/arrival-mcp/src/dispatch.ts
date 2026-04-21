@@ -87,7 +87,7 @@ export async function dispatchTool(
   sessionId?: string,
 ): Promise<CallToolResult> {
   const startTime = Date.now();
-  const intent = (request.arguments as any)?.intent as string | undefined;
+  const intent = request.arguments?.intent as string | undefined;
 
   // Unknown tool
   const ToolClass = tools.find(({ name }) => name === request.name);

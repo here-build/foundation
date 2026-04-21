@@ -151,7 +151,7 @@ describe("defineRef — multi-branch fallthrough", () => {
     const ctx = makeCtx();
     const r = ref.parse("u-1", ctx);
     expect(r.ok).toBe(true);
-    if (r.ok) expect((r.value as any).id).toBe("u-1");
+    if (r.ok) expect(r.value.id).toBe("u-1");
   });
 
   it("falls through from uuid-miss to name-hit", () => {
@@ -159,7 +159,7 @@ describe("defineRef — multi-branch fallthrough", () => {
     const ctx = makeCtx();
     const r = ref.parse("alpha", ctx);
     expect(r.ok).toBe(true);
-    if (r.ok) expect((r.value as any).label).toBe("alpha-label");
+    if (r.ok) expect(r.value.label).toBe("alpha-label");
   });
 
   it("passes instance through instanceShape", () => {
@@ -210,14 +210,14 @@ describe("defineRef — multi-branch fallthrough", () => {
     obj.self = obj;
     expect(() => ref.parse(obj, ctx)).not.toThrow();
     // Also test with a Symbol, a BigInt, a function.
-    expect(() => ref.parse(Symbol("foo") as unknown, ctx)).not.toThrow();
-    expect(() => ref.parse(42n as unknown, ctx)).not.toThrow();
+    expect(() => ref.parse(Symbol("foo"), ctx)).not.toThrow();
+    expect(() => ref.parse(42n, ctx)).not.toThrow();
     expect(() => ref.parse(() => 1, ctx)).not.toThrow();
   });
 
   it("toJsonSchema wraps shapes in oneOf", () => {
     const ref = buildPolymorphicRef();
-    const schema = ref.toJsonSchema() as any;
+    const schema = ref.toJsonSchema() as { oneOf?: unknown[]; type?: string };
     expect(schema.oneOf).toHaveLength(4);
   });
 
@@ -246,7 +246,7 @@ describe(".optional()", () => {
     const ref = buildPolymorphicRef().optional();
     const r = ref.parse("u-1", makeCtx());
     expect(r.ok).toBe(true);
-    if (r.ok) expect((r.value as any).id).toBe("u-1");
+    if (r.ok) expect(r.value!.id).toBe("u-1");
   });
 
   it("surfaces inner errors for invalid non-undefined input", () => {
@@ -282,8 +282,8 @@ describe(".list()", () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value).toHaveLength(2);
-      expect((r.value[0] as any).id).toBe("u-1");
-      expect((r.value[1] as any).label).toBe("alpha-label");
+      expect(r.value[0]!.id).toBe("u-1");
+      expect(r.value[1]!.label).toBe("alpha-label");
     }
   });
 
@@ -323,7 +323,7 @@ describe(".list()", () => {
 
   it("toJsonSchema emits array with items", () => {
     const ref = buildPolymorphicRef().list();
-    const schema = ref.toJsonSchema() as any;
+    const schema = ref.toJsonSchema() as { oneOf?: unknown[]; type?: string; items?: unknown };
     expect(schema.type).toBe("array");
     expect(schema.items).toBeDefined();
   });
@@ -434,7 +434,11 @@ describe("objectShape", () => {
       z.object({ kind: z.literal("k"), id: z.string() }),
       (p) => p,
     );
-    const schema = shape.jsonSchema() as any;
+    const schema = shape.jsonSchema() as {
+      $schema?: unknown;
+      type?: string;
+      properties?: Record<string, unknown>;
+    };
     expect(schema.$schema).toBeUndefined();
     expect(schema.type).toBe("object");
     expect(schema.properties).toBeDefined();

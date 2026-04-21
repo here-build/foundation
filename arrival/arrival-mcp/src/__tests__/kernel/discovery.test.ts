@@ -154,8 +154,12 @@ describe("compileDiscoveryTool — getToolDescription / schema", () => {
     const d = await compiled.getToolDescription(undefined, undefined);
     expect(d.name).toBe("disc");
     expect(d.description).toBe("hi");
-    expect((d as any).annotations).toEqual({ readOnlyHint: true });
-    const inputSchema = d.inputSchema as any;
+    expect((d as { annotations?: unknown }).annotations).toEqual({ readOnlyHint: true });
+    const inputSchema = d.inputSchema as {
+      type: string;
+      required: string[];
+      properties: Record<string, unknown>;
+    };
     expect(inputSchema.type).toBe("object");
     expect(inputSchema.required).toEqual(["expr"]);
     expect(inputSchema.properties.expr).toBeDefined();
@@ -172,7 +176,7 @@ describe("compileDiscoveryTool — getToolDescription / schema", () => {
     });
     const compiled = compileDiscoveryTool(tool);
     const d = await compiled.getToolDescription(undefined);
-    const exprDesc: string = (d.inputSchema as any).properties.expr.description;
+    const exprDesc: string = (d.inputSchema as unknown as { properties: { expr: { description: string } } }).properties.expr.description;
     expect(exprDesc).toContain("(xyz)");
     expect(exprDesc).toContain("Do XYZ");
   });
@@ -192,7 +196,7 @@ describe("compileDiscoveryTool — getToolDescription / schema", () => {
     });
     const compiled = compileDiscoveryTool(tool);
     const d = await compiled.getToolDescription(undefined, { apiName: "a", counter: 42 });
-    const exprDesc = (d.inputSchema as any).properties.expr.description as string;
+    const exprDesc = (d.inputSchema as unknown as { properties: { expr: { description: string } } }).properties.expr.description as string;
     expect(exprDesc).toContain("current counter: 42");
   });
 
@@ -211,7 +215,7 @@ describe("compileDiscoveryTool — getToolDescription / schema", () => {
     });
     const compiled = compileDiscoveryTool(tool);
     const d = await compiled.getToolDescription(undefined, { apiName: "api-1", counter: 0 });
-    const exprDesc = (d.inputSchema as any).properties.expr.description as string;
+    const exprDesc = (d.inputSchema as unknown as { properties: { expr: { description: string } } }).properties.expr.description as string;
     expect(exprDesc).toContain("LIVE DESCRIPTION");
     expect(exprDesc).toContain("report for api-1");
   });
@@ -232,7 +236,7 @@ describe("compileDiscoveryTool — getToolDescription / schema", () => {
     });
     const compiled = compileDiscoveryTool(tool);
     const d = await compiled.getToolDescription({ name: "Alice" }, { apiName: "a", counter: 0 });
-    const exprDesc = (d.inputSchema as any).properties.expr.description as string;
+    const exprDesc = (d.inputSchema as unknown as { properties: { expr: { description: string } } }).properties.expr.description as string;
     expect(exprDesc).toContain("ALICE");
   });
 });
@@ -506,12 +510,12 @@ describe("compileDiscoveryTool — execute / dispatch", () => {
     const tool = defineDiscoveryTool<{ item: { id: string; label: string } }, TestSvc>({
       name: "d",
       description: "",
-      context: { item: itemRef as any },
+      context: { item: itemRef },
       fns: (b) => [
         b.fn({
           name: "label",
           desc: "",
-          impl: (ctx) => (ctx as any).item.label,
+          impl: (ctx) => ctx.item.label,
         }),
       ],
     });

@@ -76,7 +76,7 @@ class TestActionTool extends ActionToolInteraction<{
 const createMockContext = () =>
   ({
     req: { header: () => {} },
-  }) as any as Context;
+  }) as Context;
 
 describe("ActionToolInteraction - Error Handling", () => {
   it("should collect all validation errors, not just first one", async () => {
@@ -94,24 +94,24 @@ describe("ActionToolInteraction - Error Handling", () => {
 
     expect(result).toHaveProperty("success", false);
     expect(result).toHaveProperty("validation", "failed");
-    expect((result as any).errors).toBeInstanceOf(Array);
+    expect(result.errors).toBeInstanceOf(Array);
 
-    const errors = (result as any).errors;
+    const errors = result.errors;
 
     // Should have errors from all 3 actions
     expect(errors.length).toBeGreaterThanOrEqual(3);
 
     // Error from action 0 - wrong type for 'name'
-    expect(errors.some((e: any) => e.actionIndex === 0 && e.argument === "name")).toBe(true);
+    expect(errors.some((e) => e.actionIndex === 0 && e.argument === "name")).toBe(true);
 
     // Error from action 1 - invalid enum
-    expect(errors.some((e: any) => e.actionIndex === 1 && e.argument === "type")).toBe(true);
+    expect(errors.some((e) => e.actionIndex === 1 && e.argument === "type")).toBe(true);
 
     // Error from action 1 - nested validation
-    expect(errors.some((e: any) => e.actionIndex === 1 && e.argument === "options" && e.path)).toBe(true);
+    expect(errors.some((e) => e.actionIndex === 1 && e.argument === "options" && e.path)).toBe(true);
 
     // Error from action 2 - unknown action
-    expect(errors.some((e: any) => e.actionIndex === 2 && e.action === "unknown-action")).toBe(true);
+    expect(errors.some((e) => e.actionIndex === 2 && e.action === "unknown-action")).toBe(true);
   });
 
   it("should include field paths for nested validation errors", async () => {
@@ -122,10 +122,10 @@ describe("ActionToolInteraction - Error Handling", () => {
     };
 
     const result = await tool.executeTool();
-    const errors = (result as any).errors;
+    const errors = result.errors;
 
     // Should have error with path indicating nested field
-    const nestedError = errors.find((e: any) => e.argument === "options" && e.path?.includes("required"));
+    const nestedError = errors.find((e) => e.argument === "options" && e.path?.includes("required"));
     expect(nestedError).toBeDefined();
     expect(nestedError.path).toContain("required");
   });
@@ -140,9 +140,9 @@ describe("ActionToolInteraction - Error Handling", () => {
     };
 
     const result = await tool.executeTool();
-    const errors = (result as any).errors;
+    const errors = result.errors;
 
-    const typeError = errors.find((e: any) => e.argument === "name");
+    const typeError = errors.find((e) => e.argument === "name");
     expect(typeError).toBeDefined();
     expect(typeError.argument).toBe("name");
     // Zod embeds type info in message, not separate field
@@ -163,7 +163,7 @@ describe("ActionToolInteraction - Error Handling", () => {
     const result = await tool.executeTool();
 
     expect(result).toHaveProperty("sexpr");
-    const sexpr = (result as any).sexpr;
+    const sexpr = result.sexpr;
 
     // Should be valid S-expression structure
     expect(sexpr).toContain("(validation-error");
@@ -177,21 +177,21 @@ describe("ActionToolInteraction - Error Handling", () => {
   it("should validate context properties with detailed errors", async () => {
     const tool = new TestActionTool(createMockContext());
     tool.executionContext = {
-      projectId: 123 as any, // Wrong type
-      component: { name: 456 } as any, // Nested wrong type
+      projectId: 123, // Wrong type
+      component: { name: 456 }, // Nested wrong type
       actions: [["simple-action", "test"]] as ActionCall[],
     };
 
     const result = await tool.executeTool();
-    const errors = (result as any).errors;
+    const errors = result.errors;
 
     // Should have context validation errors
-    const projectIdError = errors.find((e: any) => e.property === "projectId");
+    const projectIdError = errors.find((e) => e.property === "projectId");
     expect(projectIdError).toBeDefined();
     expect(projectIdError.error).toContain("expected string");
     expect(projectIdError.error).toContain("received number");
 
-    const componentError = errors.find((e: any) => e.property === "component" && e.path);
+    const componentError = errors.find((e) => e.property === "component" && e.path);
     expect(componentError).toBeDefined();
     expect(componentError.path).toContain("name");
   });
@@ -212,7 +212,7 @@ describe("ActionToolInteraction - Error Handling", () => {
     // Should return validation error, not results
     expect(result).toHaveProperty("success", false);
     expect(result).not.toHaveProperty("length"); // Not an array of results
-    expect((result as any).message).toContain("No actions were executed");
+    expect(result.message).toContain("No actions were executed");
   });
 
   it("should handle missing required context gracefully", async () => {
@@ -228,8 +228,8 @@ describe("ActionToolInteraction - Error Handling", () => {
     const result = await tool.executeTool();
 
     // Should either validate or execute and fail with clear error
-    if ((result as any).success === false) {
-      expect((result as any).message || (result as any).sexpr).toBeTruthy();
+    if (result.success === false) {
+      expect(result.message || result.sexpr).toBeTruthy();
     }
   });
 
@@ -241,9 +241,9 @@ describe("ActionToolInteraction - Error Handling", () => {
     };
 
     const result = await tool.executeTool();
-    const errors = (result as any).errors;
+    const errors = result.errors;
 
-    const unknownError = errors.find((e: any) => e.action === "nonexistent-action");
+    const unknownError = errors.find((e) => e.action === "nonexistent-action");
     expect(unknownError).toBeDefined();
     expect(unknownError.error).toContain("Unknown action");
     expect(unknownError.error).toContain("Available actions");

@@ -67,7 +67,7 @@ function createMockContext(): Context {
     },
     get: () => {},
     set: () => {},
-  } as any;
+  } as unknown as Context;
 }
 
 describe("ActionToolInteraction", () => {

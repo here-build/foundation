@@ -43,7 +43,7 @@ export function toLegacyDiscoveryClass<BaseCtx, Svc extends Services, Prep>(
       if (!this.executionContext) {
         throw new Error(`${tool.name}: executionContext required`);
       }
-      const { expr, intent, ...contextInput } = this.executionContext as any;
+      const { expr, intent, ...contextInput } = this.executionContext;
       const svc = extractServices(this.context, this.state);
       const history: string[] = this.state.__repl__ ?? [];
 
@@ -88,14 +88,14 @@ export function toLegacyActionClass<BaseCtx, Svc extends Services, Prep>(
       if (!this.executionContext) {
         throw new Error(`${tool.name}: executionContext required`);
       }
-      const { actions, intent, ...contextInput } = this.executionContext as any;
+      const { actions, intent, ...contextInput } = this.executionContext;
       const svc = extractServices(this.context, this.state);
       const result = await compiled.dispatch(
         { intent: intent ?? "", actions: actions ?? [], contextInput },
         svc,
         clientInfo,
       );
-      return result as unknown as UserlandCallToolResult;
+      return result as UserlandCallToolResult;
     }
   }
 

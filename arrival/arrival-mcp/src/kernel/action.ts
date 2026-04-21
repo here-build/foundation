@@ -485,7 +485,7 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
           ...(refResult.value as object),
           ...(prep as object),
           intent: request.intent,
-        } as any;
+        } as BaseCtx & Prep & { intent: string };
 
         const resolved: Array<{
           act: Act<any>;
@@ -515,7 +515,7 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
             errors.push({ actionIndex: i, actionName: call.name, message: pick.error });
             continue;
           }
-          const missing = pick.act.needs.filter((k) => (fullCtx as any)[k] == null);
+          const missing = pick.act.needs.filter((k) => fullCtx[k] == null);
           if (missing.length > 0) {
             errors.push({
               actionIndex: i,
@@ -613,7 +613,7 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
 
         if (tool.shapeResponse) {
           const shaped = tool.shapeResponse(fullCtx, rawResults);
-          return { success: true, intent: request.intent, ...shaped } as unknown as ActionResult;
+          return { success: true, intent: request.intent, ...shaped } as ActionResult;
         }
         return { success: true, intent: request.intent, results: rawResults };
       } finally {
@@ -637,7 +637,7 @@ function normalizeActionCall(
   if (!Array.isArray(raw) || raw.length === 0) {
     return { error: `expected [name, propsObject] tuple, got ${typeOf(raw)}` };
   }
-  const [name, ...rest] = raw as unknown[];
+  const [name, ...rest] = raw;
   if (typeof name !== "string") {
     return { error: `expected action name (string), got ${typeOf(name)}` };
   }
@@ -657,7 +657,7 @@ function pickReceiver<Ctx>(
     if (!act.on) {
       return { act, receiver: undefined };
     }
-    const receiver = (ctx as any)[act.receiverKey!];
+    const receiver = ctx[act.receiverKey!];
     if (receiver == null) continue;
     if (receiver.constructor === act.on) {
       return { act, receiver };

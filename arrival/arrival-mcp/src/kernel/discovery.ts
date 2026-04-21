@@ -110,7 +110,7 @@ function makeFnBuilder<Ctx, Svc extends Services>(): FnBuilder<Ctx, Svc> {
             on: receiverCls,
             desc: entry.desc ?? `${cls.name}.${key}`,
             impl: async (_ctx: Ctx, receiver: unknown) => {
-              const member = (receiver as any)?.[key];
+              const member = (receiver as Record<string, unknown>)?.[key];
               return typeof member === "function" ? member.call(receiver) : member;
             },
           });
@@ -308,7 +308,7 @@ async function dispatch<Ctx, Svc extends Services>(
   for (const f of bucket) {
     if (!f.on) continue;
     // Exact-class match, not instanceof.
-    if (first != null && (first as any).constructor === f.on) {
+    if (first != null && (first as object).constructor === f.on) {
       const params = f.params ? await parseParams(f.params, args.slice(1), ctx) : {};
       return f.impl(ctx, first, params);
     }

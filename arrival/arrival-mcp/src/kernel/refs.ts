@@ -214,7 +214,7 @@ export function objectShape<S extends z.ZodObject<any>, T, Ctx>(
     match: (input) => {
       if (typeof input !== "object" || input == null || Array.isArray(input)) return false;
       if (discriminatorField) {
-        const discVal = (input as any)[discriminatorField];
+        const discVal = (input as Record<string, unknown>)[discriminatorField];
         const expected = getDiscriminatorValue(schema, discriminatorField);
         if (expected != null && discVal !== expected) return false;
       }
@@ -229,7 +229,7 @@ export function objectShape<S extends z.ZodObject<any>, T, Ctx>(
             shape: tag,
             message: issue.message,
             path: issue.path.map(String),
-            received: "received" in issue ? String((issue as any).received) : undefined,
+            received: "received" in issue ? String((issue as { received: unknown }).received) : undefined,
           })),
         };
       }
@@ -243,7 +243,7 @@ export function objectShape<S extends z.ZodObject<any>, T, Ctx>(
       }
     },
     jsonSchema: () => {
-      const { $schema, ...rest } = z.toJSONSchema(schema) as any;
+      const { $schema: _, ...rest } = z.toJSONSchema(schema);
       return rest;
     },
   };
@@ -292,7 +292,7 @@ function getDiscriminatorValue(schema: z.ZodObject<any>, field: string): unknown
   const shape = schema.shape ?? {};
   const fieldSchema = shape[field];
   if (fieldSchema instanceof z.ZodLiteral) {
-    return (fieldSchema as any).value ?? (fieldSchema as any)._def?.value;
+    return fieldSchema.value;
   }
   return undefined;
 }
