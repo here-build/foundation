@@ -347,12 +347,21 @@ export interface StringRecordSpec {
   readonly _t?: Record<string, string>;
 }
 
+/** JSON scalar: string | number | boolean. Common for prop-value inputs. */
+export interface ScalarSpec {
+  kind: "scalar";
+  desc?: string;
+  optional?: boolean;
+  readonly _t?: string | number | boolean;
+}
+
 export type Primitive =
   | StringSpec
   | NumberSpec
   | BooleanSpec
   | EnumSpec<readonly string[]>
-  | StringRecordSpec;
+  | StringRecordSpec
+  | ScalarSpec;
 
 export const str = (desc?: string): StringSpec => ({ kind: "string", desc });
 export const num = (desc?: string): NumberSpec => ({ kind: "number", desc });
@@ -366,6 +375,7 @@ export const stringRecord = (desc?: string): StringRecordSpec => ({
   kind: "string-record",
   desc,
 });
+export const scalar = (desc?: string): ScalarSpec => ({ kind: "scalar", desc });
 
 export function primitiveJsonSchema(p: Primitive): object {
   let base: object;
@@ -373,6 +383,8 @@ export function primitiveJsonSchema(p: Primitive): object {
     base = { type: "string", enum: [...p.values] };
   } else if (p.kind === "string-record") {
     base = { type: "object", additionalProperties: { type: "string" } };
+  } else if (p.kind === "scalar") {
+    base = { oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] };
   } else {
     base = { type: p.kind };
   }
@@ -419,6 +431,14 @@ export function primitiveParse(p: Primitive, input: unknown): Result<unknown> {
       }
       return { ok: true, value: input as Record<string, string> };
     }
+    case "scalar":
+      if (typeof input === "string" || typeof input === "number" || typeof input === "boolean") {
+        return { ok: true, value: input };
+      }
+      return {
+        ok: false,
+        errors: [{ shape: "scalar", message: `expected string | number | boolean, got ${typeOf(input)}` }],
+      };
   }
 }
 
