@@ -387,6 +387,17 @@ export const stringRecord = (desc?: string): StringRecordSpec => ({
 export const scalar = (desc?: string): ScalarSpec => ({ kind: "scalar", desc });
 export const rawList = (desc?: string): RawListSpec => ({ kind: "raw-list", desc });
 
+/**
+ * Mark a primitive as optional. Reads left-to-right at call sites:
+ *   `kernel.optional(kernel.str("desc"))` — the spec is optional.
+ *
+ * Type-level: preserves the primitive subtype and narrows `optional` to the
+ * literal `true`, so `InferFieldType` widens the field type to `T | undefined`.
+ */
+export function optional<P extends Primitive>(spec: P): P & { optional: true } {
+  return { ...spec, optional: true };
+}
+
 export function primitiveJsonSchema(p: Primitive): object {
   let base: object;
   if (p.kind === "enum") {
