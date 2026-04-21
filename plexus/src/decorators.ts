@@ -252,7 +252,9 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
   "child-list": new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: true })),
   map: new DefaultedWeakMap((owner: PlexusModel) => buildMapProxy({ owner, key, isChildField: false })),
   "child-map": new DefaultedWeakMap((owner: PlexusModel) => {
-    const virtualFactory = (owner.constructor as any)[Symbol.metadata]?.virtualFactories?.[key];
+    const virtualFactory = (owner.constructor as {
+      [Symbol.metadata]?: { virtualFactories?: Record<string, (key: unknown) => PlexusModel> };
+    })[Symbol.metadata]?.virtualFactories?.[key];
     return buildMapProxy({ owner, key, isChildField: true, virtualFactory });
   }),
 }));

@@ -81,13 +81,13 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             clonedModel[fieldKey] = fieldValue instanceof PlexusModel ? fieldValue.clone() : fieldValue;
             break;
           case "child-list":
-            clonedModel[fieldKey] = (fieldValue as any as any[]).map((item) =>
+            clonedModel[fieldKey] = (fieldValue as unknown as unknown[]).map((item) =>
               item instanceof PlexusModel ? item.clone() : item,
             );
             break;
           case "child-set":
             clonedModel[fieldKey] = new Set(
-              [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item)),
+              [...(fieldValue as unknown as Set<unknown>)].map((item) => (item instanceof PlexusModel ? item.clone() : item)),
             );
             break;
           case "child-record":
@@ -117,7 +117,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             modelEntries.set(fieldKey, tempEntries);
             // Set empty map for now - will be filled in postMappingFill
             // Virtual maps: backing proxy exists already, skip assignment (set() is blocked)
-            const vfPhase1 = (source.constructor as any)[Symbol.metadata]?.virtualFactories?.[fieldKey];
+            const vfPhase1 = (source.constructor as { [Symbol.metadata]?: { virtualFactories?: Record<string, unknown> } })[Symbol.metadata]?.virtualFactories?.[fieldKey];
             if (!vfPhase1) {
               clonedModel[fieldKey] = new Map();
             }
@@ -137,7 +137,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               clonedModel[fieldKey] = cloneTransactionMapping!.get(fieldValue) ?? fieldValue;
               break;
             case "list":
-              clonedModel[fieldKey] = (fieldValue as any[]).map((item) => cloneTransactionMapping!.get(item) ?? item);
+              clonedModel[fieldKey] = (fieldValue as unknown[]).map((item) => cloneTransactionMapping!.get(item) ?? item);
               break;
             case "record":
               clonedModel[fieldKey] = Object.fromEntries(
@@ -149,14 +149,14 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               break;
             case "set":
               clonedModel[fieldKey] = new Set(
-                [...(fieldValue as any as Set<AllowedYJSValue>)].map(
+                [...(fieldValue as unknown as Set<AllowedYJSValue>)].map(
                   (item) => cloneTransactionMapping!.get(item) ?? item,
                 ),
               );
               break;
             case "map":
               clonedModel[fieldKey] = new Map(
-                (fieldValue as any as Map<AllowedYJSMapKey, AllowedYJSValue>).entries().map(([key, value]) => {
+                (fieldValue as unknown as Map<AllowedYJSMapKey, AllowedYJSValue>).entries().map(([key, value]) => {
                   if (key instanceof Set) {
                     return [
                       new Set([...key].map((item) => cloneTransactionMapping!.get(item) ?? item)),
@@ -175,7 +175,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               break;
             case "child-map": {
               // Phase 2: Now that all child entities are cloned, remap keys.
-              const vf = (source.constructor as any)[Symbol.metadata]?.virtualFactories?.[fieldKey];
+              const vf = (source.constructor as { [Symbol.metadata]?: { virtualFactories?: Record<string, unknown> } })[Symbol.metadata]?.virtualFactories?.[fieldKey];
               const tempEntries = childMapTempEntries!.get(clonedModel)?.get(fieldKey);
               if (tempEntries) {
                 const finalEntries: [AllowedYJSMapKey, AllowedYJSValue][] = tempEntries.map(([key, value]) => {
@@ -200,7 +200,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
                 });
                 if (vf) {
                   // Virtual maps: use .assign() which is allowed during clone transactions
-                  (clonedModel[fieldKey] as any).assign(new Map(finalEntries));
+                  (clonedModel[fieldKey] as { assign: (m: Map<AllowedYJSMapKey, AllowedYJSValue>) => void }).assign(new Map(finalEntries));
                 } else {
                   clonedModel[fieldKey] = new Map(finalEntries);
                 }

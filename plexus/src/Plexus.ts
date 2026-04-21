@@ -104,7 +104,7 @@ export class Plexus<
       },
       getOwnPropertyDescriptor: (_, key: string) => {
         if (typeof key !== "string" || !this.yDependencies.has(key)) return;
-        return { configurable: true, enumerable: true, value: (this.rootDependenciesRepresentation as any)[key] };
+        return { configurable: true, enumerable: true, value: this.rootDependenciesRepresentation[key] };
       },
     },
   );
@@ -354,6 +354,15 @@ export class Plexus<
     // The filter discovers materialization boundaries dynamically: when it encounters
     // an XmlElement Item in a typeMap, it records the clock. Items inside that XmlElement
     // with clock ≤ materialization clock are protected (creation state).
+    //
+    // Load-bearing invariant: parent containers (Y.Array for child-list, Y.Map for
+    // child-map) hold UUID string tuples (ReferenceTuple), NOT embedded XmlElements.
+    // XmlElements live exclusively in typeMap sub-maps and are referenced by UUID
+    // elsewhere. This is why "content is at most 2 levels deep" holds — there is no
+    // nested XmlElement inside a container for the filter to miss, only string-tuple
+    // references that are safe to revert via redo. Do not "simplify" the 2-level
+    // walk without revalidating this invariant first.
+    //
     // Structural check: is a Y.Map a type sub-map of yTypes?
     // Type sub-maps are created via virtual genesis — permanent, never in undo cycle.
     const yTypesRef = this.yTypes;
@@ -384,7 +393,7 @@ export class Plexus<
 
         if (xmlEl && isTypeSubMap(xmlEl.parent)) {
           // _item.parentSub is the UUID (map key) — no public API for this
-          const uuid: string | null = (xmlEl as any)._item?.parentSub;
+          const uuid: string | null = (xmlEl as unknown as { _item?: { parentSub: string | null } })._item?.parentSub ?? null;
           if (uuid) {
             const model = entityCaches.get(shadowDoc).get(uuid)?.deref();
             if (model) {
@@ -494,7 +503,7 @@ export class Plexus<
                   undoManagerNotifications.get(newElement)?.({
                     attributesChanged: new Set(Object.keys(model.__schema__)),
                     childListChanged: true,
-                  } as any);
+                  });
                 }
                 continue;
               }
@@ -654,7 +663,7 @@ export class Plexus<
     // Remove scaffolding. Only needed if the session created Items (inserts/writes).
     // Pure deletes have no limId structs — the committed delta's delete set handles them
     // via main→shadow forwarding. UM undo on pure deletes would create ghost restorations.
-    const hasLiminalStructs = !!(this.__liminalDocument__.store as any).clients.get(limId)?.length;
+    const hasLiminalStructs = !!(this.__liminalDocument__.store as unknown as { clients: Map<number, { length: number }> }).clients.get(limId)?.length;
     if (hasLiminalStructs) {
       // Track clock before/after UM undo. The UM may create NEW Items to "restore" deleted
       // array elements (ghost Items from mixed insert+delete sessions). Delete the ghost range.
@@ -837,11 +846,12 @@ export class Plexus<
     invariant(fieldType, `parentsOf: field "${field}" does not exist on ${parentClass.modelName}`);
     const candidates = this.getAllOfType(parentClass);
 
+    const getField = (c: P): unknown => (c as unknown as Record<string, unknown>)[field];
     switch (fieldType) {
       // ── Child fields: ownership exclusive, at most one parent ──
       case "child-val": {
         for (const c of candidates) {
-          if ((c as any)[field] === node) {
+          if (getField(c) === node) {
             yield c;
             return;
           }
@@ -850,7 +860,7 @@ export class Plexus<
       }
       case "child-list": {
         for (const c of candidates) {
-          if (((c as any)[field] as any[]).includes(node)) {
+          if ((getField(c) as unknown[]).includes(node)) {
             yield c;
             return;
           }
@@ -859,7 +869,7 @@ export class Plexus<
       }
       case "child-set": {
         for (const c of candidates) {
-          if (((c as any)[field] as Set<any>).has(node)) {
+          if ((getField(c) as Set<unknown>).has(node)) {
             yield c;
             return;
           }
@@ -868,7 +878,7 @@ export class Plexus<
       }
       case "child-record": {
         for (const c of candidates) {
-          if (Object.values((c as any)[field]).includes(node)) {
+          if (Object.values(getField(c) as Record<string, unknown>).includes(node)) {
             yield c;
             return;
           }
@@ -877,7 +887,7 @@ export class Plexus<
       }
       case "child-map": {
         for (const c of candidates) {
-          for (const v of ((c as any)[field] as Map<any, any>).values()) {
+          for (const v of (getField(c) as Map<unknown, unknown>).values()) {
             if (v === node) {
               yield c;
               return;
@@ -891,7 +901,7 @@ export class Plexus<
       case "val": {
         const seen = new WeakSet<P>();
         for (const c of candidates) {
-          if ((c as any)[field] === node && !seen.has(c)) {
+          if (getField(c) === node && !seen.has(c)) {
             seen.add(c);
             yield c;
           }
@@ -901,7 +911,7 @@ export class Plexus<
       case "list": {
         const seen = new WeakSet<P>();
         for (const c of candidates) {
-          if (((c as any)[field] as any[]).includes(node) && !seen.has(c)) {
+          if ((getField(c) as unknown[]).includes(node) && !seen.has(c)) {
             seen.add(c);
             yield c;
           }
@@ -911,7 +921,7 @@ export class Plexus<
       case "set": {
         const seen = new WeakSet<P>();
         for (const c of candidates) {
-          if (((c as any)[field] as Set<any>).has(node) && !seen.has(c)) {
+          if ((getField(c) as Set<unknown>).has(node) && !seen.has(c)) {
             seen.add(c);
             yield c;
           }
@@ -921,7 +931,7 @@ export class Plexus<
       case "record": {
         const seen = new WeakSet<P>();
         for (const c of candidates) {
-          if (Object.values((c as any)[field]).includes(node) && !seen.has(c)) {
+          if (Object.values(getField(c) as Record<string, unknown>).includes(node) && !seen.has(c)) {
             seen.add(c);
             yield c;
           }
@@ -932,7 +942,7 @@ export class Plexus<
         const seen = new WeakSet<P>();
         for (const c of candidates) {
           if (seen.has(c)) continue;
-          for (const v of ((c as any)[field] as Map<any, any>).values()) {
+          for (const v of (getField(c) as Map<unknown, unknown>).values()) {
             if (v === node) {
               seen.add(c);
               yield c;

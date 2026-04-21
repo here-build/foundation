@@ -521,8 +521,8 @@ describe("Circular ownership edge cases", () => {
 
     // Second child should be a clone of parent1 (which now has no children)
     expect(clonedParent2.children[1]).to.not.equal(parent1);
-    expect((clonedParent2.children[1] as any).name).to.equal("parent1");
-    expect((clonedParent2.children[1] as any).children).to.have.lengthOf(0); // Empty because sharedChild was moved
+    expect((clonedParent2.children[1] as unknown as ParentWithChildList).name).to.equal("parent1");
+    expect((clonedParent2.children[1] as unknown as ParentWithChildList).children).to.have.lengthOf(0); // Empty because sharedChild was moved
   });
 
   it("should handle deeply nested shared references (single parent constraint)", () => {

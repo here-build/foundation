@@ -159,7 +159,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       this,
       Object.fromEntries(
         Object.keys(this.__schema__).map((key) => {
-          let prototype = (this as any).__proto__;
+          let prototype = Object.getPrototypeOf(this);
           while (prototype && prototype !== prototype.__proto__) {
             if (Object.hasOwn(prototype, key)) {
               break;
@@ -285,6 +285,28 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     if (!meta.includes("\n")) return meta;
     const doc = internals.isDependency ? null : (internals.yjsModel?.doc ?? null);
     return deserializeKey(meta, doc);
+  }
+
+  /**
+   * Reverse-reference traversal: yield every `ParentClass` instance in the
+   * owning document that has this entity in its `field`. Empty iterable when
+   * the entity isn't attached to a doc yet — caller can always `for (...)`.
+   *
+   * Field must exist on `ParentClass`'s schema. Child fields early-return
+   * (ownership is exclusive); reference fields yield all matches.
+   *
+   * @example
+   *   for (const cc of state.parentsOf(CustomCode, "_references")) { ... }
+   */
+  *parentsOf<P extends PlexusModel>(
+    parentClass: PlexusConstructor<P>,
+    field: string,
+  ): Generator<P> {
+    const doc = this.__doc__;
+    if (!doc) return;
+    const plexus = docPlexus.get(doc);
+    if (!plexus) return;
+    yield* plexus.parentsOf(this, parentClass, field);
   }
 
   /**
@@ -765,9 +787,9 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         parent[parentKey].delete(this);
         break;
       case "child-list": {
-        const childIndex = (parent[parentKey] as any[]).indexOf(this);
+        const childIndex = (parent[parentKey] as unknown[]).indexOf(this);
         if (childIndex !== -1) {
-          (parent[parentKey] as any[]).splice(childIndex, 1);
+          (parent[parentKey] as unknown[]).splice(childIndex, 1);
         }
         break;
       }
