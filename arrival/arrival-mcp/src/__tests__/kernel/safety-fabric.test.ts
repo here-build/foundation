@@ -195,6 +195,46 @@ describe("safety fabric — size limits in action dispatch", () => {
     expect(result.errors[0].message).toMatch(/exceeded: 5 > 3/);
   });
 
+  it("maxStringFieldSize: oversized string prop rejected with size-limit validation error", async () => {
+    const cluster = defineCluster<BaseCtx & { intent: string }>({
+      name: "big",
+      actions: (b) => [
+        b.act({
+          name: "accept-string",
+          needs: ["intent"],
+          desc: "",
+          props: { value: str("a string prop") },
+          handle: async () => undefined,
+        }),
+      ],
+    });
+    const tool = defineActionTool<BaseCtx, TestSvc>({
+      name: "t",
+      description: "",
+      context: {},
+      clusters: [cluster],
+      limits: { maxStringFieldSize: 100 },
+    });
+    const compiled = compileActionTool(tool);
+
+    const result = await compiled.dispatch(
+      {
+        intent: "big string",
+        actions: [["accept-string", { value: "x".repeat(200) }]],
+        contextInput: {},
+      },
+      {},
+    );
+
+    expect(result.success).toBe(false);
+    // @ts-expect-error validation-branch
+    expect(result.validation).toBe("failed");
+    // @ts-expect-error validation-branch
+    expect(result.errors[0].field).toBe("value");
+    // @ts-expect-error validation-branch
+    expect(result.errors[0].message).toMatch(/exceeded 100 chars: 200/);
+  });
+
   it("maxActions default (50): batch under default limit accepted", async () => {
     const cluster = defineCluster<BaseCtx & { intent: string }>({
       name: "many",

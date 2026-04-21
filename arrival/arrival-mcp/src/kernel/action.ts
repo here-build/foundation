@@ -524,7 +524,12 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
             });
             continue;
           }
-          const propsResult = parseProps(pick.act.props ?? {}, call.props, fullCtx);
+          const propsResult = parseProps(
+            pick.act.props ?? {},
+            call.props,
+            fullCtx,
+            limits.maxStringFieldSize,
+          );
           if (!propsResult.ok) {
             for (const e of propsResult.errors) {
               errors.push({ actionIndex: i, actionName: call.name, ...e });
@@ -701,13 +706,22 @@ function parseProps<Ctx>(
   schema: Record<string, FieldSpec<Ctx>>,
   input: Record<string, unknown>,
   ctx: Ctx,
+  maxStringSize?: number,
 ): { ok: true; value: Record<string, unknown> } | { ok: false; errors: ValidationError[] } {
   const out: Record<string, unknown> = {};
   const errors: ValidationError[] = [];
   for (const [key, field] of Object.entries(schema)) {
     const result = fieldParse(field, input[key], ctx);
-    if (result.ok) out[key] = result.value;
-    else {
+    if (result.ok) {
+      if (maxStringSize != null && typeof result.value === "string" && result.value.length > maxStringSize) {
+        errors.push({
+          field: key,
+          message: `string field "${key}" exceeded ${maxStringSize} chars: ${result.value.length}`,
+        });
+        continue;
+      }
+      out[key] = result.value;
+    } else {
       for (const e of result.errors) {
         errors.push({ field: key, path: e.path, message: e.message, received: e.received });
       }
