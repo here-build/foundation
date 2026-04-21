@@ -355,13 +355,22 @@ export interface ScalarSpec {
   readonly _t?: string | number | boolean;
 }
 
+/** Untyped array — passed through as-is. Use when element validation lives in the handler. */
+export interface RawListSpec {
+  kind: "raw-list";
+  desc?: string;
+  optional?: boolean;
+  readonly _t?: unknown[];
+}
+
 export type Primitive =
   | StringSpec
   | NumberSpec
   | BooleanSpec
   | EnumSpec<readonly string[]>
   | StringRecordSpec
-  | ScalarSpec;
+  | ScalarSpec
+  | RawListSpec;
 
 export const str = (desc?: string): StringSpec => ({ kind: "string", desc });
 export const num = (desc?: string): NumberSpec => ({ kind: "number", desc });
@@ -376,6 +385,7 @@ export const stringRecord = (desc?: string): StringRecordSpec => ({
   desc,
 });
 export const scalar = (desc?: string): ScalarSpec => ({ kind: "scalar", desc });
+export const rawList = (desc?: string): RawListSpec => ({ kind: "raw-list", desc });
 
 export function primitiveJsonSchema(p: Primitive): object {
   let base: object;
@@ -385,6 +395,8 @@ export function primitiveJsonSchema(p: Primitive): object {
     base = { type: "object", additionalProperties: { type: "string" } };
   } else if (p.kind === "scalar") {
     base = { oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] };
+  } else if (p.kind === "raw-list") {
+    base = { type: "array" };
   } else {
     base = { type: p.kind };
   }
@@ -438,6 +450,12 @@ export function primitiveParse(p: Primitive, input: unknown): Result<unknown> {
       return {
         ok: false,
         errors: [{ shape: "scalar", message: `expected string | number | boolean, got ${typeOf(input)}` }],
+      };
+    case "raw-list":
+      if (Array.isArray(input)) return { ok: true, value: input };
+      return {
+        ok: false,
+        errors: [{ shape: "raw-list", message: `expected array, got ${typeOf(input)}` }],
       };
   }
 }
