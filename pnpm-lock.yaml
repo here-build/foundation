@@ -355,6 +355,9 @@ importers:
       storybook:
         specifier: 10.3.3
         version: 10.3.3(@testing-library/dom@10.4.0)(bufferutil@4.1.0)(prettier@3.8.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(utf-8-validate@5.0.10)
+      typescript:
+        specifier: 6.0.2
+        version: 6.0.2
       vite:
         specifier: 7.2.7
         version: 7.2.7(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.31.1)(sass-embedded@1.91.0)(sass@1.91.0)(terser@5.43.1)(tsx@4.21.0)(yaml@2.8.1)
