@@ -128,6 +128,32 @@ export interface ActionToolSpec<BaseCtx, Svc extends Services, Prep> {
     b: ActBuilder<BaseCtx & Prep & { intent: string }>,
   ) => readonly Act<BaseCtx & Prep & { intent: string }>[];
   additionalNotes?: string;
+  /**
+   * Optional. Runs after context refs resolve, before handler dispatch.
+   * Use for: auto-defaulting ctx fields (e.g. element → component.tplTree),
+   * materializing ephemeral entities against a CRDT doc, attaching session-
+   * scoped awareness. May be async; may mutate ctx.
+   */
+  beforeDispatch?: (ctx: BaseCtx & Prep & { intent: string }) => void | Promise<void>;
+  /**
+   * Optional. If provided, wraps the handler batch execution. Use for
+   * transaction wrapping (e.g. plexus.transact) so all handlers run atomically.
+   * Default: invoke runBatch() directly.
+   */
+  wrapBatch?: (
+    ctx: BaseCtx & Prep & { intent: string },
+    runBatch: () => Promise<unknown[]>,
+  ) => Promise<unknown[]>;
+  /**
+   * Optional. Customizes the success-response shape. Receives the final ctx
+   * and handler results. Default: `{ results }` under the outer success envelope.
+   *
+   * Legacy project-editing parity: returns `{context: reflectContext(), created: nonNull, ...}`.
+   */
+  shapeResponse?: (
+    ctx: BaseCtx & Prep & { intent: string },
+    results: unknown[],
+  ) => Record<string, unknown>;
 }
 
 export interface ActionTool<BaseCtx, Svc extends Services, Prep> {
@@ -139,6 +165,9 @@ export interface ActionTool<BaseCtx, Svc extends Services, Prep> {
   readonly prepare?: ActionToolSpec<BaseCtx, Svc, Prep>["prepare"];
   readonly clusters: readonly ActionCluster<any>[];
   readonly additionalNotes?: string;
+  readonly beforeDispatch?: ActionToolSpec<BaseCtx, Svc, Prep>["beforeDispatch"];
+  readonly wrapBatch?: ActionToolSpec<BaseCtx, Svc, Prep>["wrapBatch"];
+  readonly shapeResponse?: ActionToolSpec<BaseCtx, Svc, Prep>["shapeResponse"];
   /** Add a cluster post-construction. Returns a new tool; does not mutate. */
   register(cluster: ActionCluster<any>): ActionTool<BaseCtx, Svc, Prep>;
 }
@@ -168,6 +197,9 @@ export function defineActionTool<
     prepare: spec.prepare,
     clusters,
     additionalNotes: spec.additionalNotes,
+    beforeDispatch: spec.beforeDispatch,
+    wrapBatch: spec.wrapBatch,
+    shapeResponse: spec.shapeResponse,
   });
 }
 
@@ -178,6 +210,9 @@ function makeActionTool<BaseCtx, Svc extends Services, Prep>(fields: {
   prepare?: ActionToolSpec<BaseCtx, Svc, Prep>["prepare"];
   clusters: ActionCluster<any>[];
   additionalNotes?: string;
+  beforeDispatch?: ActionToolSpec<BaseCtx, Svc, Prep>["beforeDispatch"];
+  wrapBatch?: ActionToolSpec<BaseCtx, Svc, Prep>["wrapBatch"];
+  shapeResponse?: ActionToolSpec<BaseCtx, Svc, Prep>["shapeResponse"];
 }): ActionTool<BaseCtx, Svc, Prep> {
   return {
     kind: "action",
@@ -188,6 +223,9 @@ function makeActionTool<BaseCtx, Svc extends Services, Prep>(fields: {
     prepare: fields.prepare,
     clusters: fields.clusters,
     additionalNotes: fields.additionalNotes,
+    beforeDispatch: fields.beforeDispatch,
+    wrapBatch: fields.wrapBatch,
+    shapeResponse: fields.shapeResponse,
     register(cluster) {
       const next = [...fields.clusters, cluster];
       validateClusters(next);
@@ -226,7 +264,10 @@ export type ActionRequest = {
 };
 
 export type ActionResult =
-  | { success: true; results: unknown[]; intent: string }
+  | ({
+      success: true;
+      intent: string;
+    } & ({ results: unknown[] } | Record<string, unknown>))
   | {
       success: false;
       partial: true;
@@ -242,6 +283,22 @@ export type ActionResult =
       errors: ValidationError[];
       intent: string;
     };
+
+/** Internal marker used by wrapBatch so outer try/catch can distinguish
+ *  batch-handler failures from wrapBatch-level (e.g. transact) failures. */
+class BatchFailureError extends Error {
+  constructor(
+    readonly actionIndex: number,
+    readonly actionName: string,
+    readonly error: string,
+    readonly priorResults: unknown[],
+    readonly total: number,
+  ) {
+    super(error);
+    this.executed = priorResults.length;
+  }
+  readonly executed: number;
+}
 
 export interface ValidationError {
   actionIndex?: number;
@@ -413,29 +470,58 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
           return { success: false, validation: "failed", intent: request.intent, errors };
         }
 
-        const results: unknown[] = [];
-        for (let i = 0; i < resolved.length; i++) {
-          const { act, receiver, props } = resolved[i];
-          try {
-            results.push(await act.handle(fullCtx, receiver, props));
-          } catch (e) {
+        // Hook: beforeDispatch — runs after refs resolve, before handlers. Use
+        // for ctx normalization (e.g. auto-defaulting element to component root)
+        // and entity materialization against a CRDT doc.
+        if (tool.beforeDispatch) {
+          await tool.beforeDispatch(fullCtx);
+        }
+
+        const runBatch = async (): Promise<unknown[]> => {
+          const results: unknown[] = [];
+          for (let i = 0; i < resolved.length; i++) {
+            const { act, receiver, props } = resolved[i];
+            try {
+              results.push(await act.handle(fullCtx, receiver, props));
+            } catch (e) {
+              // Attach failure info so wrapBatch callers can surface it.
+              const err = new BatchFailureError(
+                i,
+                act.name,
+                e instanceof Error ? e.message : String(e),
+                results,
+                resolved.length,
+              );
+              throw err;
+            }
+          }
+          return results;
+        };
+
+        let rawResults: unknown[];
+        try {
+          rawResults = tool.wrapBatch ? await tool.wrapBatch(fullCtx, runBatch) : await runBatch();
+        } catch (e) {
+          if (e instanceof BatchFailureError) {
             return {
               success: false,
               partial: true,
               intent: request.intent,
-              executed: i,
-              total: resolved.length,
-              results,
-              failedAction: {
-                index: i,
-                name: act.name,
-                error: e instanceof Error ? e.message : String(e),
-              },
+              executed: e.executed,
+              total: e.total,
+              results: e.priorResults,
+              failedAction: { index: e.actionIndex, name: e.actionName, error: e.error },
             };
           }
+          // Non-batch failure from wrapBatch itself (e.g. transact-level error)
+          throw e;
         }
 
-        return { success: true, intent: request.intent, results };
+        if (tool.shapeResponse) {
+          const shaped = tool.shapeResponse(fullCtx, rawResults);
+          return { success: true, intent: request.intent, ...shaped } as unknown as ActionResult;
+        }
+        return { success: true, intent: request.intent, results: rawResults };
       } finally {
         if (cleanup) {
           try {
