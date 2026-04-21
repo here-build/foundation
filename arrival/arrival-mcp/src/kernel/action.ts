@@ -4,6 +4,13 @@ import dedent from "dedent";
 import type { FieldSpec, InferProps } from "./refs";
 import { fieldJsonSchema, fieldParse } from "./refs";
 import type { ExactClass, MCPClientInfo, Services } from "./discovery";
+import {
+  checkSizeLimit,
+  classifyError,
+  DEFAULT_SIZE_LIMITS,
+  type SizeLimits,
+  withTimeout,
+} from "./errors";
 
 /**
  * Action tool — tuple-invoked JSON dispatch. NOT installed in any Scheme env.
@@ -154,7 +161,28 @@ export interface ActionToolSpec<BaseCtx, Svc extends Services, Prep> {
     ctx: BaseCtx & Prep & { intent: string },
     results: unknown[],
   ) => Record<string, unknown>;
+  /**
+   * Per-phase deadlines (milliseconds). Omitted → use defaults.
+   */
+  timeouts?: {
+    /** prepare() phase. Default 5000. */
+    prepare?: number;
+    /** single action handler. Default 30000. */
+    handler?: number;
+    /** batch total (all handlers + wrapBatch). Default 60000. */
+    batch?: number;
+  };
+  /**
+   * Size limits. Omitted → use DEFAULT_SIZE_LIMITS.
+   */
+  limits?: SizeLimits;
 }
+
+const DEFAULT_TIMEOUTS = {
+  prepare: 5_000,
+  handler: 30_000,
+  batch: 60_000,
+} as const;
 
 export interface ActionTool<BaseCtx, Svc extends Services, Prep> {
   readonly kind: "action";
@@ -168,6 +196,8 @@ export interface ActionTool<BaseCtx, Svc extends Services, Prep> {
   readonly beforeDispatch?: ActionToolSpec<BaseCtx, Svc, Prep>["beforeDispatch"];
   readonly wrapBatch?: ActionToolSpec<BaseCtx, Svc, Prep>["wrapBatch"];
   readonly shapeResponse?: ActionToolSpec<BaseCtx, Svc, Prep>["shapeResponse"];
+  readonly timeouts?: ActionToolSpec<BaseCtx, Svc, Prep>["timeouts"];
+  readonly limits?: ActionToolSpec<BaseCtx, Svc, Prep>["limits"];
   /** Add a cluster post-construction. Returns a new tool; does not mutate. */
   register(cluster: ActionCluster<any>): ActionTool<BaseCtx, Svc, Prep>;
 }
@@ -200,6 +230,8 @@ export function defineActionTool<
     beforeDispatch: spec.beforeDispatch,
     wrapBatch: spec.wrapBatch,
     shapeResponse: spec.shapeResponse,
+    timeouts: spec.timeouts,
+    limits: spec.limits,
   });
 }
 
@@ -213,6 +245,8 @@ function makeActionTool<BaseCtx, Svc extends Services, Prep>(fields: {
   beforeDispatch?: ActionToolSpec<BaseCtx, Svc, Prep>["beforeDispatch"];
   wrapBatch?: ActionToolSpec<BaseCtx, Svc, Prep>["wrapBatch"];
   shapeResponse?: ActionToolSpec<BaseCtx, Svc, Prep>["shapeResponse"];
+  timeouts?: ActionToolSpec<BaseCtx, Svc, Prep>["timeouts"];
+  limits?: ActionToolSpec<BaseCtx, Svc, Prep>["limits"];
 }): ActionTool<BaseCtx, Svc, Prep> {
   return {
     kind: "action",
@@ -226,6 +260,8 @@ function makeActionTool<BaseCtx, Svc extends Services, Prep>(fields: {
     beforeDispatch: fields.beforeDispatch,
     wrapBatch: fields.wrapBatch,
     shapeResponse: fields.shapeResponse,
+    timeouts: fields.timeouts,
+    limits: fields.limits,
     register(cluster) {
       const next = [...fields.clusters, cluster];
       validateClusters(next);
@@ -358,12 +394,29 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
     },
 
     async dispatch(request, svc, _clientInfo) {
+      const timeouts = { ...DEFAULT_TIMEOUTS, ...tool.timeouts };
+      const limits = { ...DEFAULT_SIZE_LIMITS, ...tool.limits };
+
       if (!request.intent || typeof request.intent !== "string") {
         return {
           success: false,
           validation: "failed",
           intent: "",
           errors: [{ field: "intent", message: "intent is required (string)" }],
+        };
+      }
+
+      // Size-limit: refuse batches exceeding maxActions before doing any work.
+      const actionsArr = Array.isArray(request.actions) ? request.actions : [];
+      try {
+        checkSizeLimit(actionsArr.length, limits.maxActions, "batch action count");
+      } catch (e) {
+        const err = classifyError(e);
+        return {
+          success: false,
+          validation: "failed",
+          intent: request.intent,
+          errors: [{ field: "actions", message: err.message }],
         };
       }
 
@@ -389,9 +442,24 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
       let prep: Prep;
       let cleanup: (() => Promise<void> | void) | undefined;
       if (tool.prepare) {
-        const prepared = await tool.prepare(primResult.value as BaseCtx, svc);
-        prep = prepared.prep;
-        cleanup = prepared.cleanup;
+        try {
+          const prepared = await withTimeout(
+            () => tool.prepare!(primResult.value as BaseCtx, svc),
+            timeouts.prepare,
+            "prepare",
+            tool.name,
+          );
+          prep = prepared.prep;
+          cleanup = prepared.cleanup;
+        } catch (e) {
+          const err = classifyError(e, "prepare");
+          return {
+            success: false,
+            validation: "failed",
+            intent: request.intent,
+            errors: [{ field: "<prepare>", message: err.message }],
+          };
+        }
       } else {
         prep = svc as unknown as Prep;
       }
@@ -482,7 +550,13 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
           for (let i = 0; i < resolved.length; i++) {
             const { act, receiver, props } = resolved[i];
             try {
-              results.push(await act.handle(fullCtx, receiver, props));
+              const handlerResult = await withTimeout(
+                () => Promise.resolve(act.handle(fullCtx, receiver, props)),
+                timeouts.handler,
+                "handler",
+                act.name,
+              );
+              results.push(handlerResult);
             } catch (e) {
               // Attach failure info so wrapBatch callers can surface it.
               const err = new BatchFailureError(
@@ -500,7 +574,12 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
 
         let rawResults: unknown[];
         try {
-          rawResults = tool.wrapBatch ? await tool.wrapBatch(fullCtx, runBatch) : await runBatch();
+          rawResults = await withTimeout(
+            () => (tool.wrapBatch ? tool.wrapBatch(fullCtx, runBatch) : runBatch()),
+            timeouts.batch,
+            "dispatch",
+            tool.name,
+          );
         } catch (e) {
           if (e instanceof BatchFailureError) {
             return {
@@ -513,8 +592,18 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
               failedAction: { index: e.actionIndex, name: e.actionName, error: e.error },
             };
           }
-          // Non-batch failure from wrapBatch itself (e.g. transact-level error)
-          throw e;
+          // Timeout or wrapBatch-level failure — surface as failedAction so the
+          // LLM sees a structured, diagnosable error rather than a raw throw.
+          const err = classifyError(e);
+          return {
+            success: false,
+            partial: true,
+            intent: request.intent,
+            executed: 0,
+            total: resolved.length,
+            results: [],
+            failedAction: { index: -1, name: "<batch>", error: err.message },
+          };
         }
 
         if (tool.shapeResponse) {
