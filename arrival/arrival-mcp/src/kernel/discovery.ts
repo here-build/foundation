@@ -61,6 +61,21 @@ export interface MethodSpec {
 
 // ─── Builder: typed-Ctx-carrying factory for fns + methodsOf ────────────────
 
+export interface MethodsOfOptions {
+  /**
+   * Emit one decl per listed concrete class instead of one for the base class.
+   * Needed when the base is abstract and real instances are of a subclass —
+   * exact-class dispatch (constructor === on) wouldn't match subclass instances
+   * against the base's decls.
+   *
+   * Usage:
+   *   methodsOf(ComponentBase, {tplTree: {alias: "root"}},
+   *             {forSubclasses: [PlainComponent, PageComponent]})
+   * emits two decls per method (one for each subclass).
+   */
+  forSubclasses?: readonly ExactClass[];
+}
+
 export interface FnBuilder<Ctx, Svc extends Services> {
   fn<P extends Record<string, FieldSpec<Ctx>> = Record<string, FieldSpec<Ctx>>>(
     spec: DiscoveryFn<Ctx, Svc, P>,
@@ -68,6 +83,7 @@ export interface FnBuilder<Ctx, Svc extends Services> {
   methodsOf<C extends ExactClass>(
     cls: C,
     methods: Record<string, MethodSpec | true>,
+    options?: MethodsOfOptions,
   ): DiscoveryFn<Ctx, Svc>[];
 }
 
@@ -79,20 +95,26 @@ function makeFnBuilder<Ctx, Svc extends Services>(): FnBuilder<Ctx, Svc> {
     methodsOf<C extends ExactClass>(
       cls: C,
       methods: Record<string, MethodSpec | true>,
+      options?: MethodsOfOptions,
     ): DiscoveryFn<Ctx, Svc>[] {
+      // If forSubclasses provided, emit one decl per subclass. Otherwise emit
+      // one decl for the base class itself.
+      const receivers: readonly ExactClass[] = options?.forSubclasses ?? [cls];
       const out: DiscoveryFn<Ctx, Svc>[] = [];
       for (const [key, raw] of Object.entries(methods)) {
         const entry: MethodSpec = raw === true ? {} : raw;
-        out.push({
-          name: entry.alias ?? key,
-          aliases: entry.aliases,
-          on: cls,
-          desc: entry.desc ?? `${cls.name}.${key}`,
-          impl: async (_ctx: Ctx, receiver: unknown) => {
-            const member = (receiver as any)?.[key];
-            return typeof member === "function" ? member.call(receiver) : member;
-          },
-        });
+        for (const receiverCls of receivers) {
+          out.push({
+            name: entry.alias ?? key,
+            aliases: entry.aliases,
+            on: receiverCls,
+            desc: entry.desc ?? `${cls.name}.${key}`,
+            impl: async (_ctx: Ctx, receiver: unknown) => {
+              const member = (receiver as any)?.[key];
+              return typeof member === "function" ? member.call(receiver) : member;
+            },
+          });
+        }
       }
       return out;
     },
