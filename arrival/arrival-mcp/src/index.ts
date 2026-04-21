@@ -5,3 +5,6 @@ export * from "./dispatch";
 export * from "./ArrivalServer";
 export * from "./store";
 export { InMemorySessionStore as InMemoryArrivalSessionStore } from "./InMemorySessionStore";
+
+// New value-shaped kernel (parallel to legacy ToolInteraction classes).
+export * as kernel from "./kernel";
