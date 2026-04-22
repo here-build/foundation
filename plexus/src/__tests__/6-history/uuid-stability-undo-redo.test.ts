@@ -127,8 +127,9 @@ describe("UUID stability through undo/redo", () => {
 
     const uuid = child.uuid;
 
-    // Wait for deferred stopCapturing to separate creation from modification
-    await new Promise((r) => setTimeout(r, 0));
+    // Force the boundary synchronously (deferred stopCapturing would do this
+    // on the next tick — we don't want to race the timer).
+    plexus.stopCapturing();
 
     plexus.transact(() => {
       child.label = "v2";

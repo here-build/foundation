@@ -130,27 +130,9 @@ describe("DiscoveryToolInteraction", () => {
     });
   });
 
-  // describe("Timeout Handling", () => {
-  //   it("should timeout long-running expressions", async () => {
-  //     const tool = new (class extends TestDiscoveryTool {
-  //       protected async registerFunctions() {
-  //         this.registerFunction(
-  //           "infinite-loop",
-  //           "Never returns",
-  //           [],
-  //           () => {
-  //             while (true) {
-  //               // Infinite loop
-  //             }
-  //           }
-  //         );
-  //       }
-  //     })(mockContext, undefined, {
-  //       expr: "(infinite-loop)",
-  //       testContext: "test",
-  //     });
-  //
-  //     await expect(tool.executeTool()).rejects.toThrow(/timeout/i);
-  //   }, 10000); // 10s test timeout
-  // });
+  describe("Timeout Handling", () => {
+    it.todo(
+      "should timeout long-running expressions — blocked on framework-level timeout enforcement; naive infinite loop would hang the runner. Implement once DiscoveryTool has a host-side interrupt mechanism.",
+    );
+  });
 });
