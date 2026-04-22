@@ -5,6 +5,6 @@ export default defineConfig({
     // Regular test configuration
     globals: true,
     environment: "node",
-    include: ["./src/**/*.test.ts"],
+    include: ["src/__tests__/**/*.test.{ts,tsx}"],
   }
 });
