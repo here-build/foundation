@@ -3,12 +3,12 @@
  * (docs/proposals/in-flight/ref-wiring-via-componentdataquery.md).
  *
  * The spec adds a single field to ComponentDataQuery:
- *   @syncing.map accessor nodeRefs!: Map<ModelConsumedSlot | ModelProvidedSlot, TplNode | null>
+ *   @syncing.map accessor nodeRefs!: Map<ArgSlot | ReturnSlot, TplNode | null>
  *
  * These tests pin the load-bearing assumptions about how Plexus handles
  * a `@syncing.map` whose KEY is an entity and whose VALUE is a (nullable)
  * entity reference. Standing in:
- *   Slot   ⇢ ModelConsumedSlot | ModelProvidedSlot
+ *   Slot   ⇢ ArgSlot | ReturnSlot
  *   Node   ⇢ TplNode
  *   Query  ⇢ ComponentDataQuery
  *
