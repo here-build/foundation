@@ -119,6 +119,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   // eslint-disable-next-line sonarjs/public-static-readonly
   static modelName: string;
   /** Override in tests for deterministic UUIDs. Only used when PLEXUS_UUID_MODE=arbitrary. */
+  // eslint-disable-next-line sonarjs/public-static-readonly
   static getArbitraryUUID: () => string = nanoid;
   static readonly schema: GenericRecordSchema;
 

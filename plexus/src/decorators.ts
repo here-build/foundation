@@ -252,9 +252,11 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
   "child-list": new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: true })),
   map: new DefaultedWeakMap((owner: PlexusModel) => buildMapProxy({ owner, key, isChildField: false })),
   "child-map": new DefaultedWeakMap((owner: PlexusModel) => {
-    const virtualFactory = (owner.constructor as {
-      [Symbol.metadata]?: { virtualFactories?: Record<string, (key: unknown) => PlexusModel> };
-    })[Symbol.metadata]?.virtualFactories?.[key];
+    const virtualFactory = (
+      owner.constructor as {
+        [Symbol.metadata]?: { virtualFactories?: Record<string, (key: unknown) => PlexusModel> };
+      }
+    )[Symbol.metadata]?.virtualFactories?.[key];
     return buildMapProxy({ owner, key, isChildField: true, virtualFactory });
   }),
 }));
@@ -410,73 +412,79 @@ const createHandlers = <
       if (internals.isDependency) {
         return null as any;
       }
-      const setter = this.__schema__[context.name] === "val" ? set : setChild;
       /**
-       * ephemeral models may be constructed at mutation-tracking contexts (e.g. inside a MobX reaction),
-       * read events are always tracked (we need to know what was accessed to make decisions),
-       * and the nature of construction behavior causes us to do some read requests anyway.
-       * This means that need to explicitly initialize the class in a context that silences the mutation reporting.
-       * this is not a hack - __untracked__ is a legitimate internal function for such use cases.
-       * */
-      return __untracked__(() => {
-        /**
-         * We are doing dynamic schema retrieval due to child class decorators may override parent class schema
-         * declarations; however, getters seem to be used from parent accessor (stage-3 decorators are pretty
-         * nuanced, and it's hard to figure out some edge cases in spec).
-         * This problem (child declaration decorator changes a schema type) is reproducible
-         * So, instead of relying on decorator spawn input, we take an actual field type from schema to
-         * be sure that we alter the behavior accordingly to the actual definition intended.
-         */
-        switch (this.__schema__[context.name]) {
-          case "val":
-          case "child-val": {
-            /**
-             * we support _two_ initialization flows:
-             * - new Model({...init}) - ephemeral, public
-             * - new Model([entityId: string, doc: Y.Doc]) - materialized, internal
-             *
-             * in materialized flow, we need to ignore all "init values" and just use data from the underlying yjs model.
-             * however, constructor args override the yjs model presence as we may sometimes encounter the model
-             * assignment during the post-constructor phase. This will clearly mean that we're initializing
-             * as a definition, not synced state, and should represent that value.
-             */
-            if (internals.yjsModel && !internals.isWithinYjsModelSeed) {
-              const reflectedValue =
-                internals.initializationState[context.name] === undefined
-                  ? this[context.name]
-                  : internals.initializationState[context.name];
-              setter(context, this, reflectedValue);
-              return reflectedValue;
-            }
-            const actualValue =
-              // remember, null is valid
+       * We are doing dynamic schema retrieval due to child class decorators may override parent class schema
+       * declarations; however, getters seem to be used from parent accessor (stage-3 decorators are pretty
+       * nuanced, and it's hard to figure out some edge cases in spec).
+       * This problem (child declaration decorator changes a schema type) is reproducible
+       * So, instead of relying on decorator spawn input, we take an actual field type from schema to
+       * be sure that we alter the behavior accordingly to the actual definition intended.
+       */
+      switch (this.__schema__[context.name]) {
+        case "val":
+        case "child-val": {
+          const setter = this.__schema__[context.name] === "val" ? set : setChild;
+          /**
+           * we support _two_ initialization flows:
+           * - new Model({...init}) - ephemeral, public
+           * - new Model([entityId: string, doc: Y.Doc]) - materialized, internal
+           *
+           * in materialized flow, we need to ignore all "init values" and just use data from the underlying yjs model.
+           * however, constructor args override the yjs model presence as we may sometimes encounter the model
+           * assignment during the post-constructor phase. This will clearly mean that we're initializing
+           * as a definition, not synced state, and should represent that value.
+           */
+          if (internals.yjsModel && !internals.isWithinYjsModelSeed) {
+            const reflectedValue =
               internals.initializationState[context.name] === undefined
-                ? // this fixes "override cases" when fields are re-declared without default value - in that case we take already known value instead of undefined
-                  value === undefined
-                  ? this[context.name]
-                  : value
+                ? this[context.name]
                 : internals.initializationState[context.name];
-            setter(context as any, this, actualValue as Extract<T, AllowedYJSValue>);
-            return actualValue;
+            setter(context, this, reflectedValue);
+            return reflectedValue;
           }
-          default: {
+          // remember, null is valid "existing" value
+          if (internals.initializationState[context.name] === undefined) {
             /**
-             * we must return something, so to avoid code duplication we just redirect init() to get() who does actual logic.
+             * ephemeral models may be constructed at mutation-tracking contexts (e.g. inside a MobX reaction),
+             * read events are always tracked (we need to know what was accessed to make decisions),
+             * and the nature of construction behavior causes us to do some read requests anyway.
+             * This means that need to explicitly initialize the class in a context that silences the mutation reporting.
+             * this is not a hack - __untracked__ is a legitimate internal function for such use cases.
              */
-            if (internals.yjsModel && !internals.isWithinYjsModelSeed) {
-              return this[context.name];
-            }
-            // we do not care about undefined vs null here, as syncing structs have null as banned type too,
-            // so it's just simpler and more readable to write like that
-            const actualValue = internals.initializationState[context.name] ?? value;
-            if (actualValue != undefined) {
-              backingStructures[this.__schema__[context.name]].get(this).assign(actualValue);
-            }
-            // this technically goes to accessor private backing field - but we actually do not care a lot about that
-            return actualValue;
+            return __untracked__(() => {
+              // this fixes "override cases" when fields are re-declared without default value - in that case we take already known value instead of undefined
+              // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+              const actualValue = value === undefined ? this[context.name] : value;
+              setter(context as any, this, actualValue as Extract<T, AllowedYJSValue>);
+              return actualValue;
+            });
+          } else {
+            const actualValue = internals.initializationState[context.name];
+            setter(context as any, this, actualValue as Extract<T, AllowedYJSValue>);
+            return actualValue as T;
           }
         }
-      });
+        default: {
+          /**
+           * we must return something, so to avoid code duplication we just redirect init() to get() who does actual logic.
+           */
+          if (internals.yjsModel && !internals.isWithinYjsModelSeed) {
+            return this[context.name];
+          }
+          // we do not care about undefined vs null here, as syncing structs have null as banned type too,
+          // so it's just simpler and more readable to write like that
+          const actualValue = internals.initializationState[context.name] ?? value;
+          if (internals.initializationState[context.name] != undefined) {
+            backingStructures[this.__schema__[context.name]].get(this).assign(actualValue);
+          } else if (value != undefined) {
+            __untracked__(() => {
+              backingStructures[this.__schema__[context.name]].get(this).assign(actualValue);
+            });
+          }
+          // this technically goes to accessor private backing field - but we actually do not care a lot about that
+          return actualValue as T;
+        }
+      }
     },
   };
 };
@@ -501,13 +509,15 @@ const ensureSchema = (context: ClassAccessorDecoratorContext<PlexusModel, any>):
   return context.metadata.schema as GenericRecordSchema;
 };
 
-const ensureVirtualFactories = (context: ClassAccessorDecoratorContext<PlexusModel, any>): Record<string, Function> => {
+const ensureVirtualFactories = (
+  context: ClassAccessorDecoratorContext<PlexusModel, any>,
+): Record<string, (key: any) => PlexusModel> => {
   if (!Object.hasOwn(context.metadata, "virtualFactories")) {
     context.metadata.virtualFactories = {
-      __proto__: (context.metadata.virtualFactories as Record<string, Function> | undefined) ?? {},
+      __proto__: (context.metadata.virtualFactories as Record<string, (key: any) => PlexusModel> | undefined) ?? {},
     };
   }
-  return context.metadata.virtualFactories as Record<string, Function>;
+  return context.metadata.virtualFactories as Record<string, (key: any) => PlexusModel>;
 };
 
 /**
