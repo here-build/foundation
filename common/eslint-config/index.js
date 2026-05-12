@@ -200,12 +200,6 @@ const baseConfig = [
     },
   },
   {
-    files: ["project/**/*"],
-    rules: {
-      "unicorn/filename-case": "off",
-    },
-  },
-  {
     // update this to match your test files
     files: [
       "**/*.spec.ts",
