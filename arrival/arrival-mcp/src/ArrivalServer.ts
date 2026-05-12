@@ -1,10 +1,17 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  McpError,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { Context } from "hono";
 import type { Constructor } from "type-fest";
 
 import { dispatchTool, getToolDefinitions } from "./dispatch";
+import type { ResourceProvider } from "./resources";
 import type { ArrivalSessionStore } from "./store";
 import type { ToolInteraction, MCPClientInfo } from "./ToolInteraction";
 
@@ -37,6 +44,8 @@ export interface ArrivalServerOptions {
   sessionStore?: SessionStore;
   /** Pluggable interaction store for recording all tool calls, intents, and errors. */
   arrivalStore?: ArrivalSessionStore;
+  /** Optional resource provider. When set, advertises MCP `resources` capability. */
+  resourceProvider?: ResourceProvider;
 }
 
 /**
@@ -134,7 +143,10 @@ export class ArrivalServer {
     const server = new Server(
       { name: this.options.name, version: this.options.version },
       {
-        capabilities: { tools: {} },
+        capabilities: {
+          tools: {},
+          ...(this.options.resourceProvider ? { resources: {} } : {}),
+        },
         instructions: this.options.instructions,
       },
     );
@@ -168,6 +180,27 @@ export class ArrivalServer {
         session.id,
       );
     });
+
+    const { resourceProvider } = this.options;
+    if (resourceProvider) {
+      server.setRequestHandler(ListResourcesRequestSchema, async () => {
+        try {
+          return { resources: await resourceProvider.list(session.currentContext!, session.state) };
+        } catch (error) {
+          throw asMcpError(error);
+        }
+      });
+
+      server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+        try {
+          return {
+            contents: await resourceProvider.read(session.currentContext!, session.state, request.params.uri),
+          };
+        } catch (error) {
+          throw asMcpError(error);
+        }
+      });
+    }
   }
 
   async close(): Promise<void> {
@@ -176,4 +209,18 @@ export class ArrivalServer {
     }
     this.sessions.clear();
   }
+}
+
+/**
+ * Duck-type errors carrying a numeric `code` (e.g. a domain ResourceError) as
+ * MCP wire errors so the SDK serializes the code into the JSON-RPC response.
+ * Without this, typed application errors degrade to generic -32603.
+ */
+function asMcpError(e: unknown): unknown {
+  if (e instanceof McpError) return e;
+  if (e != null && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "number") {
+    const err = e as { code: number; message?: string };
+    return new McpError(err.code, err.message ?? String(err));
+  }
+  return e;
 }
