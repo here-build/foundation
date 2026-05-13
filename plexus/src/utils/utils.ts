@@ -4,6 +4,7 @@ import { docPlexus, docTransactionOrigin } from "../plexus-registry.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
+import { telemetry } from "../telemetry.js";
 
 /**
  * Per-doc deferred stopCapturing.
@@ -48,6 +49,11 @@ export const flushNotificationsHook: { wrapper?: (fn: () => void) => void } = {}
 export const flushNotifications = () => {
   const toNotify = new Set(pendingNotifications);
   pendingNotifications.clear();
+
+  if (telemetry.enabled) {
+    telemetry.histogram("plexus.tracking.flush_batch_size", toNotify.size);
+    telemetry.counter("plexus.tracking.flush");
+  }
 
   const doFlush = () => {
     for (const notify of toNotify) {

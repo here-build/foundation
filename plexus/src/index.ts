@@ -5,6 +5,16 @@ export * from "./PlexusModel.js";
 export * from "./decorators.js";
 export * from "./errors.js";
 export * from "./tracking.js";
+export {
+  setTelemetryAdapter,
+  telemetry,
+  TRACKER_KIND,
+  COLLECTION_ENTITY_TYPE,
+  type TelemetryAdapter,
+  type TelemetryAttributes,
+  type TelemetrySpan,
+  type TrackerKindLabel,
+} from "./telemetry.js";
 export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 export * from "./Plexus.js";
 export * from "./dependency-blob.js";

@@ -11,6 +11,7 @@
  */
 
 import type { AllowedYJSMapKey } from "./proxy-runtime-types.js";
+import { COLLECTION_ENTITY_TYPE, telemetry, TRACKER_KIND, type TrackerKindLabel } from "./telemetry.js";
 import { flushNotifications, isTransacting, pendingNotifications } from "./utils/utils.js";
 
 // Special symbols for tracking comprehensive access patterns
@@ -48,6 +49,51 @@ export const __untracked__ = <T>(fn: () => T): T => {
   }
 };
 
+// ── Telemetry helpers ────────────────────────────────────────────────────
+//
+// Hot-path callers gate on `telemetry.enabled` before constructing the
+// attributes object literal. When disabled, every emit reduces to a single
+// property load + a branch — zero allocation, zero indirection.
+
+/**
+ * Map a tracker (string, symbol, or AllowedYJSMapKey) onto its low-
+ * cardinality categorical label for telemetry attributes.
+ */
+function trackerKindOf(field: Tracker): TrackerKindLabel {
+  switch (field) {
+    case KEYS_SYMBOL:
+      return TRACKER_KIND.KEYS;
+    case VALUES_SYMBOL:
+      return TRACKER_KIND.VALUES;
+    case ENTRIES_LENGTH_SYMBOL:
+      return TRACKER_KIND.ENTRIES_LENGTH;
+    case ACCESS_ALL_SYMBOL:
+      return TRACKER_KIND.ACCESS_ALL;
+    default:
+      return TRACKER_KIND.NAMED;
+  }
+}
+
+/**
+ * Duck-typed entity-type extraction.
+ *
+ * Reads `__type__` (the PlexusModel getter) without importing PlexusModel,
+ * which would cycle through `PlexusModel.ts` → `tracking.ts` → `PlexusModel.ts`.
+ * The duck check is bounded — only PlexusModel exposes `__type__` as a string.
+ *
+ * Non-model entities (materialized-collection proxies whose owner isn't
+ * reachable from the tracking call site) collapse to a single
+ * `COLLECTION_ENTITY_TYPE` label. Owner-plumbing for proxies arrives in
+ * a later stream (A.6).
+ */
+function entityTypeOf(entity: unknown): string {
+  if (entity !== null && typeof entity === "object") {
+    const t = (entity as { __type__?: unknown }).__type__;
+    if (typeof t === "string") return t;
+  }
+  return COLLECTION_ENTITY_TYPE;
+}
+
 type TrackingHook = {
   access?: (entity: any, field: Tracker) => void;
   modification?: (entity: any, field: Tracker) => void;
@@ -58,11 +104,32 @@ export const trackingHook: TrackingHook = {};
 /** Report a field access — external reactive systems (MobX) track dependencies via the hook. */
 export function trackAccess(entity: any, field: Tracker): void {
   trackingHook.access?.(entity, field);
+  if (telemetry.enabled) {
+    telemetry.counter("plexus.tracking.access", {
+      entity_type: entityTypeOf(entity),
+      tracker_kind: trackerKindOf(field),
+    });
+  }
 }
 
 /** Report a field modification — external reactive systems (MobX) invalidate dependents via the hook. */
 export function trackModification(entity: any, field: Tracker): void {
-  if (untracked) return;
+  if (untracked) {
+    if (telemetry.enabled) {
+      telemetry.counter("plexus.tracking.untracked_modification", {
+        entity_type: entityTypeOf(entity),
+        tracker_kind: trackerKindOf(field),
+      });
+    }
+    return;
+  }
+  if (telemetry.enabled) {
+    telemetry.counter("plexus.tracking.modification", {
+      entity_type: entityTypeOf(entity),
+      tracker_kind: trackerKindOf(field),
+      batched: isTransacting ? "true" : "false",
+    });
+  }
   if (trackingHook.modification) {
     if (isTransacting) {
       pendingNotifications.add(() => {
