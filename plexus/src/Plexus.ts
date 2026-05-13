@@ -37,6 +37,7 @@ import { entityClasses } from "./globals.js";
 import { docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
+import { ORIGIN_KIND, type OriginKindLabel, telemetry, type TelemetrySpan } from "./telemetry.js";
 import { GENESIS_ORIGIN } from "./virtual-children-genesis.js";
 import type { AllowedYValue, AwarenessShape, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
@@ -66,6 +67,24 @@ const FROM_SHADOW = Symbol("from-shadow");
 
 /** Main update forwarded to shadow (prevents echo back). */
 const FROM_MAIN = Symbol("from-main");
+
+/**
+ * Map a Yjs transaction origin to its low-cardinality `origin_kind`
+ * telemetry label. Plexus's local symbols are module-private; this
+ * helper crosses the boundary and exposes a stable categorical label
+ * for metric attributes. Per-instance `UndoManager` origins collapse
+ * to a single `undo_manager` label.
+ */
+function originKindOf(origin: unknown): OriginKindLabel {
+  if (origin === SHADOW_TO_MAIN) return ORIGIN_KIND.SHADOW_TO_MAIN;
+  if (origin === FROM_SHADOW) return ORIGIN_KIND.FROM_SHADOW;
+  if (origin === FROM_MAIN) return ORIGIN_KIND.FROM_MAIN;
+  if (origin === LIMINAL_ORIGIN) return ORIGIN_KIND.LIMINAL;
+  if (origin === COMMIT_DELTA_ORIGIN) return ORIGIN_KIND.COMMIT_DELTA;
+  if (origin === GENESIS_ORIGIN) return ORIGIN_KIND.GENESIS;
+  if (origin instanceof UndoManager) return ORIGIN_KIND.UNDO_MANAGER;
+  return ORIGIN_KIND.EXTERNAL;
+}
 
 export class Plexus<
   Root extends PlexusModel<null> & { dependencies?: Record<string, Root> },
@@ -291,6 +310,11 @@ export class Plexus<
     // Shadow → Main: forward everything except liminal, echoes, and undo scaffolding removal.
     // SHADOW_TO_MAIN preserves origin (main UM captures). Everything else becomes FROM_SHADOW.
     shadow.on("update", (update: Uint8Array, origin: any) => {
+      if (telemetry.enabled) {
+        const originKind = originKindOf(origin);
+        telemetry.counter("plexus.crdt.shadow_update", { origin_kind: originKind });
+        telemetry.histogram("plexus.crdt.shadow_update_bytes", update.byteLength, { origin_kind: originKind });
+      }
       if (origin === LIMINAL_ORIGIN) return;
       if (origin === FROM_MAIN) return;
       if (origin === this.__liminalUndoManager__) return;
@@ -313,6 +337,11 @@ export class Plexus<
 
     // Main → Shadow: forward everything except echoes.
     doc.on("update", (update: Uint8Array, origin: any) => {
+      if (telemetry.enabled) {
+        const originKind = originKindOf(origin);
+        telemetry.counter("plexus.crdt.main_update", { origin_kind: originKind });
+        telemetry.histogram("plexus.crdt.main_update_bytes", update.byteLength, { origin_kind: originKind });
+      }
       if (origin === SHADOW_TO_MAIN || origin === FROM_SHADOW) return;
       Y.applyUpdate(shadow, update, FROM_MAIN);
     });
@@ -639,6 +668,14 @@ export class Plexus<
     return docLiminality.has(this.doc);
   }
 
+  /**
+   * Active liminality session telemetry span. Set in `enterLiminality`,
+   * ended in `commitLiminality` (outcome=commit) or `revertLiminality`
+   * (outcome=revert). `null` outside a session.
+   */
+  private __liminalSpan__: TelemetrySpan | null = null;
+  private __liminalSessionStartedAt__ = 0;
+
   enterLiminality(): void {
     if (this.isLiminal) return;
     this.__liminalDocument__.clientID++;
@@ -646,6 +683,13 @@ export class Plexus<
     docLiminality.set(this.doc, this.__liminalDocument__);
     docTransactionOrigin.set(this.__liminalDocument__, LIMINAL_ORIGIN);
     this._startBroadcastLoop();
+    if (telemetry.enabled) {
+      this.__liminalSessionStartedAt__ = performance.now();
+      this.__liminalSpan__ = telemetry.span("plexus.liminality.session", {
+        liminal_height: this.__liminalHeight__,
+      });
+      telemetry.counter("plexus.liminality.enter");
+    }
   }
 
   commitLiminality(): void {
@@ -653,6 +697,9 @@ export class Plexus<
 
     const limId = this.__liminalDocument__.clientID;
     const delta = extractCommittedDelta(this.__liminalDocument__, this.doc, limId, LIMINAL_BASE);
+    if (telemetry.enabled) {
+      telemetry.histogram("plexus.liminality.commit_delta_bytes", delta.byteLength);
+    }
 
     // Apply to main FIRST. Main→shadow forwarding propagates committed Items to shadow while
     // liminal scaffolding is intact (YATA origin references resolve in the pre-undo state).
@@ -690,6 +737,14 @@ export class Plexus<
     (this.awareness as PlexusAwareness).clearField("liminal");
     docLiminality.delete(this.doc);
     this.__undoManager__.stopCapturing();
+    if (telemetry.enabled && this.__liminalSpan__) {
+      this.__liminalSpan__.end({
+        outcome: "commit",
+        duration_ms: performance.now() - this.__liminalSessionStartedAt__,
+      });
+      telemetry.counter("plexus.liminality.commit");
+      this.__liminalSpan__ = null;
+    }
   }
 
   revertLiminality(): void {
@@ -702,6 +757,14 @@ export class Plexus<
     this._stopBroadcastLoop();
     (this.awareness as PlexusAwareness).clearField("liminal");
     docLiminality.delete(this.doc);
+    if (telemetry.enabled && this.__liminalSpan__) {
+      this.__liminalSpan__.end({
+        outcome: "revert",
+        duration_ms: performance.now() - this.__liminalSessionStartedAt__,
+      });
+      telemetry.counter("plexus.liminality.revert");
+      this.__liminalSpan__ = null;
+    }
   }
 
   /**

@@ -10,10 +10,12 @@ export {
   telemetry,
   TRACKER_KIND,
   COLLECTION_ENTITY_TYPE,
+  ORIGIN_KIND,
   type TelemetryAdapter,
   type TelemetryAttributes,
   type TelemetrySpan,
   type TrackerKindLabel,
+  type OriginKindLabel,
 } from "./telemetry.js";
 export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 export * from "./Plexus.js";

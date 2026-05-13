@@ -72,14 +72,56 @@ export const flushNotifications = () => {
   }
 };
 
+// Module-local counter tracking active transactions at the call-stack
+// level. Used as the `nesting_depth` attribute on transaction telemetry
+// spans — increments on `maybeTransacting` enter, decrements on exit.
+// Distinct from `docInTransactionMotion` (which is per-doc); this is
+// the call-stack reentry depth, including no-doc transactions.
+let transactionStackDepth = 0;
+
 export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T): T => {
+  // Hot-path: build span only when telemetry enabled. The attribute set
+  // is small (4 entries) and the span object is preallocated in the
+  // adapter, so the cost is one method dispatch + one allocation per
+  // outermost transaction.
+  const transactionStartedAt = telemetry.enabled ? performance.now() : 0;
+  const transactionSpan = telemetry.enabled
+    ? telemetry.span("plexus.transaction", {
+        has_doc: doc ? "true" : "false",
+        nesting_depth: transactionStackDepth,
+      })
+    : null;
+  transactionStackDepth++;
+
+  const finishSpan = (outcome: "commit" | "abort") => {
+    transactionStackDepth--;
+    if (transactionSpan) {
+      transactionSpan.end({
+        outcome,
+        duration_ms: performance.now() - transactionStartedAt,
+      });
+    }
+  };
+
   if (!doc) {
     if (isTransacting) {
-      return fn();
+      try {
+        const r = fn();
+        finishSpan("commit");
+        return r;
+      } catch (e) {
+        finishSpan("abort");
+        throw e;
+      }
     } else {
       isTransacting = true;
       try {
-        return fn();
+        const r = fn();
+        finishSpan("commit");
+        return r;
+      } catch (e) {
+        finishSpan("abort");
+        throw e;
       } finally {
         isTransacting = false;
         flushNotifications();
@@ -91,7 +133,14 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
 
   if (isNestedTransaction) {
     // Shadow transaction - just execute
-    return fn();
+    try {
+      const r = fn();
+      finishSpan("commit");
+      return r;
+    } catch (e) {
+      finishSpan("abort");
+      throw e;
+    }
   }
 
   // Entering a new transaction — cancel any pending deferred stopCapturing.
@@ -106,11 +155,14 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
       isTransacting = true;
     }
 
-    return doc.transact(fn, docTransactionOrigin.get(doc));
+    const r = doc.transact(fn, docTransactionOrigin.get(doc));
+    finishSpan("commit");
+    return r;
   } catch (error) {
     if (!wasAlreadyTransacting) {
       pendingNotifications.clear();
     }
+    finishSpan("abort");
     throw error;
   } finally {
     docInTransactionMotion.delete(doc);

@@ -178,3 +178,24 @@ export type TrackerKindLabel = (typeof TRACKER_KIND)[keyof typeof TRACKER_KIND];
  * tracking call site). A later stream may plumb owner type through.
  */
 export const COLLECTION_ENTITY_TYPE = "_collection";
+
+/**
+ * Categorical labels for Yjs transaction origins observed by Plexus's
+ * shadow ↔ main forwarding handlers. Each origin maps to a stable
+ * string used as the `origin_kind` metric attribute.
+ *
+ * Bounded cardinality: 8 values + `external` catch-all.
+ */
+export const ORIGIN_KIND = {
+  SHADOW_TO_MAIN: "shadow_to_main",
+  FROM_SHADOW: "from_shadow",
+  FROM_MAIN: "from_main",
+  LIMINAL: "liminal",
+  COMMIT_DELTA: "commit_delta",
+  GENESIS: "genesis",
+  UNDO_MANAGER: "undo_manager",
+  /** Any origin not in the Plexus symbol set — application-applied updates, y-websocket, etc. */
+  EXTERNAL: "external",
+} as const;
+
+export type OriginKindLabel = (typeof ORIGIN_KIND)[keyof typeof ORIGIN_KIND];
