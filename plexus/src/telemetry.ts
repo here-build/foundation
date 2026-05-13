@@ -199,3 +199,39 @@ export const ORIGIN_KIND = {
 } as const;
 
 export type OriginKindLabel = (typeof ORIGIN_KIND)[keyof typeof ORIGIN_KIND];
+
+/**
+ * Bucket a count value into a low-cardinality label so per-emit
+ * cardinality stays bounded (6 values regardless of input magnitude).
+ * Mirrors the Figma per-file-size-cohort pattern: aggregate dashboards
+ * lie because whale outliers dominate; bucketing surfaces the
+ * distribution per cohort instead.
+ *
+ * Buckets: `0` / `lt_10` / `lt_100` / `lt_1k` / `lt_10k` / `gte_10k`.
+ */
+export function bucketCount(n: number): string {
+  if (n < 1) return "0";
+  if (n < 10) return "lt_10";
+  if (n < 100) return "lt_100";
+  if (n < 1_000) return "lt_1k";
+  if (n < 10_000) return "lt_10k";
+  return "gte_10k";
+}
+
+/**
+ * Bucket a byte count into a low-cardinality label. Same pattern as
+ * `bucketCount` but with byte-meaningful thresholds: small frames,
+ * sync-update-sized, snapshot-sized, very-large. 7 values total.
+ *
+ * Buckets: `0` / `lt_100b` / `lt_1kb` / `lt_10kb` / `lt_100kb` /
+ * `lt_1mb` / `gte_1mb`.
+ */
+export function bucketBytes(n: number): string {
+  if (n < 1) return "0";
+  if (n < 100) return "lt_100b";
+  if (n < 1_000) return "lt_1kb";
+  if (n < 10_000) return "lt_10kb";
+  if (n < 100_000) return "lt_100kb";
+  if (n < 1_000_000) return "lt_1mb";
+  return "gte_1mb";
+}

@@ -75,21 +75,38 @@ function trackerKindOf(field: Tracker): TrackerKindLabel {
 }
 
 /**
- * Duck-typed entity-type extraction.
+ * Duck-typed entity-type extraction without importing PlexusModel.
  *
- * Reads `__type__` (the PlexusModel getter) without importing PlexusModel,
- * which would cycle through `PlexusModel.ts` → `tracking.ts` → `PlexusModel.ts`.
- * The duck check is bounded — only PlexusModel exposes `__type__` as a string.
- *
- * Non-model entities (materialized-collection proxies whose owner isn't
- * reachable from the tracking call site) collapse to a single
- * `COLLECTION_ENTITY_TYPE` label. Owner-plumbing for proxies arrives in
- * a later stream (A.6).
+ * Importing PlexusModel would cycle (PlexusModel.ts → tracking.ts →
+ * PlexusModel.ts). Reading `entity.__type__` directly would recurse
+ * through materialized-collection proxies' `get` handlers (which call
+ * `trackAccess` again). The fix is to walk the prototype chain looking
+ * for the `__type__` getter — `Object.getPrototypeOf` doesn't trigger
+ * proxy `get` traps, and a proxy of a `Record<string, T>` has
+ * `Object.prototype` as its target's prototype, not `PlexusModel.prototype`,
+ * so the walk terminates without finding a getter and the proxy is
+ * correctly labeled `_collection`.
  */
 function entityTypeOf(entity: unknown): string {
-  if (entity !== null && typeof entity === "object") {
-    const t = (entity as { __type__?: unknown }).__type__;
-    if (typeof t === "string") return t;
+  if (entity === null || typeof entity !== "object") return COLLECTION_ENTITY_TYPE;
+  let proto: object | null = Object.getPrototypeOf(entity);
+  while (proto && proto !== Object.prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(proto, "__type__");
+    if (descriptor) {
+      const getter = descriptor.get;
+      if (typeof getter === "function") {
+        try {
+          const t = getter.call(entity);
+          if (typeof t === "string") return t;
+        } catch {
+          // Fall through — entity is in a state that can't yield a type.
+        }
+      } else if (typeof descriptor.value === "string") {
+        return descriptor.value;
+      }
+      break;
+    }
+    proto = Object.getPrototypeOf(proto);
   }
   return COLLECTION_ENTITY_TYPE;
 }

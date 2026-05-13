@@ -21,6 +21,7 @@ import {
   trackModification,
   VALUES_SYMBOL,
 } from "../tracking.js";
+import { bucketCount, telemetry } from "../telemetry.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
 import { materializeArrayForField } from "../virtual-children-genesis.js";
@@ -157,6 +158,23 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     for (let i = 0; i < maxLen; i++) {
       if (backingArray[i] !== newItems[i]) {
         changedIndices.push(i);
+      }
+    }
+
+    if (telemetry.enabled) {
+      // Diff cost surfaces "this proxy's remote-applied diff is the hot
+      // spot" — a class of regression invisible from outside the
+      // reactive layer. Bucketed so per-emit cardinality is bounded.
+      telemetry.histogram("plexus.collection.observer_diff_size", changedIndices.length, {
+        collection_kind: "array",
+        is_child_field: isChildField ? "true" : "false",
+        new_length_bucket: bucketCount(newLength),
+      });
+      if (changedIndices.length === 0 && oldLength === newLength) {
+        // tldraw's "ops-with-no-effect" detector — observer fired but
+        // produced zero observable state change. Catches runaway
+        // reactive writes (the canonical useEffect-into-Y.Map class).
+        telemetry.counter("plexus.collection.observer_no_effect", { collection_kind: "array" });
       }
     }
 

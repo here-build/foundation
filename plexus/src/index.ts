@@ -11,6 +11,8 @@ export {
   TRACKER_KIND,
   COLLECTION_ENTITY_TYPE,
   ORIGIN_KIND,
+  bucketCount,
+  bucketBytes,
   type TelemetryAdapter,
   type TelemetryAttributes,
   type TelemetrySpan,

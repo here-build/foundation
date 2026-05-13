@@ -676,6 +676,34 @@ export class Plexus<
   private __liminalSpan__: TelemetrySpan | null = null;
   private __liminalSessionStartedAt__ = 0;
 
+  /**
+   * Emit point-in-time doc-health telemetry. Consumers call this on
+   * a schedule (typical: 1Hz) to surface tombstone/snapshot growth
+   * before it surfaces as user-visible slowness.
+   *
+   * Emits (when telemetry is enabled):
+   *   - `plexus.doc.encoded_size_bytes` gauge — full state-as-update size
+   *   - `plexus.doc.entity_count` gauge — total entities across types
+   *   - `plexus.doc.encoded_to_entity_ratio` gauge — bytes per entity
+   *
+   * The CRDT-cohort canonical signal: ratio > 5x typical means a stuck
+   * client is pinning tombstones via an old state vector. Healthy
+   * editors with steady-state usage hold a roughly constant ratio.
+   */
+  emitDocHealthTelemetry(): void {
+    if (!telemetry.enabled) return;
+    const encoded = Y.encodeStateAsUpdate(this.doc);
+    let entityCount = 0;
+    for (const typeMap of this.yTypes.values()) {
+      entityCount += typeMap.size;
+    }
+    telemetry.gauge("plexus.doc.encoded_size_bytes", encoded.byteLength);
+    telemetry.gauge("plexus.doc.entity_count", entityCount);
+    if (entityCount > 0) {
+      telemetry.gauge("plexus.doc.encoded_to_entity_ratio", encoded.byteLength / entityCount);
+    }
+  }
+
   enterLiminality(): void {
     if (this.isLiminal) return;
     this.__liminalDocument__.clientID++;

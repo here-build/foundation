@@ -11,6 +11,7 @@ import {
   requestOrphanizationSymbol,
   validateAdoptionSymbol,
 } from "../proxy-runtime-types.js";
+import { bucketCount, telemetry } from "../telemetry.js";
 import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
@@ -50,6 +51,16 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
     const yjsMap = getYjsMap();
     if (event.target !== yjsMap) {
       return;
+    }
+    if (telemetry.enabled) {
+      telemetry.histogram("plexus.collection.observer_diff_size", event.keysChanged.size, {
+        collection_kind: "record",
+        is_child_field: isChildField ? "true" : "false",
+        new_length_bucket: bucketCount(yjsMap.size),
+      });
+      if (event.keysChanged.size === 0) {
+        telemetry.counter("plexus.collection.observer_no_effect", { collection_kind: "record" });
+      }
     }
     let structureChanged = false;
     for (const key of event.keysChanged) {

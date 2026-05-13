@@ -33,6 +33,7 @@ import type * as Y from "yjs";
 
 import { deserialize, serialize } from "./awareness-serde.js";
 import type { AwarenessShape } from "./proxy-runtime-types.js";
+import { bucketCount, telemetry } from "./telemetry.js";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -361,7 +362,17 @@ export const encodeAwarenessUpdate = (
     encoding.writeVarUint(encoder, meta?.clock ?? 0);
     encoding.writeVarString(encoder, JSON.stringify(state));
   }
-  return encoding.toUint8Array(encoder);
+  const bytes = encoding.toUint8Array(encoder);
+  if (telemetry.enabled) {
+    // CRDT-cohort canonical signal: >4KB awareness frame almost always
+    // means someone stuffed a Y.Doc snapshot into a presence field.
+    // Histogram lets dashboards alert on tail growth without sampling.
+    telemetry.histogram("plexus.awareness.update_bytes", bytes.byteLength, {
+      direction: "encode",
+      client_count: bucketCount(clients.length),
+    });
+  }
+  return bytes;
 };
 
 /**
@@ -369,6 +380,9 @@ export const encodeAwarenessUpdate = (
  * Null state = client removed. Self-protection: refuses removal of own clientId.
  */
 export const applyAwarenessUpdate = (awareness: PlexusAwareness, update: Uint8Array, origin: any): void => {
+  if (telemetry.enabled) {
+    telemetry.histogram("plexus.awareness.update_bytes", update.byteLength, { direction: "apply" });
+  }
   const decoder = decoding.createDecoder(update);
   const timestamp = time.getUnixTime();
   const added: number[] = [];

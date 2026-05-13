@@ -23,6 +23,7 @@ import {
 } from "../tracking.js";
 import { deserializeKey, serializeKey } from "./key-serialization.js";
 import { PathMap } from "./PathMap.js";
+import { bucketCount, telemetry } from "../telemetry.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
 import { materializeVirtualChild, materializeMapForField } from "../virtual-children-genesis.js";
@@ -72,6 +73,16 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     const yjsMap = getYjsMap();
     if (event.target !== yjsMap || !yjsMap.doc) {
       return;
+    }
+    if (telemetry.enabled) {
+      telemetry.histogram("plexus.collection.observer_diff_size", event.keysChanged.size, {
+        collection_kind: "map",
+        is_child_field: isChildField ? "true" : "false",
+        new_length_bucket: bucketCount(yjsMap.size),
+      });
+      if (event.keysChanged.size === 0) {
+        telemetry.counter("plexus.collection.observer_no_effect", { collection_kind: "map" });
+      }
     }
 
     let keysChanged = false;

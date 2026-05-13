@@ -9,6 +9,7 @@ import {
   requestAdoptionSymbol,
   validateAdoptionSymbol,
 } from "../proxy-runtime-types.js";
+import { bucketCount, telemetry } from "../telemetry.js";
 import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
@@ -52,6 +53,16 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
     const yjsMap = getYjsMap();
     if (event.target !== yjsMap || !yjsMap?.doc) return;
+    if (telemetry.enabled) {
+      telemetry.histogram("plexus.collection.observer_diff_size", event.keysChanged.size, {
+        collection_kind: "set",
+        is_child_field: isChildField ? "true" : "false",
+        new_length_bucket: bucketCount(yjsMap.size),
+      });
+      if (event.keysChanged.size === 0) {
+        telemetry.counter("plexus.collection.observer_no_effect", { collection_kind: "set" });
+      }
+    }
 
     for (const serializedKey of event.keysChanged) {
       const hasKeyNow = yjsMap.has(serializedKey);
