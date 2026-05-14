@@ -1,5 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Context } from "hono";
+import invariant from "tiny-invariant";
 import type { Constructor } from "type-fest";
 
 import { ToolInteraction, type MCPClientInfo, type UserlandCallToolResult } from "../ToolInteraction";
@@ -40,9 +41,7 @@ export function toLegacyDiscoveryClass<BaseCtx, Svc extends Services, Prep>(
     }
 
     async executeTool(clientInfo?: MCPClientInfo): Promise<UserlandCallToolResult | UserlandCallToolResult[]> {
-      if (!this.executionContext) {
-        throw new Error(`${tool.name}: executionContext required`);
-      }
+      invariant(this.executionContext, `${tool.name}: executionContext required`);
       const { expr, intent, ...contextInput } = this.executionContext;
       const svc = extractServices(this.context, this.state);
       const history: string[] = this.state.__repl__ ?? [];
@@ -85,9 +84,7 @@ export function toLegacyActionClass<BaseCtx, Svc extends Services, Prep>(
     }
 
     async executeTool(clientInfo?: MCPClientInfo): Promise<UserlandCallToolResult | UserlandCallToolResult[]> {
-      if (!this.executionContext) {
-        throw new Error(`${tool.name}: executionContext required`);
-      }
+      invariant(this.executionContext, `${tool.name}: executionContext required`);
       const { actions, intent, ...contextInput } = this.executionContext;
       const svc = extractServices(this.context, this.state);
       const result = await compiled.dispatch(
