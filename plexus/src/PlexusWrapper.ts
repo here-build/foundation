@@ -7,11 +7,13 @@ import type { Storageable, YPlexusNode } from "./proxy-runtime-types.js";
  * Bridges the gap between the old Y.Map API (get/set/delete/has)
  * and Y.XmlElement's attribute API (getAttribute/setAttribute/removeAttribute).
  *
- * Parent data is stored as positional children: [entityId, key, meta?]
- * Each child is an XmlElement whose nodeName carries the value.
- * Any change clears all children and re-inserts (cross-product assignment).
+ * Parent data is stored as an atomic attribute at key "\0":
+ * a plain JS tuple [entityId, key, metadata?]. Yjs attributes are
+ * last-write-wins, preventing partial merges under concurrent edits.
  */
 export class PlexusWrapper {
+  static readonly PARENT_ATTR = "\0";
+
   constructor(public readonly element: YPlexusNode) {}
 
   get doc(): Y.Doc | null {
@@ -22,28 +24,29 @@ export class PlexusWrapper {
     return this.element.nodeName;
   }
 
+  // --- Parent data: atomic attribute "\0" = [entityId, key, metadata?] ---
+
   get hasParent(): boolean {
-    return this.parentData.length > 0;
+    return this.element.hasAttribute(PlexusWrapper.PARENT_ATTR);
   }
 
-  get parentData() {
-    type t = Exclude<keyof Y.Array<any> & keyof Y.XmlFragment, `_${string}`>;
-    return this.element as any as Pick<Y.Array<string>, t>;
+  private get parentTuple(): string[] | undefined {
+    return this.element.getAttribute(PlexusWrapper.PARENT_ATTR) as string[] | undefined;
   }
 
   get parent(): string | null {
-    return this.parentData.get(0) ?? null;
+    return this.parentTuple?.[0] ?? null;
   }
 
   get parentKey(): string | null {
-    return this.parentData.get(1) ?? null;
+    return this.parentTuple?.[1] ?? null;
   }
-
-  // --- Parent data: positional children [entityId, key, meta?] ---
 
   get parentMetadata(): string | null {
-    return this.parentData.get(2) ?? null;
+    return this.parentTuple?.[2] ?? null;
   }
+
+  // --- Schema field access (attributes) ---
 
   get(key: string): Storageable | undefined {
     return this.element.getAttribute(key);
@@ -62,34 +65,27 @@ export class PlexusWrapper {
   }
 
   setParentData(entityId: string, key: string, metadata?: string | null): void {
-    const len = this.element.length;
-    const expectedLen = metadata == null ? 2 : 3;
+    const current = this.parentTuple;
+    const hasMetadata = metadata != null;
+    const expectedLen = hasMetadata ? 3 : 2;
 
-    // No-op if values already match
     if (
-      len === expectedLen &&
-      this.parent === entityId &&
-      this.parentKey === key &&
-      (metadata == null || this.parentMetadata === metadata)
+      current &&
+      current.length === expectedLen &&
+      current[0] === entityId &&
+      current[1] === key &&
+      (!hasMetadata || current[2] === metadata)
     ) {
       return;
     }
 
-    // Cross-product: clear all + re-insert
-    if (len > 0) {
-      this.parentData.delete(0, len);
-    }
-    const children: string[] = [entityId, key];
-    if (metadata != null) {
-      children.push(metadata);
-    }
-    this.parentData.insert(0, children);
+    const tuple: string[] = hasMetadata ? [entityId, key, metadata!] : [entityId, key];
+    (this.element.setAttribute as (k: string, v: unknown) => void)(PlexusWrapper.PARENT_ATTR, tuple);
   }
 
   clearParentData(): void {
-    const len = this.parentData.length;
-    if (len > 0) {
-      this.parentData.delete(0, len);
+    if (this.hasParent) {
+      this.element.removeAttribute(PlexusWrapper.PARENT_ATTR);
     }
   }
 }

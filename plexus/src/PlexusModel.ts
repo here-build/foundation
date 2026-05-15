@@ -711,8 +711,23 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     }
 
     const onChange = (event: Y.YXmlEvent) => {
-      // Handle attribute changes (field values)
       for (const key of event.attributesChanged) {
+        if (key === PlexusWrapper.PARENT_ATTR) {
+          const previousParent = this.parent;
+          if (internals.yjsModel!.hasParent) {
+            internals.parent = deref(this.__doc__!, [internals.yjsModel!.parent!]) as Parent;
+            internals.parentKey = internals.yjsModel!.parentKey;
+            internals.parentMetadata = internals.yjsModel!.parentMetadata;
+          } else {
+            internals.parent = null;
+            internals.parentKey = null;
+            internals.parentMetadata = null;
+          }
+          if (internals.parent !== previousParent) {
+            trackModification(this, "parent");
+          }
+          continue;
+        }
         if (this.__schema__[key] === "val" || this.__schema__[key] === "child-val") {
           const oldValue = internals.backingStorage.get(key);
           const yjsValue = internals.yjsModel!.get(key) as AllowedYValue;
@@ -722,28 +737,10 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
             trackModification(this, key);
           }
         } else if (key in this.__schema__) {
-          // Container field materialized (locally or by remote peer)
-          // or removed (by undo). Trigger proxy sync + observer registration.
           this[key][materializationSymbol]();
           trackModification(this, key);
         } else {
           console.warn("attempted to write the value that is not in schema", this, key);
-        }
-      }
-      // @ts-expect-error parent data stored as child XmlElement as private field
-      if (event.childListChanged) {
-        const previousParent = this.parent;
-        if (internals.yjsModel!.hasParent) {
-          internals.parent = deref(this.__doc__!, [internals.yjsModel!.parent!]) as Parent;
-          internals.parentKey = internals.yjsModel!.parentKey;
-          internals.parentMetadata = internals.yjsModel!.parentMetadata;
-        } else {
-          internals.parent = null;
-          internals.parentKey = null;
-          internals.parentMetadata = null;
-        }
-        if (internals.parent !== previousParent) {
-          trackModification(this, "parent");
         }
       }
     };

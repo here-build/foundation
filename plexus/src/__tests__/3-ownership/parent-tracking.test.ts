@@ -9,14 +9,9 @@ import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
 
-// Helper to read parent data from XmlElement children (positional: [entityId, key, meta?])
 function getParentRef(element: YPlexusNode | undefined): string[] | undefined {
-  if (!element || element.length === 0) return undefined;
-  const result: string[] = [];
-  for (let i = 0; i < element.length; i++) {
-    result.push(element.get(i) as any as string);
-  }
-  return result;
+  if (!element) return undefined;
+  return element.getAttribute("\0") as string[] | undefined;
 }
 
 // Helper to sync two YJS docs bidirectionally

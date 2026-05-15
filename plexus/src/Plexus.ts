@@ -530,8 +530,7 @@ export class Plexus<
                   internals.yjsModel = new PlexusWrapper(newElement);
                   model.__bootstrapObservation__();
                   undoManagerNotifications.get(newElement)?.({
-                    attributesChanged: new Set(Object.keys(model.__schema__)),
-                    childListChanged: true,
+                    attributesChanged: new Set([...Object.keys(model.__schema__), PlexusWrapper.PARENT_ATTR]),
                   });
                 }
                 continue;

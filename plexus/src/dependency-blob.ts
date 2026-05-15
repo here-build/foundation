@@ -27,6 +27,7 @@ export interface BlobEntity {
   uuid: string;
   sourceProjectId: string | null;
   type: string;
+  /** Parent UUID only — key/metadata not serialized (immutable deps don't need field routing). */
   parentUuid: string | null;
   attributes: Record<string, unknown>;
 }
@@ -83,10 +84,9 @@ export function createBlobFromDoc(
   for (const [, typeContainer] of typeMap) {
     for (const [uuid, model] of (typeContainer as import("yjs").Map<any>).entries()) {
       const attributes = Object.fromEntries(
-        Object.entries(model.getAttributes()).map(([k, v]: [string, any]) => [
-          k,
-          v instanceof Object && "toJSON" in v ? v.toJSON() : v,
-        ]),
+        Object.entries(model.getAttributes())
+          .filter(([k]) => k !== "\0")
+          .map(([k, v]: [string, any]) => [k, v instanceof Object && "toJSON" in v ? v.toJSON() : v]),
       );
       const wrapper = new PlexusWrapper(model);
       entities.push({
