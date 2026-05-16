@@ -1,6 +1,10 @@
 packages:
   - plexus
+  - y-messageport
   - mcp-typescript-lsp
+  - device-frame
+  - css-viewport-transform
+  - ios-layout-solver
   - arrival/*
   - delta/*
   - common/*
