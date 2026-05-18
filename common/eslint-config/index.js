@@ -257,7 +257,9 @@ export const reactConfig = [
       "react/no-unused-prop-types": "warn",
 
       // Security-related React rules - keep as errors
-      "react-hooks/exhaustive-deps": "warn"
+      "react-hooks/exhaustive-deps": ["warn", {
+        additionalHooks: "(useTransactionalCallback|useTransactionalEffect)"
+      }]
     }
   },
   browserRelatedRules
