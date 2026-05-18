@@ -566,6 +566,7 @@ export class Plexus<
    */
 
   static connect(doc: Y.Doc) {
+    invariant(doc instanceof Y.Doc, "Plexus.connect: doc is not from Plexus's yjs (duplicate yjs module in node_modules)");
     // Return existing instance if one exists for this class
     const existing = docPlexus.get(doc);
     if (existing) {
@@ -599,6 +600,7 @@ export class Plexus<
    * Returns existing instance if one exists for this class.
    */
   static bootstrap(root: PlexusModel, documentId: string = nanoid(), doc: Y.Doc = new Y.Doc({ guid: documentId })) {
+    invariant(doc instanceof Y.Doc, "Plexus.bootstrap: doc is not from Plexus's yjs (duplicate yjs module in node_modules)");
     // Return existing instance if one exists for this class
     const existing = docPlexus.get(doc);
     if (existing) {
