@@ -36,7 +36,7 @@ export default [
       "no-restricted-syntax": [
         "warn",
         {
-          selector: "CallExpression[callee.name='invariant'][arguments.length!=2]",
+          selector: "CallExpression[callee.name='invariant'][arguments.length<2]",
           message: "`invariant` must always be invoked with a message.",
         },
       ],
