@@ -20,6 +20,7 @@
 
 import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
+import type * as Y from "yjs";
 
 const BLOB_VERSION = 1;
 
@@ -73,16 +74,16 @@ export function decodeBlob(data: Uint8Array): DecodedBlob {
 }
 
 export function createBlobFromDoc(
-  doc: import("yjs").Doc,
+  doc: Y.Doc,
   rootUuid: string,
-  getModelTypesMap: (doc: import("yjs").Doc) => import("yjs").Map<any>,
+  getModelTypesMap: (doc: Y.Doc) => Y.Map<any>,
   PlexusWrapper: new (element: any) => { hasParent: boolean; parent: string | null },
 ): Uint8Array {
   const entities: BlobEntity[] = [];
   const typeMap = getModelTypesMap(doc);
 
   for (const [, typeContainer] of typeMap) {
-    for (const [uuid, model] of (typeContainer as import("yjs").Map<any>).entries()) {
+    for (const [uuid, model] of (typeContainer as Y.Map<any>).entries()) {
       const attributes = Object.fromEntries(
         Object.entries(model.getAttributes())
           .filter(([k]) => k !== "\0")
