@@ -20,6 +20,13 @@ type Fn = (...args: any[]) => any;
 export interface RosettaFunction {
   fn: Fn;
   options?: RosettaOptions;
+  /**
+   * When true, the rosetta receives the current EvalContext as its LAST
+   * argument (after all scheme args, post-lipsToJs conversion). The
+   * evaluator detects this via a `__withCtx` flag on the produced wrapper
+   * and appends `ctx` at call time. Off by default — back-compat.
+   */
+  withContext?: boolean;
 }
 
 const isLipsPair = (x: any): boolean => x && typeof x === "object" && "car" in x && "cdr" in x;
@@ -125,13 +132,22 @@ export function jsToLips(value: any, options: RosettaOptions = {}): any {
   return value;
 }
 
-export const createRosettaWrapper = ({ fn, options = {} }: RosettaFunction) =>
-  async function rosettaWrapper(...args: any[]) {
-    // Convert LIPS arguments to JS
-    const jsArgs = args.map((arg) => lipsToJs(arg, options));
+export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: RosettaFunction) => {
+  const rosettaWrapper = async function rosettaWrapper(...args: any[]) {
+    // When withContext, the evaluator appends EvalContext as the final arg.
+    // We strip it off, then pass it to the user fn FIRST (so variadic scheme
+    // args don't shift ctx around when called with fewer than max arity).
+    let ctx: unknown = undefined;
+    let schemeArgs = args;
+    if (withContext) {
+      ctx = args[args.length - 1];
+      schemeArgs = args.slice(0, -1);
+    }
+    const jsArgs = schemeArgs.map((arg) => lipsToJs(arg, options));
+    const callArgs = withContext ? [ctx, ...jsArgs] : jsArgs;
 
     try {
-      const result = jsToLips(await fn(...jsArgs), options);
+      const result = jsToLips(await fn(...callArgs), options);
       return options.returnEither ? [result, nil] : result;
     } catch (error) {
       console.error("Rosetta function error:", error);
@@ -142,6 +158,11 @@ export const createRosettaWrapper = ({ fn, options = {} }: RosettaFunction) =>
       }
     }
   };
+  if (withContext) {
+    (rosettaWrapper as { __withCtx?: boolean }).__withCtx = true;
+  }
+  return rosettaWrapper;
+};
 
 declare module "@here.build/arrival-scheme" {
   interface Environment {

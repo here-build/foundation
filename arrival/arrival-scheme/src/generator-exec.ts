@@ -11,8 +11,9 @@
  */
 
 import type { Environment } from "./Environment.js";
-import { evaluate, run } from "./evaluator.js";
+import { evaluate, run, type EvalTap } from "./evaluator.js";
 import { is_pair } from "./guards.js";
+import type { Pair } from "./Pair.js";
 import type { SchemeValue } from "./types.js";
 
 // Lazy import to avoid circular dependency during module initialization
@@ -36,6 +37,10 @@ export interface ExecOptions {
   env?: Environment;
   dynamic_env?: Environment;
   use_dynamic?: boolean;
+  /** Tap for tracing per-form evaluation enter/exit. See EvalTap. */
+  tap?: EvalTap;
+  /** Predicate to suppress tap firing for specific nodes (atoms always skipped). */
+  nodeFilter?: (node: Pair) => boolean;
 }
 
 /**
@@ -60,7 +65,7 @@ export interface ExecOptions {
  */
 export async function exec(
   code: string | SchemeValue,
-  { env, dynamic_env, use_dynamic }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter }: ExecOptions = {},
 ): Promise<SchemeValue[]> {
   const lips = await getLips();
 
@@ -87,6 +92,8 @@ export async function exec(
         env: actualEnv,
         dynamic_env,
         use_dynamic,
+        tap,
+        nodeFilter,
       }),
     );
     results.push(result);
@@ -110,7 +117,7 @@ export async function parse(code: string, env?: Environment): Promise<SchemeValu
  */
 export async function execExpr(
   expr: SchemeValue,
-  { env, dynamic_env, use_dynamic }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter }: ExecOptions = {},
 ): Promise<SchemeValue> {
   const lips = await getLips();
   const actualEnv = env ?? lips.env;
@@ -120,6 +127,8 @@ export async function execExpr(
       env: actualEnv,
       dynamic_env,
       use_dynamic,
+      tap,
+      nodeFilter,
     }),
   );
 }

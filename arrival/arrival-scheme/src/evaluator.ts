@@ -140,6 +140,24 @@ function formatCode(code: SchemeValue, maxLen = 60): string {
 // Types
 // ============================================================================
 
+/**
+ * Opaque tag for one dynamic evaluation of an AST node. The tap implementation
+ * defines its shape; the evaluator only threads it through as the parent of
+ * nested invocations.
+ */
+export type Invocation = unknown;
+
+/**
+ * Tap callback surface for tracing evaluation. The evaluator fires `enter`
+ * before evaluating a parsed Pair (one carrying a __location__ marker), and
+ * `exit` when that Pair's evaluation completes — synchronously or after
+ * arbitrary async work, with either a value or an error.
+ */
+export interface EvalTap {
+  enter(node: Pair, parent: Invocation | null): Invocation;
+  exit(invocation: Invocation, result: { value: SchemeValue } | { error: unknown }): void;
+}
+
 /** Evaluation context passed through the evaluator */
 export interface EvalContext {
   env: Environment;
@@ -148,6 +166,15 @@ export interface EvalContext {
   error?: (e: Error, code?: SchemeValue) => void;
   /** Stack frames for error reporting */
   _stack?: StackFrame[];
+  /** Optional tap for tracing evaluation enter/exit per parsed Pair. */
+  tap?: EvalTap;
+  /**
+   * Optional filter — when present, returning false skips tap firing for a node
+   * (atoms and macro-expansion-constructed Pairs are always skipped regardless).
+   */
+  nodeFilter?: (node: Pair) => boolean;
+  /** Current dynamic-stack invocation; sub-evaluations receive this as parent. */
+  currentInvocation?: Invocation;
 }
 
 /** Interface for functions created by lambda */
@@ -187,6 +214,10 @@ interface Call {
   call: Generator<unknown, unknown, unknown>;
   /** Optional stack frame for error reporting */
   frame?: StackFrame;
+  /** Fired by the trampoline when the sub-generator returns normally. */
+  onResolve?: (value: unknown) => void;
+  /** Fired by the trampoline when the sub-generator (or its descendants) throws. */
+  onReject?: (error: unknown) => void;
 }
 
 function is_call(o: unknown): o is Call {
@@ -277,9 +308,31 @@ export async function run<T>(generator: Generator<unknown, T, unknown>): Promise
   const stack: Generator<unknown, unknown, unknown>[] = [generator];
   // Stack frames for error reporting (parallel to generator stack)
   const frameStack: (StackFrame | undefined)[] = [undefined];
+  // Calls that pushed each generator (root has none). Carries onResolve/onReject hooks.
+  const callStack: (Call | undefined)[] = [undefined];
   let lastYield = performance.now();
   let iterations = 0;
   let valueToSend: unknown = undefined;
+
+  // Fire onReject up the call stack so any tap subscribers see the error,
+  // then build the wrapped SchemeError to throw out of run().
+  const failAndWrap = (error: unknown): never => {
+    // Snapshot stack frames BEFORE popping so SchemeError carries the trace.
+    const frames = frameStack.filter((f): f is StackFrame => f !== undefined);
+    while (callStack.length > 0) {
+      const c = callStack.pop();
+      stack.pop();
+      frameStack.pop();
+      try {
+        c?.onReject?.(error);
+      } catch {
+        // Swallow tap exceptions — they must not mask the real error.
+      }
+    }
+    if (error instanceof SchemeError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new SchemeError(message, frames, error instanceof Error ? error : undefined);
+  };
 
   try {
     while (stack.length > 0) {
@@ -289,21 +342,25 @@ export async function run<T>(generator: Generator<unknown, T, unknown>): Promise
       try {
         result = current.next(valueToSend);
       } catch (error) {
-        // Error during generation - wrap with stack trace
-        const frames = frameStack.filter((f): f is StackFrame => f !== undefined);
-        if (error instanceof SchemeError) {
-          throw error; // Already wrapped
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        throw new SchemeError(message, frames, error instanceof Error ? error : undefined);
+        failAndWrap(error);
+        return undefined as never; // unreachable
       }
 
       valueToSend = undefined; // Reset after use
 
       if (result.done) {
-        // Generator finished - pop from stack and pass result to parent
+        // Generator finished - fire onResolve, pop, pass result to parent
+        const finishedCall = callStack[callStack.length - 1];
+        if (finishedCall?.onResolve) {
+          try {
+            finishedCall.onResolve(result.value);
+          } catch {
+            // Tap exceptions must not break evaluation.
+          }
+        }
         stack.pop();
         frameStack.pop();
+        callStack.pop();
         valueToSend = result.value;
         continue;
       }
@@ -314,6 +371,7 @@ export async function run<T>(generator: Generator<unknown, T, unknown>): Promise
       if (is_call(value)) {
         stack.push(value.call);
         frameStack.push(value.frame); // Track frame
+        callStack.push(value);
         continue;
       }
 
@@ -322,13 +380,8 @@ export async function run<T>(generator: Generator<unknown, T, unknown>): Promise
         try {
           valueToSend = await value;
         } catch (error) {
-          // Wrap JS errors with Scheme stack
-          const frames = frameStack.filter((f): f is StackFrame => f !== undefined);
-          if (error instanceof SchemeError) {
-            throw error;
-          }
-          const message = error instanceof Error ? error.message : String(error);
-          throw new SchemeError(message, frames, error instanceof Error ? error : undefined);
+          failAndWrap(error);
+          return undefined as never; // unreachable
         }
         lastYield = performance.now(); // Reset timer after async
         iterations = 0;
@@ -1587,8 +1640,24 @@ export function* evaluate(code: SchemeValue, ctx: EvalContext): EvalGenerator {
     return code;
   }
 
+  // Tap: fire enter/exit for parsed Pairs (those carrying __location__).
+  // Atoms above and macro-expansion-constructed Pairs (no location) are skipped.
+  const tap = ctx.tap;
+  if (tap && __location__ in code && (!ctx.nodeFilter || ctx.nodeFilter(code))) {
+    const inv = tap.enter(code, ctx.currentInvocation ?? null);
+    const childCtx: EvalContext = { ...ctx, currentInvocation: inv };
+    return yield {
+      call: evaluatePair(code, childCtx),
+      onResolve: (value) => tap.exit(inv, { value: value as SchemeValue }),
+      onReject: (error) => tap.exit(inv, { error }),
+    };
+  }
+
+  return yield* evaluatePair(code, ctx);
+}
+
+function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
   // It's a pair - function application or special form
-  // TypeScript knows code is Pair after the is_pair(code) check above
   const first = code.car;
   const rest = code.cdr;
 
@@ -1640,8 +1709,11 @@ export function* evaluate(code: SchemeValue, ctx: EvalContext): EvalGenerator {
       return fn.invoke();
     }
 
-    // is_function narrowed fn to Function, so we can call apply directly
-    const result = fn.apply(ctx.env, args);
+    // is_function narrowed fn to Function, so we can call apply directly.
+    // Rosetta wrappers tagged with __withCtx receive ctx as their final arg.
+    const result = (fn as { __withCtx?: boolean }).__withCtx
+      ? fn.apply(ctx.env, [...args, ctx])
+      : fn.apply(ctx.env, args);
 
     // If result is a promise, yield it for the runner to await
     if (is_promise(result)) {

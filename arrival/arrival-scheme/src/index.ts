@@ -68,6 +68,8 @@ export {
   is_scheme_promise,
   type EvalContext,
   type EvalGenerator,
+  type EvalTap,
+  type Invocation,
   type StackFrame,
 } from "./evaluator.js";
 
