@@ -85,15 +85,15 @@ const baseConfig = [
       "no-restricted-syntax": [
         "warn",
         {
-          selector: "CallExpression[callee.name='ensure'][arguments.length!=2]",
+          selector: "CallExpression[callee.name='ensure'][arguments.length<2]",
           message: "`ensure` must always be invoked with a message.",
         },
         {
-          selector: "CallExpression[callee.name='assert'][arguments.length!=2]",
+          selector: "CallExpression[callee.name='assert'][arguments.length<2]",
           message: "`assert` must always be invoked with a message.",
         },
         {
-          selector: "CallExpression[callee.name='invariant'][arguments.length!=2]",
+          selector: "CallExpression[callee.name='invariant'][arguments.length<2]",
           message: "`invariant` must always be invoked with a message.",
         },
       ],
@@ -258,7 +258,7 @@ export const reactConfig = [
 
       // Security-related React rules - keep as errors
       "react-hooks/exhaustive-deps": ["warn", {
-        additionalHooks: "(useTransactionalCallback|useTransactionalEffect)"
+        additionalHooks: "(useTransactionalCallback|useTransactionalEffect|useComputedValue|useAutorunEffect|useReactionEffect)"
       }]
     }
   },
