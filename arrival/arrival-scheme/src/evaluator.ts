@@ -177,6 +177,24 @@ export interface EvalContext {
   currentInvocation?: Invocation;
 }
 
+/**
+ * Module-level dynamic call site holder. Set by evaluatePair just before
+ * invoking a callable, read by evalLambda / named-let loopFn when building
+ * the body ctx so that a lambda's body runs with the DYNAMIC parent invocation
+ * (the call site) rather than the LEXICAL one captured at lambda-creation.
+ *
+ * Why: when a native JS HOF (map/filter/reduce) iterates over a user lambda,
+ * the lambda's body would otherwise inherit currentInvocation from the lexical
+ * ctx (e.g., the enclosing define), severing the parent chain at the HOF
+ * boundary. With this holder, the lambda picks up the calling Pair's
+ * invocation, so DNF path reconstruction can surface HOF iteration via
+ * parent-walking.
+ *
+ * Single-threaded JS makes a module-level holder safe; we save/restore around
+ * each apply to handle nesting.
+ */
+let _dynamicCallSite: Invocation | undefined = undefined;
+
 /** Interface for functions created by lambda */
 interface LambdaFunction {
   __lambda__?: boolean;
@@ -759,8 +777,13 @@ function* evalLambda(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       callEnv.set(argNode, Pair.fromArray(values.slice(i), false));
     }
 
+    // Pick up the dynamic call site if evaluatePair set it just before
+    // invoking us; otherwise fall back to the lexical ctx's invocation.
+    // See _dynamicCallSite comment near EvalContext.
+    const dynamicInv = _dynamicCallSite ?? ctx.currentInvocation;
+
     // Evaluate body - returns a promise that runs the generator
-    return run(evalBegin(body, { ...ctx, env: callEnv }));
+    return run(evalBegin(body, { ...ctx, env: callEnv, currentInvocation: dynamicInv }));
   };
 
   // Mark as lambda for identification
@@ -873,7 +896,8 @@ function* evalLet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
         loopEnv.set(param, values[i]);
       }
 
-      return run(evalBegin(body, { ...ctx, env: loopEnv }));
+      const dynamicInv = _dynamicCallSite ?? ctx.currentInvocation;
+      return run(evalBegin(body, { ...ctx, env: loopEnv, currentInvocation: dynamicInv }));
     };
     loopFn.__lambda__ = true;
     loopFn.__name__ = symbol_name(name);
@@ -1711,9 +1735,20 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
 
     // is_function narrowed fn to Function, so we can call apply directly.
     // Rosetta wrappers tagged with __withCtx receive ctx as their final arg.
-    const result = (fn as { __withCtx?: boolean }).__withCtx
-      ? fn.apply(ctx.env, [...args, ctx])
-      : fn.apply(ctx.env, args);
+    // Thread the dynamic call site through the module-level holder so that
+    // user lambdas invoked synchronously from native JS (e.g. map/filter)
+    // pick up THIS Pair's invocation as their parent rather than the lexical
+    // one captured at lambda creation. The save/restore handles nesting.
+    const __savedDynamicCallSite = _dynamicCallSite;
+    _dynamicCallSite = ctx.currentInvocation;
+    let result: SchemeValue;
+    try {
+      result = (fn as { __withCtx?: boolean }).__withCtx
+        ? fn.apply(ctx.env, [...args, ctx])
+        : fn.apply(ctx.env, args);
+    } finally {
+      _dynamicCallSite = __savedDynamicCallSite;
+    }
 
     // If result is a promise, yield it for the runner to await
     if (is_promise(result)) {
@@ -1766,8 +1801,16 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     invariant(Array.isArray(argsResult), "evaluateArgs must return array");
     const args = argsResult;
 
-    // SchemeJSFunction.apply handles toJS/fromJS boundary crossing
-    const result = fn.apply(undefined, args);
+    // SchemeJSFunction.apply handles toJS/fromJS boundary crossing.
+    // Thread dynamic call site (see comment in regular function path above).
+    const __savedDynamicCallSite = _dynamicCallSite;
+    _dynamicCallSite = ctx.currentInvocation;
+    let result: SchemeValue;
+    try {
+      result = fn.apply(undefined, args);
+    } finally {
+      _dynamicCallSite = __savedDynamicCallSite;
+    }
 
     // If result is a promise, yield it for the runner to await
     if (is_promise(result)) {
