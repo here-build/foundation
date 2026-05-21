@@ -156,6 +156,14 @@ export type Invocation = unknown;
 export interface EvalTap {
   enter(node: Pair, parent: Invocation | null): Invocation;
   exit(invocation: Invocation, result: { value: SchemeValue } | { error: unknown }): void;
+  /**
+   * Fired when a SchemeSymbol is resolved during evaluation, attributed to
+   * the currently-entered Pair invocation (or null if at top level). Useful
+   * for tracers that need symbol values in the lineage — symbol eval is the
+   * one path that doesn't fire enter/exit, so without this method the
+   * resolved value never reaches the tap.
+   */
+  onSymbolResolved?(invocation: Invocation | null, symbol: SchemeSymbol, value: SchemeValue): void;
 }
 
 /** Evaluation context passed through the evaluator */
@@ -199,6 +207,13 @@ let _dynamicCallSite: Invocation | undefined = undefined;
 interface LambdaFunction {
   __lambda__?: boolean;
   __name__?: string;
+  /**
+   * Positional parameter names captured at lambda creation. Empty for
+   * variadic-only lambdas. Used by tracers to correlate a symbol use inside
+   * the body with the lambda parameter it binds — see arrival-chain
+   * lineage's iteration-element classification.
+   */
+  __params__?: readonly string[];
 
   (...args: SchemeValue[]): SchemeValue;
 }
@@ -788,6 +803,18 @@ function* evalLambda(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   // Mark as lambda for identification
   lambda.__lambda__ = true;
+
+  // Stash positional parameter names so tracers can correlate symbol uses
+  // inside the body to the parameter slot they bind. Variadic-only
+  // lambdas leave __params__ empty.
+  const params: string[] = [];
+  let walk: SchemeValue = args;
+  while (is_pair(walk)) {
+    const p = walk.car;
+    if (p instanceof SchemeSymbol) params.push(symbol_name(p));
+    walk = walk.cdr;
+  }
+  lambda.__params__ = params;
 
   return lambda;
 }
@@ -1656,7 +1683,9 @@ export function* evaluate(code: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   // Symbol lookup
   if (code instanceof SchemeSymbol) {
-    return env_get(ctx.env, code);
+    const value = env_get(ctx.env, code);
+    ctx.tap?.onSymbolResolved?.(ctx.currentInvocation ?? null, code, value as SchemeValue);
+    return value;
   }
 
   // Non-pair (atoms) evaluate to themselves
