@@ -203,6 +203,45 @@ export interface EvalContext {
  */
 let _dynamicCallSite: Invocation | undefined = undefined;
 
+/**
+ * Re-install `_dynamicCallSite` on every invocation of a lambda passed as
+ * an arg. Native HOFs like reduce/fold/find recurse via promise chains
+ * (lips.ts:3593 `unpromise(fn(acc, x)).then(recurse)`), so iteration N+1
+ * fires from a microtask AFTER the outer evaluatePair's finally has
+ * restored the holder. Without per-call re-install, the lambda body for
+ * iteration ≥1 would inherit the WRONG dynamic parent.
+ *
+ * Wrapping is cheap (function allocation per HOF arg), and copies the
+ * lambda metadata so __lambda__ / __name__ / __params__ stay introspectable.
+ */
+function wrapLambdaArgs(args: SchemeValue[], dynSite: Invocation | undefined): SchemeValue[] {
+  let out: SchemeValue[] | null = null;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (typeof a === "function" && (a as { __lambda__?: boolean }).__lambda__) {
+      if (!out) out = args.slice();
+      out[i] = wrapLambda(a as LambdaFunction, dynSite);
+    }
+  }
+  return out ?? args;
+}
+
+function wrapLambda(lambda: LambdaFunction, dynSite: Invocation | undefined): LambdaFunction {
+  const wrapped: LambdaFunction = function (this: unknown, ...values: SchemeValue[]): SchemeValue {
+    const saved = _dynamicCallSite;
+    _dynamicCallSite = dynSite;
+    try {
+      return lambda.apply(this, values);
+    } finally {
+      _dynamicCallSite = saved;
+    }
+  };
+  wrapped.__lambda__ = true;
+  if (lambda.__name__) wrapped.__name__ = lambda.__name__;
+  if (lambda.__params__) wrapped.__params__ = lambda.__params__;
+  return wrapped;
+}
+
 /** Interface for functions created by lambda */
 interface LambdaFunction {
   __lambda__?: boolean;
@@ -928,6 +967,7 @@ function* evalLet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     };
     loopFn.__lambda__ = true;
     loopFn.__name__ = symbol_name(name);
+    loopFn.__params__ = params.map((p) => symbol_name(p));
 
     letEnv.set(name, loopFn);
   }
@@ -1741,6 +1781,10 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     }
   } else if (first instanceof SchemeSymbol) {
     fn = env_get(ctx.env, first);
+    // Fire the tap here too — this is the call-head fast path that bypasses
+    // `evaluate()`. Without this, tracers miss the resolved value of every
+    // function name (e.g., `(my-hof xs)` never reports `my-hof`'s lambda).
+    ctx.tap?.onSymbolResolved?.(ctx.currentInvocation ?? null, first, fn as SchemeValue);
   } else if (is_function(first)) {
     fn = first;
   } else {
@@ -1764,17 +1808,25 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
 
     // is_function narrowed fn to Function, so we can call apply directly.
     // Rosetta wrappers tagged with __withCtx receive ctx as their final arg.
-    // Thread the dynamic call site through the module-level holder so that
-    // user lambdas invoked synchronously from native JS (e.g. map/filter)
-    // pick up THIS Pair's invocation as their parent rather than the lexical
-    // one captured at lambda creation. The save/restore handles nesting.
+    // Thread the dynamic call site so user lambdas invoked synchronously
+    // from native JS (e.g. map/filter) pick up THIS Pair's invocation as
+    // their parent rather than the lexical one captured at lambda creation.
+    //
+    // Two-pronged: (a) module-level holder for synchronous HOF iteration,
+    // (b) per-lambda wrapper for native HOFs that recurse via promises
+    // (reduce/fold/find call `unpromise().then(callback)`, which fires from
+    // a microtask AFTER finally restores the holder). Each wrapped lambda
+    // re-installs its dynamic site on every invocation, so iter N+1 from
+    // a microtask still sees the right parent.
+    const dynSite = ctx.currentInvocation;
     const __savedDynamicCallSite = _dynamicCallSite;
-    _dynamicCallSite = ctx.currentInvocation;
+    _dynamicCallSite = dynSite;
+    const wrappedArgs = wrapLambdaArgs(args, dynSite);
     let result: SchemeValue;
     try {
       result = (fn as { __withCtx?: boolean }).__withCtx
-        ? fn.apply(ctx.env, [...args, ctx])
-        : fn.apply(ctx.env, args);
+        ? fn.apply(ctx.env, [...wrappedArgs, ctx])
+        : fn.apply(ctx.env, wrappedArgs);
     } finally {
       _dynamicCallSite = __savedDynamicCallSite;
     }
@@ -1832,11 +1884,13 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
 
     // SchemeJSFunction.apply handles toJS/fromJS boundary crossing.
     // Thread dynamic call site (see comment in regular function path above).
+    const dynSite = ctx.currentInvocation;
     const __savedDynamicCallSite = _dynamicCallSite;
-    _dynamicCallSite = ctx.currentInvocation;
+    _dynamicCallSite = dynSite;
+    const wrappedArgs = wrapLambdaArgs(args, dynSite);
     let result: SchemeValue;
     try {
-      result = fn.apply(undefined, args);
+      result = fn.apply(undefined, wrappedArgs);
     } finally {
       _dynamicCallSite = __savedDynamicCallSite;
     }
