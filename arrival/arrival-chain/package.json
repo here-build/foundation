@@ -1,0 +1,50 @@
+{
+  "name": "@here.build/arrival-chain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./backends/openai": "./src/backends/openai.ts",
+    "./backends/openai/register": "./src/backends/openai/register.ts",
+    "./backends/anthropic": "./src/backends/anthropic.ts",
+    "./backends/anthropic/register": "./src/backends/anthropic/register.ts",
+    "./backends/providers": "./src/backends/providers.ts",
+    "./backends/providers/register": "./src/backends/providers/register.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "devDependencies": {
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@types/ws": "^8.5.10",
+    "typescript": "6.0.2",
+    "vitest": "4.1.0",
+    "ws": "^8.18.0",
+    "y-websocket": "^2.1.0"
+  },
+  "dependencies": {
+    "@here.build/arrival-scheme": "workspace:^",
+    "@here.build/plexus": "workspace:^",
+    "handlebars": "^4.7.9",
+    "mobx": "^6.15.0",
+    "tiny-invariant": "^1.3.3",
+    "yjs": "13.6.30"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.92.0",
+    "openai": "^5.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    }
+  }
+}

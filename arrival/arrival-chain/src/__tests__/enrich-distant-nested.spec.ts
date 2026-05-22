@@ -1,0 +1,88 @@
+/**
+ * Verifies access patterns over V's nested data shape now that
+ * (require "x.json") produces SchemeJSObjects (json/parse path) and
+ * the runtime preamble ships `field`, `values-of`, and `@` natively.
+ *
+ *   data:           { profileId: { id, versions: [ { n, state: {...} } ] } }
+ *   values-of data: list of profile records
+ *   (last (field rec "versions")): latest version
+ *   (field state "name"): the field
+ *
+ * `field` works on both alist and JS-object shapes; `@`/`:key` work on
+ * objects only. Use whichever reads best at the call site.
+ */
+import { describe, expect, it, vi } from "vitest";
+
+import type { ModelSpec } from "../model.js";
+import { runPipeline } from "../runner.js";
+
+const NESTED = {
+  p1: { id: "p1", versions: [{ n: 1, state: { name: "Maya",  oneLine: "ten" } }] },
+  p2: { id: "p2", versions: [{ n: 1, state: { name: "Priya", oneLine: "twenty" } }] },
+};
+
+const noopBackend = () => ({ complete: vi.fn(async (_s: ModelSpec) => "ok") });
+
+describe("nested-shape data access from scheme", () => {
+  it("values-of: object-map → list of records", async () => {
+    const result = await runPipeline({
+      files: {
+        "data.json": JSON.stringify(NESTED),
+        "main.scm": `
+          (require "data.json")
+          (length (values-of data))
+        `,
+      },
+      entry: "main.scm",
+      backends: noopBackend(),
+    });
+    expect(result).toBe(2);
+  });
+
+  it("state-of pattern: walks record → versions → last → state", async () => {
+    const result = await runPipeline({
+      files: {
+        "data.json": JSON.stringify(NESTED),
+        "main.scm": `
+          (require "data.json")
+          (define (state-of r) (field (last (field r "versions")) "state"))
+          (field (state-of (car (values-of data))) "name")
+        `,
+      },
+      entry: "main.scm",
+      backends: noopBackend(),
+    });
+    expect(result).toBe("Maya");
+  });
+
+  it("maps state-of across all records", async () => {
+    const result = await runPipeline({
+      files: {
+        "data.json": JSON.stringify(NESTED),
+        "main.scm": `
+          (require "data.json")
+          (define (state-of r) (field (last (field r "versions")) "state"))
+          (map (lambda (r) (field (state-of r) "name")) (values-of data))
+        `,
+      },
+      entry: "main.scm",
+      backends: noopBackend(),
+    });
+    expect(result).toEqual(["Maya", "Priya"]);
+  });
+
+  it("(:keyword obj) also works on the records", async () => {
+    const result = await runPipeline({
+      files: {
+        "data.json": JSON.stringify(NESTED),
+        "main.scm": `
+          (require "data.json")
+          (:id (car (values-of data)))
+        `,
+      },
+      entry: "main.scm",
+      backends: noopBackend(),
+    });
+    expect(result).toBe("p1");
+  });
+});
