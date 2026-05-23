@@ -8,6 +8,7 @@ export { Project } from "./project.js";
 export { InferenceCache, ArrivalCache } from "./cache.js";
 export { ArrivalChain } from "./arrival-chain.js";
 export { runPipeline, type RunPipelineOptions, type PublishOptions } from "./runner.js";
+export { type RequireResolver } from "./require.js";
 export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "./trace.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────

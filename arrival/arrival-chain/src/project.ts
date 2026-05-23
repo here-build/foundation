@@ -13,7 +13,7 @@ import invariant from "tiny-invariant";
 import type { InferenceCache } from "./cache.js";
 import type { ModelBackend } from "./model.js";
 import { Program } from "./program.js";
-import { resolveRequires } from "./require.js";
+import { resolveRequires, type RequireResolver } from "./require.js";
 import { analyzeTemplate, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "./trace.js";
 
@@ -307,7 +307,7 @@ export class Project extends PlexusModel<null> {
    * program's consumer (`promise_all` inside map/string-append) is
    * where the wait happens. Force at observation, not at the call.
    */
-  async run(source: string, opts: { trace?: EvalTrace } = {}): Promise<unknown> {
+  async run(source: string, opts: { trace?: EvalTrace; resolver?: RequireResolver } = {}): Promise<unknown> {
     const env = sandboxedEnv.inherit("arrival-chain");
     this.#installProjectEnvResolver(env);
 
@@ -422,7 +422,7 @@ export class Project extends PlexusModel<null> {
       },
     });
 
-    const { preamble: requirePreamble, body } = resolveRequires(this, source);
+    const { preamble: requirePreamble, body } = resolveRequires(this, source, opts.resolver);
     const results = await exec(BUILTIN_PREAMBLE + requirePreamble + body, {
       env,
       tap: opts.trace,
@@ -445,7 +445,7 @@ export class Project extends PlexusModel<null> {
    */
   async runTraced(
     source: string,
-    opts: { trace: EvalTrace },
+    opts: { trace: EvalTrace; resolver?: RequireResolver },
   ): Promise<{ userForms: unknown[]; finished: Promise<unknown> }> {
     // Reuse the same rosetta wiring as run() by going through run() for the
     // preamble half, then parsing and tap-evaluating the user body ourselves.
@@ -506,7 +506,7 @@ export class Project extends PlexusModel<null> {
       },
     });
 
-    const { preamble: requirePreamble, body } = resolveRequires(this, source);
+    const { preamble: requirePreamble, body } = resolveRequires(this, source, opts.resolver);
     // Evaluate builtin + require preamble first, tap-free, so records map
     // contains only user-program forms.
     await exec(BUILTIN_PREAMBLE + requirePreamble, { env });

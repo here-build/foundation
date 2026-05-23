@@ -2,6 +2,15 @@ import invariant from "tiny-invariant";
 
 import type { Project } from "./project.js";
 
+/**
+ * Resolver function: take a `(require "<path>")` literal and return the
+ * file's source. Used to override the default Project VFS lookup —
+ * e.g. the CLI's `--file` mode resolves against the disk relative to
+ * the entry file's directory, so the entry program can `(require
+ * "./helpers.scm")` without polluting any synced project doc.
+ */
+export type RequireResolver = (path: string) => string;
+
 const REQUIRE_RE = /\(require\s+"([^"]+)"\)/g;
 
 /** `_lib.scm` → `_lib`, `data.json` → `data`. */
@@ -10,12 +19,14 @@ function pathToIdent(path: string): string {
   return base.replace(/\.[^.]+$/, "");
 }
 
-function readFile(project: Project, path: string): string {
-  const file = project.files.get(path);
-  invariant(file, `require: file not found in project: ${path}`);
-  const latest = file.versions.at(-1);
-  invariant(latest, `require: file has no versions: ${path}`);
-  return latest.source;
+function makeProjectResolver(project: Project): RequireResolver {
+  return (path) => {
+    const file = project.files.get(path);
+    invariant(file, `require: file not found in project: ${path}`);
+    const latest = file.versions.at(-1);
+    invariant(latest, `require: file has no versions: ${path}`);
+    return latest.source;
+  };
 }
 
 /**
@@ -36,21 +47,26 @@ function readFile(project: Project, path: string): string {
  *
  * Each unique non-hbs path is included once. Cycles throw.
  */
-export function resolveRequires(project: Project, source: string): { preamble: string; body: string } {
+export function resolveRequires(
+  project: Project,
+  source: string,
+  resolver?: RequireResolver,
+): { preamble: string; body: string } {
+  const read = resolver ?? makeProjectResolver(project);
   const included = new Set<string>();
   const segments: string[] = [];
 
   const rewrite = (text: string, stack: ReadonlySet<string>): string =>
-    text.replace(REQUIRE_RE, (_match, path: string) => {
+    text.replaceAll(REQUIRE_RE, (_match, path: string) => {
       if (path.endsWith(".hbs")) {
         // Inline-callable: rewrite the call site to a lambda literal. No
         // preamble binding — the user names it (or invokes inline).
-        const content = readFile(project, path);
+        const content = read(path);
         return `(lambda args (template/handlebars ${JSON.stringify(content)} args))`;
       }
       if (!included.has(path)) {
         invariant(!stack.has(path), `require: cyclic dependency: ${[...stack, path].join(" → ")}`);
-        const content = readFile(project, path);
+        const content = read(path);
         const next = new Set(stack).add(path);
         if (path.endsWith(".scm")) {
           const expanded = rewrite(content, next);
@@ -68,5 +84,5 @@ export function resolveRequires(project: Project, source: string): { preamble: s
     });
 
   const body = rewrite(source, new Set());
-  return { preamble: segments.join("\n") + (segments.length ? "\n" : ""), body };
+  return { preamble: segments.join("\n") + (segments.length > 0 ? "\n" : ""), body };
 }
