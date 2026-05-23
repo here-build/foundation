@@ -1,0 +1,8 @@
+[
+  { "id": "V0",
+    "lead": "A visual app builder for makers who want to ship without learning a new framework.",
+    "scenario": "You just landed on the homepage of a tool called here.build." },
+  { "id": "V1",
+    "lead": "A visual studio that compiles to clean React + TS. Audit-ready, no AI lock-in.",
+    "scenario": "You just landed on the homepage of a tool called here.build." }
+]

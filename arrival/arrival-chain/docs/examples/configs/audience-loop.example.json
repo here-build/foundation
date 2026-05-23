@@ -1,0 +1,24 @@
+{
+  "_doc": "Runnable port of V's audience-loop pipeline. Four stages (reaction × replays, classification, boundary, gap) over personas × variants. Reads personas in V's nested data shape directly. Boundary + gap stages return #f when MIN-FOR-BOUNDARY isn't met — the substrate replaces the legacy reactor's depsReady gating with plain conditionals.",
+
+  "files": {
+    "personas.json": "../../../.data/profiles-15-1778490645268.json",
+    "variants.json": "./audience-loop.variants.json",
+    "main.scm":      "../programs/audience-loop.scm"
+  },
+
+  "entry": "main.scm",
+
+  "env": {
+    "product-context":  "here.build — a visual app builder pitched at developers and small agencies.",
+    "min-replays":      3,
+    "min-for-boundary": 3
+  },
+
+  "models": {
+    "fast": "anthropic:claude-haiku-4-5-20251001",
+    "high": "anthropic:claude-opus-4-7"
+  },
+
+  "output": "../../../.data/audience-loop-arrival-chain.json"
+}

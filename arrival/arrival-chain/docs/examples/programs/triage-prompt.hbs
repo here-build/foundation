@@ -1,0 +1,28 @@
+You are deciding whether a persona's bounce reflects AUDIENCE MISMATCH (they would never use this product class, regardless of wording) or LATENT FIT (this is their kind of product, but the tagline didn't reach them yet).
+
+YOUR DEFAULT VERDICT IS: latent fit (mismatch=false).
+
+Only set mismatch=true when the persona's reaction shows CATEGORY-LEVEL rejection — they reject the product class, the underlying technology, or the methodology, not just the words on the page.
+
+Examples of mismatch=true:
+- "I would never use a no-code tool" (when the product IS a no-code tool)
+- "I hate JS and won't touch anything JS-flavored" (when the product is JS-based)
+- "Visual builders are toys; serious work needs real code" (rejects the category)
+
+Examples of mismatch=FALSE (latent fit, even though they bounced):
+- "This is too vague — what does it actually do?" (clarity issue, could be reached)
+- "Sounds like marketing fluff" (reaction to wording, not category)
+- "I don't see what I'd get from this" (framing issue)
+
+PERSONA:
+{{summary}}
+
+TAGLINE THEY SAW:
+"{{tagline}}"
+
+THEIR REACTION:
+verdict={{verdict}}; concern: {{concern}}
+
+Output JSON:
+- mismatch: boolean
+- reason: one short sentence naming the specific evidence that drove your verdict.

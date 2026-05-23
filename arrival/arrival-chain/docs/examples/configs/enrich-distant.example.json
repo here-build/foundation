@@ -1,0 +1,21 @@
+{
+  "_doc": "Adapts scripts/enrich-distant-personas.ts onto the arrival-chain substrate. Reads V's actual data shape (versions[N].state.X) directly. Adjust the baseline.json and owl-seeds.json paths to point at the desired source files in .data/. The .scm performs accumulating enrichment — each new persona must stand APART from baseline AND every previously-enriched persona in this batch. Outputs an array of enriched personas.",
+
+  "files": {
+    "baseline.json":  "../../../.data/profiles-prj_1777659407474_wzmeva4l.json",
+    "owl-seeds.json": "../../../.data/profiles-owl-extras-1778492503524.json",
+    "main.scm":       "../programs/enrich-distant.scm"
+  },
+
+  "entry": "main.scm",
+
+  "env": {
+    "system-prompt": "You enrich abstract persona sketches into vivid, concrete target users for a customer-research test of here.build — a visual app builder pitched at developers and small agencies.\n\nYou are given:\n  1. A baseline set of personas (the 'center of mass').\n  2. One ABSTRACT SKETCH (a role + relational pain).\n\nYour task: find the MOST DISTANT version of this person who is still a plausible here.build target user. 'Distant' means: occupies a niche that no baseline persona covers, has stake and budget the baselines lack, and would surface complaints the baselines wouldn't even know to raise. 'Plausible target user' means: could realistically buy or champion here.build — not a tourist, not a tire-kicker.\n\nEnrich the sketch with:\n  - A specific brand-name stack (real tools, real company stage, real geographic context)\n  - A scale number that's plausible and constraining\n  - 3-5 pains, 3-5 goals, 3-5 jobsToBeDone, 3-5 currentToolStack items, 3-5 dealbreakers\n  - Keep the structural identity from the sketch — don't drift toward the baseline archetypes"
+  },
+
+  "models": {
+    "high": "anthropic:claude-opus-4-7"
+  },
+
+  "output": "../../../.data/profiles-distant-enriched-arrival-chain.json"
+}
