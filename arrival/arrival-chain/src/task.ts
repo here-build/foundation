@@ -1,10 +1,9 @@
 import "@here.build/plexus/mobx/register";
-
 import { PlexusModel, syncing } from "@here.build/plexus";
 import { autorun } from "mobx";
 import invariant from "tiny-invariant";
 
-import type { Project } from "./project.js";
+import type { InferenceCache } from "./cache.js";
 
 /**
  * Successful inference. Lives as a child of an `InferenceTask` — the
@@ -14,7 +13,9 @@ import type { Project } from "./project.js";
 @syncing("ArrivalChainInferenceResult")
 export class InferenceResult extends PlexusModel<InferenceTask> {
   @syncing accessor valueJson: string = "null";
-  get value(): unknown { return JSON.parse(this.valueJson); }
+  get value(): unknown {
+    return JSON.parse(this.valueJson);
+  }
 }
 
 /**
@@ -27,26 +28,34 @@ export class InferenceError extends PlexusModel<InferenceTask> {
 }
 
 /**
- * One inference, keyed in `Project.tasks` by its content tuple
- * `[model, prompt, schema]`. The key IS the spec — no hash. The result
- * slot is a discriminated child:
+ * One inference, keyed in `InferenceCache.tasks` by its content tuple
+ * `[tier, prompt, schema, cacheKey]`. The key IS the spec — no hash. The
+ * result slot is a discriminated child:
  *   `null`             → pending
  *   `InferenceResult`  → resolved (value is in `result.value`)
  *   `InferenceError`   → failed (message in `result.message`)
  */
 @syncing("ArrivalChainInferenceTask")
-export class InferenceTask extends PlexusModel<Project> {
+export class InferenceTask extends PlexusModel<InferenceCache> {
   @syncing.child accessor result: InferenceResult | InferenceError | null = null;
 
   get tuple(): readonly [string, string, string | null, string | null] {
     const k = this.parentFieldKey;
     invariant(Array.isArray(k), "InferenceTask: not keyed in a child.map");
-    return k as readonly [string, string, string | null, string | null];
+    return k as unknown as readonly [string, string, string | null, string | null];
   }
-  get model(): string { return this.tuple[0]; }
-  get prompt(): string { return this.tuple[1]; }
-  get schema(): string | null { return this.tuple[2]; }
-  get cacheKey(): string | null { return this.tuple[3]; }
+  get model(): string {
+    return this.tuple[0];
+  }
+  get prompt(): string {
+    return this.tuple[1];
+  }
+  get schema(): string | null {
+    return this.tuple[2];
+  }
+  get cacheKey(): string | null {
+    return this.tuple[3];
+  }
 
   /** Resolve when result is set; reject if it's an error. */
   waitFor(): Promise<unknown> {
@@ -58,8 +67,13 @@ export class InferenceTask extends PlexusModel<Project> {
     return new Promise((resolve, reject) => {
       const dispose = autorun(() => {
         const r = this.result;
-        if (r instanceof InferenceResult) { dispose(); resolve(r.value); }
-        else if (r instanceof InferenceError) { dispose(); reject(new Error(r.message)); }
+        if (r instanceof InferenceResult) {
+          dispose();
+          resolve(r.value);
+        } else if (r instanceof InferenceError) {
+          dispose();
+          reject(new Error(r.message));
+        }
       });
     });
   }

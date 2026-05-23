@@ -1,12 +1,13 @@
 // ── Core ─────────────────────────────────────────────────────────────
 export { type ModelBackend, type ModelSpec } from "./model.js";
-export { runProjectWorker, type WorkerOptions } from "./worker.js";
+export { runWorker, type WorkerOptions } from "./worker.js";
 
 export { InferenceTask, InferenceResult, InferenceError } from "./task.js";
 export { Program, ProgramVersion } from "./program.js";
 export { Project } from "./project.js";
+export { InferenceCache, ArrivalCache } from "./cache.js";
 export { ArrivalChain } from "./arrival-chain.js";
-export { runPipeline, type RunPipelineOptions } from "./runner.js";
+export { runPipeline, type RunPipelineOptions, type PublishOptions } from "./runner.js";
 export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "./trace.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────

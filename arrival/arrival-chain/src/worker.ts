@@ -1,11 +1,16 @@
 import { autorun } from "mobx";
 import invariant from "tiny-invariant";
 
+import type { InferenceCache } from "./cache.js";
 import type { ModelBackend } from "./model.js";
 import { Project } from "./project.js";
 import { InferenceError, InferenceResult, type InferenceTask } from "./task.js";
 
 export interface WorkerOptions {
+  /** Project doc — read for tier → provider:model resolution. */
+  project: Project;
+  /** Inference cache doc — workers autorun on `cache.tasks` and drain pending. */
+  cache: InferenceCache;
   /** Stop the worker. */
   signal?: AbortSignal;
   /**
@@ -24,7 +29,7 @@ const isSingleBackend = (b: ModelBackend | Record<string, ModelBackend>): b is M
   typeof (b as ModelBackend).complete === "function";
 
 /**
- * Observes `project.tasks` and drains pending tasks via the backend
+ * Observes `cache.tasks` and drains pending tasks via the backend
  * registered for the resolved provider.
  *
  * Cache identity is the tier (what the program wrote in `(infer "fast"
@@ -32,11 +37,12 @@ const isSingleBackend = (b: ModelBackend | Record<string, ModelBackend>): b is M
  * resolves to "provider:model"; the backend for `provider` is looked
  * up from `opts.backends` first, then from `Project.getBackend(name)`.
  *
- * Multiple workers on the same doc share work via the result field —
+ * Multiple workers on the same cache share work via the result field —
  * first to write wins; later writers' .complete() lands after but isn't
  * published.
  */
-export function runProjectWorker(project: Project, opts: WorkerOptions = {}): Promise<void> {
+export function runWorker(opts: WorkerOptions): Promise<void> {
+  const { project, cache } = opts;
   const claimed = new WeakSet<InferenceTask>();
 
   const dispatch = (tier: string): { backend: ModelBackend; concreteModel: string } => {
@@ -54,37 +60,32 @@ export function runProjectWorker(project: Project, opts: WorkerOptions = {}): Pr
 
   return new Promise<void>((resolve) => {
     const dispose = autorun(() => {
-      // eslint-disable-next-line no-console
-      console.log("[worker autorun] tasks.size =", project.tasks.size);
-      for (const task of project.tasks.values()) {
+      for (const task of cache.tasks.values()) {
         if (task.result !== null || claimed.has(task)) continue;
-        // eslint-disable-next-line no-console
-        console.log("[worker dispatch]", task.model, task.prompt.slice(0, 60));
+
         claimed.add(task);
         let dispatched: ReturnType<typeof dispatch>;
         try {
           dispatched = dispatch(task.model);
-        } catch (err: unknown) {
+        } catch (error: unknown) {
           task.result = new InferenceError({
-            message: err instanceof Error ? err.message : String(err),
+            message: error instanceof Error ? error.message : String(error),
           });
           continue;
         }
-        dispatched.backend
-          .complete({ model: dispatched.concreteModel, prompt: task.prompt, schema: task.schema })
-          .then(
-            (value) => {
-              // Pretty-printed (2-space indent) — the monitor renders the
-              // valueJson directly; humans can read it without re-formatting
-              // and `JSON.parse` is indifferent to whitespace either way.
-              task.result = new InferenceResult({ valueJson: JSON.stringify(value, null, 2) });
-            },
-            (err: unknown) => {
-              task.result = new InferenceError({
-                message: err instanceof Error ? err.message : String(err),
-              });
-            },
-          );
+        dispatched.backend.complete({ model: dispatched.concreteModel, prompt: task.prompt, schema: task.schema }).then(
+          (value) => {
+            // Pretty-printed (2-space indent) — the monitor renders the
+            // valueJson directly; humans can read it without re-formatting
+            // and `JSON.parse` is indifferent to whitespace either way.
+            task.result = new InferenceResult({ valueJson: JSON.stringify(value, null, 2) });
+          },
+          (error: unknown) => {
+            task.result = new InferenceError({
+              message: error instanceof Error ? error.message : String(error),
+            });
+          },
+        );
       }
     });
 

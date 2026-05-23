@@ -1,5 +1,4 @@
 import "@here.build/plexus/mobx/register";
-
 import {
   execGeneratorFromString as exec,
   execGeneratorExpr as execExpr,
@@ -7,13 +6,23 @@ import {
   sandboxedEnv,
   lipsToJs,
 } from "@here.build/arrival-scheme";
+import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
 import Handlebars from "handlebars";
+import invariant from "tiny-invariant";
 
+import type { InferenceCache } from "./cache.js";
+import type { ModelBackend } from "./model.js";
+import { Program } from "./program.js";
+import { resolveRequires } from "./require.js";
 import { analyzeTemplate, type TemplateInfo, validateShape } from "./template-analyze.js";
+import type { EvalTrace } from "./trace.js";
 
 // Cache compiled+analyzed templates by source string. Templates are pure
 // functions of their source; safe to share across runs and projects.
-interface CompiledTemplate { render: HandlebarsTemplateDelegate; info: TemplateInfo }
+interface CompiledTemplate {
+  render: HandlebarsTemplateDelegate;
+  info: TemplateInfo;
+}
 const TEMPLATE_CACHE = new Map<string, CompiledTemplate>();
 
 function compileTemplate(source: string): CompiledTemplate {
@@ -29,8 +38,12 @@ function compileTemplate(source: string): CompiledTemplate {
 }
 
 const isPrimitiveLike = (v: unknown): boolean =>
-  v === null || v === undefined || Array.isArray(v) ||
-  typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  v === null ||
+  v === undefined ||
+  Array.isArray(v) ||
+  typeof v === "string" ||
+  typeof v === "number" ||
+  typeof v === "boolean";
 
 const isDictLike = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);
@@ -66,21 +79,17 @@ function resolveTemplateInput(args: unknown[], info: TemplateInfo): Record<strin
   }
   // Multi-arg: alternating string-key / value pairs.
   if (args.length % 2 !== 0) {
-    throw new Error(
-      `template: expected even number of args (alternating key/value), got ${args.length}`,
-    );
+    throw new Error(`template: expected even number of args (alternating key/value), got ${args.length}`);
   }
   const fieldSet = new Set(info.rootFields);
   const out: Record<string, unknown> = {};
   for (let i = 0; i < args.length; i += 2) {
     const k = args[i];
     if (typeof k !== "string") {
-      throw new Error(`template: key at position ${i} is not a string (got ${typeName(k)})`);
+      throw new TypeError(`template: key at position ${i} is not a string (got ${typeName(k)})`);
     }
     if (info.rootFields.length > 0 && !fieldSet.has(k)) {
-      throw new Error(
-        `template: unknown field "${k}"; template root fields are: ${info.rootFields.join(", ")}`,
-      );
+      throw new Error(`template: unknown field "${k}"; template root fields are: ${info.rootFields.join(", ")}`);
     }
     out[k] = args[i + 1];
   }
@@ -107,14 +116,6 @@ function renderTemplateCall(source: string, args: unknown[]): string {
   }
   return tm.render(data);
 }
-import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
-import invariant from "tiny-invariant";
-
-import type { ModelBackend } from "./model.js";
-import { Program } from "./program.js";
-import { resolveRequires } from "./require.js";
-import { InferenceTask } from "./task.js";
-import type { EvalTrace } from "./trace.js";
 
 const isThenable = (v: unknown): v is PromiseLike<unknown> =>
   v != null && typeof (v as { then?: unknown }).then === "function";
@@ -123,10 +124,12 @@ const isThenable = (v: unknown): v is PromiseLike<unknown> =>
  * Doc root.
  *   `files`    — owns Programs by path (the filesystem of this project)
  *   `programs` — non-owning refs into `files`, in explicit execution order
- *   `tasks`    — content-addressed inference cache, keyed by the spec
- *                tuple itself: `[model, prompt, schema]`. The key IS the
- *                content. No hash. Cache hits are shared across every
- *                program in the doc.
+ *
+ * Inference results live in a sibling `InferenceCache` doc — bind one via
+ * `project.bindCache(cache)` before running programs or workers. The
+ * separation keeps authored intent (this doc) decoupled from derived
+ * facts (cache doc) so ephemeral runs can share a cache without
+ * polluting any project doc, and projects can share caches.
  *
  * A file in `files` but NOT in `programs` is a library — imported by
  * other files, never executed standalone. Workers consume `programs`
@@ -142,7 +145,7 @@ export class Project extends PlexusModel<null> {
   // populate this at app startup; tests can override by calling
   // Project.registerBackend(name, stub) directly.
 
-  static #backends = new Map<string, ModelBackend>();
+  static readonly #backends = new Map<string, ModelBackend>();
 
   static registerBackend(name: string, backend: ModelBackend): void {
     Project.#backends.set(name, backend);
@@ -156,14 +159,29 @@ export class Project extends PlexusModel<null> {
     Project.#backends.clear();
   }
 
-  @syncing.child.map /** path → Program. Owning child map. */
-  accessor files: Map<string, Program> = new Map();
+  @syncing.child.map /** path → Program. Owning child map. */ accessor files: Map<string, Program> = new Map();
 
-  @syncing.list /** Scheduled execution order. Non-owning references into `files`. */
-  accessor programs: Program[] = [];
+  @syncing.list /** Scheduled execution order. Non-owning references into `files`. */ accessor programs: Program[] = [];
 
-  @syncing.child.map /** Content-addressed inference cache. Key = [tier, prompt, schema, cacheKey]. */
-  accessor tasks: Map<readonly [string, string, string | null, string | null], InferenceTask> = new Map();
+  // ── Cache binding (runtime, not synced) ───────────────────────────
+  //
+  // The sibling `InferenceCache` doc that holds `tasks`. Bound at
+  // orchestration time (runner / CLI / test setup); not part of the
+  // synced model because (a) docs don't reference each other in plexus
+  // by entity-pointer — different state vectors — and (b) the same
+  // project may bind different caches across processes (e.g. team
+  // cache in prod, scratch cache in tests).
+
+  #cache: InferenceCache | null = null;
+
+  bindCache(cache: InferenceCache): void {
+    this.#cache = cache;
+  }
+
+  get cache(): InferenceCache {
+    invariant(this.#cache, "Project: no cache bound — call project.bindCache(cache) before running programs or workers");
+    return this.#cache;
+  }
 
   /**
    * Tier → "provider:modelName" mapping. The cache key carries the
@@ -188,11 +206,11 @@ export class Project extends PlexusModel<null> {
    * deliberately NO scheme-side write path — execution stays a pure
    * function of the project's state, which is what makes replay sound.
    */
-  @syncing.map accessor env: Map<readonly string[], string | number | boolean> = new Map();
+  @syncing.map accessor env: Map<string[], string | number | boolean> = new Map();
 
   setEnv(...args: [...path: string[], value: string | number | boolean]): void {
     invariant(args.length >= 2, "setEnv: need at least one path component and a value");
-    const value = args[args.length - 1] as string | number | boolean;
+    const value = args.at(-1) as string | number | boolean;
     const path = args.slice(0, -1) as string[];
     this.env.set(path, value);
   }
@@ -211,7 +229,9 @@ export class Project extends PlexusModel<null> {
    * which is the right signal — the program named something that simply
    * doesn't exist in this project's env.
    */
-  #installProjectEnvResolver(env: { registerResolver: (r: { id: string; resolve: (name: string) => unknown }) => unknown }): void {
+  #installProjectEnvResolver(env: {
+    registerResolver: (r: { id: string; resolve: (name: string) => unknown }) => unknown;
+  }): void {
     env.registerResolver({
       id: "project-env",
       resolve: (name: string) => {
@@ -243,27 +263,6 @@ export class Project extends PlexusModel<null> {
     const plexus = docPlexus.get(this.__doc__!);
     invariant(plexus, "Project: doc has no Plexus instance");
     plexus.transact(fn);
-  }
-
-  /**
-   * Find-or-create a task for this content tuple. Creating a new task
-   * publishes a `pending` entity; workers observe `tasks` and drain
-   * them. Concurrent calls converge on the same entity (Plexus map
-   * semantics) — no in-flight dedup needed at the call site.
-   *
-   * `cacheKey` is a user-controllable distinguisher for otherwise-
-   * identical specs — set it to a distinct value per draw to get N
-   * independent samples of the same prompt (`null` for "no extra key").
-   */
-  upsertTask(tier: string, prompt: string, schema: string | null, cacheKey: string | null = null): InferenceTask {
-    const key = [tier, prompt, schema, cacheKey] as const;
-    const existing = this.tasks.get(key);
-    // eslint-disable-next-line no-console
-    console.log("[upsertTask]", { tier, promptHead: prompt.slice(0, 60), schema, cacheKey, hit: !!existing });
-    if (existing) return existing;
-    const task = new InferenceTask();
-    this.tasks.set(key, task);
-    return task;
   }
 
   // ── Files + programs ──────────────────────────────────────────────
@@ -312,8 +311,7 @@ export class Project extends PlexusModel<null> {
     const env = sandboxedEnv.inherit("arrival-chain");
     this.#installProjectEnvResolver(env);
 
-    const nullable = (v: unknown): string | null =>
-      v === undefined || v === false || v === null ? null : String(v);
+    const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
 
     /**
      * Schema may arrive as a string (legacy marker) or a nested list
@@ -331,9 +329,12 @@ export class Project extends PlexusModel<null> {
 
     const inferAndWait = async (
       ctx: { currentInvocation?: unknown } | undefined,
-      tier: string, prompt: string, schema: string | null, cacheKey: string | null,
+      tier: string,
+      prompt: string,
+      schema: string | null,
+      cacheKey: string | null,
     ): Promise<unknown> => {
-      const task = this.upsertTask(tier, prompt, schema, cacheKey);
+      const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
       // Stamp task ↔ invocation provenance on the trace's WeakMap if both are present.
       const inv = ctx?.currentInvocation;
       if (inv && opts.trace) opts.trace.bindTask(task, inv as never);
@@ -387,8 +388,7 @@ export class Project extends PlexusModel<null> {
     // is cached by source, and the inferred input shape is validated before
     // rendering — mismatches throw with a path-oriented error.
     env.defineRosetta("template/handlebars", {
-      fn: (source: unknown, args: unknown) =>
-        renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
+      fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
     });
 
     // ── project/get — read-only env access ────────────────────────────
@@ -453,8 +453,7 @@ export class Project extends PlexusModel<null> {
     const env = sandboxedEnv.inherit("arrival-chain-traced");
     this.#installProjectEnvResolver(env);
 
-    const nullable = (v: unknown): string | null =>
-      v === undefined || v === false || v === null ? null : String(v);
+    const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
     const schemaSlot = (v: unknown): string | null => {
       if (v === undefined || v === false || v === null) return null;
       if (typeof v === "string") return v;
@@ -463,9 +462,12 @@ export class Project extends PlexusModel<null> {
     };
     const inferAndWait = async (
       ctx: { currentInvocation?: unknown } | undefined,
-      tier: string, prompt: string, schema: string | null, cacheKey: string | null,
+      tier: string,
+      prompt: string,
+      schema: string | null,
+      cacheKey: string | null,
     ): Promise<unknown> => {
-      const task = this.upsertTask(tier, prompt, schema, cacheKey);
+      const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
       const inv = ctx?.currentInvocation;
       if (inv) opts.trace.bindTask(task, inv as never);
       const value = await task.waitFor();
@@ -486,8 +488,7 @@ export class Project extends PlexusModel<null> {
       },
     });
     env.defineRosetta("template/handlebars", {
-      fn: (source: unknown, args: unknown) =>
-        renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
+      fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
     });
     env.defineRosetta("project/get", { fn: (...path: unknown[]) => this.getEnv(...path.map(String)) });
     env.defineRosetta("infer/chat", {
@@ -495,10 +496,12 @@ export class Project extends PlexusModel<null> {
       fn: (ctx, tier, messages, schema, cacheKey) => {
         const msgs = messages as unknown[];
         invariant(Array.isArray(msgs), "infer/chat: messages must be a list");
-        const canonical = JSON.stringify(msgs.map((m) => {
-          invariant(Array.isArray(m) && m.length === 2, "infer/chat: each message must be (role content)");
-          return { role: String(m[0]), content: String(m[1]) };
-        }));
+        const canonical = JSON.stringify(
+          msgs.map((m) => {
+            invariant(Array.isArray(m) && m.length === 2, "infer/chat: each message must be (role content)");
+            return { role: String(m[0]), content: String(m[1]) };
+          }),
+        );
         return inferAndWait(ctx, String(tier), canonical, schemaSlot(schema), nullable(cacheKey));
       },
     });
@@ -609,4 +612,3 @@ const BUILTIN_PREAMBLE = `
 (define (s/field/array  . args) (apply s/field/_composite args))
 (define (s/field/enum   . args) (apply s/field/_composite args))
 `;
-

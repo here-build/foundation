@@ -17,11 +17,12 @@ import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
 import { reaction } from "mobx";
 
 import { ArrivalChain } from "./arrival-chain.js";
+import { ArrivalCache, InferenceCache } from "./cache.js";
 import type { ModelBackend } from "./model.js";
 import { Project } from "./project.js";
 import { InferenceError, InferenceResult, type InferenceTask } from "./task.js";
 import { EvalTrace, Invocation } from "./trace.js";
-import { runProjectWorker } from "./worker.js";
+import { runWorker } from "./worker.js";
 
 // ════════════════════════════════════════════════════════════════════
 // PUBLIC SURFACE — the three functions everything else exists to serve.
@@ -97,9 +98,7 @@ export interface InferenceCallSite {
   taskId: string;
 }
 
-export type SiteResult =
-  | { kind: "value"; value: unknown }
-  | { kind: "error"; message: string };
+export type SiteResult = { kind: "value"; value: unknown } | { kind: "error"; message: string };
 
 /**
  * Query A. Every inference call fired at (line, col) on the entry program.
@@ -108,14 +107,8 @@ export type SiteResult =
  *   - Pure function of `session`. No replay, just a filter over recorded calls.
  *   - Cheap (linear in #inferences, typical N ≈ 3000).
  */
-export function inferencesAt(
-  session: TraceSession,
-  line: number,
-  col: number,
-): readonly InferenceCallSite[] {
-  return session.inferences.filter(
-    (s) => s.ast.line === line && s.ast.col === col,
-  );
+export function inferencesAt(session: TraceSession, line: number, col: number): readonly InferenceCallSite[] {
+  return session.inferences.filter((s) => s.ast.line === line && s.ast.col === col);
 }
 
 /**
@@ -129,14 +122,11 @@ export function inferencesAt(
  *   - If `site.result.kind === "error"`, the trace still walks the inputs
  *     up to the error point.
  */
-export async function traceForOutput(
-  session: TraceSession,
-  site: InferenceCallSite,
-): Promise<CodeTrace> {
+export async function traceForOutput(session: TraceSession, site: InferenceCallSite): Promise<CodeTrace> {
   if (site.ast.programHash !== session.version.programHash) {
     throw new Error(
       `traceForOutput: site is from a different program ` +
-      `(site=${site.ast.programHash}, session=${session.version.programHash})`,
+        `(site=${site.ast.programHash}, session=${session.version.programHash})`,
     );
   }
 
@@ -268,9 +258,10 @@ function classifySymbolOrigin(
         const lambdaArg = argsCdr.car;
         const lambdaFn = resolveLambdaArg(lambdaArg, walker, trace, childIdx);
         // lambdaFn is a JS function — typeof returns "function" not "object".
-        const params = lambdaFn && (typeof lambdaFn === "object" || typeof lambdaFn === "function")
-          ? (lambdaFn as { __params__?: readonly string[] }).__params__
-          : undefined;
+        const params =
+          lambdaFn && (typeof lambdaFn === "object" || typeof lambdaFn === "function")
+            ? (lambdaFn as { __params__?: readonly string[] }).__params__
+            : undefined;
         if (params && params.length > 0 && params[0] === symbolName) {
           const child = findDirectChildOfInChain(parentInv, walker);
           const sibs = childIdx.get(walker);
@@ -349,6 +340,8 @@ function findDirectChildOfInChain(leaf: Invocation, target: Invocation): Invocat
  */
 export async function recordSession(config: TraceConfig): Promise<TraceSession> {
   const project = ArrivalChain.bootstrap(new Project()).root;
+  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+  project.bindCache(cache);
 
   for (const [path, content] of Object.entries(config.files)) {
     project.addFile(path, content);
@@ -369,7 +362,7 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
 
   const trace = new EvalTrace();
   const ac = new AbortController();
-  const draining = runProjectWorker(project, { backends: config.backends, signal: ac.signal });
+  const draining = runWorker({ project, cache, backends: config.backends, signal: ac.signal });
 
   // Swallow program-eval errors so a recordSession over a program that
   // raises (e.g., backend throws mid-run) still returns a partial session
@@ -399,13 +392,15 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
   const idx = childrenIndexOf(trace);
   const inferences: InferenceCallSite[] = [];
   const invByTaskId = new Map<string, Invocation>();
-  for (const task of project.tasks.values()) {
+  for (const task of cache.tasks.values()) {
     const invs = trace.invocationsFor(task);
     if (invs.length === 0) continue;
     const result: SiteResult =
-      task.result instanceof InferenceResult ? { kind: "value", value: task.result.value }
-      : task.result instanceof InferenceError ? { kind: "error", message: task.result.message }
-      : { kind: "error", message: "task did not resolve before recordSession returned" };
+      task.result instanceof InferenceResult
+        ? { kind: "value", value: task.result.value }
+        : task.result instanceof InferenceError
+          ? { kind: "error", message: task.result.message }
+          : { kind: "error", message: "task did not resolve before recordSession returned" };
     const taskId = taskIdOf(task);
     // Map taskId → canonical (first) invocation for traceForOutput.
     invByTaskId.set(taskId, invs[0]!);
@@ -485,10 +480,14 @@ export function serializePrefix(prefix: DNFPath): string {
 
 function serializeEntry(e: DNFEntry): string {
   switch (e.kind) {
-    case "branch":    return `b:${e.point.line}:${e.point.col}:${e.arm}`;
-    case "iterate":   return `i:${e.point.line}:${e.point.col}:${e.index}`;
-    case "fold-step": return `f:${e.point.line}:${e.point.col}:${e.index}`;
-    case "dispatch":  return `d:${e.point.line}:${e.point.col}:${e.fnHash}`;
+    case "branch":
+      return `b:${e.point.line}:${e.point.col}:${e.arm}`;
+    case "iterate":
+      return `i:${e.point.line}:${e.point.col}:${e.index}`;
+    case "fold-step":
+      return `f:${e.point.line}:${e.point.col}:${e.index}`;
+    case "dispatch":
+      return `d:${e.point.line}:${e.point.col}:${e.fnHash}`;
   }
 }
 
@@ -535,8 +534,12 @@ class MapPathCache implements PathCache {
     return this.#entries.size;
   }
 
-  get hits(): number { return this.#hits; }
-  get misses(): number { return this.#misses; }
+  get hits(): number {
+    return this.#hits;
+  }
+  get misses(): number {
+    return this.#misses;
+  }
 }
 
 /**
@@ -595,11 +598,11 @@ export interface TraceNode {
 }
 
 export type TraceOrigin =
-  | { kind: "literal" }                                             // (e.g. "fast", 0.5)
-  | { kind: "env-read"; path: readonly string[] }                   // project/<name>
-  | { kind: "call"; ast: AstRef }                                   // (foo a b)
-  | { kind: "inference"; site: InferenceCallSite }                  // value was produced by another infer call
-  | { kind: "iteration-element"; sourcePath: AstRef; index: number };// element drawn from a list at runtime
+  | { kind: "literal" } // (e.g. "fast", 0.5)
+  | { kind: "env-read"; path: readonly string[] } // project/<name>
+  | { kind: "call"; ast: AstRef } // (foo a b)
+  | { kind: "inference"; site: InferenceCallSite } // value was produced by another infer call
+  | { kind: "iteration-element"; sourcePath: AstRef; index: number }; // element drawn from a list at runtime
 
 // ════════════════════════════════════════════════════════════════════
 // INTERNAL SCAFFOLDING — types the public functions need, hidden from
@@ -619,10 +622,10 @@ export interface AstRef {
 
 /** One step along the recorded execution path. Emitted only at choice points. */
 export type DNFEntry =
-  | { kind: "branch";    point: AstRef; arm: number }
-  | { kind: "iterate";   point: AstRef; index: number }
+  | { kind: "branch"; point: AstRef; arm: number }
+  | { kind: "iterate"; point: AstRef; index: number }
   | { kind: "fold-step"; point: AstRef; index: number }
-  | { kind: "dispatch";  point: AstRef; fnHash: string };
+  | { kind: "dispatch"; point: AstRef; fnHash: string };
 
 export type DNFPath = readonly DNFEntry[];
 
@@ -665,10 +668,10 @@ export interface DNFTap {
 // collision probability ≈ 1 in 2^16 ≈ 0.001%. Sync, dep-free, portable.
 
 function fnv1a(input: string): string {
-  let hash = 2166136261;
+  let hash = 2_166_136_261;
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
+    hash = Math.imul(hash, 16_777_619);
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
@@ -679,9 +682,7 @@ export function programHashOf(source: string): string {
 }
 
 /** Deterministic across env iteration order — entries sorted by joined key. */
-export function envHashOf(
-  env: ReadonlyMap<readonly string[], string | number | boolean>,
-): string {
+export function envHashOf(env: ReadonlyMap<readonly string[], string | number | boolean>): string {
   const entries: Array<readonly [string, string | number | boolean]> = [];
   for (const [k, v] of env) entries.push([k.join("/"), v] as const);
   entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
@@ -856,11 +857,7 @@ function classifyChoice(
 }
 
 /** Walk parent chain leaf→root and emit DNF entries; result is root→leaf order. */
-function pathFromInvocation(
-  inv: Invocation,
-  programHash: string,
-  idx: Map<Invocation, Invocation[]>,
-): DNFPath {
+function pathFromInvocation(inv: Invocation, programHash: string, idx: Map<Invocation, Invocation[]>): DNFPath {
   const out: DNFEntry[] = [];
   let cur: Invocation | null = inv;
   while (cur && cur.parent) {
