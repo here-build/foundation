@@ -9,7 +9,8 @@ import { ArrivalChain } from "../arrival-chain.js";
 import { ArrivalCache, InferenceCache } from "../cache.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { runWorker } from "../worker.js";
+import { startOrchestrator } from "../worker.js";
+import { singletonRegistry } from "../registry.js";
 
 const stubModel = () => ({
   complete: async (s: ModelSpec) => `echo(${s.model}):${s.prompt}`,
@@ -57,7 +58,12 @@ describe("Project — cross-process via y-websocket relay", () => {
       await onceSynced(cacheProviderServer);
 
       const ac = new AbortController();
-      const draining = runWorker({ project: projectServer, cache: cacheServer, backends: stubModel(), signal: ac.signal });
+      const draining = startOrchestrator({
+        project: projectServer,
+        cache: cacheServer,
+        backends: singletonRegistry(stubModel()),
+        signal: ac.signal,
+      }).done;
 
       // ── Client side ──────────────────────────────────────────────
       const docClient = new Y.Doc({ guid: docServer.guid });

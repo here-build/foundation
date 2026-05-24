@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
+import { singletonRegistry } from "../registry.js";
 
 const PROGRAMS_DIR = path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs");
 const readProgramFile = (name: string) => readFileSync(path.join(PROGRAMS_DIR, name), "utf-8");
@@ -56,7 +57,7 @@ describe("herebuild-react.scm — N × M parallel reactions", () => {
         "replays":       4,
         "system-prompt": "test-sys",
       },
-      backends: backend,
+      backends: singletonRegistry(backend),
     });
 
     expect(backend.complete).toHaveBeenCalledTimes(12);
@@ -92,7 +93,7 @@ describe("herebuild-react.scm — N × M parallel reactions", () => {
         "replays":       4,
         "system-prompt": "s",
       },
-      backends: backend,
+      backends: singletonRegistry(backend),
     });
     const elapsed = Date.now() - t0;
 

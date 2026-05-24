@@ -4,9 +4,7 @@ import { parseChatPrompt, renderSchema, specMessages } from "../backends/_shared
 
 describe("parseChatPrompt", () => {
   it("parses canonical chat JSON", () => {
-    const parsed = parseChatPrompt(
-      '[{"role":"system","content":"sys"},{"role":"user","content":"u"}]',
-    );
+    const parsed = parseChatPrompt('[{"role":"system","content":"sys"},{"role":"user","content":"u"}]');
     expect(parsed).toEqual([
       { role: "system", content: "sys" },
       { role: "user", content: "u" },
@@ -62,9 +60,7 @@ describe("renderSchema", () => {
   });
 
   it("renders nested array-of-objects with enum field", () => {
-    const r = renderSchema(
-      '["array",["object",["name","string"],["bucket",["enum","A","B"]]]]',
-    );
+    const r = renderSchema('["array",["object",["name","string"],["bucket",["enum","A","B"]]]]');
     expect(r).toEqual({
       type: "array",
       items: {

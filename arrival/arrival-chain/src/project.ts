@@ -11,7 +11,6 @@ import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
 
 import type { InferenceCache } from "./cache.js";
-import type { ModelBackend } from "./model.js";
 import { Program } from "./program.js";
 import { resolveRequires, type RequireResolver } from "./require.js";
 import { analyzeTemplate, type TemplateInfo, validateShape } from "./template-analyze.js";
@@ -137,27 +136,9 @@ const isThenable = (v: unknown): v is PromiseLike<unknown> =>
  */
 @syncing("ArrivalChainProject")
 export class Project extends PlexusModel<null> {
-  // ── Static backend registry ───────────────────────────────────────
-  //
-  // Backends carry API keys and SDK instances; they don't belong in the
-  // synced doc. They live on the class as a global registry keyed by
-  // provider name. Side-effect modules at `backends/<name>/register`
-  // populate this at app startup; tests can override by calling
-  // Project.registerBackend(name, stub) directly.
-
-  static readonly #backends = new Map<string, ModelBackend>();
-
-  static registerBackend(name: string, backend: ModelBackend): void {
-    Project.#backends.set(name, backend);
-  }
-
-  static getBackend(name: string): ModelBackend | undefined {
-    return Project.#backends.get(name);
-  }
-
-  static clearBackends(): void {
-    Project.#backends.clear();
-  }
+  // Backend resolution lives in a separate `BackendRegistry` passed to
+  // the orchestrator at startup — see `runtime/registry.ts`. Project is
+  // pure model state (no API keys, no SDK instances).
 
   @syncing.child.map /** path → Program. Owning child map. */ accessor files: Map<string, Program> = new Map();
 

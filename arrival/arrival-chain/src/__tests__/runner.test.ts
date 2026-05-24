@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ModelSpec } from "../model.js";
+import { singletonRegistry, StaticRegistry } from "../registry.js";
 import { runPipeline } from "../runner.js";
 
 const stubBackend = (impl?: (s: ModelSpec) => unknown) => {
@@ -20,7 +21,7 @@ describe("runPipeline — top-to-bottom entry point", () => {
       },
       entry: "main.scm",
       env: { name: "world" },
-      backends: stubBackend(),
+      backends: singletonRegistry(stubBackend()),
     });
 
     expect(result).toBe("hi world");
@@ -42,7 +43,7 @@ describe("runPipeline — top-to-bottom entry point", () => {
         fast: "openai:gpt-4o-mini",
         high: "anthropic:claude-sonnet-4-6",
       },
-      backends: { openai, anthropic },
+      backends: new StaticRegistry({ openai, anthropic }),
     });
 
     expect(openai.complete).toHaveBeenCalledTimes(1);
@@ -62,7 +63,7 @@ describe("runPipeline — top-to-bottom entry point", () => {
         `,
       },
       entry: "main.scm",
-      backends: stubBackend((s) => s.prompt.replace("Greet ", "hi ")),
+      backends: singletonRegistry(stubBackend((s) => s.prompt.replace("Greet ", "hi "))),
     });
 
     expect(result).toEqual(["hi Maya", "hi Priya"]);

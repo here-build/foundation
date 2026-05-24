@@ -8,6 +8,7 @@
  * directly through a let-binding in tests yet.
  */
 import { describe, expect, it, vi } from "vitest";
+import { singletonRegistry } from "../registry.js";
 
 import { runPipeline } from "../runner.js";
 import type { ModelSpec } from "../model.js";
@@ -90,7 +91,7 @@ describe("map-with-feedback — parallel critique → filter → parallel rewrit
         "main.scm": PROGRAM,
       },
       entry: "main.scm",
-      backends: backend,
+      backends: singletonRegistry(backend),
     });
 
     expect(backend.calls.critique).toBe(4);

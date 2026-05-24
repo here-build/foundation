@@ -1,8 +1,8 @@
 import { ArrivalChain } from "./arrival-chain.js";
 import { ArrivalCache, InferenceCache } from "./cache.js";
-import type { ModelBackend } from "./model.js";
+import type { BackendRegistry } from "./registry.js";
 import { Project } from "./project.js";
-import { runWorker } from "./worker.js";
+import { startOrchestrator } from "./worker.js";
 
 export interface PublishOptions {
   /** y-websocket relay URL, e.g. `ws://localhost:1235`. */
@@ -20,16 +20,10 @@ export interface RunPipelineOptions {
   entry: string;
   /** Project env. Each entry is path... + value (the runner unfolds it). */
   env?: Record<string, string | number | boolean>;
-  /** Tier name → "provider:modelName". Only used if `backends` is a record. */
+  /** Tier name → "provider:modelName". The orchestrator resolves through this. */
   models?: Record<string, string>;
-  /**
-   * Per-run backend override. Three shapes accepted by the worker:
-   *   - omitted        — backends come from Project.getBackend(name)
-   *   - ModelBackend   — used for every task, bypasses model resolution
-   *   - Record<provider, ModelBackend> — keyed by provider name; takes
-   *                      precedence over the static registry per provider
-   */
-  backends?: ModelBackend | Record<string, ModelBackend>;
+  /** Provider→backend lookup (required). Construct via `StaticRegistry`, `LayeredRegistry`, or `singletonRegistry`. */
+  backends: BackendRegistry;
   /** Optional abort signal to stop running workers + program. */
   signal?: AbortSignal;
   /** If set, also publish both Project and InferenceCache docs over y-websocket. */
@@ -99,7 +93,8 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<unknown> {
 
   const ownAc = opts.signal ? null : new AbortController();
   const signal = opts.signal ?? ownAc!.signal;
-  const draining = runWorker({ project, cache, backends: opts.backends, signal });
+  const orch = startOrchestrator({ project, cache, backends: opts.backends, signal });
+  const draining = orch.done;
 
   const entryFile = project.files.get(opts.entry);
   if (!entryFile) throw new Error(`runPipeline: entry "${opts.entry}" is not in files`);

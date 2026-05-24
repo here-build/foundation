@@ -1,6 +1,13 @@
 // ── Core ─────────────────────────────────────────────────────────────
 export { type ModelBackend, type ModelSpec } from "./model.js";
-export { runWorker, type WorkerOptions } from "./worker.js";
+export {
+  type BackendRegistry,
+  StaticRegistry,
+  LayeredRegistry,
+  singletonRegistry,
+  emptyRegistry,
+} from "./registry.js";
+export { startOrchestrator, type OrchestratorOptions } from "./worker.js";
 
 export { InferenceTask, InferenceResult, InferenceError } from "./task.js";
 export { Program, ProgramVersion } from "./program.js";

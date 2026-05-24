@@ -1,101 +1,95 @@
 import { autorun } from "mobx";
-import invariant from "tiny-invariant";
 
 import type { InferenceCache } from "./cache.js";
-import type { ModelBackend } from "./model.js";
-import { Project } from "./project.js";
+import type { Project } from "./project.js";
+import type { BackendRegistry } from "./registry.js";
 import { InferenceError, InferenceResult, type InferenceTask } from "./task.js";
 
-export interface WorkerOptions {
+export interface OrchestratorOptions {
   /** Project doc — read for tier → provider:model resolution. */
   project: Project;
-  /** Inference cache doc — workers autorun on `cache.tasks` and drain pending. */
+  /** Inference cache — autoruns observe `cache.tasks` and drain pending. */
   cache: InferenceCache;
-  /** Stop the worker. */
+  /** Provider → backend lookup. Replaces the old static `Project.getBackend`. */
+  backends: BackendRegistry;
+  /** Stop the orchestrator. */
   signal?: AbortSignal;
-  /**
-   * Per-run backend override. Three shapes:
-   *   - omitted        — backends come from Project.getBackend(name)
-   *   - ModelBackend   — used for every task, bypasses model resolution
-   *                      (convenient for tests that don't care about
-   *                       per-provider routing)
-   *   - Record<provider, ModelBackend> — keyed by provider name; takes
-   *                      precedence over the static registry per provider
-   */
-  backends?: ModelBackend | Record<string, ModelBackend>;
 }
 
-const isSingleBackend = (b: ModelBackend | Record<string, ModelBackend>): b is ModelBackend =>
-  typeof (b as ModelBackend).complete === "function";
-
 /**
- * Observes `cache.tasks` and drains pending tasks via the backend
- * registered for the resolved provider.
+ * The orchestrator. Observes `cache.tasks` via mobx autorun; for each
+ * pending task, resolves tier → provider:model through `project.models`,
+ * fetches the backend from `backends`, awaits the result, writes back
+ * to `task.result`.
  *
- * Cache identity is the tier (what the program wrote in `(infer "fast"
- * ...)`). Concrete model selection happens here — `project.models[tier]`
- * resolves to "provider:model"; the backend for `provider` is looked
- * up from `opts.backends` first, then from `Project.getBackend(name)`.
+ * Runtime-agnostic — no Node-specific APIs. Drops in unchanged to:
+ *   - Local Node daemon (LayeredRegistry of env+keychain+detected)
+ *   - Cloudflare DO (StaticRegistry populated from `env`)
+ *   - Tests (singletonRegistry)
  *
- * Multiple workers on the same cache share work via the result field —
- * first to write wins; later writers' .complete() lands after but isn't
- * published.
+ * Multiple orchestrators on the same cache share work via the result
+ * field — first to write wins; later writers' result lands after but
+ * isn't published. Tie-breaking via the per-instance `claimed` WeakSet
+ * keeps a single orchestrator from claiming the same task twice.
  */
-export function runWorker(opts: WorkerOptions): Promise<void> {
-  const { project, cache } = opts;
+export function startOrchestrator(opts: OrchestratorOptions): { done: Promise<void> } {
+  const { project, cache, backends } = opts;
   const claimed = new WeakSet<InferenceTask>();
 
-  const dispatch = (tier: string): { backend: ModelBackend; concreteModel: string } => {
-    // Single-backend shim: bypass resolution entirely, use tier as the
-    // concrete model name. Common in tests; not the production path.
-    if (opts.backends && isSingleBackend(opts.backends)) {
-      return { backend: opts.backends, concreteModel: tier };
-    }
-    const { provider, modelName } = project.resolveTier(tier);
-    const override = opts.backends as Record<string, ModelBackend> | undefined;
-    const backend = override?.[provider] ?? Project.getBackend(provider);
-    invariant(backend, `Worker: no backend registered for provider "${provider}" (tier "${tier}")`);
-    return { backend, concreteModel: modelName };
-  };
-
-  return new Promise<void>((resolve) => {
-    const dispose = autorun(() => {
-      for (const task of cache.tasks.values()) {
-        if (task.result !== null || claimed.has(task)) continue;
-
-        claimed.add(task);
-        let dispatched: ReturnType<typeof dispatch>;
+  return {
+    done: new Promise<void>((resolve) => {
+      const dispatch = async (task: InferenceTask): Promise<void> => {
+        let provider: string;
+        let modelName: string;
+        let tierError: unknown = null;
         try {
-          dispatched = dispatch(task.model);
-        } catch (error: unknown) {
+          ({ provider, modelName } = project.resolveTier(task.model));
+        } catch (error) {
+          tierError = error;
+          provider = task.model;
+          modelName = task.model;
+        }
+        const backend = await backends.get(provider);
+        if (!backend) {
+          task.result = new InferenceError({
+            message: tierError
+              ? tierError instanceof Error ? tierError.message : String(tierError)
+              : `Orchestrator: no backend registered for provider "${provider}" (tier "${task.model}")`,
+          });
+          return;
+        }
+        try {
+          const value = await backend.complete({
+            model: modelName,
+            prompt: task.prompt,
+            schema: task.schema,
+          });
+          // Pretty-printed (2-space) — the monitor renders valueJson directly;
+          // JSON.parse is whitespace-indifferent so this costs nothing.
+          task.result = new InferenceResult({ valueJson: JSON.stringify(value, null, 2) });
+        } catch (error) {
           task.result = new InferenceError({
             message: error instanceof Error ? error.message : String(error),
           });
-          continue;
         }
-        dispatched.backend.complete({ model: dispatched.concreteModel, prompt: task.prompt, schema: task.schema }).then(
-          (value) => {
-            // Pretty-printed (2-space indent) — the monitor renders the
-            // valueJson directly; humans can read it without re-formatting
-            // and `JSON.parse` is indifferent to whitespace either way.
-            task.result = new InferenceResult({ valueJson: JSON.stringify(value, null, 2) });
-          },
-          (error: unknown) => {
-            task.result = new InferenceError({
-              message: error instanceof Error ? error.message : String(error),
-            });
-          },
-        );
-      }
-    });
+      };
 
-    const stop = (): void => {
-      dispose();
-      resolve();
-    };
-    if (opts.signal) {
-      if (opts.signal.aborted) return stop();
-      opts.signal.addEventListener("abort", stop, { once: true });
-    }
-  });
+      const dispose = autorun(() => {
+        for (const task of cache.tasks.values()) {
+          if (task.result !== null || claimed.has(task)) continue;
+          claimed.add(task);
+          void dispatch(task);
+        }
+      });
+
+      const stop = (): void => {
+        dispose();
+        resolve();
+      };
+      if (opts.signal) {
+        if (opts.signal.aborted) return stop();
+        opts.signal.addEventListener("abort", stop, { once: true });
+      }
+    }),
+  };
 }

@@ -5,7 +5,8 @@ import { ArrivalCache, InferenceCache } from "../cache.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { InferenceResult } from "../task.js";
-import { runWorker } from "../worker.js";
+import { startOrchestrator } from "../worker.js";
+import { singletonRegistry } from "../registry.js";
 
 describe("infer/chat — role-tagged message list", () => {
   it("serialises (role content) pairs into a canonical JSON prompt", async () => {
@@ -14,7 +15,7 @@ describe("infer/chat — role-tagged message list", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (s: ModelSpec) => `recv:${s.prompt}`);
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: { complete }, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer/chat "fast"
@@ -35,7 +36,7 @@ describe("infer/chat — role-tagged message list", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => "ok");
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: { complete }, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
 
     const program = `
       (infer/chat "fast"
@@ -56,7 +57,7 @@ describe("infer/chat — role-tagged message list", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => "ok");
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: { complete }, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer/chat "fast" (list (infer/chat/user "first")))
@@ -74,7 +75,7 @@ describe("infer/chat — role-tagged message list", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => "ok");
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: { complete }, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (map (lambda (i)

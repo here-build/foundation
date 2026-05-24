@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
+import { singletonRegistry } from "../registry.js";
 
 const PROGRAM = readFileSync(
   path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs/herebuild-multi.scm"),
@@ -42,7 +43,7 @@ describe("herebuild-multi.scm — K × N × M reactions", () => {
       },
       entry: "main.scm",
       env: { "replays": 3, "system-prompt": "test-sys" },
-      backends: { complete },
+      backends: singletonRegistry({ complete }),
     });
 
     // 2 variants × 2 personas × 3 replays = 12 cells

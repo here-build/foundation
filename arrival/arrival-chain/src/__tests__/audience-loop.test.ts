@@ -9,6 +9,7 @@
  *   - boundary returns #f when below threshold
  */
 import { readFileSync } from "node:fs";
+import { singletonRegistry } from "../registry.js";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -33,9 +34,7 @@ const PERSONAS = {
   p3: profile("p3", "Sam"),
 };
 
-const VARIANTS = [
-  { id: "V0", lead: "lead-0", scenario: "scenario-0" },
-];
+const VARIANTS = [{ id: "V0", lead: "lead-0", scenario: "scenario-0" }];
 
 /**
  * Routes by user-prompt content. Reactions return free text;
@@ -53,7 +52,9 @@ const routedBackend = () => {
       return {
         axes: [{ name: "x", description: "y", polarity: "+" }],
         boundaryDescription: "boundary X",
-        inScopeCount: 2, adjacentCount: 1, outOfScopeCount: 0,
+        inScopeCount: 2,
+        adjacentCount: 1,
+        outOfScopeCount: 0,
       };
     }
     if (user.includes("Analyse gaps")) {
@@ -63,8 +64,11 @@ const routedBackend = () => {
     if (user.includes("Classify how this persona")) {
       calls.classify++;
       return {
-        acceptance: 0.5, confidence: 0.5, proximityToScope: 0.5,
-        bucket: "B", reasoning: "stub",
+        acceptance: 0.5,
+        confidence: 0.5,
+        proximityToScope: 0.5,
+        bucket: "B",
+        reasoning: "stub",
       };
     }
     if (user.includes("You are a synthetic respondent")) {
@@ -83,15 +87,15 @@ describe("audience-loop.scm — full 4-stage pipeline", () => {
       files: {
         "personas.json": JSON.stringify(PERSONAS),
         "variants.json": JSON.stringify(VARIANTS),
-        "main.scm":      PROGRAM,
+        "main.scm": PROGRAM,
       },
       entry: "main.scm",
       env: {
-        "product-context":  "test",
-        "min-replays":      2,
+        "product-context": "test",
+        "min-replays": 2,
         "min-for-boundary": 3,
       },
-      backends: backend,
+      backends: singletonRegistry(backend),
     });
 
     // 3 personas × 2 replays × 1 variant = 6 reactions
@@ -116,15 +120,15 @@ describe("audience-loop.scm — full 4-stage pipeline", () => {
       files: {
         "personas.json": JSON.stringify({ p1: profile("p1", "Maya") }),
         "variants.json": JSON.stringify(VARIANTS),
-        "main.scm":      PROGRAM,
+        "main.scm": PROGRAM,
       },
       entry: "main.scm",
       env: {
-        "product-context":  "test",
-        "min-replays":      2,
+        "product-context": "test",
+        "min-replays": 2,
         "min-for-boundary": 3,
       },
-      backends: backend,
+      backends: singletonRegistry(backend),
     });
 
     // 1 persona × 2 replays + 1 classification, but boundary is skipped.

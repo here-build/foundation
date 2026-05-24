@@ -5,7 +5,8 @@ import { ArrivalCache, InferenceCache } from "../cache.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { InferenceResult } from "../task.js";
-import { runWorker } from "../worker.js";
+import { startOrchestrator } from "../worker.js";
+import { singletonRegistry, StaticRegistry } from "../registry.js";
 
 const echoBackend = () => {
   const complete = vi.fn(async (s: ModelSpec) => `${s.model}::${s.prompt}`);
@@ -24,7 +25,7 @@ describe("worker — multi-provider tier dispatch via project.models", () => {
     const anthropic = echoBackend();
 
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: { openai, anthropic }, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: new StaticRegistry({ openai, anthropic }), signal: ac.signal }).done;
 
     await project.run(`
       (define a (car (infer "fast" "p1")))
@@ -51,7 +52,7 @@ describe("worker — multi-provider tier dispatch via project.models", () => {
 
     const openai = echoBackend();
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: { openai }, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: new StaticRegistry({ openai }), signal: ac.signal }).done;
 
     const first = await project.run(`(car (infer "fast" "hello"))`);
     expect(openai.complete).toHaveBeenCalledTimes(1);
@@ -64,7 +65,7 @@ describe("worker — multi-provider tier dispatch via project.models", () => {
 
     const openai2 = echoBackend();
     const ac2 = new AbortController();
-    const draining2 = runWorker({ project, cache, backends: { openai: openai2 }, signal: ac2.signal });
+    const draining2 = startOrchestrator({ project, cache, backends: new StaticRegistry({ openai: openai2 }), signal: ac2.signal }).done;
 
     const second = await project.run(`(car (infer "fast" "hello"))`);
     expect(openai2.complete).toHaveBeenCalledTimes(0); // cache hit
@@ -79,7 +80,7 @@ describe("worker — multi-provider tier dispatch via project.models", () => {
     // No setModel call.
 
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: { openai: { complete: vi.fn() } }, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: new StaticRegistry({ openai: { complete: vi.fn() } }), signal: ac.signal }).done;
 
     await expect(project.run(`(infer "fast" "x")`)).rejects.toThrow(/no model configured for tier "fast"/);
 
@@ -94,7 +95,7 @@ describe("worker — multi-provider tier dispatch via project.models", () => {
     project.setModel("fast", "anthropic", "claude-sonnet-4-6");
 
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: { openai: { complete: vi.fn() } }, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: new StaticRegistry({ openai: { complete: vi.fn() } }), signal: ac.signal }).done;
 
     await expect(project.run(`(infer "fast" "x")`)).rejects.toThrow(/no backend registered for provider "anthropic"/);
 

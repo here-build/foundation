@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
+import { singletonRegistry } from "../registry.js";
 
 const PROGRAM = readFileSync(
   path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs/generate-personas.scm"),
@@ -32,7 +33,7 @@ const batchStub = () => {
     if (!m) throw new Error(`stub: could not find id range in: ${user.slice(0, 120)}`);
     const start = Number(m[1]);
     const end = Number(m[2]);
-    const personas = [];
+    const personas: Record<string, unknown>[] = [];
     for (let i = start; i <= end; i++) {
       personas.push({
         id: `p${i}`,
@@ -58,7 +59,7 @@ describe("generate-personas.scm — accumulating batch generation", () => {
         "batch-size":  2,
         "system-prompt": "test-sys",
       },
-      backends: backend,
+      backends: singletonRegistry(backend),
     });
 
     // 6 / 2 = 3 batches.
@@ -91,7 +92,7 @@ describe("generate-personas.scm — accumulating batch generation", () => {
       files: { "main.scm": PROGRAM },
       entry: "main.scm",
       env: { "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" },
-      backends: b1,
+      backends: singletonRegistry(b1),
     });
     expect(b1.complete).toHaveBeenCalledTimes(2);
 
@@ -104,7 +105,7 @@ describe("generate-personas.scm — accumulating batch generation", () => {
       files: { "main.scm": PROGRAM },
       entry: "main.scm",
       env: { "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" },
-      backends: b2,
+      backends: singletonRegistry(b2),
     });
     // Different Project ⇒ different doc ⇒ fresh cache. So this fires
     // again. The persistence-across-runs property is tested elsewhere.

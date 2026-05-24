@@ -14,7 +14,8 @@ import { ArrivalChain } from "../arrival-chain.js";
 import { ArrivalCache, InferenceCache } from "../cache.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { runWorker } from "../worker.js";
+import { startOrchestrator } from "../worker.js";
+import { singletonRegistry } from "../registry.js";
 
 const PROGRAM_PREAMBLE = `
 (define TriageSchema
@@ -89,7 +90,7 @@ describe("triage-bouncers — mismatch vs latent fit split", () => {
     });
 
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: backend, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -119,7 +120,7 @@ ${PROGRAM_PREAMBLE}
     project.bindCache(cache);
     const backend = triageStub({});
     const ac = new AbortController();
-    const draining = runWorker({ project, cache, backends: backend, signal: ac.signal });
+    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -155,14 +156,14 @@ ${PROGRAM_PREAMBLE}
     project.bindCache(cache);
     const b1 = triageStub(verdicts);
     const ac1 = new AbortController();
-    const d1 = runWorker({ project, cache, backends: b1, signal: ac1.signal });
+    const d1 = startOrchestrator({ project, cache, backends: singletonRegistry(b1), signal: ac1.signal }).done;
     const first = await project.run(PROGRAM);
     expect(b1.complete).toHaveBeenCalledTimes(2);
     ac1.abort(); await d1;
 
     const b2 = triageStub(verdicts);
     const ac2 = new AbortController();
-    const d2 = runWorker({ project, cache, backends: b2, signal: ac2.signal });
+    const d2 = startOrchestrator({ project, cache, backends: singletonRegistry(b2), signal: ac2.signal }).done;
     const second = await project.run(PROGRAM);
     expect(b2.complete).toHaveBeenCalledTimes(0);
     expect(second).toEqual(first);

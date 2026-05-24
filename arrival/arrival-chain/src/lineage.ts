@@ -18,11 +18,11 @@ import { reaction } from "mobx";
 
 import { ArrivalChain } from "./arrival-chain.js";
 import { ArrivalCache, InferenceCache } from "./cache.js";
-import type { ModelBackend } from "./model.js";
 import { Project } from "./project.js";
 import { InferenceError, InferenceResult, type InferenceTask } from "./task.js";
 import { EvalTrace, Invocation } from "./trace.js";
-import { runWorker } from "./worker.js";
+import type { BackendRegistry } from "./registry.js";
+import { startOrchestrator } from "./worker.js";
 
 // ════════════════════════════════════════════════════════════════════
 // PUBLIC SURFACE — the three functions everything else exists to serve.
@@ -38,11 +38,11 @@ export interface TraceConfig {
   env: Readonly<Record<string, string | number | boolean>>;
   models: Readonly<Record<string, string>>;
   /**
-   * Backend factory. The session runs the program against these; for tests
-   * pass stubs. For live, pass real backends. Identical interface — no
-   * special "test mode" surface.
+   * Provider→backend lookup. Pass a stub for tests via `singletonRegistry`,
+   * a `StaticRegistry({ openai: ..., anthropic: ... })` for explicit
+   * mapping, or any other `BackendRegistry` impl.
    */
-  backends: ModelBackend | Readonly<Record<string, ModelBackend>>;
+  backends: BackendRegistry;
 }
 
 /**
@@ -362,7 +362,8 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
 
   const trace = new EvalTrace();
   const ac = new AbortController();
-  const draining = runWorker({ project, cache, backends: config.backends, signal: ac.signal });
+  const orch = startOrchestrator({ project, cache, backends: config.backends, signal: ac.signal });
+  const draining = orch.done;
 
   // Swallow program-eval errors so a recordSession over a program that
   // raises (e.g., backend throws mid-run) still returns a partial session
