@@ -23,16 +23,10 @@ export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "./trace
 // Concrete backends live as individual subpath modules:
 //   import { openaiBackend }    from "@here.build/arrival-chain/backends/openai";
 //   import { anthropicBackend } from "@here.build/arrival-chain/backends/anthropic";
-//   import { tieredProvidersBackend }
-//                                from "@here.build/arrival-chain/backends/providers";
 //
-// For side-effect default registration into Project.getBackend:
-//   import "@here.build/arrival-chain/backends/openai/register";
-//   import "@here.build/arrival-chain/backends/anthropic/register";
-//   import "@here.build/arrival-chain/backends/providers/register";
-//
-// The shared helpers below are exported from the kernel for callers
-// writing their own backends.
+// Compose them into a BackendRegistry (StaticRegistry/LayeredRegistry)
+// and pass to startOrchestrator. The shared helpers below are exported
+// from the kernel for callers writing their own backends.
 export {
   lazyBackend,
   parseChatPrompt,

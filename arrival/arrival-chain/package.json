@@ -47,10 +47,6 @@
     "./backends/anthropic": {
       "types": "./dist/backends/anthropic.d.ts",
       "import": "./dist/backends/anthropic.js"
-    },
-    "./backends/providers": {
-      "types": "./dist/backends/providers.d.ts",
-      "import": "./dist/backends/providers.js"
     }
   },
   "main": "./dist/index.js",

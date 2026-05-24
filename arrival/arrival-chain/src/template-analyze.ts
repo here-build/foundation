@@ -80,7 +80,7 @@ function addPath(root: Shape, path: string[], optional = false): void {
       return;
     }
     if (!existing || existing.kind === "any") {
-      const next = objShape(optional);
+      const next = { kind: "object" as const, fields: new Map<string, Shape>(), optional };
       cursor.set(key, next);
       cursor = next.fields;
     } else if (existing.kind === "object") {
@@ -107,7 +107,7 @@ function addArrayPath(root: Shape, path: string[], optional = false): Shape {
     const key = path[i]!;
     const existing = cursor.get(key);
     if (!existing || existing.kind !== "object") {
-      const next = objShape(optional);
+      const next = { kind: "object" as const, fields: new Map<string, Shape>(), optional };
       cursor.set(key, next);
       cursor = next.fields;
     } else cursor = existing.fields;
@@ -173,9 +173,13 @@ function walkStatement(stmt: unknown, scope: Shape, root: Shape, rootFields: str
         }
         if (helperName === "with") {
           addPath(scope, parts, optional);
-          let cursor = scope;
+          let cursor: Shape = scope;
           for (const seg of parts) {
-            if (cursor.kind !== "object") cursor = objShape();
+            if (cursor.kind !== "object") {
+              const made = objShape(optional);
+              cursor = made;
+              continue;
+            }
             const next = cursor.fields.get(seg);
             if (!next) {
               const made = objShape(optional);
