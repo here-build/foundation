@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
-// eslint-disable-next-line import/no-unresolved
-import { setupWSConnection } from "y-websocket/bin/utils";
+import { setupWSConnection } from "./_setup-ws-connection.js";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { ArrivalChain } from "../arrival-chain.js";

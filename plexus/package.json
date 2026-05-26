@@ -69,7 +69,7 @@
     "vitest": "4.1.0",
     "ws": "8.18.3",
     "y-protocols": "1.0.6",
-    "y-websocket": "2.1.0",
+    "y-websocket": "3.0.0",
     "yjs": "13.6.30"
   },
   "peerDependencies": {

@@ -6,8 +6,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
-// eslint-disable-next-line import/no-unresolved
-import { setupWSConnection } from "y-websocket/bin/utils";
+import { setupWSConnection } from "./_setup-ws-connection.js";
 import { WebSocket, WebSocketServer } from "ws";
 
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
