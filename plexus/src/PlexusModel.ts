@@ -323,8 +323,8 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
    * Dependency entities are NOT detached.
    */
   get isDetached(): boolean {
-    if (!this.__doc__) return false; // Ephemeral
     if (this.__internals__.isDependency) return false;
+    if (!this.__doc__) return false; // Ephemeral
     if (this.isRoot) return false;
     return this.rootAncestor === null;
   }
