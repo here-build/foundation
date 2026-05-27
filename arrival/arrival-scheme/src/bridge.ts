@@ -10,6 +10,7 @@
 import foldCase from "fold-case";
 import unicodeProperties from "unicode-properties";
 
+import { AValue, unionProvenance } from "./AValue.js";
 import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
 import type { Environment } from "./Environment.js";
 import { SchemeBool } from "./LBool.js";
@@ -206,14 +207,34 @@ export function fromLIPS(value: unknown): SchemeNumeric {
 /**
  * Wrap an Operator to work with LIPS values.
  * Returns a function that converts args from LIPS, calls the operator, and converts result back.
+ *
+ * Provenance flows through every builtin routed here. Concretely: when downstream
+ * Scheme like `(if (< (length cls) 3) ...)` branches, the boolean produced by `<`
+ * must remember it was derived from `cls` so the consumer can attribute behavior
+ * back to that source. Comparison/arithmetic results are produced by `op.call`,
+ * which has no knowledge of the input AValues — stamping has to happen at this
+ * boundary or it would have to be added (and could be forgotten) in ~50 operator
+ * sites. Doing it once here covers `+ - * /`, the six comparisons, gcd/lcm,
+ * sqrt/log/trig, bitwise, and the dozens of r7rs entries under wrappedOps.
+ *
+ * Empty-provenance short-circuit: most call sites are parser-produced literals
+ * (`(+ 1 2)`) where neither argument carries any source ids. The union is empty,
+ * `withProvenance` would just clone, and the clone is observationally identical —
+ * skip the allocation. The `instanceof AValue` guard on `result` also covers
+ * operators whose `op.call` returns raw JS (no provenance surface to stamp).
  */
 export function wrapOperator<In extends any[], InRest extends Codec<any, any> | undefined, Out extends Codec<any, any>>(
   op: Operator<In, InRest, Out>,
 ): (...args: unknown[]) => unknown {
   // Use Object.defineProperty to set the name from operator
   const fn = function (...args: unknown[]): unknown {
+    const provenance = unionProvenance(args.filter((a): a is AValue => a instanceof AValue));
     const converted = args.map(fromLIPS);
-    return op.call(converted);
+    const result: unknown = op.call(converted);
+    if (result instanceof AValue && provenance.size > 0) {
+      return result.withProvenance(provenance);
+    }
+    return result;
   };
   Object.defineProperty(fn, "name", { value: op.name });
   return fn;

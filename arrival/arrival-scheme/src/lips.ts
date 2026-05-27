@@ -5,6 +5,7 @@
  * https://github.com/jcubic/lips
  */
 import invariant from "tiny-invariant";
+import { AValue, unionProvenance } from "./AValue.js";
 import { Environment, setLipsRuntime } from "./Environment.js";
 import { eof } from "./EOF.js";
 import { IgnoreException } from "./IgnoreException.js";
@@ -2035,6 +2036,22 @@ function genMacroWrapper(name: string): Macro {
   });
 }
 
+/**
+ * Stamp `result` with the union of `args`' provenances. Boxes raw JS strings
+ * via `AValue.fromJs` so provenance has somewhere to live — bool/number/bigint
+ * deliberately excluded (boxing bool broke `find`'s `!== false` checks in the
+ * L2 trace.ts kludge; we keep that landmine sealed here for the same reason).
+ */
+function withInputProvenance<T>(args: readonly unknown[], result: T): T {
+  const inputs = args.filter((a): a is AValue => a instanceof AValue);
+  if (inputs.length === 0) return result;
+  const prov = unionProvenance(inputs);
+  if (prov.size === 0) return result;
+  if (result instanceof AValue) return result.withProvenance(prov) as T;
+  if (typeof result === "string") return AValue.fromJs(result, prov) as T;
+  return result;
+}
+
 // -------------------------------------------------------------------------
 export const global_env = new Environment(
   "global",
@@ -2043,17 +2060,17 @@ export const global_env = new Environment(
     undefined, // undefined as parser constant breaks most of the unit tests
     // ------------------------------------------------------------------
     cons: doc("cons", function cons(car, cdr) {
-      return new Pair(car, cdr);
+      return withInputProvenance([car, cdr], new Pair(car, cdr));
     }),
     // ------------------------------------------------------------------
     car: doc("car", function car(list) {
       typecheck("car", list, "pair");
-      return list.car;
+      return withInputProvenance([list], list.car);
     }),
     // ------------------------------------------------------------------
     cdr: doc("cdr", function cdr(list) {
       typecheck("cdr", list, "pair");
-      return list.cdr;
+      return withInputProvenance([list], list.cdr);
     }),
     // ------------------------------------------------------------------
     "set!": doc(
@@ -3204,7 +3221,8 @@ export const global_env = new Environment(
     }),
     // ------------------------------------------------------------------
     list: doc("list", function list(...args) {
-      return args.reduceRight((list, item) => new Pair(item, list), nil);
+      const result = args.reduceRight((list, item) => new Pair(item, list), nil);
+      return withInputProvenance(args, result);
     }),
     // ------------------------------------------------------------------
     substring: doc("substring", function substring(string, start, end) {
@@ -3411,10 +3429,10 @@ export const global_env = new Environment(
         return 0;
       }
       if (is_pair(obj)) {
-        return obj.length();
+        return withInputProvenance([obj], obj.length());
       }
       if ("length" in obj) {
-        return obj.length;
+        return withInputProvenance([obj], obj.length);
       }
     }),
     // ------------------------------------------------------------------

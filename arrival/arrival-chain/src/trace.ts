@@ -40,30 +40,6 @@ export type InvocationState = "running" | "resolved" | "rejected";
  * chosen-arm result) is enforced by the rosetta wrappers for those
  * forms — not here. This function applies the general rule.
  */
-/**
- * Whether a value is worth boxing/stamping with provenance. AValues always
- * stamp via `withProvenance` (no type change, only provenance update). For
- * raw JS primitives the only safe boxing target right now is `string`:
- *
- *   - `string` → SchemeString. Needed because lips's `car` returns
- *     `pair.car` directly, and infer's `jsToLips(["R[…]"])` leaves the
- *     inner string raw. Without boxing, `(define x (car (infer …)))`
- *     binds `x` to a JS string with no provenance carrier.
- *   - `number`/`bigint`/`boolean` are intentionally skipped — boxing them
- *     mints SchemeExact/SchemeInexact/SchemeBool, which downstream JS
- *     consumers (e.g. lips's `find` checking `result !== false`) then
- *     mis-evaluate as truthy. Predicate-returning lambdas would short-
- *     circuit incorrectly. When numeric/boolean provenance becomes load-
- *     bearing for a downstream consumer, do the fix at the producer (the
- *     rosetta returning the number) rather than blanket-box here.
- *   - `function`/`object`/`null`/`undefined` carry no provenance signal
- *     a consumer can read post-boxing.
- */
-function shouldBox(v: unknown): boolean {
-  if (v instanceof AValue) return true;
-  return typeof v === "string";
-}
-
 function computeProvenance(inv: Invocation): ReadonlySet<number> {
   if (inv.isProvenancePoint) return new Set<number>([inv.id]);
   const distinct = new Set<ReadonlySet<number>>();
@@ -255,31 +231,16 @@ export class EvalTrace implements EvalTap {
       // which snapped at primitives (strings/numbers/booleans can't key a
       // WeakMap) and lost provenance whenever an (infer …) chain produced a
       // bare scalar. Now every scheme runtime value extends AValue and carries
-      // its own provenance field, so the same machinery works uniformly for
-      // SchemeString / SchemeExact / SchemeBool as for Pair.
-      //
-      // Boxing fallback (`AValue.fromJs`) is what makes (car (infer …)) work:
-      // lips's `car` is a plain JS function (not a rosetta) and returns
-      // `list.car` directly. When infer's `jsToLips(["R[hi]"])` builds the
-      // Pair, the string inside is left as a raw JS string (not boxed into
-      // SchemeString). So when `car` runs, `result.value` is `"R[hi]"`, which
-      // is not an AValue and `withProvenance` would never fire. Boxing here
-      // mints a SchemeString carrying the just-computed provenance, so the
-      // (define greeting (car …)) binding sees an AValue downstream and
-      // `onSymbolResolved` can attribute its provenance to the consumer.
+      // its own provenance field, so the same machinery works uniformly.
       //
       // The substitution-return is load-bearing: `withProvenance` clones the
       // AValue (provenance is part of identity, not mutable in place), so the
       // freshly-stamped clone lives only here. Without returning it, the
       // evaluator would continue with the ORIGINAL un-stamped value and bind
-      // THAT to whatever `define`/`let`/arg slot this invocation feeds —
-      // breaking the (define greeting (car (infer …))) case described above.
+      // THAT to whatever `define`/`let`/arg slot this invocation feeds.
       // See arrival-scheme `Call.onResolve` for the trampoline-side contract.
-      if (inv.provenance.size > 0 && shouldBox(inv.value)) {
-        inv.value =
-          inv.value instanceof AValue
-            ? inv.value.withProvenance(inv.provenance)
-            : AValue.fromJs(inv.value, inv.provenance);
+      if (inv.provenance.size > 0 && inv.value instanceof AValue) {
+        inv.value = inv.value.withProvenance(inv.provenance);
         const rec = this.records.get(inv.node);
         if (rec) rec.exited += 1;
         return { value: inv.value };

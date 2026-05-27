@@ -16,6 +16,7 @@
  */
 
 import invariant from "tiny-invariant";
+import { AValue, unionProvenance } from "./AValue.js";
 import { Environment } from "./Environment.js";
 import { formatLocation, type SourceLocation } from "./errors.js";
 import {
@@ -602,6 +603,38 @@ export function runSync<T>(generator: Generator<unknown, T, unknown>): T {
 // ============================================================================
 
 /**
+ * Stamp the chosen arm's AValue result with `union(predicate, armResult)`.
+ *
+ * Per spec §5.3 (control-flow restriction): branching forms must not pollute
+ * the result's lineage with provenance from arms that never ran. Without this,
+ * binding `(if (= count 3) low high)` to a name would pin BOTH `low` and
+ * `high` as ancestors of the bound value — including the path the predicate
+ * proved unreachable. The Heisenberg-style "every possible past contributed"
+ * reading breaks variant-lineage debugging downstream (arrival-chain DNF path
+ * reconstruction would surface phantom contributors).
+ *
+ * The tap-level provenance computation already gets this right "for free":
+ * only entered children fire enter/exit, so `computeProvenance` reading from
+ * `inv.children` naturally excludes unchosen arms. THIS function exists for
+ * the SECOND channel — the value flowing back into env bindings. When the
+ * result binds to a symbol via `define`/`let`, `onSymbolResolved` reads
+ * `value.provenance` directly (not the if-invocation's provenance), so the
+ * value itself must carry the union(pred, arm) stamp before the binding fires.
+ *
+ * The two channels are complementary: tap for invocation provenance, value
+ * stamping for symbol-binding provenance. Both must restrict to (pred, arm).
+ */
+function restrictControlFlowProvenance(predicate: SchemeValue, armResult: SchemeValue): SchemeValue {
+  if (!(armResult instanceof AValue)) return armResult;
+  if (!(predicate instanceof AValue) || predicate.provenance.size === 0) return armResult;
+  const prov = unionProvenance([predicate, armResult]);
+  // unionProvenance returns the same reference when only one distinct set
+  // contributed — no allocation needed unless the predicate genuinely adds
+  // new origin ids the arm didn't already carry.
+  return prov === armResult.provenance ? armResult : armResult.withProvenance(prov);
+}
+
+/**
  * Handle 'if' special form: (if test then else?)
  */
 function* evalIf(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
@@ -625,11 +658,13 @@ function* evalIf(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   // Evaluate appropriate branch
   if (is_false(testResult)) {
     if (elseExpr !== undefined) {
-      return yield { call: evaluate(elseExpr, ctx) };
+      const armResult = yield { call: evaluate(elseExpr, ctx) };
+      return restrictControlFlowProvenance(testResult, armResult);
     }
     return undefined; // No else branch, return undefined
   } else {
-    return yield { call: evaluate(thenExpr, ctx) };
+    const armResult = yield { call: evaluate(thenExpr, ctx) };
+    return restrictControlFlowProvenance(testResult, armResult);
   }
 }
 
@@ -1243,19 +1278,20 @@ function* evalCond(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
             invariant(false, "cond: => requires a procedure");
           }
           if (is_promise(result)) {
-            return yield result;
+            result = yield result;
           }
-          return result;
+          return restrictControlFlowProvenance(testResult, result);
         }
       }
 
-      // No expressions means return test result
+      // No expressions means return test result (already carries its own provenance)
       if (!is_pair(exprs) || is_nil(exprs)) {
         return testResult;
       }
 
       // Evaluate expressions
-      return yield { call: evalBegin(exprs, ctx) };
+      const armResult = yield { call: evalBegin(exprs, ctx) };
+      return restrictControlFlowProvenance(testResult, armResult);
     }
 
     node = node.cdr;
@@ -1307,7 +1343,12 @@ function* evalCase(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     }
 
     if (matched) {
-      return yield { call: evalBegin(exprs, ctx) };
+      const armResult = yield { call: evalBegin(exprs, ctx) };
+      // Per spec §5.3 the dispatching value (the case key) plays the predicate
+      // role here — that's the one runtime value whose lineage was consulted
+      // to pick this arm. The literal datums are source constants with no
+      // provenance to propagate.
+      return restrictControlFlowProvenance(key, armResult);
     }
 
     node = node.cdr;
@@ -1332,7 +1373,8 @@ function* evalWhen(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   }
 
   if (!is_false(testResult)) {
-    return yield { call: evalBegin(body, ctx) };
+    const armResult = yield { call: evalBegin(body, ctx) };
+    return restrictControlFlowProvenance(testResult, armResult);
   }
 
   return undefined;
@@ -1354,7 +1396,8 @@ function* evalUnless(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   }
 
   if (is_false(testResult)) {
-    return yield { call: evalBegin(body, ctx) };
+    const armResult = yield { call: evalBegin(body, ctx) };
+    return restrictControlFlowProvenance(testResult, armResult);
   }
 
   return undefined;
