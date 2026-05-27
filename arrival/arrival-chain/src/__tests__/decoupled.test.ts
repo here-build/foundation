@@ -5,7 +5,7 @@ import { ArrivalChain } from "../arrival-chain.js";
 import { ArrivalCache, InferenceCache } from "../cache.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 const pendingCount = (cache: InferenceCache): number =>
@@ -24,7 +24,7 @@ describe("decoupled converge / worker topology", () => {
     project.bindCache(cache);
     const complete = echoStub();
     const ac = new AbortController();
-    const worker = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const worker = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     const value = await project.run(`
       (define a (car (infer "m" "p1")))
@@ -47,7 +47,7 @@ describe("decoupled converge / worker topology", () => {
     expect(pendingCount(cache)).toBe(1);
 
     const ac = new AbortController();
-    const worker = startOrchestrator({ project, cache, backends: singletonRegistry({ complete: echoStub() }), signal: ac.signal }).done;
+    const worker = startOrchestrator({ cache, router: singletonRouter({ complete: echoStub() }), signal: ac.signal }).done;
 
     expect(String(await running)).toContain("echo(m):");
     ac.abort(); await worker;
@@ -58,8 +58,8 @@ describe("decoupled converge / worker topology", () => {
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
     const ac = new AbortController();
-    const w1 = startOrchestrator({ project, cache, backends: singletonRegistry({ complete: echoStub(5) }), signal: ac.signal }).done;
-    const w2 = startOrchestrator({ project, cache, backends: singletonRegistry({ complete: echoStub(5) }), signal: ac.signal }).done;
+    const w1 = startOrchestrator({ cache, router: singletonRouter({ complete: echoStub(5) }), signal: ac.signal }).done;
+    const w2 = startOrchestrator({ cache, router: singletonRouter({ complete: echoStub(5) }), signal: ac.signal }).done;
 
     await project.run(`
       (apply string-append

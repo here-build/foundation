@@ -23,7 +23,7 @@ import { ArrivalCache, InferenceCache } from "../cache.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const PREAMBLE = `
 ;; take/drop/count-if/max-by live in BUILTIN_PREAMBLE.
@@ -251,7 +251,7 @@ describe("optimize-tagline — worklist driver", () => {
       {},
     );
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
 ${PREAMBLE}
@@ -308,7 +308,7 @@ ${PREAMBLE}
       },
     );
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
 ${PREAMBLE}
@@ -346,7 +346,7 @@ ${PREAMBLE}
       { p1: { mismatch: false, reason: "always reachable in theory" } },
     );
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
 ${PREAMBLE}

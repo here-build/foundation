@@ -5,11 +5,19 @@
   ],
   "compilerOptions": {
     "rootDir": "./src",
-    "noEmit": true,
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true,
     "experimentalDecorators": false,
     "useDefineForClassFields": true,
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/__tests__/**/*",
+    "src/__research__/**/*",
+    "src/__custdev__/**/*"
+  ]
 }

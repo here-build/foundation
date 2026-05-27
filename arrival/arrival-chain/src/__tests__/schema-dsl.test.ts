@@ -6,7 +6,7 @@ import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { InferenceResult } from "../task.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry, StaticRegistry } from "../registry.js";
+import { singletonRouter, StaticRouter } from "../registry.js";
 
 /**
  * Schema is a nested tagged list of strings:
@@ -27,7 +27,7 @@ describe("infer — schema as tagged-list DSL", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ name: "Maya" }));
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer "fast"
@@ -48,7 +48,7 @@ describe("infer — schema as tagged-list DSL", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({}));
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     const program = `
       (infer "fast" "p" '("object" ("name" "string")))
@@ -67,7 +67,7 @@ describe("infer — schema as tagged-list DSL", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({}));
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer "fast" "p" '("object" ("name" "string")))
@@ -85,7 +85,7 @@ describe("infer — schema as tagged-list DSL", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => []);
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer "fast"
@@ -116,7 +116,7 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({}));
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer "fast" "a" (s/object (s/field/string "name")))
@@ -135,7 +135,7 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({}));
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer "fast" "x"
@@ -161,7 +161,7 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({}));
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer "fast" "x"
@@ -181,7 +181,7 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({}));
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
     await project.run(`
       (infer "fast" "x"

@@ -3,6 +3,12 @@ import { lazyBackend, renderSchema, specMessages } from "./_shared.js";
 
 export interface OpenAIOptions {
   apiKey?: string;
+  /**
+   * Override the API base URL. Use for OpenAI-compatible endpoints —
+   * notably LM Studio (`http://localhost:1234/v1`), which speaks the
+   * same chat-completions API. Defaults to the OpenAI SDK's default.
+   */
+  baseURL?: string;
 }
 
 /**
@@ -10,11 +16,18 @@ export interface OpenAIOptions {
  * name (e.g. `"gpt-4o-mini"`). Schema-mode emits a structured-output
  * response_format with the rendered JSON Schema; legacy string-marker
  * schemas fall back to `json_object`.
+ *
+ * Works with any OpenAI-compatible endpoint via `baseURL` (LM Studio,
+ * Together, vLLM, …). Local endpoints typically ignore `apiKey` but
+ * the SDK still requires it to be set — pass any non-empty string.
  */
 export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
   return lazyBackend(async () => {
     const { default: OpenAI } = await import("openai");
-    const client = new OpenAI(opts.apiKey ? { apiKey: opts.apiKey } : {});
+    const client = new OpenAI({
+      ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
+      ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
+    });
     return {
       async complete(spec: ModelSpec): Promise<unknown> {
         const messages = specMessages(spec);
@@ -29,12 +42,12 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
                   json_schema: { name: "Output", schema, strict: true },
                 },
               }
-            : spec.schema !== null
-              ? { response_format: { type: "json_object" as const } }
-              : {}),
+            : spec.schema === null
+              ? {}
+              : { response_format: { type: "json_object" as const } }),
         });
         const text = res.choices[0]?.message?.content ?? "";
-        return spec.schema !== null ? JSON.parse(text) : text;
+        return spec.schema === null ? text : JSON.parse(text);
       },
     };
   });

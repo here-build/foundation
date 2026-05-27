@@ -16,7 +16,7 @@ import { ArrivalCache, InferenceCache } from "../cache.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const stub = (delayMs = 0) => {
   const complete = vi.fn(async (_s: ModelSpec) => {
@@ -68,7 +68,7 @@ describe("cross-fertilization — N×(N-1) critique matrix", () => {
 
     const backend = stub();
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     await project.run(PROGRAM);
 
@@ -88,7 +88,7 @@ describe("cross-fertilization — N×(N-1) critique matrix", () => {
 
     const backend = stub(60); // 4 × 3 = 12 calls; sequential would be 720ms
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const t0 = Date.now();
     await project.run(PROGRAM);
@@ -110,7 +110,7 @@ describe("cross-fertilization — N×(N-1) critique matrix", () => {
     // First pass: 3 personas → 6 cells.
     const b1 = stub();
     const ac1 = new AbortController();
-    const d1 = startOrchestrator({ project, cache, backends: singletonRegistry(b1), signal: ac1.signal }).done;
+    const d1 = startOrchestrator({ cache, router: singletonRouter(b1), signal: ac1.signal }).done;
     await project.run(PROGRAM);
     expect(b1.complete).toHaveBeenCalledTimes(6);
     ac1.abort(); await d1;
@@ -124,7 +124,7 @@ describe("cross-fertilization — N×(N-1) critique matrix", () => {
     // uncached — that's 2*3 = 6 new cells. The original 6 still hit.
     const b2 = stub();
     const ac2 = new AbortController();
-    const d2 = startOrchestrator({ project, cache, backends: singletonRegistry(b2), signal: ac2.signal }).done;
+    const d2 = startOrchestrator({ cache, router: singletonRouter(b2), signal: ac2.signal }).done;
     await project.run(PROGRAM);
     expect(b2.complete).toHaveBeenCalledTimes(6);
     expect(cache.tasks.size).toBe(12); // 4 × 3 total

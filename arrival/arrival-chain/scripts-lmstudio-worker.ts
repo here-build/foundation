@@ -116,7 +116,6 @@ async function main() {
     project = ArrivalChain.connect(doc).root;
   }
 
-  project.setModel(TIER, `lmstudio:${MODEL}`);
   Project.registerBackend("lmstudio", lmstudioBackend(BASE_URL));
   console.log(`[worker] tier=${TIER} → lmstudio:${MODEL} via ${BASE_URL}`);
 
@@ -134,7 +133,7 @@ async function main() {
   process.on("SIGINT", () => { console.log("\n[worker] stopping"); stop.abort(); });
 
   // Kick off the demo program so tasks get enqueued.
-  const entry = project.programs[project.programs.length - 1];
+  const entry = [...project.files.values()].at(-1);
   if (entry) {
     entry.run().then(
       (v) => console.log("[program] done:", JSON.stringify(v).slice(0, 200)),

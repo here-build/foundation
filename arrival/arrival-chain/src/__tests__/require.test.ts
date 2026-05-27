@@ -99,4 +99,43 @@ describe("require — Plexus VFS preamble", () => {
     project.bindCache(cache);
     await expect(project.run(`(require "missing.scm")`)).rejects.toThrow(/not found/);
   });
+
+  it("parses .yaml and binds the value", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile(
+      "config.yaml",
+      ["name: maya", "scores:", "  - 10", "  - 20", "  - 30"].join("\n"),
+    );
+
+    const value = await project.run(`(require "config.yaml") (field config "name")`);
+    expect(value).toBe("maya");
+  });
+
+  it("parses .toml and binds the value", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile(
+      "config.toml",
+      ['name = "priya"', "scores = [1, 2, 3]"].join("\n"),
+    );
+
+    const value = await project.run(`(require "config.toml") (field config "name")`);
+    expect(value).toBe("priya");
+  });
+
+  it("parses .ndjson and binds an array of records", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile(
+      "people.ndjson",
+      ['{"id":1,"name":"a"}', '{"id":2,"name":"b"}', '{"id":3,"name":"c"}'].join("\n"),
+    );
+
+    const value = await project.run(`(require "people.ndjson") (length people)`);
+    expect(value).toBe(3);
+  });
 });

@@ -134,8 +134,6 @@ async function main() {
     project = ArrivalChain.connect(doc).root;
   }
 
-  project.setModel("high", `lmstudio:${MODEL}`);
-  project.setModel("fast", `lmstudio:${MODEL}`);
   Project.registerBackend("lmstudio", lmstudioBackend(BASE_URL));
   console.log(`[worker] tier=${TIER} → lmstudio:${MODEL} via ${BASE_URL}; personas=${PERSONAS} replays=${REPLAYS}`);
 
@@ -151,7 +149,7 @@ async function main() {
 
   // Kick off the entry program so tasks get enqueued.
   const entryPath = (project as unknown as { __entry?: string }).__entry ?? "herebuild-multi.scm";
-  const entry = project.findFile(entryPath) ?? project.programs[0];
+  const entry = project.findFile(entryPath) ?? [...project.files.values()][0];
   if (entry) {
     entry.run().then(
       (v) => console.log("[program] done:", JSON.stringify(v).slice(0, 200)),

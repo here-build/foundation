@@ -38,7 +38,7 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
           messages: convo,
         });
         const block = res.content[0];
-        const text = block && block.type === "text" ? block.text : "";
+        const text = block?.type === "text" ? block.text : "";
         return wantsJson ? JSON.parse(text) : text;
       },
     };

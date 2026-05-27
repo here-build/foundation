@@ -9,7 +9,7 @@
  *   - boundary returns #f when below threshold
  */
 import { readFileSync } from "node:fs";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -95,7 +95,7 @@ describe("audience-loop.scm — full 4-stage pipeline", () => {
         "min-replays": 2,
         "min-for-boundary": 3,
       },
-      backends: singletonRegistry(backend),
+      router: singletonRouter(backend),
     });
 
     // 3 personas × 2 replays × 1 variant = 6 reactions
@@ -128,7 +128,7 @@ describe("audience-loop.scm — full 4-stage pipeline", () => {
         "min-replays": 2,
         "min-for-boundary": 3,
       },
-      backends: singletonRegistry(backend),
+      router: singletonRouter(backend),
     });
 
     // 1 persona × 2 replays + 1 classification, but boundary is skipped.

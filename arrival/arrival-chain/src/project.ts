@@ -11,7 +11,9 @@ import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
 
 import type { InferenceCache } from "./cache.js";
-import { Program } from "./program.js";
+import { Draft } from "./draft.js";
+import { Program, ProgramVersion } from "./program.js";
+import { Hypothesis, Run, RunError, RunResult } from "./run.js";
 import { resolveRequires, type RequireResolver } from "./require.js";
 import { analyzeTemplate, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "./trace.js";
@@ -136,13 +138,13 @@ const isThenable = (v: unknown): v is PromiseLike<unknown> =>
  */
 @syncing("ArrivalChainProject")
 export class Project extends PlexusModel<null> {
-  // Backend resolution lives in a separate `BackendRegistry` passed to
-  // the orchestrator at startup — see `runtime/registry.ts`. Project is
-  // pure model state (no API keys, no SDK instances).
+  // Model resolution lives in a separate `ModelRouter` passed to the
+  // orchestrator at startup — see `registry.ts`. Project is pure model
+  // state (no API keys, no SDK instances, no tier mappings — programs
+  // call `(infer "model-id" …)` with the literal model name the runner
+  // knows how to route).
 
   @syncing.child.map /** path → Program. Owning child map. */ accessor files: Map<string, Program> = new Map();
-
-  @syncing.list /** Scheduled execution order. Non-owning references into `files`. */ accessor programs: Program[] = [];
 
   // ── Cache binding (runtime, not synced) ───────────────────────────
   //
@@ -163,19 +165,6 @@ export class Project extends PlexusModel<null> {
     invariant(this.#cache, "Project: no cache bound — call project.bindCache(cache) before running programs or workers");
     return this.#cache;
   }
-
-  /**
-   * Tier → "provider:modelName" mapping. The cache key carries the
-   * *tier* (semantic identifier the program writes), and the worker
-   * resolves it through this map to a concrete provider + model at
-   * dispatch time. Changing the concrete model under a tier does NOT
-   * invalidate the cache — past results are kept; concrete model is
-   * traceability metadata, not identity.
-   *
-   *   project.setModel("fast", "openai",    "gpt-4o-mini");
-   *   project.setModel("high", "anthropic", "claude-sonnet-4-6");
-   */
-  @syncing.map accessor models: Map<string, string> = new Map();
 
   /**
    * Read-only environment surface for scheme programs. Keyed by a path
@@ -227,19 +216,6 @@ export class Project extends PlexusModel<null> {
     });
   }
 
-  setModel(tier: string, provider: string, modelName: string): void {
-    this.models.set(tier, `${provider}:${modelName}`);
-  }
-
-  /** Resolve a tier to {provider, modelName}. Throws if unconfigured. */
-  resolveTier(tier: string): { provider: string; modelName: string } {
-    const spec = this.models.get(tier);
-    invariant(spec, `Project: no model configured for tier "${tier}"`);
-    const idx = spec.indexOf(":");
-    invariant(idx > 0, `Project: tier "${tier}" spec is malformed (want "provider:model"): ${spec}`);
-    return { provider: spec.slice(0, idx), modelName: spec.slice(idx + 1) };
-  }
-
   transact(fn: () => void): void {
     const plexus = docPlexus.get(this.__doc__!);
     invariant(plexus, "Project: doc has no Plexus instance");
@@ -257,18 +233,19 @@ export class Project extends PlexusModel<null> {
     return program;
   }
 
-  schedule(file: Program): void {
-    if (!this.programs.includes(file)) this.programs.push(file);
-  }
-
+  /** Backwards-compat alias for addFile; "program" used to be a distinct concept. */
   addProgram(path: string, initialSource?: string): Program {
-    const file = this.addFile(path, initialSource);
-    this.schedule(file);
-    return file;
+    return this.addFile(path, initialSource);
   }
 
   findFile(path: string): Program | undefined {
     return this.files.get(path);
+  }
+
+  /** Reverse lookup: which path holds this Program? */
+  findFilePath(program: Program): string | undefined {
+    for (const [path, p] of this.files) if (p === program) return path;
+    return undefined;
   }
 
   // ── Execution ─────────────────────────────────────────────────────
@@ -288,7 +265,21 @@ export class Project extends PlexusModel<null> {
    * program's consumer (`promise_all` inside map/string-append) is
    * where the wait happens. Force at observation, not at the call.
    */
-  async run(source: string, opts: { trace?: EvalTrace; resolver?: RequireResolver } = {}): Promise<unknown> {
+  async run(
+    source: string,
+    opts: {
+      trace?: EvalTrace;
+      resolver?: RequireResolver;
+      /** Called with the canonical tuple-key for every `(infer …)` invocation. */
+      onInfer?: (tupleKey: string) => void;
+      /**
+       * Override inference resolution by content tuple — keyed by canonical
+       * JSON of `[tier, prompt, schema, cacheKey]`. Hypothesis re-runs pass
+       * tweaks here so chosen tuples short-circuit without hitting the LLM.
+       */
+      tweaks?: Map<string, string>;
+    } = {},
+  ): Promise<unknown> {
     const env = sandboxedEnv.inherit("arrival-chain");
     this.#installProjectEnvResolver(env);
 
@@ -315,14 +306,19 @@ export class Project extends PlexusModel<null> {
       schema: string | null,
       cacheKey: string | null,
     ): Promise<unknown> => {
+      // Hypothesis tweaks short-circuit before any cache lookup — the whole
+      // point is to NOT consult the LLM for these tuples.
+      const tweakKey = JSON.stringify([tier, prompt, schema, cacheKey]);
+      const tweak = opts.tweaks?.get(tweakKey);
+      if (tweak !== undefined) {
+        const v = JSON.parse(tweak);
+        return Array.isArray(v) ? v : [v];
+      }
       const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
-      // Stamp task ↔ invocation provenance on the trace's WeakMap if both are present.
+      opts.onInfer?.(tweakKey);
       const inv = ctx?.currentInvocation;
       if (inv && opts.trace) opts.trace.bindTask(task, inv as never);
       const value = await task.waitFor();
-      // Always-list return shape. Array passes through; scalar gets
-      // wrapped in a single-element list. Consumers do `(car ...)` for
-      // scalars, `(map ... )` for arrays.
       return Array.isArray(value) ? value : [value];
     };
 
@@ -414,6 +410,305 @@ export class Project extends PlexusModel<null> {
   }
 
   /**
+   * Reverse-membrane entry: evaluate a named `(define …)` from `file`
+   * with supplied `args`. Mints an apiCall Run under that file's Program,
+   * populated with the version snapshot, input, inference references as
+   * they fire, and final output. Returns the Run synchronously so the
+   * API layer can hand its id back to the client immediately.
+   */
+  invoke(opts: { id: string; file: string; name: string; args: readonly unknown[] }): Run {
+    const program = this.files.get(opts.file);
+    invariant(program, `Project.invoke: file "${opts.file}" not found`);
+    invariant(!program.apiCalls.has(opts.id), `Project.invoke: id "${opts.id}" already exists`);
+
+    const run = new Run();
+    this.transact(() => {
+      program.apiCalls.set(opts.id, run);
+      run.versionIndex = program.versions.length - 1;
+      run.hasInput = true;
+      run.name = opts.name;
+      run.argsJson = JSON.stringify(opts.args);
+      run.startedAt = Date.now();
+      run.status = "pending";
+    });
+
+    const body = program.versions.at(-1)?.source ?? "";
+    void this.#executeRun(run, body, opts.name, opts.args);
+    return run;
+  }
+
+  // ── Drafts ─────────────────────────────────────────────────────────
+  //
+  // `.scm` files are deployed (read-only at rest). Edits go through a
+  // Draft — one in-flight mutable head per file. Sandbox runs live
+  // under the draft, not under the Program. Promoting a draft appends
+  // a new version and clears the draft slot.
+
+  /** Mint a new draft from the program's latest version. Throws if a draft already exists. */
+  createDraft(opts: { file: string }): Draft {
+    const program = this.files.get(opts.file);
+    invariant(program, `Project.createDraft: file "${opts.file}" not found`);
+    invariant(!program.draft, `Project.createDraft: draft already exists on "${opts.file}"`);
+    const latestIndex = program.versions.length - 1;
+    const draft = new Draft();
+    this.transact(() => {
+      program.draft = draft;
+      draft.source = program.versions[latestIndex]?.source ?? "";
+      draft.basedOnVersion = latestIndex;
+    });
+    console.log(`[draft] createDraft "${opts.file}" basedOnVersion=${latestIndex} sourceLen=${draft.source.length}`);
+    return draft;
+  }
+
+  /** Mutate the draft's source. Auto-creates a draft from latest version if missing. */
+  editDraftSource(opts: { file: string; source: string }): Draft {
+    const program = this.files.get(opts.file);
+    invariant(program, `Project.editDraftSource: file "${opts.file}" not found`);
+    const draft = program.draft ?? this.createDraft({ file: opts.file });
+    if (draft.source !== opts.source) {
+      this.transact(() => { draft.source = opts.source; });
+      console.log(`[draft] editDraftSource "${opts.file}" sourceLen=${opts.source.length}`);
+    }
+    return draft;
+  }
+
+  /** Publish the draft's source as a new version; clear the draft slot. */
+  promoteDraft(opts: { file: string }): ProgramVersion {
+    const program = this.files.get(opts.file);
+    invariant(program, `Project.promoteDraft: file "${opts.file}" not found`);
+    const draft = program.draft;
+    invariant(draft, `Project.promoteDraft: no draft on "${opts.file}"`);
+    let version!: ProgramVersion;
+    this.transact(() => {
+      version = program.publish(draft.source);
+      program.draft = null;
+    });
+    return version;
+  }
+
+  /** Throw the draft away, including all its sandbox runs. */
+  discardDraft(opts: { file: string }): void {
+    const program = this.files.get(opts.file);
+    invariant(program, `Project.discardDraft: file "${opts.file}" not found`);
+    this.transact(() => { program.draft = null; });
+  }
+
+  /**
+   * Forward-membrane entry: studio is re-evaluating the draft of a file.
+   * Mints a sandbox Run under the file's Draft (auto-creates the draft
+   * if missing). Returns the Run + the finished promise.
+   */
+  sandboxRun(opts: {
+    id: string;
+    file: string;
+    trace?: EvalTrace;
+    resolver?: RequireResolver;
+  }): { run: Run; finished: Promise<unknown> } {
+    const program = this.files.get(opts.file);
+    invariant(program, `Project.sandboxRun: file "${opts.file}" not found`);
+    const draft = program.draft ?? this.createDraft({ file: opts.file });
+    invariant(!draft.sandbox.has(opts.id), `Project.sandboxRun: id "${opts.id}" already exists`);
+
+    const run = new Run();
+    this.transact(() => {
+      draft.sandbox.set(opts.id, run);
+      run.versionIndex = draft.basedOnVersion;
+      run.hasInput = false;
+      run.startedAt = Date.now();
+      run.status = "pending";
+    });
+
+    const body = draft.source;
+    const finished = this.#executeSandbox(run, body, opts.trace, opts.resolver);
+    return { run, finished };
+  }
+
+  async #executeRun(
+    run: Run,
+    body: string,
+    name: string,
+    args: readonly unknown[],
+  ): Promise<void> {
+    // Failure is already recorded on the Run by #runIntoRun; swallow here
+    // so the void-call from invoke() doesn't produce an unhandled rejection.
+    try {
+      await this.#runIntoRun(run, body + "\n" + this.#callForm(name, args));
+    } catch {
+      /* recorded on run.output */
+    }
+  }
+
+  async #executeSandbox(
+    run: Run,
+    body: string,
+    trace?: EvalTrace,
+    resolver?: RequireResolver,
+  ): Promise<unknown> {
+    return this.#runIntoRun(run, body, { trace, resolver });
+  }
+
+  async #runIntoRun(
+    run: Run,
+    source: string,
+    opts: { trace?: EvalTrace; resolver?: RequireResolver; tweaks?: Map<string, string> } = {},
+  ): Promise<unknown> {
+    try {
+      const value = await this.run(source, {
+        ...opts,
+        onInfer: (tupleKey) => {
+          // Each inference key appended in its own micro-transact so peers
+          // see the trace grow as it happens (not just on finish).
+          this.transact(() => run.inferences.push(tupleKey));
+        },
+      });
+      this.transact(() => {
+        run.output = new RunResult({ valueJson: JSON.stringify(value ?? null) });
+        run.status = "resolved";
+        run.finishedAt = Date.now();
+      });
+      return value;
+    } catch (error) {
+      this.transact(() => {
+        run.output = new RunError({
+          message: error instanceof Error ? error.message : String(error),
+        });
+        run.status = "failed";
+        run.finishedAt = Date.now();
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Counterfactual replay. Re-executes the given Run against a tweak map
+   * (canonical-tuple-string → override-value-JSON) and records the result
+   * as a Hypothesis child of that Run. Source comes from the Run's pinned
+   * `versionIndex` snapshot — not the file's latest — so hypotheses stay
+   * faithful even if the file has since been edited.
+   */
+  runHypothesis(opts: {
+    id: string;
+    run: Run;
+    tweaks: Map<string, string>;
+  }): { hypothesis: Hypothesis; finished: Promise<unknown> } {
+    const run = opts.run;
+    invariant(!run.hypotheses.has(opts.id), `Project.runHypothesis: id "${opts.id}" already exists`);
+    // Run.parent is Program (apiCall) or Draft (sandbox). For hypothesis
+    // replay we always want the Program so we can address its versions[].
+    const parentNode = run.parent;
+    invariant(parentNode, "Project.runHypothesis: Run is detached");
+    const program: Program = parentNode instanceof Program ? parentNode : parentNode.parent!;
+    invariant(program, "Project.runHypothesis: could not resolve owning Program");
+    const version = program.versions[run.versionIndex];
+    invariant(version, `Project.runHypothesis: version ${run.versionIndex} missing from program`);
+
+    const hypothesis = new Hypothesis();
+    this.transact(() => {
+      run.hypotheses.set(opts.id, hypothesis);
+      hypothesis.tweaksJson = JSON.stringify(Object.fromEntries(opts.tweaks));
+      hypothesis.startedAt = Date.now();
+      hypothesis.status = "pending";
+    });
+
+    const body = version.source;
+    const source = run.hasInput
+      ? body + "\n" + this.#callForm(run.name, run.args)
+      : body;
+    const finished = (async () => {
+      try {
+        const value = await this.run(source, {
+          tweaks: opts.tweaks,
+          onInfer: (tupleKey) => this.transact(() => hypothesis.inferences.push(tupleKey)),
+        });
+        this.transact(() => {
+          hypothesis.output = new RunResult({ valueJson: JSON.stringify(value ?? null) });
+          hypothesis.status = "resolved";
+          hypothesis.finishedAt = Date.now();
+        });
+        return value;
+      } catch (error) {
+        this.transact(() => {
+          hypothesis.output = new RunError({
+            message: error instanceof Error ? error.message : String(error),
+          });
+          hypothesis.status = "failed";
+          hypothesis.finishedAt = Date.now();
+        });
+        throw error;
+      }
+    })();
+    return { hypothesis, finished };
+  }
+
+  /**
+   * Studio sandbox entry that ALSO produces the tap-attached `userForms`
+   * (for live counter rendering). Auto-creates a draft if missing, syncs
+   * the draft's source to the buffer, then mints a sandbox Run under the
+   * draft. The Run's `versionIndex` pins to the draft's `basedOnVersion`
+   * — the deployed version this experimentation diverged from.
+   */
+  async sandboxRunTraced(opts: {
+    id: string;
+    file: string;
+    source: string;
+    trace: EvalTrace;
+    resolver?: RequireResolver;
+  }): Promise<{ run: Run; userForms: unknown[]; finished: Promise<unknown> }> {
+    console.log(`[sandbox] sandboxRunTraced enter id=${opts.id} file="${opts.file}" sourceLen=${opts.source.length}`);
+    const program = this.files.get(opts.file);
+    invariant(program, `Project.sandboxRunTraced: file "${opts.file}" not found`);
+    const draft = this.editDraftSource({ file: opts.file, source: opts.source });
+    invariant(
+      !draft.sandbox.has(opts.id),
+      `Project.sandboxRunTraced: id "${opts.id}" already exists`,
+    );
+
+    const run = new Run();
+    this.transact(() => {
+      draft.sandbox.set(opts.id, run);
+      run.versionIndex = draft.basedOnVersion;
+      run.hasInput = false;
+      run.startedAt = Date.now();
+      run.status = "pending";
+    });
+    console.log(`[sandbox] sandboxRunTraced minted run id=${opts.id}, draft.sandbox.size=${draft.sandbox.size}`);
+
+    const { userForms, finished } = await this.runTraced(opts.source, {
+      trace: opts.trace,
+      resolver: opts.resolver,
+      onInfer: (tupleKey) => this.transact(() => run.inferences.push(tupleKey)),
+    });
+
+    const tracked = (async () => {
+      try {
+        const value = await finished;
+        this.transact(() => {
+          run.output = new RunResult({ valueJson: JSON.stringify(value ?? null) });
+          run.status = "resolved";
+          run.finishedAt = Date.now();
+        });
+        return value;
+      } catch (error) {
+        this.transact(() => {
+          run.output = new RunError({
+            message: error instanceof Error ? error.message : String(error),
+          });
+          run.status = "failed";
+          run.finishedAt = Date.now();
+        });
+        throw error;
+      }
+    })();
+
+    return { run, userForms, finished: tracked };
+  }
+
+  #callForm(name: string, args: readonly unknown[]): string {
+    const argExprs = args.map((a) => `(json/parse ${JSON.stringify(JSON.stringify(a))})`);
+    return `(${name}${argExprs.length ? " " + argExprs.join(" ") : ""})`;
+  }
+
+  /**
    * Run a program for live inspection: parses the user body separately and
    * returns the parsed top-level forms so callers (the monitor UI) can render
    * the same Pair objects that the evaluator will populate the trace with.
@@ -426,7 +721,14 @@ export class Project extends PlexusModel<null> {
    */
   async runTraced(
     source: string,
-    opts: { trace: EvalTrace; resolver?: RequireResolver },
+    opts: {
+      trace: EvalTrace;
+      resolver?: RequireResolver;
+      /** Called with the canonical tuple-key for every `(infer …)` invocation. */
+      onInfer?: (tupleKey: string) => void;
+      /** Hypothesis-style infer-result overrides keyed by canonical tuple JSON. */
+      tweaks?: Map<string, string>;
+    },
   ): Promise<{ userForms: unknown[]; finished: Promise<unknown> }> {
     // Reuse the same rosetta wiring as run() by going through run() for the
     // preamble half, then parsing and tap-evaluating the user body ourselves.
@@ -448,7 +750,14 @@ export class Project extends PlexusModel<null> {
       schema: string | null,
       cacheKey: string | null,
     ): Promise<unknown> => {
+      const tupleKey = JSON.stringify([tier, prompt, schema, cacheKey]);
+      const tweak = opts.tweaks?.get(tupleKey);
+      if (tweak !== undefined) {
+        const v = JSON.parse(tweak);
+        return Array.isArray(v) ? v : [v];
+      }
       const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
+      opts.onInfer?.(tupleKey);
       const inv = ctx?.currentInvocation;
       if (inv) opts.trace.bindTask(task, inv as never);
       const value = await task.waitFor();

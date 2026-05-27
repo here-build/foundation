@@ -21,7 +21,7 @@ import type { ModelSpec } from "../model.js";
 import { parseChatPrompt } from "../backends/_shared.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const SEEDS = [
   { id: "seed_alpha", description: "A regulatory compliance officer at a mid-sized fintech." },
@@ -104,7 +104,7 @@ describe("enrich-distant-personas — accumulating fold port", () => {
 
     const backend = recordingBackend();
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = await project.run(PROGRAM);
 
@@ -145,7 +145,7 @@ describe("enrich-distant-personas — accumulating fold port", () => {
     // First run: populate cache.
     const b1 = recordingBackend();
     const ac1 = new AbortController();
-    const d1 = startOrchestrator({ project, cache, backends: singletonRegistry(b1), signal: ac1.signal }).done;
+    const d1 = startOrchestrator({ cache, router: singletonRouter(b1), signal: ac1.signal }).done;
     const first = await project.run(PROGRAM);
     expect(b1.complete).toHaveBeenCalledTimes(3);
     ac1.abort(); await d1;
@@ -156,7 +156,7 @@ describe("enrich-distant-personas — accumulating fold port", () => {
     // chain replay-stable.
     const b2 = recordingBackend();
     const ac2 = new AbortController();
-    const d2 = startOrchestrator({ project, cache, backends: singletonRegistry(b2), signal: ac2.signal }).done;
+    const d2 = startOrchestrator({ cache, router: singletonRouter(b2), signal: ac2.signal }).done;
     const second = await project.run(PROGRAM);
 
     expect(b2.complete).toHaveBeenCalledTimes(0);

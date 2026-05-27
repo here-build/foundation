@@ -16,7 +16,6 @@ async function main() {
 
   console.log("bootstrapping locally…");
   const project = ArrivalChain.bootstrap(new Project()).root;
-  project.setModel("fast", "stub:fast");
 
   project.addProgram(
     "demo.scm",

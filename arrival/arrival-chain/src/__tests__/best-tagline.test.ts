@@ -21,7 +21,7 @@ import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const PROGRAMS_DIR = path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs");
 const read = (name: string) => readFileSync(path.join(PROGRAMS_DIR, name), "utf-8");
@@ -116,7 +116,7 @@ describe("best-tagline.scm — integration smoke", () => {
 
     const backend = stub(() => "click");
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const program = project.addProgram("main.scm", FILES["main.scm"]);
     const out = (await program.run()) as {
@@ -175,7 +175,7 @@ describe("best-tagline.scm — integration smoke", () => {
 
     const backend = stub(verdictFor, mismatchFor);
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const program = project.addProgram("main.scm", FILES["main.scm"]);
     const out = (await program.run()) as {

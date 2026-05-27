@@ -12,7 +12,7 @@
  * objects only. Use whichever reads best at the call site.
  */
 import { describe, expect, it, vi } from "vitest";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
@@ -35,7 +35,7 @@ describe("nested-shape data access from scheme", () => {
         `,
       },
       entry: "main.scm",
-      backends: singletonRegistry(noopBackend()),
+      router: singletonRouter(noopBackend()),
     });
     expect(result).toBe(2);
   });
@@ -51,7 +51,7 @@ describe("nested-shape data access from scheme", () => {
         `,
       },
       entry: "main.scm",
-      backends: singletonRegistry(noopBackend()),
+      router: singletonRouter(noopBackend()),
     });
     expect(result).toBe("Maya");
   });
@@ -67,7 +67,7 @@ describe("nested-shape data access from scheme", () => {
         `,
       },
       entry: "main.scm",
-      backends: singletonRegistry(noopBackend()),
+      router: singletonRouter(noopBackend()),
     });
     expect(result).toEqual(["Maya", "Priya"]);
   });
@@ -82,7 +82,7 @@ describe("nested-shape data access from scheme", () => {
         `,
       },
       entry: "main.scm",
-      backends: singletonRegistry(noopBackend()),
+      router: singletonRouter(noopBackend()),
     });
     expect(result).toBe("p1");
   });

@@ -9,7 +9,7 @@ import { ArrivalCache, InferenceCache } from "../cache.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const stubModel = () => ({
   complete: async (s: ModelSpec) => `echo(${s.model}):${s.prompt}`,
@@ -58,9 +58,8 @@ describe("Project — cross-process via y-websocket relay", () => {
 
       const ac = new AbortController();
       const draining = startOrchestrator({
-        project: projectServer,
         cache: cacheServer,
-        backends: singletonRegistry(stubModel()),
+        router: singletonRouter(stubModel()),
         signal: ac.signal,
       }).done;
 

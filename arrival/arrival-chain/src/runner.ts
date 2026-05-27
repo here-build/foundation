@@ -1,6 +1,6 @@
 import { ArrivalChain } from "./arrival-chain.js";
 import { ArrivalCache, InferenceCache } from "./cache.js";
-import type { BackendRegistry } from "./registry.js";
+import type { ModelRouter } from "./registry.js";
 import { Project } from "./project.js";
 import { startOrchestrator } from "./worker.js";
 
@@ -20,10 +20,8 @@ export interface RunPipelineOptions {
   entry: string;
   /** Project env. Each entry is path... + value (the runner unfolds it). */
   env?: Record<string, string | number | boolean>;
-  /** Tier name → "provider:modelName". The orchestrator resolves through this. */
-  models?: Record<string, string>;
-  /** Provider→backend lookup (required). Construct via `StaticRegistry`, `LayeredRegistry`, or `singletonRegistry`. */
-  backends: BackendRegistry;
+  /** Model-id → backend lookup (required). Construct via `StaticRouter`, `LayeredRouter`, or `singletonRouter`. */
+  router: ModelRouter;
   /** Optional abort signal to stop running workers + program. */
   signal?: AbortSignal;
   /** If set, also publish both Project and InferenceCache docs over y-websocket. */
@@ -84,16 +82,9 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<unknown> {
     }
   }
 
-  if (opts.models) {
-    for (const [tier, providerModel] of Object.entries(opts.models)) {
-      const [provider, ...rest] = providerModel.split(":");
-      project.setModel(tier, provider, rest.join(":"));
-    }
-  }
-
   const ownAc = opts.signal ? null : new AbortController();
   const signal = opts.signal ?? ownAc!.signal;
-  const orch = startOrchestrator({ project, cache, backends: opts.backends, signal });
+  const orch = startOrchestrator({ cache, router: opts.router, signal });
   const draining = orch.done;
 
   const entryFile = project.files.get(opts.entry);

@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const PROGRAM = readFileSync(
   path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs/generate-personas.scm"),
@@ -59,7 +59,7 @@ describe("generate-personas.scm — accumulating batch generation", () => {
         "batch-size":  2,
         "system-prompt": "test-sys",
       },
-      backends: singletonRegistry(backend),
+      router: singletonRouter(backend),
     });
 
     // 6 / 2 = 3 batches.
@@ -92,7 +92,7 @@ describe("generate-personas.scm — accumulating batch generation", () => {
       files: { "main.scm": PROGRAM },
       entry: "main.scm",
       env: { "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" },
-      backends: singletonRegistry(b1),
+      router: singletonRouter(b1),
     });
     expect(b1.complete).toHaveBeenCalledTimes(2);
 
@@ -105,7 +105,7 @@ describe("generate-personas.scm — accumulating batch generation", () => {
       files: { "main.scm": PROGRAM },
       entry: "main.scm",
       env: { "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" },
-      backends: singletonRegistry(b2),
+      router: singletonRouter(b2),
     });
     // Different Project ⇒ different doc ⇒ fresh cache. So this fires
     // again. The persistence-across-runs property is tested elsewhere.

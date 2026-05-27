@@ -1,6 +1,34 @@
+import { parse as parseToml } from "smol-toml";
 import invariant from "tiny-invariant";
+import { parse as parseYaml } from "yaml";
 
 import type { Project } from "./project.js";
+
+/**
+ * Data-format parsers — each takes the file's text and returns a JSON-
+ * shaped value the scheme runtime can consume via `json/parse`. New
+ * formats slot in here without touching the scheme runtime, because the
+ * eventual call is always `(json/parse "<canonicalised JSON>")`.
+ */
+const DATA_PARSERS: Record<string, (text: string) => unknown> = {
+  ".json": (text) => JSON.parse(text),
+  ".yaml": (text) => parseYaml(text),
+  ".yml": (text) => parseYaml(text),
+  ".toml": (text) => parseToml(text),
+  ".ndjson": (text) =>
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line)),
+};
+
+function dataExt(path: string): string | null {
+  for (const ext of Object.keys(DATA_PARSERS)) {
+    if (path.endsWith(ext)) return ext;
+  }
+  return null;
+}
 
 /**
  * Resolver function: take a `(require "<path>")` literal and return the
@@ -36,7 +64,11 @@ function makeProjectResolver(project: Project): RequireResolver {
  *           top-level `define`s spill into the calling env; the (require …)
  *           call is stripped from the body.
  *   .txt  → `(define <name> "<content>")` binding; call stripped.
- *   .json → `(define <name> (json/parse "<content>"))` binding; call stripped.
+ *   .json/.yaml/.yml/.toml/.ndjson →
+ *           parsed at resolve-time and re-emitted as canonical JSON, so
+ *           the scheme runtime sees a uniform `(define <name>
+ *           (json/parse "<canonicalised>"))`. New data formats slot in
+ *           via `DATA_PARSERS` above without touching the runtime.
  *   .hbs  → the (require …) CALL ITSELF is rewritten in place to a lambda
  *           literal: `(lambda args (template/handlebars "<src>" args))`.
  *           Users wrap it with their own name:
@@ -72,12 +104,19 @@ export function resolveRequires(
           const expanded = rewrite(content, next);
           included.add(path);
           segments.push(expanded);
-        } else if (path.endsWith(".json")) {
-          included.add(path);
-          segments.push(`(define ${pathToIdent(path)} (json/parse ${JSON.stringify(content)}))`);
         } else {
-          included.add(path);
-          segments.push(`(define ${pathToIdent(path)} ${JSON.stringify(content)})`);
+          const ext = dataExt(path);
+          if (ext) {
+            // Parse with the format-specific parser, then re-serialise to
+            // canonical JSON. The scheme runtime always sees `json/parse`.
+            const parsed = DATA_PARSERS[ext]!(content);
+            const canonical = JSON.stringify(parsed);
+            included.add(path);
+            segments.push(`(define ${pathToIdent(path)} (json/parse ${JSON.stringify(canonical)}))`);
+          } else {
+            included.add(path);
+            segments.push(`(define ${pathToIdent(path)} ${JSON.stringify(content)})`);
+          }
         }
       }
       return ""; // strip the require call from the body

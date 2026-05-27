@@ -18,7 +18,7 @@ import { ArrivalCache, InferenceCache } from "../cache.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const PROGRAM_PREAMBLE = `
 ;; take/drop/count-if/max-by live in BUILTIN_PREAMBLE.
@@ -158,7 +158,7 @@ describe("gepa-until-plateau — single-candidate hill climb", () => {
     );
 
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -197,7 +197,7 @@ ${PROGRAM_PREAMBLE}
     );
 
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -241,7 +241,7 @@ ${PROGRAM_PREAMBLE}
     });
     const backend = { complete };
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     // Pass an inherited hint: prior branch found that "t-prior" reached p1.
     // We expect reflection to synthesize "t-merged" instead of the cold "t1".
@@ -276,7 +276,7 @@ ${PROGRAM_PREAMBLE}
     );
 
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}

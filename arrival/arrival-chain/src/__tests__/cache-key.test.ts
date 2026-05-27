@@ -6,7 +6,7 @@ import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { InferenceResult } from "../task.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const counterStub = () => {
   let n = 0;
@@ -25,7 +25,7 @@ describe("infer — cache-key for multi-replay sampling", () => {
     project.bindCache(cache);
     const backend = counterStub();
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     await project.run(`
       (car (infer "m" "same" #f "k1"))
@@ -44,7 +44,7 @@ describe("infer — cache-key for multi-replay sampling", () => {
     project.bindCache(cache);
     const backend = counterStub();
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry(backend), signal: ac.signal }).done;
+    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     await project.run(`
       (map (lambda (i) (car (infer "m" "same" #f (number->string i))))

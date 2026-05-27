@@ -21,7 +21,7 @@ import { ArrivalCache, InferenceCache } from "./cache.js";
 import { Project } from "./project.js";
 import { InferenceError, InferenceResult, type InferenceTask } from "./task.js";
 import { EvalTrace, Invocation } from "./trace.js";
-import type { BackendRegistry } from "./registry.js";
+import type { ModelRouter } from "./registry.js";
 import { startOrchestrator } from "./worker.js";
 
 // ════════════════════════════════════════════════════════════════════
@@ -36,13 +36,12 @@ export interface TraceConfig {
   files: Readonly<Record<string, string>>;
   entry: string;
   env: Readonly<Record<string, string | number | boolean>>;
-  models: Readonly<Record<string, string>>;
   /**
-   * Provider→backend lookup. Pass a stub for tests via `singletonRegistry`,
-   * a `StaticRegistry({ openai: ..., anthropic: ... })` for explicit
-   * mapping, or any other `BackendRegistry` impl.
+   * Model-id → backend lookup. Pass a stub for tests via `singletonRouter`,
+   * a `StaticRouter({ "gpt-4o-mini": ..., "claude-3-5-sonnet": ... })` for
+   * explicit mapping, or any other `ModelRouter` impl.
    */
-  backends: BackendRegistry;
+  router: ModelRouter;
 }
 
 /**
@@ -349,11 +348,6 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
   for (const [key, value] of Object.entries(config.env)) {
     project.setEnv(key, value);
   }
-  for (const [tier, providerModel] of Object.entries(config.models)) {
-    const [provider, ...rest] = providerModel.split(":");
-    if (!provider) continue;
-    project.setModel(tier, provider, rest.join(":"));
-  }
 
   const entryFile = project.files.get(config.entry);
   if (!entryFile) throw new Error(`recordSession: entry "${config.entry}" not in files`);
@@ -362,7 +356,7 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
 
   const trace = new EvalTrace();
   const ac = new AbortController();
-  const orch = startOrchestrator({ project, cache, backends: config.backends, signal: ac.signal });
+  const orch = startOrchestrator({ cache, router: config.router, signal: ac.signal });
   const draining = orch.done;
 
   // Swallow program-eval errors so a recordSession over a program that
@@ -412,7 +406,10 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
       if (!loc) continue;
       inferences.push({
         ast: { programHash, line: loc.line, col: loc.col },
-        model: { tier: task.model, concrete: project.models.get(task.model) ?? task.model },
+        // Under the new model, the task.model string IS the concrete model id
+        // — no tier indirection. Keep the same shape for downstream consumers
+        // (they get `concrete` directly; `tier` is the same string for now).
+        model: { tier: task.model, concrete: task.model },
         prompt: task.prompt,
         schema: task.schema,
         cacheKey: task.cacheKey,

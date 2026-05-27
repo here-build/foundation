@@ -6,7 +6,7 @@ import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { InferenceResult } from "../task.js";
 import { startOrchestrator } from "../worker.js";
-import { singletonRegistry } from "../registry.js";
+import { singletonRouter } from "../registry.js";
 
 const echoStub = (delayMs = 0) =>
   vi.fn(async (s: ModelSpec) => {
@@ -21,7 +21,7 @@ describe("Project.run — the converge kernel", () => {
     project.bindCache(cache);
     const complete = echoStub();
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal });
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal });
 
     const value = await project.run(`
       (define a (car (infer "m" "p1")))
@@ -53,7 +53,7 @@ describe("Project.run — the converge kernel", () => {
     project.bindCache(cache);
     const complete = echoStub(60);
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal });
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal });
 
     const t0 = Date.now();
     await project.run(`
@@ -75,7 +75,7 @@ describe("Project.run — the converge kernel", () => {
     project.bindCache(cache);
     const complete = echoStub();
     const ac = new AbortController();
-    const draining = startOrchestrator({ project, cache, backends: singletonRegistry({ complete }), signal: ac.signal });
+    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal });
 
     await project.run(`
       (apply string-append

@@ -20,7 +20,6 @@ describe("Program — versioned source + run against the project task cache", ()
     cache.upsertTask("m", "X/p2", null).result = result('"done"');
 
     expect(project.files.get("demo")).toBe(program);
-    expect(project.programs).toContain(program);
     expect(program.versions.length).toBe(1);
     expect(await program.run()).toBe("done");
   });

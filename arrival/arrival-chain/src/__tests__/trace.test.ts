@@ -68,7 +68,6 @@ describe("Layer 2 — EvalTrace records map", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    project.setModel("slow", "stub:slow");
 
     const trace = new EvalTrace();
     const inflight = project.run(`(car (infer "slow" "p"))`, { trace });
@@ -96,7 +95,6 @@ describe("Layer 2 — EvalTrace records map", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    project.setModel("slow", "stub:slow");
 
     const trace = new EvalTrace();
     let snapshots: Array<{ entered: number; exited: number }> = [];
@@ -136,7 +134,6 @@ describe("Layer 2 — EvalTrace records map", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    project.setModel("slow", "stub:slow");
     const trace = new EvalTrace();
     const inflight = project.run(`(car (infer "slow" "p"))`, { trace });
     await new Promise((r) => setTimeout(r, 30));
@@ -160,7 +157,6 @@ describe("Layer 2 — EvalTrace records map", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    project.setModel("slow", "stub:slow");
     const trace = new EvalTrace();
 
     // 3 distinct prompts → 3 tasks → 3 invocations, all of the same inner
@@ -195,7 +191,6 @@ describe("Layer 2 — EvalTrace records map", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    project.setModel("slow", "stub:slow");
     const trace = new EvalTrace();
     const inflight = project.run(`(car (infer "slow" "p"))`, { trace });
     await new Promise((r) => setTimeout(r, 30));

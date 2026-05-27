@@ -16,7 +16,7 @@
  *   - new TODO tests for nested map, exceptions, filter index, etc.
  *     (see G1–G8 in lineage.ts review findings)
  */
-import { StaticRegistry } from "../registry.js";
+import { StaticRouter } from "../registry.js";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -68,8 +68,9 @@ const baseConfig = (): TraceConfig => ({
   files:   { "main.scm": PROGRAM },
   entry:   "main.scm",
   env:     {},
-  models:  { fast: "stub:fast" },
-  backends: new StaticRegistry({ stub: stubBackend() }),
+  // Router resolves the literal model-id the program writes. PROGRAM uses
+  // `(infer "fast" …)` — that string is the model-id under the new model.
+  router: new StaticRouter({ fast: stubBackend() }),
 });
 
 // ════════════════════════════════════════════════════════════════════
@@ -242,7 +243,7 @@ describe("traceForOutput", () => {
     const sessionB = await recordSession({
       ...baseConfig(),
       files: { "main.scm": otherProgram },
-      backends: new StaticRegistry({ stub: helloStub }),
+      router: new StaticRouter({ fast: helloStub }),
     });
     const siteFromB = sessionB.inferences[0]!;
     await expect(traceForOutput(sessionA, siteFromB))
@@ -294,7 +295,7 @@ describe("nested map (G1)", () => {
     const session = await recordSession({
       ...baseConfig(),
       files: { "main.scm": program },
-      backends: new StaticRegistry({ stub: echoBackend() }),
+      router: new StaticRouter({ fast: echoBackend() }),
     });
     expect(session.inferences.length).toBe(4); // 2 outer × 2 inner
     // Each inference should have at least two `iterate` entries in its path.
@@ -311,7 +312,7 @@ describe("short-circuit and/or (G2)", () => {
     const session = await recordSession({
       ...baseConfig(),
       files: { "main.scm": program },
-      backends: new StaticRegistry({ stub: echoBackend() }),
+      router: new StaticRouter({ fast: echoBackend() }),
     });
     expect(session.inferences.length).toBe(1); // second infer never fires
     expect(session.inferences[0]!.prompt).toBe("from-or");
@@ -323,7 +324,7 @@ describe("exception mid-eval (G3)", () => {
     const program = `(car (infer "fast" "fail-please"))`;
     const config = {
       ...baseConfig(),
-      backends: new StaticRegistry({
+      router: new StaticRouter({
         stub: {
           complete: vi.fn(async () => { throw new Error("backend boom"); }),
         },
@@ -344,7 +345,7 @@ describe("cacheKey distinguishes prompts (G5)", () => {
     const session = await recordSession({
       ...baseConfig(),
       files: { "main.scm": program },
-      backends: new StaticRegistry({ stub: echoBackend() }),
+      router: new StaticRouter({ fast: echoBackend() }),
     });
     expect(session.inferences.length).toBe(2);
     expect(session.inferences.map((i) => i.cacheKey).sort()).toEqual(["key-a", "key-b"]);
@@ -361,7 +362,7 @@ describe("infer/chat canonical prompt (G6)", () => {
     const session = await recordSession({
       ...baseConfig(),
       files: { "main.scm": program },
-      backends: new StaticRegistry({ stub: echoBackend() }),
+      router: new StaticRouter({ fast: echoBackend() }),
     });
     const site = session.inferences[0]!;
     expect(site.prompt.startsWith("[")).toBe(true); // JSON list, not s-expression
@@ -380,7 +381,7 @@ describe("filter index against input list (G7)", () => {
     const session = await recordSession({
       ...baseConfig(),
       files: { "main.scm": program },
-      backends: new StaticRegistry({ stub: echoBackend() }),
+      router: new StaticRouter({ fast: echoBackend() }),
     });
     // Two survivors: 2 (input idx 1) and 3 (input idx 2). Map fires per
     // survivor; recorded iterate index reflects the FILTER's idea.
@@ -398,7 +399,7 @@ describe("when / unless / case (G8)", () => {
     const session = await recordSession({
       ...baseConfig(),
       files: { "main.scm": program },
-      backends: new StaticRegistry({ stub: echoBackend() }),
+      router: new StaticRouter({ fast: echoBackend() }),
     });
     expect(session.inferences.length).toBe(1);
     const branches = session.inferences[0]!.path.filter((e) => e.kind === "branch");
@@ -431,7 +432,7 @@ describe("async-recursive HOFs (audit #1)", () => {
     const session = await recordSession({
       ...baseConfig(),
       files: { "main.scm": program },
-      backends: new StaticRegistry({ stub: echoBackend() }),
+      router: new StaticRouter({ fast: echoBackend() }),
     });
     // Predicates fire for "a" (no match), "b" (match → stop). echoBackend
     // returns "[<prompt>]", so prompt "b" → "[b]" → match.

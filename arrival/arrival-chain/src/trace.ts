@@ -162,11 +162,11 @@ export class EvalTrace implements EvalTap {
       }
       const name = (symbol as { __name__?: unknown }).__name__;
       if (typeof name === "string") map.set(name, value);
-    } catch (err) {
+    } catch (error) {
       if (!this.#symbolTapWarned) {
         this.#symbolTapWarned = true;
-        // eslint-disable-next-line no-console
-        console.warn("EvalTrace.onSymbolResolved threw; tap data may be incomplete:", err);
+
+        console.warn("EvalTrace.onSymbolResolved threw; tap data may be incomplete:", error);
       }
     }
   };

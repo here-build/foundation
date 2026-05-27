@@ -1,9 +1,10 @@
 import "@here.build/plexus/mobx/register";
-
 import { PlexusModel, syncing } from "@here.build/plexus";
 import invariant from "tiny-invariant";
 
+import { Draft } from "./draft.js";
 import type { Project } from "./project.js";
+import type { Run } from "./run.js";
 
 /**
  * One source-of-the-program at a point in time. Append a new version
@@ -25,15 +26,23 @@ export class ProgramVersion extends PlexusModel<Program> {
 }
 
 /**
- * A file in the project. Holds the version log; the cache lives on the
- * Project (cross-file content-addressed).
+ * A deployed .scm file. Read-only view of the latest published version;
+ * edits go through `Program.draft` (a separate mutable head).
  *
- * `program.run()` runs the latest version.
+ *   versions[] — deployment timeline. Grows on `promoteDraft`; never on plain edit.
+ *   apiCalls   — external invocations against deployed versions.
+ *   draft      — at most one in-flight editable fork. Sandbox runs live under it.
  */
 @syncing("ArrivalChainProgram")
 export class Program extends PlexusModel<Project> {
   @syncing.child.list
   accessor versions: ProgramVersion[] = [];
+
+  /** Reverse-membrane: external invocation Runs, keyed by client-supplied id. */
+  @syncing.child.map accessor apiCalls: Map<string, Run> = new Map();
+
+  /** At most one in-flight draft. Null = no edits in progress; editor is read-only. */
+  @syncing.child accessor draft: Draft | null = null;
 
   publish(source: string): ProgramVersion {
     const version = new ProgramVersion({ source });
