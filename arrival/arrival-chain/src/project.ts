@@ -317,13 +317,25 @@ export class Project extends PlexusModel<null> {
       const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
       opts.onInfer?.(tweakKey);
       const inv = ctx?.currentInvocation;
-      if (inv && opts.trace) opts.trace.bindTask(task, inv as never);
+      if (inv && opts.trace) {
+        opts.trace.bindTask(task, inv as never);
+        // Mark this invocation as a provenance point — every (infer …) call
+        // is a new singleton {self.id} regardless of input provenances.
+        opts.trace.markProvenancePoint(inv as never);
+      }
       const value = await task.waitFor();
       return Array.isArray(value) ? value : [value];
     };
 
+    // `provenancePoint: true` here AND the explicit `markProvenancePoint` call
+    // inside `inferAndWait` are intentionally redundant during the L2 transition.
+    // The rosetta wrapper marks the invocation via the option (so result stamping
+    // happens through the algebra), and the inferAndWait path covers the case
+    // where ctx.currentInvocation isn't where the wrapper expects (e.g., async
+    // re-entry). Both write `inv.isProvenancePoint = true` — idempotent.
     env.defineRosetta("infer", {
       withContext: true,
+      options: { provenancePoint: true },
       fn: (ctx, tier, prompt, schema, cacheKey) =>
         inferAndWait(ctx, String(tier), String(prompt), schemaSlot(schema), nullable(cacheKey)),
     });
@@ -386,6 +398,7 @@ export class Project extends PlexusModel<null> {
     // so caching, dedup and replay all work identically to `infer`.
     env.defineRosetta("infer/chat", {
       withContext: true,
+      options: { provenancePoint: true },
       fn: (ctx, tier, messages, schema, cacheKey) => {
         const msgs = messages as unknown[];
         invariant(Array.isArray(msgs), "infer/chat: messages must be a list");
@@ -759,12 +772,19 @@ export class Project extends PlexusModel<null> {
       const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
       opts.onInfer?.(tupleKey);
       const inv = ctx?.currentInvocation;
-      if (inv) opts.trace.bindTask(task, inv as never);
+      if (inv) {
+        opts.trace.bindTask(task, inv as never);
+        opts.trace.markProvenancePoint(inv as never);
+      }
       const value = await task.waitFor();
       return Array.isArray(value) ? value : [value];
     };
+    // See the matching comment in `run()` — provenancePoint via options +
+    // explicit markProvenancePoint in inferAndWait are intentionally redundant
+    // during the L2 transition; both write the same idempotent flag.
     env.defineRosetta("infer", {
       withContext: true,
+      options: { provenancePoint: true },
       fn: (ctx, tier, prompt, schema, cacheKey) =>
         inferAndWait(ctx, String(tier), String(prompt), schemaSlot(schema), nullable(cacheKey)),
     });
@@ -783,6 +803,7 @@ export class Project extends PlexusModel<null> {
     env.defineRosetta("project/get", { fn: (...path: unknown[]) => this.getEnv(...path.map(String)) });
     env.defineRosetta("infer/chat", {
       withContext: true,
+      options: { provenancePoint: true },
       fn: (ctx, tier, messages, schema, cacheKey) => {
         const msgs = messages as unknown[];
         invariant(Array.isArray(msgs), "infer/chat: messages must be a list");

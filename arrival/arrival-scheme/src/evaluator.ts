@@ -157,7 +157,26 @@ export type Invocation = unknown;
  */
 export interface EvalTap {
   enter(node: Pair, parent: Invocation | null): Invocation;
-  exit(invocation: Invocation, result: { value: SchemeValue } | { error: unknown }): void;
+  /**
+   * Returning a value-shaped result substitutes the evaluator's outgoing value
+   * for the invocation. Used by provenance plumbing: the tap stamps the result
+   * with computed provenance and the substitution flows that stamp into the
+   * binding the evaluator is about to create.
+   *
+   * Why this matters: provenance is computed at exit time (it depends on
+   * children's provenance + symbolContributions accumulated during the call,
+   * neither of which exists at enter time). The tap stamps a NEW AValue
+   * carrying that provenance via `withProvenance`. Without substitution the
+   * evaluator continues with the original, un-stamped result, and the
+   * provenance never reaches the next env binding — so downstream
+   * `onSymbolResolved` reads empty provenance and lineage breaks at the
+   * (define greeting (car (infer …))) boundary. Tap-as-transformer is what
+   * lets a primitive-shaped binding inherit its producer's provenance.
+   */
+  exit(
+    invocation: Invocation,
+    result: { value: SchemeValue } | { error: unknown },
+  ): { value: SchemeValue } | { error: unknown } | void;
   /**
    * Fired when a SchemeSymbol is resolved during evaluation, attributed to
    * the currently-entered Pair invocation (or null if at top level). Useful
@@ -288,10 +307,23 @@ interface Call {
   call: Generator<unknown, unknown, unknown>;
   /** Optional stack frame for error reporting */
   frame?: StackFrame;
-  /** Fired by the trampoline when the sub-generator returns normally. */
-  onResolve?: (value: unknown) => void;
-  /** Fired by the trampoline when the sub-generator (or its descendants) throws. */
-  onReject?: (error: unknown) => void;
+  /**
+   * Fired by the trampoline when the sub-generator returns normally.
+   * Returning a value substitutes the outgoing result (the trampoline uses
+   * the returned value as `valueToSend` to the parent generator). Returning
+   * `undefined` is the "no substitution" signal — taps cannot substitute
+   * with undefined, which is fine since undefined isn't a meaningful Scheme
+   * value to thread through a binding. See `EvalTap.exit` for the war
+   * story on why tap-as-transformer is load-bearing for provenance.
+   */
+  onResolve?: (value: unknown) => unknown | undefined;
+  /**
+   * Fired by the trampoline when the sub-generator (or its descendants)
+   * throws. The return type mirrors `onResolve` for shape symmetry, but the
+   * rejection path doesn't currently use the substitution; v0 only needs
+   * the resolved-value transformer to close the lineage gap.
+   */
+  onReject?: (error: unknown) => unknown | undefined;
 }
 
 function is_call(o: unknown): o is Call {
@@ -422,11 +454,18 @@ async function run<T>(generator: Generator<unknown, T, unknown>): Promise<T> {
       valueToSend = undefined; // Reset after use
 
       if (result.done) {
-        // Generator finished - fire onResolve, pop, pass result to parent
+        // Generator finished - fire onResolve, pop, pass result to parent.
+        // If onResolve returns a value, substitute it: the tap may have
+        // stamped a freshly-cloned AValue with provenance computed only at
+        // exit time, and that stamp has to ride into the parent's binding
+        // (otherwise the original un-stamped result wins). `undefined`
+        // means "no substitution" — see Call.onResolve docstring.
         const finishedCall = callStack.at(-1);
+        let finalValue = result.value;
         if (finishedCall?.onResolve) {
           try {
-            finishedCall.onResolve(result.value);
+            const subst = finishedCall.onResolve(result.value);
+            if (subst !== undefined) finalValue = subst;
           } catch {
             // Tap exceptions must not break evaluation.
           }
@@ -434,7 +473,7 @@ async function run<T>(generator: Generator<unknown, T, unknown>): Promise<T> {
         stack.pop();
         frameStack.pop();
         callStack.pop();
-        valueToSend = result.value;
+        valueToSend = finalValue;
         continue;
       }
 
@@ -1734,8 +1773,19 @@ export function* evaluate(code: SchemeValue, ctx: EvalContext): EvalGenerator {
     const childCtx: EvalContext = { ...ctx, currentInvocation: inv };
     return yield {
       call: evaluatePair(code, childCtx),
-      onResolve: (value) => tap.exit(inv, { value: value as SchemeValue }),
-      onReject: (error) => tap.exit(inv, { error }),
+      // Surface the tap's substituted value (if any) back through the
+      // trampoline. The provenance pipeline depends on this: `tap.exit`
+      // computes provenance, clones the value with `withProvenance`, and
+      // returns `{ value }` so the stamped clone — not the raw result —
+      // becomes what gets bound by the surrounding `define`/`let`/arg.
+      onResolve: (value) => {
+        const result = tap.exit(inv, { value: value as SchemeValue });
+        return result && "value" in result ? result.value : undefined;
+      },
+      onReject: (error) => {
+        tap.exit(inv, { error });
+        return undefined;
+      },
     };
   }
 
