@@ -74,7 +74,7 @@
   },
   "peerDependencies": {
     "mobx": "^6.15.0",
-    "y-protocols": "^1.0.6",
+    "y-protocols": "1.0.6",
     "yjs": "^13.6.30"
   },
   "peerDependenciesMeta": {

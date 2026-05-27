@@ -38,8 +38,7 @@ import { WebsocketProvider } from "y-websocket";
 // hypothesis that mobx integration changes accessor read behavior in a
 // way that breaks cross-doc updates over y-websocket.
 import "../../mobx/register.js";
-// eslint-disable-next-line import/no-unresolved
-import { setupWSConnection } from "y-websocket/bin/utils";
+import { setupWSConnection } from "./_setup-ws-connection.js";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { syncing } from "../../decorators.js";
