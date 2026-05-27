@@ -8,6 +8,22 @@
  * Tests can be excluded via EXCLUDED_TESTS for features we intentionally
  * don't support (I/O, filesystem, etc.) or SKIPPED_TESTS for known issues
  * we plan to fix.
+ *
+ * Single `it()` block, not `it.each` per scheme test — investigated 2026-05-28
+ * and rejected. Cross-test state is real and load-bearing: top-level
+ * `(define integers …)` is reused 7 forms later; `gen-counter` / `add3` /
+ * `something-went-wrong` are mutated across multiple `(test …)` calls; a
+ * `(let () (define count 0) (define p …) (test 6 (force p)) (test 6 (begin
+ * (set! x 10) (force p))))` pair where the second test mathematically
+ * REQUIRES the first to have already mutated `count` via the first `force`.
+ * Splitting into separate `it`s with per-test env reset is wrong; with shared
+ * env it works but disables `concurrent` / `--shuffle`. Net cost ~1-2 days +
+ * a sexp walker that coalesces preamble (define/let/set!) with the next
+ * `test` form into one executable chunk + ongoing maintenance churn on the
+ * vendored submodule. Win is reporter-row granularity, which the now-armed
+ * `expect(unexpectedFailures.length).toBe(0)` gate plus war-story reasons in
+ * `EXPECTED_FAILURES` already covers in practice. Revisit when row-level CI
+ * signal becomes a frequent ask.
  */
 
 import fs from "fs";

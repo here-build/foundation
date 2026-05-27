@@ -63,6 +63,7 @@
     "@types/node": "24.0.0",
     "@types/ramda": "0.31.1",
     "eslint": "9.39.2",
+    "fast-check": "4.8.0",
     "globals": "17.3.0",
     "prettier": "3.8.1",
     "typescript": "6.0.2",
