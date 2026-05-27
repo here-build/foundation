@@ -19,6 +19,7 @@ import {
   syntax_rules,
 } from "./primitives.js";
 import { balanced } from "./utils/balanced.js";
+import invariant from "tiny-invariant";
 
 // ----------------------------------------------------------------------
 // :: Type definitions for Formatter
@@ -47,9 +48,7 @@ type PatternType = PatternElement | InstanceType<typeof Formatter.Pattern>;
 
 function previousSexp<T extends string | TokenMeta>(tokens: T[], sexp = 1): T[] {
   let i = tokens.length;
-  if (sexp <= 0) {
-    throw new Error(`previousSexp: Invalid argument sexp = ${sexp}`);
-  }
+  invariant(sexp > 0, `previousSexp: Invalid argument sexp = ${sexp}`);
   outer: while (sexp-- && i >= 0) {
     let count = 1;
     while (count > 0) {

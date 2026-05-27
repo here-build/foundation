@@ -7,6 +7,32 @@ export * from "./safe_builtins.js";
 export { sandboxedEnv as sandboxedEnv } from "./sandbox-env.js";
 export { lipsToJs as lipsToJs, jsToLips as jsToLips } from "./rosetta.js";
 
+// Runtime value hierarchy. Provenance algebra: docs/spec/arrival-chain.md §5.
+export {
+  type AKind,
+  AValue,
+  EMPTY_PROVENANCE,
+  pointProvenance,
+  unionProvenance,
+} from "./AValue.js";
+
+// A* aliases for arrival-chain compatibility — both spellings work until L4
+// deletes the draft AValue there. Re-exports live here (not in AValue.ts) to
+// preserve the no-subtype-imports invariant — see the cycle note in AValue.ts.
+export {
+  SchemeBool as ABool,
+  SchemeBool,
+  schemeFalse as AFalse,
+  schemeFalse,
+  schemeTrue as ATrue,
+  schemeTrue,
+} from "./LBool.js";
+export { SchemeJSFunction as AProc, SchemeJSObject as AObject } from "./membrane.js";
+export { SchemeString as AString } from "./LString.js";
+export { SchemeSymbol as ASymbol } from "./LSymbol.js";
+export { Pair as APair } from "./Pair.js";
+export { Nil as ANil, SchemeCharacter as AChar } from "./types.js";
+
 // Scheme namespace - canonical API for Scheme types
 // Usage: import { Scheme } from 'arrival-scheme'
 //        const s = new Scheme.String("hello")
@@ -61,7 +87,6 @@ export {
   evaluate as evaluateGenerator,
   exec as execGenerator,
   execSync as execSyncGenerator,
-  run as runGenerator,
   runSync as runSyncGenerator,
   SchemeError,
   SchemePromise,
@@ -72,6 +97,7 @@ export {
   type Invocation,
   type StackFrame,
 } from "./evaluator.js";
+export { default as runGenerator } from "./evaluator.js";
 
 // Generator Exec Entry Point (LIPS parser + generator evaluator)
 // Use this for string-to-value evaluation with the generator evaluator

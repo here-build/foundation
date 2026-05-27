@@ -24,7 +24,7 @@ import type { RosettaFunction } from "./rosetta.js";
 import { createRosettaWrapper } from "./rosetta.js";
 import { trim_lines } from "./utils/trim_lines.js";
 import { typecheck } from "./utils/typecheck.js";
-import { Value } from "./Value.js";
+import { EnvLookup } from "./EnvLookup.js";
 import type { Syntax } from "./Syntax.js";
 import type { QuotedPromise } from "./QuotedPromise.js";
 import invariant from "tiny-invariant";
@@ -81,13 +81,10 @@ export function setLipsRuntime(runtime: typeof _lips) {
 }
 
 function getLipsRuntime() {
-  if (!_lips) {
-    throw new Error(
-      "lips runtime not yet loaded. This usually means a method was called " +
-        "during module initialization before circular dependencies resolved. " +
-        "Make sure to import from the main entry point (index.ts) before using Environment.",
-    );
-  }
+  invariant(
+    _lips,
+    `lips runtime not yet loaded. This usually means a method was called during module initialization before circular dependencies resolved. Make sure to import from the main entry point (index.ts) before using Environment.`,
+  );
   return _lips!;
 }
 
@@ -209,9 +206,7 @@ export class Environment {
 
     function visit(mod: EnvironmentModule) {
       if (visited.has(mod.id)) return;
-      if (visiting.has(mod.id)) {
-        throw new Error(`Circular dependency detected: ${mod.id}`);
-      }
+      invariant(!visiting.has(mod.id), `Circular dependency detected: ${mod.id}`);
       visiting.add(mod.id);
 
       // Visit dependencies first
@@ -350,7 +345,7 @@ export class Environment {
     return frame;
   }
 
-  _lookup(symbol: BindingName): Value<EnvironmentValue> | undefined {
+  _lookup(symbol: BindingName): EnvLookup<EnvironmentValue> | undefined {
     if (symbol instanceof SchemeSymbol) {
       return this._lookup(symbol.__name__);
     }
@@ -358,7 +353,7 @@ export class Environment {
       return this._lookup(symbol.valueOf());
     }
     if (Object.hasOwn(this.__env__, symbol as string)) {
-      return new Value(this.__env__[symbol as string]);
+      return new EnvLookup(this.__env__[symbol as string]);
     }
     return this.__parent__?._lookup(symbol);
   }
@@ -544,9 +539,7 @@ export class Environment {
   }
 
   constant(name: string, value: EnvironmentValue): this {
-    if (Object.hasOwn(this.__env__, name)) {
-      throw new Error(`Environment::constant: ${name} already exists`);
-    }
+    invariant(!Object.hasOwn(this.__env__, name), `Environment::constant: ${name} already exists`);
     Object.defineProperty(this.__env__, name, {
       value,
       enumerable: true,

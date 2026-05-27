@@ -4,12 +4,8 @@
  * Released under the MIT license
  * https://github.com/jcubic/lips
  */
-
-// Declare jQuery for browser environments
-declare const jQuery: { fn: { init: new (...args: unknown[]) => object } } | undefined;
-
 import invariant from "tiny-invariant";
-import { setLipsRuntime, Environment } from "./Environment.js";
+import { Environment, setLipsRuntime } from "./Environment.js";
 import { eof } from "./EOF.js";
 import { IgnoreException } from "./IgnoreException.js";
 import { Lexer } from "./Lexer.js";
@@ -23,7 +19,6 @@ import {
   is_continuation,
   is_directive,
   is_env,
-  is_false,
   is_function,
   is_iterator,
   is_lambda,
@@ -37,7 +32,6 @@ import {
   is_promise,
   is_prototype,
   is_raw_lambda,
-  is_string,
 } from "./guards.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import {
@@ -55,44 +49,30 @@ import {
   rational_bare_re,
   rational_re,
 } from "./primitives.js";
-import { SchemeCharacter, Nil, nil } from "./types.js";
+import { Nil, nil, SchemeCharacter } from "./types.js";
 import * as specials from "./specials.js";
 import { LambdaContext } from "./LambdaContext.js";
-import { balanced } from "./utils/balanced.js";
 import { isNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
 import { type, typecheck, typecheck_args, typeErrorMessage } from "./utils/typecheck.js";
 import { parse_complex, parse_float, parse_integer, parse_rational } from "./utils/parsing.js";
-import { Value } from "./Value.js";
+import { EnvLookup } from "./EnvLookup.js";
 import { Values } from "./Values.js";
-import { available_class, class_map, serialize, unserialize } from "./serialize.js";
+import { available_class, class_map, unserialize } from "./serialize.js";
 import { Macro } from "./Macro.js";
 import { Syntax } from "./Syntax.js";
-const SyntaxParameter = Syntax.Parameter;
 import { Pair } from "./Pair.js";
-import {
-  promise_all,
-  escape_quoted_promises,
-  unescape_quoted_promises,
-  unpromise,
-  unpromise_array,
-  unpromise_object,
-} from "./utils/promises.js";
-import {
-  compose,
-  curry,
-  fold,
-  guard_math_call,
-  limit,
-  limit_math_op,
-  pipe,
-  reduce_math_op,
-  single_math_op,
-  binary_math_op,
-} from "./utils/functional.js";
+import { promise_all, unpromise } from "./utils/promises.js";
+import { compose, curry, fold, pipe } from "./utils/functional.js";
 
+import { SchemeBool } from "./LBool.js";
 import { SchemeString } from "./LString.js";
-import { SchemeJSObject, SchemeJSFunction } from "./membrane.js";
-import { evaluate as genEvaluate, run as genRun, type EvalContext } from "./evaluator.js";
+import { SchemeJSFunction, SchemeJSObject } from "./membrane.js";
+import genRun, { type EvalContext, evaluate as genEvaluate } from "./evaluator.js";
+
+// Declare jQuery for browser environments
+declare const jQuery: { fn: { init: new (...args: unknown[]) => object } } | undefined;
+
+const SyntaxParameter = Syntax.Parameter;
 
 // Type definitions for dynamic Scheme values
 // Scheme is inherently dynamic - these use `any` intentionally for interpreter interop
@@ -366,10 +346,9 @@ function to_array(name: string, deep = false): SchemeFunction {
         }
         result.push(car);
         node = node.cdr;
-      } else if (is_nil(node)) {
-        break;
       } else {
-        throw new Error(`${name}: can't convert improper list`);
+        invariant(is_nil(node), `${name}: can't convert improper list`);
+        break;
       }
     }
     return result;
@@ -681,7 +660,12 @@ function equal(x, y) {
       return false;
     }
     return x.__char__ === y.__char__;
-  } else if ((typeof x === "string" || x instanceof SchemeString) && (typeof y === "string" || y instanceof SchemeString)) {
+  } else if (x instanceof SchemeBool) {
+    return y instanceof SchemeBool && x.value === y.value;
+  } else if (
+    (typeof x === "string" || x instanceof SchemeString) &&
+    (typeof y === "string" || y instanceof SchemeString)
+  ) {
     // this is part of "friendly" compatibility layer. it's not directly following scheme logic but solves lot of problems
     return x.valueOf() === y.valueOf();
   } else {
@@ -768,12 +752,8 @@ function macro_expand(): SchemeFunction {
       return [
         ...bindings,
         ...node.to_array(false).map(function (node: SchemeValue) {
-          if (is_pair(node)) {
-            return (node.car as SchemeValue).valueOf();
-          }
-          const t = type(node);
-          const msg = `macroexpand: Invalid let binding expectig pair got ${t}`;
-          throw new Error(msg);
+          invariant(is_pair(node), `macroexpand: Invalid let binding expectig pair got ${type(node)}`);
+          return (node.car as SchemeValue).valueOf();
         }),
       ];
     }
@@ -870,7 +850,13 @@ function macro_expand(): SchemeFunction {
 // :: list of bindings from code that match the pattern
 // :: TODO detect cycles
 // ----------------------------------------------------------------------
-function extract_patterns(pattern: SchemeValue, code: SchemeValue, symbols: SchemeValue, ellipsis_symbol: SchemeValue, scope: SchemeValue = {}) {
+function extract_patterns(
+  pattern: SchemeValue,
+  code: SchemeValue,
+  symbols: SchemeValue,
+  ellipsis_symbol: SchemeValue,
+  scope: SchemeValue = {},
+) {
   const bindings: SchemeValue = {
     "...": {
       symbols: {} as SchemeValue, // symbols ellipsis (x ...)
@@ -957,9 +943,7 @@ function extract_patterns(pattern: SchemeValue, code: SchemeValue, symbols: Sche
         log({ pattern });
         if (pattern.car.car instanceof SchemeSymbol) {
           const name = pattern.car.car.valueOf();
-          if (bindings["..."].symbols[name]) {
-            throw new Error("syntax: named ellipsis can only " + "appear onces");
-          }
+          invariant(!bindings["..."].symbols[name], "syntax: named ellipsis can only appear onces");
           bindings["..."].symbols[name] = code;
         }
       }
@@ -1108,9 +1092,7 @@ function extract_patterns(pattern: SchemeValue, code: SchemeValue, symbols: Sche
       return false;
     }
     if (pattern instanceof SchemeSymbol) {
-      if (SchemeSymbol.is(pattern, ellipsis_symbol)) {
-        throw new Error("syntax: invalid usage of ellipsis");
-      }
+      invariant(!SchemeSymbol.is(pattern, ellipsis_symbol), "syntax: invalid usage of ellipsis");
       log(">> 12");
       const name = pattern.__name__;
       if (symbols.includes(name)) {
@@ -1219,10 +1201,12 @@ function extract_patterns(pattern: SchemeValue, code: SchemeValue, symbols: Sche
       // undefined is case when you don't have body ...
       // and you do recursive call
       return true;
-    } else if (is_pair(pattern.car) && SchemeSymbol.is(pattern.car.car, ellipsis_symbol)) {
-      // pattern (...)
-      throw new Error("syntax: invalid usage of ellipsis");
     } else {
+      // pattern (...)
+      invariant(
+        !is_pair(pattern.car) || !SchemeSymbol.is(pattern.car.car, ellipsis_symbol),
+        "syntax: invalid usage of ellipsis",
+      );
       return false;
     }
   }
@@ -1423,8 +1407,8 @@ function transform_syntax(options: SchemeValue = {}) {
                 log("|| next 2");
                 next(name, new Pair(car.cdr, cdr));
               }
-              // wrap with Value to handle undefined
-              return new Value(car.car);
+              // wrap with EnvLookup to handle undefined
+              return new EnvLookup(car.car);
             } else if (is_nil(cdr)) {
               return car;
             } else {
@@ -1565,7 +1549,7 @@ function transform_syntax(options: SchemeValue = {}) {
               // undefined can be null caused by null binding
               // on empty ellipsis
               if (car !== undefined) {
-                if (car instanceof Value) {
+                if (car instanceof EnvLookup) {
                   car = car.valueOf();
                 }
                 if (is_spread) {
@@ -1609,7 +1593,7 @@ function transform_syntax(options: SchemeValue = {}) {
               nested: true,
             });
             if (car) {
-              if (car instanceof Value) {
+              if (car instanceof EnvLookup) {
                 car = car.valueOf();
               }
               return new Pair(car, nil);
@@ -1642,7 +1626,7 @@ function transform_syntax(options: SchemeValue = {}) {
             let value = transform_ellipsis_expr(expr, bind, { nested: false }, next);
             log({ value });
             if (value !== undefined) {
-              if (value instanceof Value) {
+              if (value instanceof EnvLookup) {
                 value = value.valueOf();
               }
               if (is_array) {
@@ -1713,10 +1697,7 @@ function transform_syntax(options: SchemeValue = {}) {
       }
       const symbols = Object.keys(bindings["..."].symbols);
       const name = expr.literal(); // TODO: slow
-      if (symbols.includes(name)) {
-        const msg = `missing ellipsis symbol next to name \`${name}'`;
-        throw new Error(`syntax-rules: ${msg}`);
-      }
+      invariant(!symbols.includes(name), `syntax-rules: missing ellipsis symbol next to name \`${name}'`);
       const value = transform(expr);
       if (value !== undefined) {
         return value;
@@ -1990,16 +1971,10 @@ export const get = doc("get", function get(object, ...args) {
       value = object[name];
     }
     if (value === undefined) {
-      if (args.length > 0) {
-        throw new Error(`Try to get ${args[0]} from undefined`);
-      }
+      invariant(args.length === 0, () => `Try to get ${args[0]} from undefined`);
       return value;
     } else {
-      var context;
-      if (args.length - 1 < len) {
-        context = object;
-      }
-      value = patch_value(value, context);
+      value = patch_value(value, args.length - 1 < len ? object : undefined);
     }
     object = value;
   }
@@ -2112,9 +2087,10 @@ export const global_env = new Environment(
           const key = evaluate(third, eval_args);
           return set(object, key, value);
         }
-        if (!(code.car instanceof SchemeSymbol)) {
-          throw new TypeError("set! first argument need to be a symbol or " + "dot accessor that evaluate to object.");
-        }
+        TypeError.invariant(
+          code.car instanceof SchemeSymbol,
+          `set! first argument need to be a symbol or dot accessor that evaluate to object.`,
+        );
         const symbol = code.car.valueOf();
         ref = this.ref(code.car.__name__);
         // we don't return value because we only care about sync of set value
@@ -2123,16 +2099,14 @@ export const global_env = new Environment(
           if (!ref) {
             // case (set! fn.toString (lambda () "xxx"))
             const parts = symbol.split(".");
-            if (parts.length > 1) {
-              const key = parts.pop();
-              const name = parts.join(".");
-              const obj = this.get(name, { throwError: false });
-              if (obj) {
-                set(obj, key, value);
-                return;
-              }
+            invariant(parts.length > 1, `Unbound variable \`${symbol}'`);
+            const key = parts.pop();
+            const name = parts.join(".");
+            const obj = this.get(name, { throwError: false });
+            if (obj) {
+              set(obj, key, value);
+              return;
             }
-            throw new Error(`Unbound variable \`${symbol}'`);
           }
           ref.set(symbol, value);
         });
@@ -2142,11 +2116,10 @@ export const global_env = new Environment(
     "unset!": doc(
       null,
       new Macro("set!", function (this: Environment, code: SchemeValue) {
-        if (!(code.car instanceof SchemeSymbol)) {
-          throw new TypeError(
-            "unset! first argument need to be a symbol or " + "dot accessor that evaluate to object.",
-          );
-        }
+        TypeError.invariant(
+          code.car instanceof SchemeSymbol,
+          `unset! first argument need to be a symbol or dot accessor that evaluate to object.`,
+        );
         const symbol = code.car;
         const ref = this.ref(symbol);
         if (ref) {
@@ -2197,21 +2170,18 @@ export const global_env = new Environment(
       }
       const IS_BIN = file.match(/\.xcb$/);
       function run(code: SchemeValue) {
-        if (IS_BIN) {
-          throw new Error("Binary serialization (.xcb) is not implemented");
-        } else {
-          if (type(code) === "buffer") {
-            code = code.toString();
+        invariant(!IS_BIN, "Binary serialization (.xcb) is not implemented");
+        if (type(code) === "buffer") {
+          code = code.toString();
+        }
+        code = code.replace(/^(#!.*)/, function (_, shebang) {
+          if (is_directive(shebang)) {
+            return shebang;
           }
-          code = code.replace(/^(#!.*)/, function (_, shebang) {
-            if (is_directive(shebang)) {
-              return shebang;
-            }
-            return "";
-          });
-          if (/^\{/.test(code)) {
-            code = unserialize(code);
-          }
+          return "";
+        });
+        if (/^\{/.test(code)) {
+          code = unserialize(code);
         }
         return exec(code, { env });
       }
@@ -2359,10 +2329,7 @@ export const global_env = new Environment(
         const env = dynamic_env.inherit("parameterize").new_frame(null, {});
         const eval_args = { ...options, env: this };
         let params = code.car;
-        if (!is_pair(params)) {
-          const t = type(params);
-          throw new Error(`Invalid syntax for parameterize expecting pair got ${t}`);
-        }
+        invariant(is_pair(params), () => `Invalid syntax for parameterize expecting pair got ${type(params)}`);
 
         function next() {
           const body = new Pair(new SchemeSymbol("begin"), code.cdr);
@@ -2374,9 +2341,7 @@ export const global_env = new Environment(
           const name = pair.car.valueOf();
           return unpromise(evaluate(pair.cdr.car, eval_args), function (value) {
             const param = dynamic_env.get(name, { throwError: false });
-            if (!is_parameter(param)) {
-              throw new Error(`Unknown parameter ${name}`);
-            }
+            invariant(is_parameter(param), `Unknown parameter ${name}`);
             env.set(name, param.inherit(value));
             if (is_null(params.cdr)) {
               return next();
@@ -2407,9 +2372,10 @@ export const global_env = new Environment(
       new Macro("define-syntax-parameter", function (this: Environment, code: SchemeValue, eval_args: SchemeValue) {
         const name = code.car;
         const env = this;
-        if (!(name instanceof SchemeSymbol)) {
-          throw new TypeError(`define-syntax-parameter: invalid syntax expecting symbol got ${type(name)}`);
-        }
+        TypeError.invariant(
+          name instanceof SchemeSymbol,
+          `define-syntax-parameter: invalid syntax expecting symbol got ${type(name)}`,
+        );
         const syntax = evaluate(code.cdr.car, { env, ...eval_args });
         typecheck("define-syntax-parameter", syntax, "syntax", 2);
         syntax.__name__ = name.valueOf();
@@ -2433,10 +2399,10 @@ export const global_env = new Environment(
         const env = this.inherit("syntax-parameterize");
         while (args.length > 0) {
           const pair = args.shift();
-          if (!(is_pair(pair) && pair.car instanceof SchemeSymbol)) {
-            const msg = `invalid syntax for syntax-parameterize: ${toString(code, true)}`;
-            throw new Error(`syntax-parameterize: ${msg}`);
-          }
+          invariant(
+            is_pair(pair) && pair.car instanceof SchemeSymbol,
+            `syntax-parameterize: invalid syntax for syntax-parameterize: ${toString(code, true)}`,
+          );
           const syntax = evaluate(((pair as Pair).cdr as Pair).car, { ...eval_args, env: this });
           const name = pair.car;
           typecheck("syntax-parameterize", syntax, ["syntax"]);
@@ -2507,10 +2473,10 @@ export const global_env = new Environment(
     // ------------------------------------------------------------------
     "set-obj!": doc("set-obj!", function (obj, key, value, options = null) {
       const obj_type = typeof obj;
-      if (is_null(obj) || (obj_type !== "object" && obj_type !== "function")) {
-        const msg = typeErrorMessage("set-obj!", type(obj), ["object", "function"]);
-        throw new Error(msg);
-      }
+      invariant(!is_null(obj), () => typeErrorMessage("set-obj!", type(obj), ["object", "function"]));
+      invariant(obj_type === "object" || obj_type === "function", () =>
+        typeErrorMessage("set-obj!", type(obj), ["object", "function"]),
+      );
       typecheck("set-obj!", key, ["string", "symbol", "number"]);
       obj = unbind(obj);
       key = key.valueOf();
@@ -2730,9 +2696,7 @@ export const global_env = new Environment(
       function validate_identifiers(node) {
         while (!is_nil(node)) {
           const x = node.car;
-          if (!(x instanceof SchemeSymbol)) {
-            throw new TypeError("syntax-rules: wrong identifier");
-          }
+          TypeError.invariant(x instanceof SchemeSymbol, "syntax-rules: wrong identifier");
           node = node.cdr;
         }
       }
@@ -2908,9 +2872,7 @@ export const global_env = new Environment(
                     dynamic_env,
                     error,
                   });
-            if (!is_pair(result)) {
-              throw new Error(`Expecting list ${type(x)} found`);
-            }
+            invariant(is_pair(result), `Expecting list ${type(x)} found`);
             return acc.concat(result.to_array());
           }
           acc.push(recur(x, unquote_cnt, max_unq));
@@ -2925,9 +2887,10 @@ export const global_env = new Environment(
         for (const key of Object.keys(object)) {
           const value = object[key];
           if (is_pair(value)) {
-            if (SchemeSymbol.is(value.car, "unquote-splicing")) {
-              throw new Error("You can't call `unquote-splicing` " + "inside object");
-            }
+            invariant(
+              !SchemeSymbol.is(value.car, "unquote-splicing"),
+              `You can't call \`unquote-splicing\` inside object`,
+            );
             let output;
             output =
               unquote_cnt < max_unq
@@ -2980,14 +2943,8 @@ export const global_env = new Environment(
               ) {
                 return pair.cdr.cdr.car;
               }
-              if (!(is_nil(pair.cdr) || is_pair(pair.cdr))) {
-                const msg = "You can't splice atom inside list";
-                throw new Error(msg);
-              }
-              if ((arr as SchemeValue[]).length > 1) {
-                const msg = "You can't splice multiple atoms inside list";
-                throw new Error(msg);
-              }
+              invariant(is_nil(pair.cdr) || is_pair(pair.cdr), "You can't splice atom inside list");
+              invariant((arr as SchemeValue[]).length === 1, "You can't splice multiple atoms inside list");
               if (!(is_pair(pair.cdr) && is_nil((arr as SchemeValue[])[0]))) {
                 return (arr as SchemeValue[])[0];
               }
@@ -3085,9 +3042,7 @@ export const global_env = new Environment(
             if (unquote_cnt < max_unq) {
               return new Pair(new SchemeSymbol("unquote"), recur(pair.cdr, unquote_cnt, max_unq));
             }
-            if (unquote_cnt > max_unq) {
-              throw new Error("You can't call `unquote` outside " + "of quasiquote");
-            }
+            invariant(unquote_cnt <= max_unq, `You can't call \`unquote\` outside of quasiquote`);
             if (is_pair(pair.cdr)) {
               if (is_nil(pair.cdr.cdr)) {
                 return evaluate(pair.cdr.car, {
@@ -3218,10 +3173,10 @@ export const global_env = new Environment(
         return nil;
       }
       if (is_pair(arg)) {
-        const arr = (global_env.get("list->array") as SchemeFunction)(arg).reverse();
+        const arr = (global_env.get("list->array") as SchemeFunction)(arg).toReversed();
         return (global_env.get("array->list") as SchemeFunction)(arr);
       } else if (Array.isArray(arg)) {
-        return arg.reverse();
+        return arg.toReversed();
       } else {
         throw new TypeError(typeErrorMessage("reverse", type(arg), "array or pair"));
       }
@@ -3534,9 +3489,7 @@ export const global_env = new Environment(
       for (const [i, arg] of lists.entries()) {
         typecheck("map", arg, ["pair", "nil"], i + 1);
         // detect cycles
-        if (is_pair(arg) && !is_list.call(this, arg)) {
-          throw new Error(`map: argument ${i + 1} is not a list`);
-        }
+        invariant(!is_pair(arg) || is_list.call(this, arg), `map: argument ${i + 1} is not a list`);
       }
       if (lists.length === 0 || lists.some(is_nil)) {
         return nil;
@@ -3818,16 +3771,12 @@ function evaluate_args(rest: SchemeValue, { use_dynamic, ...options }: SchemeVal
 
   // First, collect all expressions
   while (is_pair(node)) {
-    if (node.have_cycles("cdr")) {
-      throw new Error(`Invalid expression: Can't evaluate cycle`);
-    }
+    invariant(!node.have_cycles("cdr"), `Invalid expression: Can't evaluate cycle`);
     expressions.push(node.car);
     node = node.cdr;
   }
 
-  if (!is_nil(node)) {
-    throw new Error("Syntax Error: improper list found in apply");
-  }
+  invariant(is_nil(node), "Syntax Error: improper list found in apply");
 
   // Evaluate all expressions (parallel when async)
   const results = expressions.map((expr) => {
@@ -3921,7 +3870,11 @@ function prepare_fn_args(fn: SchemeValue, args: SchemeValue[]): SchemeValue[] {
 }
 
 // -------------------------------------------------------------------------
-export function call_function(fn: SchemeFunction, args: SchemeValue[], { env, dynamic_env, use_dynamic }: SchemeValue = {}) {
+export function call_function(
+  fn: SchemeFunction,
+  args: SchemeValue[],
+  { env, dynamic_env, use_dynamic }: SchemeValue = {},
+) {
   const scope = env?.new_frame(fn, args);
   const dynamic_scope = dynamic_env?.new_frame(fn, args);
   const context = new LambdaContext({
@@ -3933,7 +3886,11 @@ export function call_function(fn: SchemeFunction, args: SchemeValue[], { env, dy
 }
 
 // -------------------------------------------------------------------------
-function apply(fn: SchemeFunction, args: SchemeValue, { env, dynamic_env, use_dynamic, error = rethrowError }: SchemeValue = {}) {
+function apply(
+  fn: SchemeFunction,
+  args: SchemeValue,
+  { env, dynamic_env, use_dynamic, error = rethrowError }: SchemeValue = {},
+) {
   args = evaluate_args(args, { env, dynamic_env, error, use_dynamic });
   return unpromise(args, function (args) {
     if (is_raw_lambda(fn)) {
@@ -3990,7 +3947,10 @@ interface EvaluateOptions {
   [key: string]: unknown;
 }
 
-export function evaluate(code: unknown, { env, dynamic_env, use_dynamic, error = rethrowError, ...rest }: EvaluateOptions = {}) {
+export function evaluate(
+  code: unknown,
+  { env, dynamic_env, use_dynamic, error = rethrowError, ...rest }: EvaluateOptions = {},
+) {
   try {
     if (!is_env(dynamic_env)) {
       dynamic_env = env === true ? user_env : env || user_env;
@@ -4019,17 +3979,20 @@ export function evaluate(code: unknown, { env, dynamic_env, use_dynamic, error =
       value = resolve_promises(evaluate(first, eval_args));
       if (is_promise(value)) {
         return value.then((value) => {
-          if (!is_callable(value)) {
-            throw new Error(
+          invariant(
+            is_callable(value),
+            () =>
               `${type(value)} ${((env as Environment).get("repr") as SchemeFunction)(value)} is not callable while evaluating ${code.toString()}`,
-            );
-          }
+          );
           return evaluate(new Pair(value, code.cdr), eval_args);
         });
         // else is later in code
-      } else if (!is_callable(value)) {
-        throw new Error(`${type(value)} ${((env as Environment).get("repr") as SchemeFunction)(value)} is not callable while evaluating ${code.toString()}`);
       }
+      invariant(
+        is_callable(value),
+        () =>
+          `${type(value)} ${((env as Environment).get("repr") as SchemeFunction)(value)} is not callable while evaluating ${code.toString()}`,
+      );
     }
     if (first instanceof SchemeSymbol) {
       value = env.get(first);
@@ -4056,10 +4019,8 @@ export function evaluate(code: unknown, { env, dynamic_env, use_dynamic, error =
       }
     } else if (is_continuation(value)) {
       result = value.invoke();
-    } else if (is_pair(code)) {
-      value = first?.toString();
-      throw new Error(`${type(first)} ${value} is not a function`);
     } else {
+      invariant(!is_pair(code), () => `${type(first)} ${first?.toString()} is not a function`);
       return code;
     }
     // escape promise feature #54

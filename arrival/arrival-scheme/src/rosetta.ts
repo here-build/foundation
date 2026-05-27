@@ -5,6 +5,7 @@
  * Provides Environment.defineRosetta() for declarative function wrapping.
  */
 
+import { SchemeBool } from "./LBool.js";
 import { SchemeJSArray, SchemeJSObject } from "./membrane.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";
@@ -74,6 +75,11 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
   // Unwrap SchemeJSArray to JS array
   if (value instanceof SchemeJSArray) {
     return value.source.map((el: any) => lipsToJs(el, options));
+  }
+
+  // Unwrap SchemeBool to JS primitive
+  if (value instanceof SchemeBool) {
+    return value.value;
   }
 
   // Handle SchemeString and Pair

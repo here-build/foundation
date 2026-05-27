@@ -25,10 +25,6 @@ export function formatLocation(loc: SourceLocation): string {
   return `${source}${loc.line}:${loc.col}`;
 }
 
-// -------------------------------------------------------------------------
-// :: Parser-related error classes
-// -------------------------------------------------------------------------
-
 /**
  * Error thrown when parsing encounters unterminated expressions
  * (unclosed strings, parentheses, etc.)

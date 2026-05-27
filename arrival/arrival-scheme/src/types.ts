@@ -2,6 +2,7 @@
  * Core Scheme types extracted from lips.ts
  * These are the fundamental data types for the Scheme implementation.
  */
+import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import invariant from "tiny-invariant";
 
 // SchemeValue is the generic type for any Scheme value
@@ -47,8 +48,13 @@ export function setPairConstructor(ctor: new (car: unknown, cdr: unknown) => Pai
   PairConstructor = ctor;
 }
 
-export class Nil {
+export class Nil extends AValue {
   static __class__ = "nil";
+  readonly kind = "nil" as const;
+
+  constructor(provenance: ReadonlySet<number> = EMPTY_PROVENANCE) {
+    super(provenance);
+  }
 
   toString(): string {
     return "()";
@@ -72,6 +78,14 @@ export class Nil {
 
   to_array(): [] {
     return [];
+  }
+
+  toJs(): null {
+    return null;
+  }
+
+  withProvenance(p: ReadonlySet<number>): Nil {
+    return new Nil(p);
   }
 }
 
@@ -127,8 +141,9 @@ const characters: Record<string, string> = {
 
 export { characters };
 
-export class SchemeCharacter {
+export class SchemeCharacter extends AValue {
   static __class__ = "character";
+  readonly kind = "character" as const;
   // Named character mappings
   static readonly __names__: Record<string, string> = characters;
   static readonly __rev_names__: Record<string, string> = (() => {
@@ -141,7 +156,8 @@ export class SchemeCharacter {
   readonly __char__: string;
   readonly __name__?: string;
 
-  constructor(char: string | SchemeStringLike) {
+  constructor(char: string | SchemeStringLike, provenance: ReadonlySet<number> = EMPTY_PROVENANCE) {
+    super(provenance);
     let charValue = isSchemeString(char) ? char.valueOf() : char;
     let name: string | undefined;
 
@@ -181,4 +197,17 @@ export class SchemeCharacter {
   serialize(): string {
     return this.__char__;
   }
+
+  toJs(): string {
+    return this.__char__;
+  }
+
+  withProvenance(p: ReadonlySet<number>): SchemeCharacter {
+    return new SchemeCharacter(this.__char__, p);
+  }
 }
+
+// null/undefined → nil (empty list). SchemeCharacter has no JS-primitive source
+// — it only exists post-parse, so no boxer.
+AValue.registerBoxer("null", (_v, p) => new Nil(p));
+AValue.registerBoxer("undefined", (_v, p) => new Nil(p));

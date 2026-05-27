@@ -10,6 +10,7 @@ import { type_constants } from "../primitives.js";
 import { Syntax } from "../Syntax.js";
 import { SchemeCharacter, Nil } from "../types.js";
 import { Values } from "../Values.js";
+import invariant from "tiny-invariant";
 
 export function typeErrorMessage(fn: unknown, got: string, expected: unknown, position: number | null = null) {
   let postfix = fn ? ` in expression \`${fn}\`` : "";
@@ -41,9 +42,7 @@ export function typecheck(fn: Valuable, arg: unknown, expected: Valuable | Funct
   const fnStr = fn.valueOf();
   const arg_type = type(arg).toLowerCase();
   if (is_function(expected)) {
-    if (!expected(arg)) {
-      throw new Error(typeErrorMessage(fnStr, arg_type, expected, position));
-    }
+    invariant(expected(arg), typeErrorMessage(fnStr, arg_type, expected, position));
     return;
   }
   let match = false;
@@ -62,9 +61,7 @@ export function typecheck(fn: Valuable, arg: unknown, expected: Valuable | Funct
   } else {
     exp = String((exp as Valuable).valueOf()).toLowerCase();
   }
-  if (!match && arg_type !== exp) {
-    throw new Error(typeErrorMessage(fnStr, arg_type, exp, position));
-  }
+  invariant(match || arg_type === exp, typeErrorMessage(fnStr, arg_type, exp, position));
 }
 
 export function type(obj): string {
@@ -158,7 +155,5 @@ export function typecheck_number(fn: Valuable, arg: SchemeNumeric, expected: Val
   } else {
     exp = String((exp as Valuable).valueOf()).toLowerCase();
   }
-  if (!match && arg_type !== exp) {
-    throw new Error(typeErrorMessage(fn.valueOf(), arg_type, exp, position));
-  }
+  invariant(match || arg_type === exp, typeErrorMessage(fn.valueOf(), arg_type, exp, position));
 }

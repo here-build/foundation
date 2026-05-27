@@ -1,9 +1,9 @@
 // -------------------------------------------------------------------------
 // :: Promise utilities for handling async values in the interpreter
 // -------------------------------------------------------------------------
+import { EnvLookup } from "../EnvLookup.js";
 import { is_plain_object, is_promise } from "../guards.js";
 import { QuotedPromise } from "../QuotedPromise.js";
-import { Value } from "../Value.js";
 
 // ----------------------------------------------------------------------
 // wrapper over Promise.all that ignores quoted promises
@@ -22,7 +22,7 @@ export function escape_quoted_promises(array: unknown[]): unknown[] {
   let i = array.length;
   while (i--) {
     const value = array[i];
-    escaped[i] = value instanceof QuotedPromise ? new Value(value) : value;
+    escaped[i] = value instanceof QuotedPromise ? new EnvLookup(value) : value;
   }
   return escaped;
 }
@@ -33,7 +33,7 @@ export function unescape_quoted_promises(array: unknown[]): unknown[] {
   let i = array.length;
   while (i--) {
     const value = array[i];
-    unescaped[i] = value instanceof Value ? value.valueOf() : value;
+    unescaped[i] = value instanceof EnvLookup ? value.valueOf() : value;
   }
   return unescaped;
 }

@@ -20,7 +20,7 @@ import {
 import { Environment, EnvironmentValue } from "./Environment.js";
 import type { EOF } from "./EOF.js";
 import { eof } from "./EOF.js";
-import { Unterminated, type SourceLocation } from "./errors.js";
+import { type SourceLocation, Unterminated } from "./errors.js";
 import { Lexer } from "./Lexer.js";
 // -------------------------------------------------------------------------
 // :: Runtime dependencies - ES6 live bindings resolve the cycle
@@ -34,6 +34,7 @@ import { Macro } from "./Macro.js";
 import { Pair } from "./Pair.js";
 import type { Nil, SchemeValue } from "./types.js";
 import { nil } from "./types.js";
+import invariant from "tiny-invariant";
 
 /**
  * Token metadata from lexer.
@@ -164,9 +165,7 @@ export class Parser {
       }
       if (token!.token === "#;") {
         this.skip();
-        if (this.__lexer__.peek() === eof) {
-          throw new Error("Lexer: syntax error eof found after comment");
-        }
+        invariant(this.__lexer__.peek() !== eof, "Lexer: syntax error eof found after comment");
         await this._read_object();
         continue;
       }
@@ -248,9 +247,8 @@ export class Parser {
         this.skip();
         (prev as Pair).cdr = await this._read_object();
         dot = true;
-      } else if (dot) {
-        throw new Error("Parser: syntax error more than one element after dot");
       } else {
+        invariant(!dot, "Parser: syntax error more than one element after dot");
         const node = await this._read_object();
         const cur = new Pair(node, nil);
         if (loc) {
@@ -269,9 +267,7 @@ export class Parser {
 
   async read_value() {
     const token = await this.read();
-    if (token === eof) {
-      throw new Error("Parser: Expected token eof found");
-    }
+    invariant(token !== eof, "Parser: Expected token eof found");
     return parse_argument(token);
   }
 
@@ -406,9 +402,7 @@ export class Parser {
       const is_symbol = is_symbol_extension(token);
       const was_close_paren = this.is_close(await this.peek());
       const object = is_symbol ? undefined : await this._read_object();
-      if (object === eof) {
-        throw new Unterminated("Expecting expression eof found");
-      }
+      Unterminated.invariant(object !== eof, "Expecting expression eof found");
       if (!builtin) {
         extension = this.__env__!.get(special.symbol);
         if (typeof extension === "function") {
@@ -420,22 +414,18 @@ export class Parser {
           } else if (is_pair(object)) {
             args = object.to_array(false);
           }
-          if (args || is_symbol) {
-            return this._with_syntax_scope(() => {
-              return call_function(extension, is_symbol ? [] : args, {
-                env: this.__env__,
-                dynamic_env: this.__env__,
-                use_dynamic: false,
-              });
-            });
-          }
-          throw new Error("Parse Error: Invalid parser extension " + `invocation ${special.symbol}`);
+          invariant(args || is_symbol, () => `Parse Error: Invalid parser extension invocation ${special.symbol}`);
+          return this._with_syntax_scope(() =>
+            call_function(extension, is_symbol ? [] : args, {
+              env: this.__env__,
+              dynamic_env: this.__env__,
+              use_dynamic: false,
+            }),
+          );
         }
       }
       if (is_literal(token)) {
-        if (was_close_paren) {
-          throw new Error("Parse Error: expecting datum");
-        }
+        invariant(!was_close_paren, "Parse Error: expecting datum");
         expr = new Pair(special.symbol, new Pair(object, nil));
         if (loc) expr.setLocation(loc);
       } else {
@@ -446,31 +436,26 @@ export class Parser {
       if (builtin) {
         return expr;
       }
+      invariant(extension instanceof Macro, () => `Parse Error: invalid parser extension: ${special.symbol}`);
       // Evaluate parser extension at parse time
-      if (extension instanceof Macro) {
-        const result = await this._with_syntax_scope(() => {
-          return this.evaluate(expr);
-        });
-        // We need literal quotes to make that macro's return pairs works
-        // because after the parser returns the value it will be evaluated again
-        // by the interpreter, so we create quoted expressions.
-        if (is_pair(result) || result instanceof SchemeSymbol) {
-          const quoted = Pair.fromArray([new SchemeSymbol("quote"), result]) as Pair;
-          if (loc) quoted.setLocation(loc);
-          return quoted;
-        }
-        return result;
-      } else {
-        throw new TypeError(`Parse Error: invalid parser extension: ${special.symbol}`);
+      const result = await this._with_syntax_scope(() => {
+        return this.evaluate(expr);
+      });
+      // We need literal quotes to make that macro's return pairs works
+      // because after the parser returns the value it will be evaluated again
+      // by the interpreter, so we create quoted expressions.
+      if (is_pair(result) || result instanceof SchemeSymbol) {
+        const quoted = Pair.fromArray([new SchemeSymbol("quote"), result]) as Pair;
+        if (loc) quoted.setLocation(loc);
+        return quoted;
       }
+      return result;
     }
     const ref = this.match_datum_ref(token);
     if (ref !== null) {
       this.skip();
-      if (this._refs[+ref]) {
-        return new DatumReference(ref, this._refs[+ref] as SchemeValue);
-      }
-      throw new Error(`Parse Error: invalid datum label #${ref}#`);
+      invariant(this._refs[+ref], `Parse Error: invalid datum label #${ref}#`);
+      return new DatumReference(ref, this._refs[+ref] as SchemeValue);
     }
     const ref_label = this.match_datum_label(token);
     if (ref_label !== null) {

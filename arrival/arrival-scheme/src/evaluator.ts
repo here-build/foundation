@@ -58,12 +58,14 @@ export interface StackFrame {
  * Enhanced error with Scheme stack trace.
  */
 export class SchemeError extends LipsError {
-  readonly schemeStack: StackFrame[];
+  readonly name = "SchemeError";
 
-  constructor(message: string, schemeStack: StackFrame[], cause?: Error) {
+  constructor(
+    message: string,
+    public readonly schemeStack: StackFrame[],
+    cause?: Error,
+  ) {
     super(message);
-    this.name = "SchemeError";
-    this.schemeStack = schemeStack;
     if (cause) {
       this.cause = cause;
     }
@@ -130,7 +132,7 @@ function formatCode(code: SchemeValue, maxLen = 60): string {
       parts.push(formatCode(node, 20));
     }
     const result = `(${parts.join(" ")})`;
-    return result.length > maxLen ? result.slice(0, maxLen - 3) + "..." : result;
+    return result.length > maxLen ? `${result.slice(0, maxLen - 3)}...` : result;
   }
 
   return String(code).slice(0, maxLen);
@@ -219,7 +221,7 @@ function wrapLambdaArgs(args: SchemeValue[], dynSite: Invocation | undefined): S
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (typeof a === "function" && (a as { __lambda__?: boolean }).__lambda__) {
-      if (!out) out = args.slice();
+      if (!out) out = [...args];
       out[i] = wrapLambda(a as LambdaFunction, dynSite);
     }
   }
@@ -355,9 +357,7 @@ function env_get(env: Environment, sym: SchemeSymbol): SchemeValue {
   }
 
   const value = env._lookupWithResolvers(name);
-  if (value === undefined) {
-    throw new Error(`Unbound variable \`${String(name)}'`);
-  }
+  invariant(value !== undefined, `Unbound variable \`${String(name)}'`);
   return value;
 }
 
@@ -375,7 +375,7 @@ function env_get(env: Environment, sym: SchemeSymbol): SchemeValue {
  * 4. Periodically yields to the event loop (every ~5ms)
  * 5. Tracks stack frames for error reporting
  */
-export async function run<T>(generator: Generator<unknown, T, unknown>): Promise<T> {
+async function run<T>(generator: Generator<unknown, T, unknown>): Promise<T> {
   // Stack of generators - this is the key to flat trampolining
   const stack: Generator<unknown, unknown, unknown>[] = [generator];
   // Stack frames for error reporting (parallel to generator stack)
@@ -402,8 +402,9 @@ export async function run<T>(generator: Generator<unknown, T, unknown>): Promise
       }
     }
     if (error instanceof SchemeError) throw error;
-    const message = error instanceof Error ? error.message : String(error);
-    throw new SchemeError(message, frames, error instanceof Error ? error : undefined);
+    throw error instanceof Error
+      ? new SchemeError(error.message, frames, error)
+      : new SchemeError(String(error), frames, undefined);
   };
 
   try {
@@ -422,7 +423,7 @@ export async function run<T>(generator: Generator<unknown, T, unknown>): Promise
 
       if (result.done) {
         // Generator finished - fire onResolve, pop, pass result to parent
-        const finishedCall = callStack[callStack.length - 1];
+        const finishedCall = callStack.at(-1);
         if (finishedCall?.onResolve) {
           try {
             finishedCall.onResolve(result.value);
@@ -483,10 +484,13 @@ export async function run<T>(generator: Generator<unknown, T, unknown>): Promise
       throw error;
     }
     const frames = frameStack.filter((f): f is StackFrame => f !== undefined);
-    const message = error instanceof Error ? error.message : String(error);
-    throw new SchemeError(message, frames, error instanceof Error ? error : undefined);
+    throw error instanceof Error
+      ? new SchemeError(error.message, frames, error)
+      : new SchemeError(String(error), frames, undefined);
   }
 }
+
+export default run;
 
 /**
  * Synchronous runner for when we know there's no async.
@@ -510,8 +514,9 @@ export function runSync<T>(generator: Generator<unknown, T, unknown>): T {
         if (error instanceof SchemeError) {
           throw error;
         }
-        const message = error instanceof Error ? error.message : String(error);
-        throw new SchemeError(message, frames, error instanceof Error ? error : undefined);
+        throw error instanceof Error
+          ? new SchemeError(error.message, frames, error)
+          : new SchemeError(String(error), frames, undefined);
       }
 
       valueToSend = undefined;
@@ -547,8 +552,9 @@ export function runSync<T>(generator: Generator<unknown, T, unknown>): T {
       throw error;
     }
     const frames = frameStack.filter((f): f is StackFrame => f !== undefined);
-    const message = error instanceof Error ? error.message : String(error);
-    throw new SchemeError(message, frames, error instanceof Error ? error : undefined);
+    throw error instanceof Error
+      ? new SchemeError(error.message, frames, error)
+      : new SchemeError(String(error), frames);
   }
 }
 
@@ -651,14 +657,11 @@ function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number):
 
   // Check for unquote-splicing at top level of list
   if (first instanceof SchemeSymbol && symbol_name(first) === "unquote-splicing") {
-    if (level === 1) {
-      // This shouldn't happen at top level - splicing needs context
-      throw new Error("unquote-splicing: invalid context");
-    } else {
-      invariant(is_pair(expr.cdr), "unquote-splicing: missing argument");
-      const processed = yield { call: processQuasiquote(expr.cdr.car, ctx, level - 1) };
-      return new Pair(new SchemeSymbol("unquote-splicing"), new Pair(processed, nil));
-    }
+    // This shouldn't happen at top level - splicing needs context
+    invariant(level > 1, "unquote-splicing: invalid context");
+    invariant(is_pair(expr.cdr), "unquote-splicing: missing argument");
+    const processed = yield { call: processQuasiquote(expr.cdr.car, ctx, level - 1) };
+    return new Pair(new SchemeSymbol("unquote-splicing"), new Pair(processed, nil));
   }
 
   // Check for nested quasiquote
@@ -676,27 +679,30 @@ function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number):
     const item = node.car;
 
     // Check for unquote-splicing in list
-    if (is_pair(item) && item.car instanceof SchemeSymbol && symbol_name(item.car) === "unquote-splicing") {
-      if (level === 1) {
-        // Evaluate and splice
-        invariant(is_pair(item.cdr), "unquote-splicing: missing argument");
-        let spliced = yield { call: evaluate(item.cdr.car, ctx) };
-        if (is_promise(spliced)) {
-          spliced = yield spliced;
-        }
-        // Splice the list into results
-        if (is_pair(spliced)) {
-          let splicedNode: SchemeValue = spliced;
-          while (is_pair(splicedNode)) {
-            results.push(splicedNode.car);
-            splicedNode = splicedNode.cdr;
-          }
-        } else if (!is_nil(spliced)) {
-          throw new Error("unquote-splicing: expected list");
-        }
-        node = node.cdr;
-        continue;
+    if (
+      is_pair(item) &&
+      item.car instanceof SchemeSymbol &&
+      symbol_name(item.car) === "unquote-splicing" &&
+      level === 1
+    ) {
+      // Evaluate and splice
+      invariant(is_pair(item.cdr), "unquote-splicing: missing argument");
+      let spliced = yield { call: evaluate(item.cdr.car, ctx) };
+      if (is_promise(spliced)) {
+        spliced = yield spliced;
       }
+      // Splice the list into results
+      if (is_pair(spliced)) {
+        let splicedNode: SchemeValue = spliced;
+        while (is_pair(splicedNode)) {
+          results.push(splicedNode.car);
+          splicedNode = splicedNode.cdr;
+        }
+      } else {
+        invariant(is_nil(spliced), "unquote-splicing: expected list");
+      }
+      node = node.cdr;
+      continue;
     }
 
     // Regular element - recurse
@@ -756,10 +762,8 @@ function* evalDefine(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   }
 
   // Set name on functions for debugging
-  if (is_lambda_function(value)) {
-    if (!value.__name__) {
-      value.__name__ = symbol_name(first);
-    }
+  if (is_lambda_function(value) && !value.__name__) {
+    value.__name__ = symbol_name(first);
   }
 
   ctx.env.set(first, value);
@@ -1020,7 +1024,7 @@ function* evalLetStar(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   const body = rest.cdr;
 
   // Create new environment
-  let currentEnv = ctx.env.inherit("let*");
+  const currentEnv = ctx.env.inherit("let*");
 
   // Evaluate bindings sequentially
   let bindNode: SchemeValue = bindings;
@@ -1329,8 +1333,7 @@ function* evalRaise(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     message = yield message;
   }
 
-  const msgStr = typeof message === "string" ? message : String(message);
-  throw new Error(msgStr);
+  throw new Error(typeof message === "string" ? message : String(message));
 }
 
 /**
@@ -1480,14 +1483,14 @@ function* evalDo(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     // Update variables
     const newValues: SchemeValue[] = [];
     for (const { step } of vars) {
-      if (step !== null) {
+      if (step === null) {
+        newValues.push(undefined); // placeholder
+      } else {
         let newValue = yield { call: evaluate(step, { ...ctx, env: doEnv }) };
         if (is_promise(newValue)) {
           newValue = yield newValue;
         }
         newValues.push(newValue);
-      } else {
-        newValues.push(undefined); // placeholder
       }
     }
 
@@ -1542,8 +1545,8 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     // Execute body
     try {
       result = await run(evaluate(body, ctx));
-    } catch (e) {
-      caughtError = e instanceof Error ? e : new Error(String(e));
+    } catch (error) {
+      caughtError = error instanceof Error ? error : new Error(String(error));
     }
 
     // Handle catch clause if there was an error
@@ -1565,19 +1568,15 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
       // Bind the error - unwrap SchemeError to get the original message/error
       let errorValue: SchemeValue;
-      if (caughtError instanceof SchemeError && caughtError.cause) {
-        errorValue = caughtError.cause;
-      } else {
-        errorValue = caughtError;
-      }
+      errorValue = caughtError instanceof SchemeError && caughtError.cause ? caughtError.cause : caughtError;
       catchEnv.set(varName, errorValue);
 
       try {
         result = await run(evalBegin(handlers, { ...ctx, env: catchEnv }));
         caughtError = null; // Error was handled
-      } catch (e) {
+      } catch (error) {
         // Error in catch handler - propagate
-        caughtError = e instanceof Error ? e : new Error(String(e));
+        caughtError = error instanceof Error ? error : new Error(String(error));
       }
     }
 
@@ -1629,18 +1628,12 @@ function* evalParameterize(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     const paramExpr = binding.car;
 
     // Get parameter name
-    let paramName: string | symbol;
-    if (paramExpr instanceof SchemeSymbol) {
-      paramName = paramExpr.valueOf();
-    } else {
-      throw new Error(`parameterize: expected symbol, got ${typeof paramExpr}`);
-    }
+    invariant(paramExpr instanceof SchemeSymbol, `parameterize: expected symbol, got ${typeof paramExpr}`);
+    const paramName: string | symbol = paramExpr.valueOf();
 
     // Look up the parameter object in dynamic_env
     const param = (ctx.dynamic_env ?? ctx.env).get(paramName, { throwError: false });
-    if (!is_parameter(param)) {
-      throw new Error(`Unknown parameter ${String(paramName)}`);
-    }
+    invariant(is_parameter(param), `Unknown parameter ${String(paramName)}`);
 
     // Evaluate the value expression
     const bindingCdr = (binding as Pair).cdr;
@@ -1657,7 +1650,7 @@ function* evalParameterize(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
     // Track for restoration (though with our model, we don't need to restore
     // since we use a new env frame)
-    oldValues.push({ name: paramName, param: param, old: param });
+    oldValues.push({ name: paramName, param, old: param });
 
     bindNode = bindNode.cdr;
   }

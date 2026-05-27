@@ -9,6 +9,7 @@ import type { Codec } from "../membrane.js";
 import { AnyNum, Bool, Environment, Int, Num, Operator, SafeInt } from "../membrane.js";
 import type { SchemeNumeric } from "../numbers.js";
 import { SchemeExact, SchemeInexact } from "../numbers.js";
+import invariant from "tiny-invariant";
 
 // ============================================================================
 // Special Profunctor for Type Predicates
@@ -168,16 +169,12 @@ export const div = new Operator("/", {
  */
 function toInteger(n: SchemeNumeric, opName: string): { value: bigint | number; exact: boolean } {
   if (n instanceof SchemeExact) {
-    if (n.denom !== 1n) {
-      throw new TypeError(`${opName}: not an integer`);
-    }
+    TypeError.invariant(n.denom === 1n, `${opName}: not an integer`);
     return { value: n.num, exact: true };
+  } else {
+    TypeError.invariant(n.imag === 0 && Number.isInteger(n.real), `${opName}: not an integer`);
+    return { value: n.real, exact: false };
   }
-  // SchemeInexact
-  if (n.imag !== 0 || !Number.isInteger(n.real)) {
-    throw new TypeError(`${opName}: not an integer`);
-  }
-  return { value: n.real, exact: false };
 }
 
 /**
@@ -202,7 +199,7 @@ export const quotient = new Operator("quotient", {
   in: [Int, Int],
   out: Int,
   fn: (a: bigint, b: bigint): bigint => {
-    if (b === 0n) throw new Error("quotient: division by zero");
+    invariant(b != 0n, "quotient: division by zero");
     // Truncate toward zero: use JS bigint division which already truncates toward zero
     return a / b;
   },
@@ -385,12 +382,10 @@ export const numEq = new Operator("=", {
  * Get real value from SchemeNumeric. Throws if complex with non-zero imaginary.
  */
 function toReal(n: SchemeNumeric, opName: string): number {
-  if (n instanceof SchemeInexact && n.imag !== 0) {
-    throw new TypeError(`${opName}: not a real number`);
-  }
   if (n instanceof SchemeExact) {
     return Number(n.num) / Number(n.denom);
   }
+  TypeError.invariant(n.imag === 0, `${opName}: not a real number`);
   return n.real;
 }
 
@@ -676,9 +671,7 @@ export const round = new Operator("round", {
  * Uses decimal string representation for simplicity.
  */
 function floatToRational(x: number): { num: bigint; denom: bigint } {
-  if (!Number.isFinite(x)) {
-    throw new Error("numerator/denominator requires a finite number");
-  }
+  invariant(Number.isFinite(x), "numerator/denominator requires a finite number");
   if (Number.isInteger(x)) {
     return { num: BigInt(x), denom: 1n };
   }
@@ -710,7 +703,7 @@ export const numerator = new Operator("numerator", {
       const { num } = floatToRational(x.real);
       return new SchemeInexact(Number(num));
     }
-    throw new Error("numerator requires a rational number");
+    invariant(false, "numerator requires a rational number");
   },
 });
 
@@ -727,7 +720,7 @@ export const denominator = new Operator("denominator", {
       const { denom } = floatToRational(x.real);
       return new SchemeInexact(Number(denom));
     }
-    throw new Error("denominator requires a rational number");
+    invariant(false, "denominator requires a rational number");
   },
 });
 

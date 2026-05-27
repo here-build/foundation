@@ -6,11 +6,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { exec, parse, execExpr } from "../generator-exec";
+import { exec, execExpr, parse } from "../generator-exec";
+import { SchemeBool } from "../LBool";
+import { SchemeSymbol } from "../LSymbol";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";
 import { nil } from "../types";
-import { SchemeSymbol } from "../LSymbol";
 
 describe("generator-exec", () => {
   describe("exec() - basic operations", () => {
@@ -87,16 +88,16 @@ describe("generator-exec", () => {
 
     it("should handle and/or", async () => {
       const [and1] = await exec("(and #t #t)");
-      expect(and1).toBe(true);
+      expect((and1 as SchemeBool).valueOf()).toBe(true);
 
       const [and2] = await exec("(and #t #f)");
-      expect(and2).toBe(false);
+      expect((and2 as SchemeBool).valueOf()).toBe(false);
 
       const [or1] = await exec("(or #f #t)");
-      expect(or1).toBe(true);
+      expect((or1 as SchemeBool).valueOf()).toBe(true);
 
       const [or2] = await exec("(or #f #f)");
-      expect(or2).toBe(false);
+      expect((or2 as SchemeBool).valueOf()).toBe(false);
     });
 
     it("should handle cond", async () => {

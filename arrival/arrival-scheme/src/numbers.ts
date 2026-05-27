@@ -17,6 +17,8 @@
  * - RealInexact: sqrt(-4) → error (rejects complex results)
  * - ComplexInexact: sqrt(-4) → InexactNumber(0,2) (allows complex)
  */
+import invariant from "tiny-invariant";
+import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 
 // ============================================================================
 // Type Definitions
@@ -28,17 +30,17 @@ export type SchemeNumeric = SchemeExact | SchemeInexact;
 // ExactNumber - Arbitrary Precision (integers and rationals)
 // ============================================================================
 
-export class SchemeExact {
+export class SchemeExact extends AValue {
   static __class__ = "number";
+  readonly kind = "number" as const;
 
   readonly num: bigint;
   readonly denom: bigint;
 
-  constructor(num: bigint, denom: bigint = 1n) {
+  constructor(num: bigint, denom: bigint = 1n, provenance: ReadonlySet<number> = EMPTY_PROVENANCE) {
+    super(provenance);
     // Normalize: keep denom positive, reduce to lowest terms
-    if (denom === 0n) {
-      throw new Error("Division by zero");
-    }
+    invariant(denom != 0n, "Division by zero");
     if (denom < 0n) {
       num = -num;
       denom = -denom;
@@ -114,6 +116,15 @@ export class SchemeExact {
       return this.num;
     }
     return this.valueOf();
+  }
+
+  /** AValue contract; aliases existing `toJS` (lowercase). */
+  toJs(): number | bigint {
+    return this.toJS();
+  }
+
+  withProvenance(p: ReadonlySet<number>): SchemeExact {
+    return new SchemeExact(this.num, this.denom, p);
   }
 
   // String representation
@@ -215,23 +226,17 @@ export class SchemeExact {
 
   // Integer operations (only valid when isInteger)
   mod(other: SchemeExact): SchemeExact {
-    if (!this.isInteger || !other.isInteger) {
-      throw new Error("mod requires integers");
-    }
+    invariant(this.isInteger && other.isInteger, "mod requires integers");
     return new SchemeExact(this.num % other.num);
   }
 
   quotient(other: SchemeExact): SchemeExact {
-    if (!this.isInteger || !other.isInteger) {
-      throw new Error("quotient requires integers");
-    }
+    invariant(this.isInteger && other.isInteger, "quotient requires integers");
     return new SchemeExact(this.num / other.num);
   }
 
   gcd(other: SchemeExact): SchemeExact {
-    if (!this.isInteger || !other.isInteger) {
-      throw new Error("gcd requires integers");
-    }
+    invariant(this.isInteger && other.isInteger, "gcd requires integers");
     return new SchemeExact(
       SchemeExact.gcd(this.num < 0n ? -this.num : this.num, other.num < 0n ? -other.num : other.num),
     );
@@ -247,13 +252,15 @@ export class SchemeExact {
 // InexactNumber - Floating Point (reals and complex)
 // ============================================================================
 
-export class SchemeInexact {
+export class SchemeInexact extends AValue {
   static __class__ = "number";
+  readonly kind = "number" as const;
 
   readonly real: number;
   readonly imag: number;
 
-  constructor(real: number, imag: number = 0) {
+  constructor(real: number, imag: number = 0, provenance: ReadonlySet<number> = EMPTY_PROVENANCE) {
+    super(provenance);
     this.real = real;
     this.imag = imag;
   }
@@ -336,14 +343,24 @@ export class SchemeInexact {
 
   // Conversion to JS
   valueOf(): number {
-    if (this.imag !== 0) {
-      throw new Error("Complex number cannot be converted to real");
-    }
+    invariant(this.imag === 0, "Complex number cannot be converted to real");
     return this.real;
   }
 
   toJS(): number {
     return this.valueOf();
+  }
+
+  /**
+   * Can't reuse `valueOf` here — it throws on complex. AValue.toJs must always
+   * serialize; mirrors `lipsToJs` rosetta path.
+   */
+  toJs(): number | { real: number; imag: number } {
+    return this.imag === 0 ? this.real : { real: this.real, imag: this.imag };
+  }
+
+  withProvenance(p: ReadonlySet<number>): SchemeInexact {
+    return new SchemeInexact(this.real, this.imag, p);
   }
 
   // String representation
@@ -370,9 +387,7 @@ export class SchemeInexact {
 
   // Comparison (only valid for reals)
   cmp(other: SchemeInexact): -1 | 0 | 1 {
-    if (this.imag !== 0 || other.imag !== 0) {
-      throw new Error("Cannot compare complex numbers");
-    }
+    invariant(this.imag === 0 && other.imag === 0, "Cannot compare complex numbers");
     if (this.real < other.real) return -1;
     if (this.real > other.real) return 1;
     return 0;
@@ -426,22 +441,22 @@ export class SchemeInexact {
 
   // Floor, ceiling, truncate, round (only for reals)
   floor(): SchemeInexact {
-    if (this.imag !== 0) throw new Error("floor requires real number");
+    invariant(this.imag === 0,"floor requires real number");
     return new SchemeInexact(Math.floor(this.real));
   }
 
   ceiling(): SchemeInexact {
-    if (this.imag !== 0) throw new Error("ceiling requires real number");
+    invariant(this.imag === 0,"ceiling requires real number");
     return new SchemeInexact(Math.ceil(this.real));
   }
 
   truncate(): SchemeInexact {
-    if (this.imag !== 0) throw new Error("truncate requires real number");
+    invariant(this.imag === 0,"truncate requires real number");
     return new SchemeInexact(Math.trunc(this.real));
   }
 
   round(): SchemeInexact {
-    if (this.imag !== 0) throw new Error("round requires real number");
+    invariant(this.imag === 0,"round requires real number");
     // Scheme rounds to even on ties
     const floored = Math.floor(this.real);
     const diff = this.real - floored;
@@ -497,23 +512,18 @@ export class SchemeInexact {
   pow(exponent: SchemeInexact): SchemeInexact {
     // z^w = e^(w * log(z))
     if (this.isZero) {
-      if (exponent.real > 0) return new SchemeInexact(0);
-      throw new Error("0 raised to non-positive power");
+      invariant(exponent.real <= 0, "0 raised to non-positive power");
+      return new SchemeInexact(0);
     }
     return exponent.mul(this.log()).exp();
   }
 
   // Convert to exact (if possible)
   toExact(): SchemeExact {
-    if (this.imag !== 0) {
-      throw new Error("Complex number cannot be converted to exact");
-    }
-    if (!Number.isFinite(this.real)) {
-      throw new TypeError("Infinite number cannot be converted to exact");
-    }
-    if (Number.isNaN(this.real)) {
-      throw new TypeError("NaN cannot be converted to exact");
-    }
+    invariant(this.imag === 0, "Complex number cannot be converted to exact");
+    invariant(Number.isFinite(this.real), "Infinite number cannot be converted to exact");
+    // todo double-check - isFinite should guard it already
+    invariant(!Number.isNaN(this.real), "NaN cannot be converted to exact");
     // Convert float to rational
     // Use continued fraction approximation for better results
     return SchemeInexact.floatToRational(this.real);
@@ -657,9 +667,7 @@ export class NumberRegistry {
     if (imag === 0) {
       return new SchemeInexact(real);
     }
-    if (this.config.inexact === RealInexact) {
-      throw new Error("Complex numbers not supported in this environment");
-    }
+    invariant(this.config.inexact !== RealInexact, "Complex numbers not supported in this environment");
     return new SchemeInexact(real, imag);
   }
 
@@ -829,26 +837,21 @@ export function makeNumber(
   value: number | bigint | string | SchemeNumeric,
   registry: NumberRegistry = schemeNumbers,
 ): SchemeNumeric {
-  if (value instanceof SchemeExact || value instanceof SchemeInexact) {
-    return value;
-  }
-
-  if (typeof value === "bigint") {
-    return registry.fromInteger(value);
-  }
-
-  if (typeof value === "number") {
-    if (Number.isInteger(value) && Number.isSafeInteger(value)) {
+  switch (true) {
+    case value instanceof SchemeExact:
+    case value instanceof SchemeInexact:
+      return value;
+    case typeof value === "bigint":
       return registry.fromInteger(value);
-    }
-    return registry.fromFloat(value);
+    case typeof value === "number":
+      return Number.isInteger(value) && Number.isSafeInteger(value)
+        ? registry.fromInteger(value)
+        : registry.fromFloat(value);
+    case typeof value === "string":
+      return parseNumber(value, registry);
+    default:
+      invariant(false, `Cannot create number from ${typeof value}`);
   }
-
-  if (typeof value === "string") {
-    return parseNumber(value, registry);
-  }
-
-  throw new Error(`Cannot create number from ${typeof value}`);
 }
 
 /**
@@ -1010,3 +1013,12 @@ export function isBigInteger(n: unknown): boolean {
   }
   return typeof n === "bigint";
 }
+
+AValue.registerBoxer("bigint", (v, p) => new SchemeExact(v as bigint, 1n, p));
+
+// Safe-integer JS numbers route to exact — preserves precision through scheme
+// arithmetic. Anything beyond MAX_SAFE_INTEGER would round on bigint conversion.
+AValue.registerBoxer("number", (v, p) => {
+  const n = v as number;
+  return Number.isSafeInteger(n) ? new SchemeExact(BigInt(n), 1n, p) : new SchemeInexact(n, 0, p);
+});

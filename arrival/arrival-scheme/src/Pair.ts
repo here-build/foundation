@@ -1,13 +1,15 @@
 // -------------------------------------------------------------------------
 // :: Pair - the cons cell (fundamental Lisp data structure)
 // -------------------------------------------------------------------------
-import type { SourceLocation } from "./errors.js";
+import invariant from "tiny-invariant";
+import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
+import { type SourceLocation } from "./errors.js";
 import { is_native, is_nil, is_pair, is_plain_object } from "./guards.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { __cycles__, __data__, __location__, __ref__ } from "./primitives.js";
-import type { Nil, PairLike } from "./types.js";
+import { type Nil, type PairLike } from "./types.js";
 import { nil, setPairConstructor } from "./types.js";
 
 /**
@@ -194,15 +196,17 @@ function stringifyValue(obj: unknown, quote?: boolean): string {
 // ----------------------------------------------------------------------
 // :: Pair class
 // ----------------------------------------------------------------------
-export class Pair<Car = unknown, Cdr = unknown> implements PairLike<Car, Cdr> {
+export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLike<Car, Cdr> {
   static __class__ = "pair";
+  readonly kind = "pair" as const;
   [__data__]?: boolean;
   [__location__]?: SourceLocation;
 
   car: Car;
   cdr: Cdr;
 
-  constructor(car?: Car, cdr?: Cdr) {
+  constructor(car?: Car, cdr?: Cdr, provenance: ReadonlySet<number> = EMPTY_PROVENANCE) {
+    super(provenance);
     this.car = car as Car;
     this.cdr = cdr as Cdr;
   }
@@ -418,9 +422,7 @@ export class Pair<Car = unknown, Cdr = unknown> implements PairLike<Car, Cdr> {
   }
 
   reverse(): Pair | Nil {
-    if (this.have_cycles()) {
-      throw new Error("You can't reverse list that have cycles");
-    }
+    invariant(!this.have_cycles(), "You can't reverse list that have cycles");
     let node: Pair | unknown = this;
     let prev: Pair | Nil = nil;
     while (!is_nil(node) && is_pair(node)) {
@@ -569,6 +571,39 @@ export class Pair<Car = unknown, Cdr = unknown> implements PairLike<Car, Cdr> {
 
   serialize(): [unknown, unknown] {
     return [this.car, this.cdr];
+  }
+
+  toJs(): unknown {
+    const list: unknown[] = [];
+    let node: unknown = this;
+    while (true) {
+      switch (true) {
+        case is_nil(node):
+          return list;
+        case is_pair(node): {
+          const car = node.car;
+          list.push(car instanceof AValue ? car.toJs() : car);
+          node = node.cdr;
+          continue;
+        }
+        default:
+          return { __dotted__: true, list, tail: node instanceof AValue ? node.toJs() : node };
+      }
+    }
+  }
+
+  /**
+   * Parser/macro-attached metadata (`__location__`, `__cycles__`, `__ref__`) must
+   * survive — losing it breaks stack traces and reader-cycle reconstruction.
+   */
+  withProvenance(p: ReadonlySet<number>): Pair<Car, Cdr> {
+    const copy = new Pair<Car, Cdr>(this.car, this.cdr, p);
+    const src = this as PairWithMetadata<Car, Cdr>;
+    const dst = copy as PairWithMetadata<Car, Cdr>;
+    if (src[__location__] !== undefined) dst[__location__] = src[__location__];
+    if (src[__cycles__] !== undefined) dst[__cycles__] = src[__cycles__];
+    if (src[__ref__] !== undefined) dst[__ref__] = src[__ref__];
+    return copy;
   }
 
   [Symbol.iterator](): Iterator<unknown> {

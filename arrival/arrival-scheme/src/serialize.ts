@@ -17,9 +17,7 @@ export function parseBigInt(str: string, radix: number = 10): bigint {
   const base = BigInt(radix);
   for (const char of str.toLowerCase()) {
     const digit = Number.parseInt(char, radix);
-    if (Number.isNaN(digit)) {
-      throw new TypeError(`Invalid digit '${char}' for radix ${radix}`);
-    }
+    TypeError.invariant(!Number.isNaN(digit), `Invalid digit '${char}' for radix ${radix}`);
     result = result * base + BigInt(digit);
   }
   return negative ? -result : result;

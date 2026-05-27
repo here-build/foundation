@@ -5,6 +5,7 @@
 import { tokenize } from "../lips.js";
 import { TokenMeta } from "../Formatter.js";
 import { Parser } from "../Parser.js";
+import invariant from "tiny-invariant";
 
 class Stack<T = string> {
   data: T[] = [];
@@ -54,15 +55,13 @@ export function balanced(code: string | TokenMeta[]): boolean {
       stack.push(token);
     } else if (stack.is_empty()) {
       // closing bracket without opening
-      throw new Error(`Syntax error: not matched closing ${token}`);
+      invariant(false, `Syntax error: not matched closing ${token}`);
     } else {
       // closing token
       const last = stack.top()!;
       // last on stack need to match
       const closing_token = maching_pairs[last];
-      if (token !== closing_token) {
-        throw new Error(`Syntax error: missing closing ${closing_token}`);
-      }
+      invariant(token === closing_token, `Syntax error: missing closing ${closing_token}`);
       stack.pop();
     }
   }

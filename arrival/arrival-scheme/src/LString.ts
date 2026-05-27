@@ -1,6 +1,7 @@
 // -------------------------------------------------------------------------
 // :: String wrapper that handles copy and in-place change
 // -------------------------------------------------------------------------
+import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import type { SchemeNumeric } from "./numbers.js";
 import { SchemeCharacter } from "./types.js";
 import { typecheck } from "./utils/typecheck.js";
@@ -20,12 +21,17 @@ type NumberLike = number | SchemeNumeric | { valueOf(): number };
  */
 type CharLike = string | SchemeCharacter | { valueOf(): string };
 
-export class SchemeString {
+export class SchemeString extends AValue {
   static __class__ = "string";
+  readonly kind = "string" as const;
 
   __string__: string;
 
-  constructor(string: SchemeCharacter[] | StringLike) {
+  constructor(
+    string: SchemeCharacter[] | StringLike,
+    provenance: ReadonlySet<number> = EMPTY_PROVENANCE,
+  ) {
+    super(provenance);
     this.__string__ = Array.isArray(string)
       ? string
           .map((x, i) => {
@@ -120,7 +126,17 @@ export class SchemeString {
   toString(): string {
     return this.__string__;
   }
+
+  toJs(): string {
+    return this.__string__;
+  }
+
+  withProvenance(p: ReadonlySet<number>): SchemeString {
+    return new SchemeString(this.__string__, p);
+  }
 }
+
+AValue.registerBoxer("string", (v, p) => new SchemeString(v as string, p));
 
 // Dynamically wrap all String.prototype methods
 {

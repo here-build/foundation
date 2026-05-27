@@ -11,7 +11,7 @@
  */
 
 import type { Environment } from "./Environment.js";
-import { evaluate, run, type EvalTap } from "./evaluator.js";
+import run, { evaluate, type EvalTap } from "./evaluator.js";
 import { is_pair } from "./guards.js";
 import type { Pair } from "./Pair.js";
 import type { SchemeValue } from "./types.js";

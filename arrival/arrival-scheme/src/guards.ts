@@ -2,6 +2,7 @@
 import { Continuation } from "./Continuation.js";
 import { Environment } from "./Environment.js";
 import { LambdaContext } from "./LambdaContext.js";
+import { SchemeBool } from "./LBool.js";
 import { SchemeString } from "./LString.js";
 import { Macro } from "./Macro.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
@@ -103,8 +104,16 @@ export function is_directive(token: unknown): boolean {
 }
 
 // ----------------------------------------------------------------------------
-export function is_false(o: unknown): o is false | null {
-  return o === false || o === null;
+export function is_false(o: unknown): o is false | null | SchemeBool {
+  switch (true) {
+    case o === false:
+    case o === null:
+      return true;
+    case o instanceof SchemeBool:
+      return (o as SchemeBool).value === false;
+    default:
+      return false;
+  }
 }
 
 // ----------------------------------------------------------------------------

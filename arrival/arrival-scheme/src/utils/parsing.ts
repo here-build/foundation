@@ -3,6 +3,7 @@
 // -------------------------------------------------------------------------
 import invariant from "tiny-invariant";
 import { is_exact, is_inexact, is_int } from "../guards.js";
+import { schemeFalse, schemeTrue } from "../LBool.js";
 import { SchemeString } from "../LString.js";
 import { SchemeSymbol } from "../LSymbol.js";
 import { SchemeExact, SchemeInexact } from "../numbers.js";
@@ -123,10 +124,8 @@ export function parse_character(arg: string): SchemeCharacter {
       char = m[1];
     }
   }
-  if (char) {
-    return new SchemeCharacter(char);
-  }
-  throw new Error(`Parse: invalid character in ${arg}`);
+  invariant(char !== undefined, `Parse: invalid character in ${arg}`);
+  return new SchemeCharacter(char);
 }
 
 // ----------------------------------------------------------------------
@@ -306,8 +305,10 @@ export function parse_string(string: string): SchemeString {
     str.freeze();
     return str;
   } catch (error) {
-    const msg = (error as Error).message.replace(/in JSON /, "").replace(/.*Error: /, "");
-    throw new Error(`Invalid string literal: ${msg}`);
+    invariant(
+      false,
+      `Invalid string literal: ${(error as Error).message.replace(/in JSON /, "").replace(/.*Error: /, "")}`,
+    );
   }
 }
 
@@ -354,10 +355,10 @@ export const parse_symbol = (arg: string): SchemeSymbol =>
 const nan = new SchemeInexact(Number.NaN);
 
 const constants: Record<string, unknown> = {
-  "#t": true,
-  "#f": false,
-  "#true": true,
-  "#false": false,
+  "#t": schemeTrue,
+  "#f": schemeFalse,
+  "#true": schemeTrue,
+  "#false": schemeFalse,
   "+inf.0": Number.POSITIVE_INFINITY,
   "-inf.0": Number.NEGATIVE_INFINITY,
   "+nan.0": nan,
@@ -398,8 +399,6 @@ export function parse_argument(arg: string): unknown {
       return parse_complex(arg);
     }
   }
-  if (/^#[iexobd]/.test(arg)) {
-    throw new Error(`Invalid numeric constant: ${arg}`);
-  }
+  invariant(!/^#[iexobd]/.test(arg), `Invalid numeric constant: ${arg}`);
   return parse_symbol(arg);
 }

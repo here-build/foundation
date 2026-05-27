@@ -15,30 +15,29 @@
  * See docs/membrane-design.md for full design rationale.
  */
 
-import type { SchemeNumeric } from "./numbers.js";
-import { SchemeExact, SchemeInexact } from "./numbers.js";
-import type { SchemeValue } from "./types.js";
-import { nil, SchemeCharacter } from "./types.js";
-import { SchemeString } from "./LString.js";
-import { SchemeSymbol } from "./LSymbol.js";
-import { Pair } from "./Pair.js";
-import { QuotedPromise } from "./QuotedPromise.js";
-import { Macro } from "./Macro.js";
-import { Syntax } from "./Syntax.js";
-import { LambdaContext } from "./LambdaContext.js";
+import invariant from "tiny-invariant";
+import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
+import { SchemeBool } from "./LBool.js";
 import { Environment as SchemeEnvironment } from "./Environment.js";
 import { SchemePromise } from "./evaluator.js";
+import { LambdaContext } from "./LambdaContext.js";
+import { SchemeString } from "./LString.js";
+import { SchemeSymbol } from "./LSymbol.js";
+import { Macro } from "./Macro.js";
+import { type SchemeNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
+import { Pair } from "./Pair.js";
 import { __lambda__ } from "./primitives.js";
+import { QuotedPromise } from "./QuotedPromise.js";
 import {
+  NOT_FOUND,
   sandboxedAccess,
+  sandboxedDelete,
   sandboxedHas,
   sandboxedKeys,
   sandboxedSet,
-  sandboxedDelete,
-  NOT_FOUND,
-  SANDBOX_BOUNDARY,
-  SandboxViolationError,
 } from "./sandbox-boundary.js";
+import { Syntax } from "./Syntax.js";
+import { type SchemeValue, nil, SchemeCharacter } from "./types.js";
 
 // Re-export sandbox primitives for consumers
 export {
@@ -84,6 +83,7 @@ export function isSchemeValue(value: unknown): boolean {
   if (value instanceof SchemeCharacter) return true;
   if (value instanceof SchemeExact) return true;
   if (value instanceof SchemeInexact) return true;
+  if (value instanceof SchemeBool) return true;
   if (value instanceof QuotedPromise) return true;
   if (value instanceof SchemePromise) return true;
   if (value instanceof Macro) return true;
@@ -146,14 +146,28 @@ const jsToWrapper = new WeakMap<object, SchemeValue>();
  *
  * All property access is sandboxed - see sandbox-boundary.ts for security model.
  */
-export class SchemeJSObject {
+export class SchemeJSObject extends AValue {
   static __class__ = "js-object";
+  readonly kind = "object" as const;
 
-  constructor(readonly source: object) {}
+  constructor(
+    readonly source: object,
+    provenance: ReadonlySet<number> = EMPTY_PROVENANCE,
+  ) {
+    super(provenance);
+  }
 
   /** Unwrap to original JS object (TO_JS protocol). */
   [TO_JS](): object {
     return this.source;
+  }
+
+  toJs(): Record<string, unknown> {
+    return this.source as Record<string, unknown>;
+  }
+
+  withProvenance(p: ReadonlySet<number>): SchemeJSObject {
+    return new SchemeJSObject(this.source, p);
   }
 
   /**
@@ -208,14 +222,29 @@ export class SchemeJSObject {
 /**
  * Wrapper for JS functions. Handles boundary crossing on invocation.
  */
-export class SchemeJSFunction {
+export class SchemeJSFunction extends AValue {
   static __class__ = "js-function";
+  readonly kind = "procedure" as const;
 
-  constructor(readonly source: Function) {}
+  constructor(
+    readonly source: Function,
+    provenance: ReadonlySet<number> = EMPTY_PROVENANCE,
+  ) {
+    super(provenance);
+  }
 
   /** Unwrap to original JS function (TO_JS protocol). */
   [TO_JS](): Function {
     return this.source;
+  }
+
+  /** Procedures are not serializable. */
+  toJs(): never {
+    invariant(false, "SchemeJSFunction: not serializable");
+  }
+
+  withProvenance(p: ReadonlySet<number>): SchemeJSFunction {
+    return new SchemeJSFunction(this.source, p);
   }
 
   /** Invoke the wrapped function with Scheme values. */
@@ -526,20 +555,15 @@ export class Operator<
   call(args: unknown[]): ExtractScheme<Out> {
     const minArgs = this.in.length;
 
-    if (args.length < minArgs) {
-      throw new TypeError(`${this.name}: expected at least ${minArgs} args, got ${args.length}`);
-    }
-
-    if (!this.inRest && args.length > minArgs) {
-      throw new TypeError(`${this.name}: expected ${minArgs} args, got ${args.length}`);
-    }
+    TypeError.invariant(args.length >= minArgs, `${this.name}: expected at least ${minArgs} args, got ${args.length}`);
+    TypeError.invariant(
+      this.inRest || args.length <= minArgs,
+      `${this.name}: expected ${minArgs} args, got ${args.length}`,
+    );
 
     const jsArgs = args.map((arg, i) => {
       const prof = i < this.in.length ? this.in[i] : this.inRest!;
-
-      if (!prof.match(arg)) {
-        throw new TypeError(`${this.name}: argument ${i} type mismatch`);
-      }
+      TypeError.invariant(prof.match(arg), `${this.name}: argument ${i} type mismatch`);
       return prof.toJS(arg as any);
     });
 
@@ -584,9 +608,7 @@ export class Environment {
   /** Call an operator by name */
   call(name: string, args: unknown[]): unknown {
     const op = this.get(name);
-    if (!op) {
-      throw new Error(`${this.name}: unknown operator '${name}'`);
-    }
+    invariant(op, `${this.name}: unknown operator '${name}'`);
     return op.call(args);
   }
 
@@ -617,3 +639,20 @@ export class Environment {
     return restricted;
   }
 }
+
+// One boxer for both arrays and plain objects — registry keys by `typeof`, and
+// `typeof [] === "object"`. Arrays cons-up into a proper scheme list; everything
+// else wraps. Provenance stamps the top-level result only; spine elements stay
+// empty until a provenance-aware op touches them.
+AValue.registerBoxer("object", (v, p) => {
+  if (Array.isArray(v)) {
+    let list: AValue = nil;
+    for (let i = v.length - 1; i >= 0; i--) {
+      list = new Pair(AValue.fromJs(v[i]), list) as unknown as AValue;
+    }
+    return p === EMPTY_PROVENANCE ? list : list.withProvenance(p);
+  }
+  return new SchemeJSObject(v as object, p);
+});
+
+AValue.registerBoxer("function", (v, p) => new SchemeJSFunction(v as Function, p));

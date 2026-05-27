@@ -467,23 +467,24 @@ export class Lexer {
           continue loop;
         }
       }
-      if (this._state !== null) {
-        // collect char in token
-        continue;
-      }
       // no rule for token
-      const line = this.__input__.split("\n")[this._line];
-      throw new Error(`Invalid Syntax at line ${this._line + 1}\n${line}`);
+      invariant(
+        this._state !== null,
+        () => `Invalid Syntax at line ${this._line + 1}\n${this.__input__.split("\n")[this._line]}`,
+      );
+      // collect char in token
+      continue;
     }
     // we need to ignore comments because they can be the last expression in code
     // without extra newline at the end
     if (![null, Lexer.comment].includes(this._state)) {
       const line_number = this.__input__.slice(0, Math.max(0, this._newline)).match(/\n/g)?.length ?? 0;
       const line = this.__input__.slice(Math.max(0, this._newline));
-      if (this.__input__[this._i] === "#") {
-        const expr = this.__input__.slice(Math.max(0, this._i)).replace(/^([^\s()[\]]+).*/, "$1");
-        throw new Error(`Invalid Syntax at line ${line_number + 1}: invalid token ${expr}`);
-      }
+      invariant(
+        this.__input__[this._i] !== "#",
+        () =>
+          `Invalid Syntax at line ${line_number + 1}: invalid token ${this.__input__.slice(Math.max(0, this._i)).replace(/^([^\s()[\]]+).*/, "$1")}`,
+      );
       throw new Unterminated(`Invalid Syntax at line ${line_number + 1}: Unterminated expression ${line}`);
     }
   }

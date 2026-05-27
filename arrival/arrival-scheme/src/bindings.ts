@@ -61,22 +61,14 @@ export class FunctionBinding implements Binding {
 
   constructor(
     readonly name: string,
-
     readonly fn: (this: EvalContext, ...args: any[]) => any,
     readonly doc?: string,
   ) {}
 
-  /**
-   * Call the function with evaluated arguments.
-   */
   call(args: SchemeValue[], ctx: EvalContext): SchemeValue {
     return this.fn.call(ctx, ...args);
   }
 }
-
-// ============================================
-// Macro Binding
-// ============================================
 
 /**
  * A Scheme macro (define-macro style).
@@ -91,49 +83,10 @@ export class MacroBinding implements Binding {
     readonly doc?: string,
   ) {}
 
-  /**
-   * Expand the macro with unevaluated code.
-   */
   expand(code: Pair, ctx: EvalContext): SchemeValue {
     return this.transform.call(ctx, code);
   }
 }
-
-// ============================================
-// Syntax Binding
-// ============================================
-
-/**
- * A hygienic macro (syntax-rules style).
- * Uses pattern matching for expansion.
- */
-export class SyntaxBinding implements Binding {
-  readonly kind = "syntax" as const;
-
-  constructor(
-    readonly name: string,
-    readonly rules: SyntaxRules,
-    readonly doc?: string,
-  ) {}
-}
-
-/**
- * Syntax rules for hygienic macros.
- * This is a placeholder - the actual implementation is complex.
- */
-export interface SyntaxRules {
-  literals: string[];
-  patterns: SyntaxPattern[];
-}
-
-export interface SyntaxPattern {
-  pattern: SchemeValue;
-  template: SchemeValue;
-}
-
-// ============================================
-// Value Binding
-// ============================================
 
 /**
  * A simple value binding (constants, parameters, etc.)
@@ -148,10 +101,6 @@ export class ValueBinding implements Binding {
     readonly constant: boolean = false,
   ) {}
 }
-
-// ============================================
-// Fallback Resolver
-// ============================================
 
 /**
  * Called when normal symbol lookup fails.
@@ -178,50 +127,11 @@ export interface FallbackResolver {
   resolve(name: string, env: Environment): SchemeValue | undefined;
 }
 
-// ============================================
-// Keyword Resolver
-// ============================================
-
-/**
- * Resolves :keyword symbols to property accessor functions.
- * This is Clojure/Common Lisp style keyword access.
- *
- * Example: (:name obj) -> obj.name
- */
-export class KeywordResolver implements FallbackResolver {
-  readonly id = "keyword";
-
-  resolve(name: string, _env: Environment): SchemeValue | undefined {
-    if (typeof name === "string" && name.startsWith(":")) {
-      const key = name.slice(1);
-      // Return a function that accesses that property
-      const accessor = (obj: Record<string, unknown>) => {
-        if (obj === null || obj === undefined) {
-          return accessor; // Partial application
-        }
-        return obj[key];
-      };
-      // Add valueOf for proper symbol representation
-      Object.defineProperty(accessor, "valueOf", {
-        value: () => name,
-        enumerable: false,
-      });
-      return accessor as SchemeValue;
-    }
-    return undefined;
-  }
-}
-
-// ============================================
-// Helper: Create bindings from plain objects
-// ============================================
-
 /**
  * Create a FunctionBinding from a plain function definition.
  */
 export function fn(
   name: string,
-
   impl: (this: EvalContext, ...args: any[]) => any,
   doc?: string,
 ): FunctionBinding {
@@ -238,138 +148,6 @@ export function macro(
 ): MacroBinding {
   return new MacroBinding(name, transform, doc);
 }
-
-/**
- * Create a ValueBinding from a plain value.
- */
-export function val(name: string, value: SchemeValue, doc?: string, constant = false): ValueBinding {
-  return new ValueBinding(name, value, doc, constant);
-}
-
-// ============================================
-// Core JavaScript Globals Resolver
-// ============================================
-
-/**
- * Core JavaScript globals needed for basic LIPS functionality.
- * This is a controlled allowlist of globals that bootstrap.scm depends on.
- */
-const CORE_JS_GLOBALS: Record<string, unknown> = {
-  // Constructors
-  Array,
-  Object,
-  RegExp,
-  Error,
-  Promise,
-  Map,
-  Set,
-  WeakMap,
-  WeakSet,
-  Uint8Array,
-  Int8Array,
-  Uint16Array,
-  Int16Array,
-  Uint32Array,
-  Int32Array,
-  Float32Array,
-  Float64Array,
-  ArrayBuffer,
-  DataView,
-  Date,
-  // Math object
-  Math,
-  // JSON
-  JSON,
-  // Symbol
-  Symbol,
-  // Global functions
-  parseInt: Number.parseInt,
-  parseFloat: Number.parseFloat,
-  isNaN: Number.isNaN,
-  isFinite: Number.isFinite,
-  encodeURI,
-  decodeURI,
-  encodeURIComponent,
-  decodeURIComponent,
-  // Constants
-  Infinity,
-  NaN: Number.NaN,
-  undefined,
-};
-
-/**
- * Resolver that provides core JavaScript globals.
- * Use this when you need basic JS interop (Arrays, Math, etc.)
- */
-export class CoreJavaScriptResolver implements FallbackResolver {
-  readonly id = "core-javascript";
-
-  resolve(name: string): SchemeValue | undefined {
-    if (Object.hasOwn(CORE_JS_GLOBALS, name)) {
-      return CORE_JS_GLOBALS[name] as SchemeValue;
-    }
-    return undefined;
-  }
-}
-
-/**
- * Resolver that provides browser-specific globals.
- * Only use this in browser environments.
- */
-export class BrowserGlobalsResolver implements FallbackResolver {
-  readonly id = "browser-globals";
-
-  resolve(name: string): SchemeValue | undefined {
-    // Only available in browser context
-    if (typeof globalThis === "undefined") return undefined;
-
-    const globals: Record<string, unknown> = {
-      window: typeof window === "undefined" ? undefined : window,
-      document: typeof document === "undefined" ? undefined : document,
-      localStorage: typeof localStorage === "undefined" ? undefined : localStorage,
-      sessionStorage: typeof sessionStorage === "undefined" ? undefined : sessionStorage,
-      fetch: typeof fetch === "undefined" ? undefined : fetch,
-      setTimeout: typeof setTimeout === "undefined" ? undefined : setTimeout,
-      setInterval: typeof setInterval === "undefined" ? undefined : setInterval,
-      clearTimeout: typeof clearTimeout === "undefined" ? undefined : clearTimeout,
-      clearInterval: typeof clearInterval === "undefined" ? undefined : clearInterval,
-      requestAnimationFrame: typeof requestAnimationFrame === "undefined" ? undefined : requestAnimationFrame,
-      cancelAnimationFrame: typeof cancelAnimationFrame === "undefined" ? undefined : cancelAnimationFrame,
-    };
-
-    if (Object.hasOwn(globals, name) && globals[name] !== undefined) {
-      return globals[name] as SchemeValue;
-    }
-    return undefined;
-  }
-}
-
-/**
- * Resolver that provides Node.js-specific globals.
- * Only use this in Node.js environments.
- */
-export class NodeGlobalsResolver implements FallbackResolver {
-  readonly id = "node-globals";
-
-  resolve(name: string): SchemeValue | undefined {
-    const globals: Record<string, unknown> = {
-      process: typeof process === "undefined" ? undefined : process,
-      Buffer: typeof Buffer === "undefined" ? undefined : Buffer,
-      console: typeof console === "undefined" ? undefined : console,
-      __dirname: undefined, // These need special handling in real impl
-      __filename: undefined,
-    };
-
-    if (Object.hasOwn(globals, name) && globals[name] !== undefined) {
-      return globals[name] as SchemeValue;
-    }
-    return undefined;
-  }
-}
-
-// ============================================
-// Environment Module System
-// ============================================
 
 /**
  * An EnvironmentModule is a composable unit that provides:

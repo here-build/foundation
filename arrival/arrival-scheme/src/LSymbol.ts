@@ -1,13 +1,24 @@
 // -------------------------------------------------------------------------
 // :: SchemeSymbol - Lisp symbol type
 // -------------------------------------------------------------------------
+import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import type { SchemeStringLike } from "./types.js";
 import { isSchemeString, isString } from "./types.js";
 
 type SchemeSymbolName = string | symbol;
 
-export class SchemeSymbol {
+/**
+ * Provenance × interning invariant: `SchemeSymbol.list[name]` is the canonical
+ * empty-provenance instance shared by every reader. `withProvenance` must NOT
+ * replace it (that would stamp every other reader with one call-site's
+ * provenance); instead it mints a fresh uninterned copy via this sentinel.
+ * Safe because `SchemeSymbol.is` compares `__name__`, not reference.
+ */
+const UNINTERNED = Symbol("UNINTERNED");
+
+export class SchemeSymbol extends AValue {
   static __class__ = "symbol";
+  readonly kind = "symbol" as const;
   // Interning table for string-named symbols
   static readonly list: Record<string, SchemeSymbol> = {};
   // Note: gensyms store their literal name at this[SchemeSymbol.literal]
@@ -17,19 +28,22 @@ export class SchemeSymbol {
   static readonly object = Symbol.for("__object__");
   declare __name__: SchemeSymbolName;
 
-  constructor(name: SchemeSymbolName | SchemeStringLike) {
+  constructor(
+    name: SchemeSymbolName | SchemeStringLike,
+    provenance: ReadonlySet<number> = EMPTY_PROVENANCE,
+    intern: symbol | true = true,
+  ) {
+    super(provenance);
     // Unwrap SchemeStringLike to plain string
     const unwrapped: SchemeSymbolName = isSchemeString(name) ? name.valueOf() : name;
 
-    // Return interned symbol if exists (for string names only)
-    if (typeof unwrapped === "string" && SchemeSymbol.list[unwrapped] instanceof SchemeSymbol) {
+    if (intern !== UNINTERNED && typeof unwrapped === "string" && SchemeSymbol.list[unwrapped] instanceof SchemeSymbol) {
       return SchemeSymbol.list[unwrapped];
     }
 
     this.__name__ = unwrapped;
 
-    // Intern string-named symbols
-    if (typeof unwrapped === "string") {
+    if (intern !== UNINTERNED && typeof unwrapped === "string") {
       SchemeSymbol.list[unwrapped] = this;
     }
   }
@@ -84,6 +98,16 @@ export class SchemeSymbol {
 
   is_gensym(): boolean {
     return is_gensym(this.__name__);
+  }
+
+  toJs(): string {
+    // Apostrophe-prefix indicates "this is a scheme symbol, not a string."
+    return `'${isString(this.__name__) ? this.__name__ : symbol_to_string(this.__name__ as symbol)}`;
+  }
+
+  /** See UNINTERNED sentinel doc. */
+  withProvenance(p: ReadonlySet<number>): SchemeSymbol {
+    return new SchemeSymbol(this.__name__, p, UNINTERNED);
   }
 }
 

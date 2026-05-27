@@ -12,6 +12,7 @@ import unicodeProperties from "unicode-properties";
 
 import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
 import type { Environment } from "./Environment.js";
+import { SchemeBool } from "./LBool.js";
 import { global_env as lipsGlobalEnv, evaluate, exec } from "./lips.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
@@ -23,6 +24,8 @@ import * as ops from "./operators/index.js";
 import { Pair } from "./Pair.js";
 import { SchemeCharacter, nil } from "./types.js";
 import { Values } from "./Values.js";
+import invariant from "tiny-invariant";
+import "./errors.js";
 // Import global environment for initBridge - this is safe because bridge.ts
 // doesn't get imported during lips.ts initialization
 
@@ -57,53 +60,71 @@ function toIndex(v: unknown): number {
  * Preserves identity for Uint8Array, creates view for others.
  */
 function asBytevector(obj: unknown, fnName: string): Uint8Array {
-  if (obj instanceof Uint8Array) return obj;
-  if (obj instanceof ArrayBuffer) return new Uint8Array(obj);
-  if (obj instanceof DataView) return new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
-  if (typeof Buffer !== "undefined" && obj instanceof Buffer)
-    return new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
-  throw new TypeError(`${fnName}: expected bytevector, got ${typeof obj}`);
+  switch (true) {
+    case obj instanceof Uint8Array:
+      return obj;
+    case obj instanceof ArrayBuffer:
+      return new Uint8Array(obj);
+    case obj instanceof DataView:
+      return new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
+    case typeof Buffer !== "undefined" && obj instanceof Buffer:
+      return new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
+    default:
+      TypeError.invariant(false, `${fnName}: expected bytevector, got ${typeof obj}`);
+  }
 }
 
 /**
  * eqv? comparison - identity plus numeric value equality
  */
 function eqv(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a === "number" && typeof b === "number") return a === b;
-  if (a instanceof SchemeExact && b instanceof SchemeExact) return a.cmp(b) === 0;
-  if (a instanceof SchemeInexact && b instanceof SchemeInexact) return a.cmp(b) === 0;
-  return false;
+  switch (true) {
+    case a === b:
+      return true;
+    case typeof a === "number" && typeof b === "number":
+      return a === b;
+    case a instanceof SchemeExact && b instanceof SchemeExact:
+      return a.cmp(b) === 0;
+    case a instanceof SchemeInexact && b instanceof SchemeInexact:
+      return a.cmp(b) === 0;
+    case a instanceof SchemeBool && b instanceof SchemeBool:
+      return a.value === b.value;
+    default:
+      return false;
+  }
 }
 
 /**
  * Deep structural equality for Scheme values (equal?)
  */
 function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a instanceof Pair && b instanceof Pair) {
-    return deepEqual(a.car, b.car) && deepEqual(a.cdr, b.cdr);
-  }
-  if (a instanceof SchemeExact && b instanceof SchemeExact) {
-    return a.cmp(b) === 0;
-  }
-  if (a instanceof SchemeInexact && b instanceof SchemeInexact) {
-    return a.cmp(b) === 0;
-  }
-  if ((typeof a === "string" || a instanceof SchemeString) && (typeof b === "string" || b instanceof SchemeString)) {
-    return String(a) === String(b);
-  }
-  if (a instanceof SchemeSymbol && b instanceof SchemeSymbol) {
-    return a.__name__ === b.__name__;
-  }
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    for (const [i, element] of a.entries()) {
-      if (!deepEqual(element, b[i])) return false;
+  switch (true) {
+    case a === b:
+      return true;
+    case a instanceof Pair && b instanceof Pair:
+      return deepEqual(a.car, b.car) && deepEqual(a.cdr, b.cdr);
+    case a instanceof SchemeExact && b instanceof SchemeExact:
+      return a.cmp(b) === 0;
+    case a instanceof SchemeInexact && b instanceof SchemeInexact:
+      return a.cmp(b) === 0;
+    // SchemeBool cross-instance: schemeTrue/schemeFalse singletons would short-circuit
+    // at the `a === b` line above, but provenance-stamped copies wouldn't.
+    case a instanceof SchemeBool && b instanceof SchemeBool:
+      return a.value === b.value;
+    case (typeof a === "string" || a instanceof SchemeString) && (typeof b === "string" || b instanceof SchemeString):
+      return String(a) === String(b);
+    case a instanceof SchemeSymbol && b instanceof SchemeSymbol:
+      return a.__name__ === b.__name__;
+    case Array.isArray(a) && Array.isArray(b): {
+      if (a.length !== b.length) return false;
+      for (const [i, element] of a.entries()) {
+        if (!deepEqual(element, b[i])) return false;
+      }
+      return true;
     }
-    return true;
+    default:
+      return false;
   }
-  return false;
 }
 
 // ============================================================================
@@ -115,10 +136,10 @@ function deepEqual(a: unknown, b: unknown): boolean {
  */
 export class R7RSError extends Error {
   readonly irritants: unknown[];
+  readonly name: string = "R7RSError";
 
   constructor(message: string, ...irritants: unknown[]) {
     super(message);
-    this.name = "R7RSError";
     this.irritants = irritants;
   }
 }
@@ -127,83 +148,60 @@ export class R7RSError extends Error {
  * R7RS read error - represents errors during reading/parsing
  */
 export class R7RSReadError extends R7RSError {
-  constructor(message: string, ...irritants: unknown[]) {
-    super(message, ...irritants);
-    this.name = "R7RSReadError";
-  }
+  readonly name = "R7RSReadError";
 }
 
 /**
  * R7RS file error - represents file I/O errors
  */
 export class R7RSFileError extends R7RSError {
-  constructor(message: string, ...irritants: unknown[]) {
-    super(message, ...irritants);
-    this.name = "R7RSFileError";
-  }
+  readonly name = "R7RSFileError";
 }
 
 /**
  * Raised exception wrapper - used to carry non-Error exceptions through JS try/catch
  */
 export class RaisedException extends Error {
-  readonly value: unknown;
-  readonly continuable: boolean;
+  readonly name = "RaisedException";
 
-  constructor(value: unknown, continuable: boolean = false) {
+  constructor(
+    public readonly value: unknown,
+    public readonly continuable: boolean = false,
+  ) {
     super(value instanceof Error ? value.message : String(value));
-    this.name = "RaisedException";
-    this.value = value;
-    this.continuable = continuable;
   }
 }
-
-// ============================================================================
-// LIPS → New Types Conversion
-// ============================================================================
 
 /**
  * Convert a LIPS number to our ExactNumber/InexactNumber
  */
 export function fromLIPS(value: unknown): SchemeNumeric {
-  if (value instanceof SchemeExact || value instanceof SchemeInexact) {
-    return value;
-  }
-
-  // Handle primitive JS types
-  if (typeof value === "bigint") {
-    return new SchemeExact(value);
-  }
-
-  if (typeof value === "number") {
+  switch (true) {
+    case value instanceof SchemeExact:
+    case value instanceof SchemeInexact:
+      return value;
+    case typeof value === "bigint":
+      return new SchemeExact(value);
     // Safe integers become exact (likely from Scheme integer literals)
     // Non-safe integers and floats become inexact
-    if (Number.isSafeInteger(value)) {
-      return new SchemeExact(BigInt(value));
-    }
-    return new SchemeInexact(value);
-  }
-
-  // Handle objects with valueOf
-  if (value && typeof value === "object" && "valueOf" in value && typeof value.valueOf === "function") {
-    const val = value.valueOf();
-    if (typeof val === "bigint") {
-      return new SchemeExact(val);
-    }
-    if (typeof val === "number") {
-      if (Number.isSafeInteger(val)) {
-        return new SchemeExact(BigInt(val));
+    case typeof value === "number":
+      return Number.isSafeInteger(value) ? new SchemeExact(BigInt(value)) : new SchemeInexact(value);
+    case value && typeof value === "object" && "valueOf" in value && typeof value.valueOf === "function": {
+      const val = value.valueOf();
+      switch (true) {
+        case typeof val === "bigint":
+          return new SchemeExact(val);
+        case typeof val === "number":
+          return Number.isSafeInteger(val) ? new SchemeExact(BigInt(val)) : new SchemeInexact(val);
+        default:
+          TypeError.invariant(false, `Cannot convert to SchemeNumeric: ${val}`);
       }
-      return new SchemeInexact(val);
+      break;
     }
+    default:
+      TypeError.invariant(false, `Cannot convert to SchemeNumeric: ${value}`);
   }
-
-  throw new TypeError(`Cannot convert to SchemeNumeric: ${value}`);
 }
-
-// ============================================================================
-// Operator Wrapper
-// ============================================================================
 
 /**
  * Wrap an Operator to work with LIPS values.
@@ -225,17 +223,27 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
  * Check if a value can be converted to SchemeNumeric (without throwing)
  */
 export function isSchemeNumber(value: unknown): boolean {
-  if (value instanceof SchemeExact || value instanceof SchemeInexact) {
-    return true;
+  switch (true) {
+    case value instanceof SchemeExact:
+    case value instanceof SchemeInexact:
+      return true;
+    case typeof value === "bigint":
+    case typeof value === "number":
+      return true;
+    case value && typeof value === "object" && "valueOf" in value && typeof value.valueOf === "function": {
+      const val = value.valueOf();
+      switch (true) {
+        case typeof val === "bigint":
+        case typeof val === "number":
+          return true;
+        default:
+          return false;
+      }
+      break;
+    }
+    default:
+      return false;
   }
-  if (typeof value === "bigint" || typeof value === "number") {
-    return true;
-  }
-  if (value && typeof value === "object" && "valueOf" in value && typeof value.valueOf === "function") {
-    const val = value.valueOf();
-    if (typeof val === "bigint" || typeof val === "number") return true;
-  }
-  return false;
 }
 
 /**
@@ -257,10 +265,6 @@ function makeTypePredicate(name: string, predicate: (n: SchemeNumeric) => boolea
   return fn;
 }
 
-// ============================================================================
-// Pre-wrapped Numeric Operations
-// ============================================================================
-
 export const wrappedOps = {
   "+": wrapOperator(ops.add),
   "-": wrapOperator(ops.sub),
@@ -277,8 +281,8 @@ export const wrappedOps = {
   "floor/"(n1: unknown, n2: unknown): unknown {
     const a = fromLIPS(n1);
     const b = fromLIPS(n2);
-    const aExact = a instanceof SchemeExact ? a : new SchemeExact(BigInt(Math.trunc((a as SchemeInexact).real)));
-    const bExact = b instanceof SchemeExact ? b : new SchemeExact(BigInt(Math.trunc((b as SchemeInexact).real)));
+    const aExact = a instanceof SchemeExact ? a : new SchemeExact(BigInt(Math.trunc(a.real)));
+    const bExact = b instanceof SchemeExact ? b : new SchemeExact(BigInt(Math.trunc(b.real)));
     const q = ops.floorQuotient.call([aExact, bExact]);
     const r = ops.floorRemainder.call([aExact, bExact]);
     const qNum = q instanceof SchemeExact ? q : new SchemeExact(q as unknown as bigint);
@@ -289,8 +293,8 @@ export const wrappedOps = {
   "truncate/"(n1: unknown, n2: unknown): unknown {
     const a = fromLIPS(n1);
     const b = fromLIPS(n2);
-    const aExact = a instanceof SchemeExact ? a : new SchemeExact(BigInt(Math.trunc((a as SchemeInexact).real)));
-    const bExact = b instanceof SchemeExact ? b : new SchemeExact(BigInt(Math.trunc((b as SchemeInexact).real)));
+    const aExact = a instanceof SchemeExact ? a : new SchemeExact(BigInt(Math.trunc(a.real)));
+    const bExact = b instanceof SchemeExact ? b : new SchemeExact(BigInt(Math.trunc(b.real)));
     const q = ops.truncateQuotient.call([aExact, bExact]);
     const r = ops.truncateRemainder.call([aExact, bExact]);
     const qNum = q instanceof SchemeExact ? q : new SchemeExact(q as unknown as bigint);
@@ -324,10 +328,7 @@ export const wrappedOps = {
     }
     const result = ops.lcm.call(exactArgs);
     const resultBigint = result instanceof SchemeExact ? result.num : (result as bigint);
-    if (hasInexact) {
-      return new SchemeInexact(Number(resultBigint));
-    }
-    return new SchemeExact(resultBigint);
+    return hasInexact ? new SchemeInexact(Number(resultBigint)) : new SchemeExact(resultBigint);
   },
 
   expt: wrapOperator(ops.expt),
@@ -428,9 +429,9 @@ export const wrappedOps = {
     const n = fromLIPS(z);
     if (n instanceof SchemeExact) return n;
     const inexact = n as SchemeInexact;
-    if (inexact.imag !== 0) throw new Error("Cannot convert complex number with non-zero imaginary part to exact");
+    invariant(inexact.imag === 0, "Cannot convert complex number with non-zero imaginary part to exact");
     const real = inexact.real;
-    if (!Number.isFinite(real)) throw new TypeError("Cannot convert infinity or NaN to exact");
+    TypeError.invariant(Number.isFinite(real), "Cannot convert infinity or NaN to exact");
     if (Number.isInteger(real)) return new SchemeExact(BigInt(real));
     const str = real.toString();
     const decimalIndex = str.indexOf(".");
@@ -566,7 +567,7 @@ export const wrappedOps = {
     const codePoint = c.codePointAt(0)!;
     if (!unicodeProperties.isDigit(codePoint)) return false;
     const numericValue = unicodeProperties.getNumericValue(codePoint);
-    return numericValue !== null ? numericValue : false;
+    return numericValue === null ? false : numericValue;
   },
 
   // Case conversion
@@ -867,9 +868,7 @@ export const wrappedOps = {
     const count = typeof k === "number" ? k : (k as { valueOf(): number }).valueOf();
     let current = list;
     for (let i = 0; i < count; i++) {
-      if (!(current instanceof Pair)) {
-        throw new TypeError(`list-tail: list too short`);
-      }
+      TypeError.invariant(current instanceof Pair, `list-tail: list too short`);
       current = current.cdr;
     }
     return current;
@@ -879,14 +878,10 @@ export const wrappedOps = {
     const count = typeof k === "number" ? k : (k as { valueOf(): number }).valueOf();
     let current = list;
     for (let i = 0; i < count; i++) {
-      if (!(current instanceof Pair)) {
-        throw new TypeError(`list-ref: list too short`);
-      }
+      TypeError.invariant(current instanceof Pair, `list-ref: list too short`);
       current = current.cdr;
     }
-    if (!(current instanceof Pair)) {
-      throw new TypeError(`list-ref: index out of bounds`);
-    }
+    TypeError.invariant(current instanceof Pair, `list-ref: index out of bounds`);
     return current.car;
   },
 
@@ -894,14 +889,10 @@ export const wrappedOps = {
     const count = typeof k === "number" ? k : (k as { valueOf(): number }).valueOf();
     let current = list;
     for (let i = 0; i < count; i++) {
-      if (!(current instanceof Pair)) {
-        throw new TypeError(`list-set!: list too short`);
-      }
+      TypeError.invariant(current instanceof Pair, `list-set!: list too short`);
       current = current.cdr;
     }
-    if (!(current instanceof Pair)) {
-      throw new TypeError(`list-set!: index out of bounds`);
-    }
+    TypeError.invariant(current instanceof Pair, `list-set!: index out of bounds`);
     current.car = obj;
   },
 
@@ -998,7 +989,7 @@ export const wrappedOps = {
 
   "make-vector"(k: unknown, fill?: unknown): unknown[] {
     const len = typeof k === "number" ? k : (k as SchemeExact).valueOf();
-    const arr = new Array(len);
+    const arr = Array.from({ length: len });
     if (fill !== undefined) {
       arr.fill(fill);
     }
@@ -1014,32 +1005,24 @@ export const wrappedOps = {
   },
 
   "vector-length"(vec: unknown): number {
-    if (!Array.isArray(vec)) {
-      throw new TypeError("vector-length: expected vector");
-    }
+    TypeError.invariant(Array.isArray(vec), "vector-length: expected vector");
     return vec.length;
   },
 
   "vector-ref"(vec: unknown, k: unknown): unknown {
-    if (!Array.isArray(vec)) {
-      throw new TypeError("vector-ref: expected vector");
-    }
+    TypeError.invariant(Array.isArray(vec), "vector-ref: expected vector");
     const idx = typeof k === "number" ? k : (k as SchemeExact).valueOf();
     return vec[idx as number];
   },
 
   "vector-set!"(vec: unknown, k: unknown, obj: unknown): void {
-    if (!Array.isArray(vec)) {
-      throw new TypeError("vector-set!: expected vector");
-    }
+    TypeError.invariant(Array.isArray(vec), "vector-set!: expected vector");
     const idx = typeof k === "number" ? k : (k as SchemeExact).valueOf();
     vec[idx as number] = obj;
   },
 
   "vector->list"(vec: unknown, start?: unknown, end?: unknown): unknown {
-    if (!Array.isArray(vec)) {
-      throw new TypeError("vector->list: expected vector");
-    }
+    TypeError.invariant(Array.isArray(vec), "vector->list: expected vector");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? vec.length : toIndex(end);
     return Pair.fromArray(vec.slice(s, e));
@@ -1056,9 +1039,7 @@ export const wrappedOps = {
   },
 
   "vector-fill!"(vec: unknown, fill: unknown, start?: unknown, end?: unknown): void {
-    if (!Array.isArray(vec)) {
-      throw new TypeError("vector-fill!: expected vector");
-    }
+    TypeError.invariant(Array.isArray(vec), "vector-fill!: expected vector");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? vec.length : toIndex(end);
     for (let i = s; i < e; i++) {
@@ -1067,9 +1048,7 @@ export const wrappedOps = {
   },
 
   "vector->string"(vec: unknown, start?: unknown, end?: unknown): string {
-    if (!Array.isArray(vec)) {
-      throw new TypeError("vector->string: expected vector");
-    }
+    TypeError.invariant(Array.isArray(vec), "vector->string: expected vector");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? vec.length : toIndex(end);
     let result = "";
@@ -1092,21 +1071,15 @@ export const wrappedOps = {
   },
 
   "vector-copy"(vec: unknown, start?: unknown, end?: unknown): unknown[] {
-    if (!Array.isArray(vec)) {
-      throw new TypeError("vector-copy: expected vector");
-    }
+    TypeError.invariant(Array.isArray(vec), "vector-copy: expected vector");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? vec.length : toIndex(end);
     return vec.slice(s, e);
   },
 
   "vector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
-    if (!Array.isArray(to)) {
-      throw new TypeError("vector-copy!: expected vector for target");
-    }
-    if (!Array.isArray(from)) {
-      throw new TypeError("vector-copy!: expected vector for source");
-    }
+    TypeError.invariant(Array.isArray(to), "vector-copy: expected vector");
+    TypeError.invariant(Array.isArray(from), "vector-copy: expected vector");
     const atIdx = toIndex(at);
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? from.length : toIndex(end);
@@ -1126,13 +1099,9 @@ export const wrappedOps = {
   },
 
   "vector-map"(proc: Function, ...vectors: unknown[]): unknown[] {
-    if (vectors.length === 0) {
-      throw new Error("vector-map: expected at least one vector argument");
-    }
+    invariant(vectors.length > 0, "vector-map: expected at least one vector argument");
     const arrays = vectors.map((v) => {
-      if (!Array.isArray(v)) {
-        throw new TypeError(`vector-map: expected vector, got ${typeof v}`);
-      }
+      TypeError.invariant(Array.isArray(v), `vector-map: expected vector, got ${typeof v}`);
       return v;
     });
     const minLen = Math.min(...arrays.map((a) => a.length));
@@ -1145,13 +1114,9 @@ export const wrappedOps = {
   },
 
   "vector-for-each"(proc: Function, ...vectors: unknown[]): void {
-    if (vectors.length === 0) {
-      throw new Error("vector-for-each: expected at least one vector argument");
-    }
+    invariant(vectors.length > 0, "vector-for-each: expected at least one vector argument");
     const arrays = vectors.map((v) => {
-      if (!Array.isArray(v)) {
-        throw new TypeError(`vector-for-each: expected vector, got ${typeof v}`);
-      }
+      TypeError.invariant(Array.isArray(v), `vector-for-each: expected vector, got ${typeof v}`);
       return v;
     });
     const minLen = Math.min(...arrays.map((a) => a.length));
@@ -1253,7 +1218,7 @@ export const wrappedOps = {
   // ============================================================================
 
   "string-map"(proc: Function, ...strings: unknown[]): string {
-    if (strings.length === 0) throw new Error("string-map: expected at least one string");
+    invariant(strings.length > 0, "string-map: expected at least one string");
     const strs = strings.map(stringValue);
     const minLen = Math.min(...strs.map((s) => s.length));
     let result = "";
@@ -1272,7 +1237,7 @@ export const wrappedOps = {
   },
 
   "string-for-each"(proc: Function, ...strings: unknown[]): void {
-    if (strings.length === 0) throw new Error("string-for-each: expected at least one string");
+    invariant(strings.length > 0, "string-for-each: expected at least one string");
     const strs = strings.map(stringValue);
     const minLen = Math.min(...strs.map((s) => s.length));
     for (let i = 0; i < minLen; i++) {

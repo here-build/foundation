@@ -13,6 +13,8 @@
 // Sandbox Boundary Marker
 // ============================================================================
 
+import invariant from "tiny-invariant";
+
 /**
  * Symbol used to mark classes/prototypes as sandbox boundaries.
  * Any prototype with this symbol (set to true) will block inherited property access.
@@ -26,6 +28,27 @@
  * ```
  */
 export const SANDBOX_BOUNDARY = Symbol.for("scheme:sandbox-boundary");
+
+const isProduction: boolean = process.env.NODE_ENV === "production";
+const prefix: string = "Invariant failed";
+
+declare global {
+  interface ErrorConstructor {
+    invariant(condition: any, message?: string | (() => string)): asserts condition;
+  }
+}
+
+Error.invariant = function invariant(condition: any, message?: string | (() => string)): asserts condition {
+  if (condition) {
+    return;
+  }
+  if (isProduction) {
+    throw new TypeError(prefix);
+  }
+  const provided: string | undefined = typeof message === "function" ? message() : message;
+  const value: string = provided ? `${prefix}: ${provided}` : prefix;
+  throw new TypeError(value);
+};
 
 // ============================================================================
 // Sandbox Violation Error
@@ -364,10 +387,7 @@ export function sandboxedKeys(data: unknown): string[] {
  * Always sets an own property (shadows inherited ones if present).
  */
 export function sandboxedSet(data: unknown, key: string | symbol, value: unknown): void {
-  if (data === null || data === undefined) {
-    throw new TypeError("Cannot set property on null/undefined");
-  }
-
+  TypeError.invariant(data !== null && data !== undefined, "Cannot set property on null/undefined");
   const keyStr = typeof key === "symbol" ? key : String(key);
 
   // Block setting dangerous property names

@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { Environment } from "../Environment";
-import { exec, execSync, run, runSync, SchemeError } from "../evaluator";
+import run, { exec, execSync, runSync, SchemeError } from "../evaluator";
 import { SchemeSymbol } from "../LSymbol";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";

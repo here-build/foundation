@@ -3,6 +3,7 @@
 // -------------------------------------------------------------------------
 import { is_function } from "./guards.js";
 import { type } from "./utils/typecheck.js";
+import invariant from "tiny-invariant";
 
 type ParameterFn<T> = ((value: T) => T) & { __name__?: string };
 
@@ -17,9 +18,7 @@ export class Parameter<T = unknown> {
     this.__value__ = init;
     this.__fn__ = null;
     if (fn) {
-      if (!is_function(fn)) {
-        throw new Error("Section argument to Parameter need to be function " + `${type(fn)} given`);
-      }
+      invariant(is_function(fn), `Section argument to Parameter need to be function ${type(fn)} given`);
       this.__fn__ = fn;
     }
     this._p_name = name;
