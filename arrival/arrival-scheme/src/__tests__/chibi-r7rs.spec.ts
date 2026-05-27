@@ -106,6 +106,60 @@ const EXPECTED_FAILURES: { pattern: string | RegExp; reason: string }[] = [
     pattern: "(= 9007199254740992.0 9007199254740993)",
     reason: "IEEE 754 precision limit: numbers beyond 2^53 lose precision when inexact",
   },
+  // -----------------------------------------------------------------------
+  // Macro engine gaps — pre-L1, separate from AValue work.
+  // -----------------------------------------------------------------------
+  {
+    pattern: /\(case .* => \(lambda/,
+    reason: "case clauses don't support `=>` continuation (evalCase in evaluator.ts) — pre-L1 gap",
+  },
+  {
+    pattern: "(let-syntax",
+    reason: "let-syntax + nested syntax-rules don't bind cleanly — pre-L1 macro engine gap",
+  },
+  {
+    pattern: "(define-syntax swap!",
+    reason: "Local define-syntax + set! inside the rewrite — pre-L1 hygiene gap",
+  },
+  // -----------------------------------------------------------------------
+  // Function identity — pre-L1, `prepare_fn_args` rewraps lambdas per call,
+  // so `(eq? p p)` compares two fresh wrappers; `unbind` peels one layer
+  // but the original `p` is itself a re-bound copy from env lookup.
+  // -----------------------------------------------------------------------
+  {
+    pattern: "(let ((p (lambda (x) x))) (eq? p p))",
+    reason: "Lambda identity — env lookup re-binds, eq? sees two wrappers — pre-L1",
+  },
+  {
+    pattern: "(let ((g (gen-counter))) (eqv? g g))",
+    reason: "Lambda identity — same root cause as the (eq? p p) case above",
+  },
+  {
+    pattern: "(let ((g (gen-loser))) (eqv? g g))",
+    reason: "Lambda identity — same root cause as the (eq? p p) case above",
+  },
+  // -----------------------------------------------------------------------
+  // 6.5 Symbols — bootstrap's symbol->string / string->symbol uses raw
+  // JS-property dot-syntax (`s.__name__`, `new lips.SchemeSymbol`) that
+  // doesn't resolve through the current Environment.get path. Pre-L1.
+  // -----------------------------------------------------------------------
+  {
+    pattern: /symbol->string|string->symbol/,
+    reason: "bootstrap.ts uses JS dot-access (s.__name__, lips.SchemeSymbol) that no longer resolves — pre-L1",
+  },
+  // -----------------------------------------------------------------------
+  // 6.11 Exceptions — `error` is registered as an R6RS-style special form
+  // in evaluator.ts (`(error who message . irritants)`) which shadows the
+  // bootstrap R7RS definition (`(error message . irritants)`). The wrong-
+  // arity dispatch produces `Error("BOOM!: 1")` instead of a R7RSError
+  // carrying message+irritants. Fix is to delete the special form and let
+  // bootstrap own `error`; pre-L1, scope of L1 doesn't cover it.
+  // -----------------------------------------------------------------------
+  {
+    // Test names render without string quotes — `(error "BOOM!" 1 2 3)` -> `(error BOOM! 1 2 3)`.
+    pattern: "(error BOOM! 1 2 3)",
+    reason: "evalError special form shadows R7RS-style bootstrap `error` — pre-L1",
+  },
 ];
 
 /**
@@ -525,10 +579,9 @@ describe("Chibi R7RS Official Tests", () => {
       }
     }
 
-    // For now, just report - don't fail the test
-    // Uncomment below when we want strict compliance:
-    // expect(failed.length).toBe(0);
-
-    expect(true).toBe(true); // Placeholder
+    // Gate: pass only when there are NO unexpected failures.
+    // Documented deviations live in EXPECTED_FAILURES — keep them documented,
+    // don't let regressions hide behind a blanket allow-list.
+    expect(unexpectedFailures.length).toBe(0);
   });
 });

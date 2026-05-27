@@ -20,6 +20,7 @@ import {
   is_continuation,
   is_directive,
   is_env,
+  is_false,
   is_function,
   is_iterator,
   is_lambda,
@@ -3362,7 +3363,9 @@ export const global_env = new Environment(
     }),
     // ------------------------------------------------------------------
     "boolean?": doc("boolean?", function (obj) {
-      return typeof obj === "boolean";
+      // L1 boxes parser literals as SchemeBool — JS `typeof` no longer catches them.
+      // Mirrors the `number?` / `string?` pattern of accepting both raw and boxed forms.
+      return typeof obj === "boolean" || obj instanceof SchemeBool;
     }),
     // ------------------------------------------------------------------
     "symbol?": doc("symbol?", function (obj) {
@@ -3636,7 +3639,10 @@ export const global_env = new Environment(
     and: genMacroWrapper("and"),
     // ------------------------------------------------------------------
     not: doc("not", function not(value) {
-      return !value;
+      // R7RS: only #f is falsy. Post-L1 `#f` parses to `SchemeBool(false)`
+      // (a truthy object in JS), so `!value` would wrongly return false here.
+      // `is_false` is the canonical scheme-falsy predicate (`guards.ts`).
+      return is_false(value);
     }),
   },
   undefined,

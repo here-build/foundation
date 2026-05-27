@@ -860,9 +860,18 @@ export const wrappedOps = {
   // R7RS 6.3 Booleans
   "boolean=?"(...bools: unknown[]): boolean {
     if (bools.length < 2) return true;
-    const first = bools[0];
-    if (typeof first !== "boolean") return false;
-    return bools.every((b) => b === first);
+    // L1 boxes `#t` / `#f` as SchemeBool — unwrap before comparing, otherwise
+    // `(boolean=? #t #t)` would compare two distinct singletons and pass, but
+    // the type-guard one line up would already have rejected the schemeTrue
+    // singleton as `typeof !== "boolean"`. Mirror `boolean?`'s post-L1 fix.
+    const unwrap = (b: unknown): boolean | undefined => {
+      if (typeof b === "boolean") return b;
+      if (b instanceof SchemeBool) return b.value;
+      return undefined;
+    };
+    const first = unwrap(bools[0]);
+    if (first === undefined) return false;
+    return bools.every((b) => unwrap(b) === first);
   },
 
   // R7RS 6.5 Symbols
