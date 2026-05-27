@@ -23,7 +23,7 @@ import {
 } from "./primitives.js";
 import { QuotedPromise } from "./QuotedPromise.js";
 import * as specials from "./specials.js";
-import { SchemeCharacter, nil } from "./types.js";
+import { Nil, SchemeCharacter, nil } from "./types.js";
 
 // Import directly from source files to avoid circular dependency with lips.ts
 
@@ -89,8 +89,20 @@ export function is_null(value: unknown): value is null | undefined | typeof nil 
 }
 
 // ----------------------------------------------------------------------
-export function is_nil(value: unknown): value is typeof nil {
-  return value === nil;
+/**
+ * `nil` is the module-load singleton with empty provenance. Once `Nil` extends
+ * AValue, `nil.withProvenance(p)` mints a FRESH Nil so the singleton's empty
+ * provenance set is preserved (see types.ts:87 — withProvenance returns
+ * `new Nil(p)`). `restrictControlFlowProvenance` (evaluator.ts:627) does
+ * exactly this when a control-flow arm resolves to nil while the predicate
+ * carries non-empty provenance, so `=== nil` would silently report false on
+ * those clones and cascade through `length` / `null?` / `car` / `cdr`
+ * typechecks. Match by class instead — every Nil clone IS a Nil regardless of
+ * which provenance set it's carrying. Spec §5.3 + the doc comment over
+ * `restrictControlFlowProvenance` explain the mechanism.
+ */
+export function is_nil(value: unknown): value is Nil {
+  return value instanceof Nil;
 }
 
 // ----------------------------------------------------------------------

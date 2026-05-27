@@ -574,6 +574,18 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
   }
 
   toJs(): unknown {
+    // toJs's serialization target is cache / log / HTTP JSON — none of which
+    // can represent cycles. `toString` (this file, ~line 484) handles them by
+    // emitting `#0=` / `#0#` ref markers via __cycles__ / __ref__ metadata
+    // because s-expression text supports that notation; JSON does not.
+    // Loud-fail rather than hand back a value that explodes downstream — or,
+    // worse, hangs forever in the loop below.
+    invariant(!this.have_cycles(), "Pair.toJs: cannot serialize a list with cycles");
+    // Belt-and-suspenders against cycles introduced post-have_cycles check via
+    // mutation between top-level call and a deeper recursive toJs (e.g. a
+    // nested Pair's car being mutated by a side-effecting toJs override). Cheap
+    // — one Set add per pair traversed.
+    const seen = new Set<Pair>();
     const list: unknown[] = [];
     let node: unknown = this;
     while (true) {
@@ -581,6 +593,8 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
         case is_nil(node):
           return list;
         case is_pair(node): {
+          invariant(!seen.has(node), "Pair.toJs: cycle detected mid-traversal");
+          seen.add(node);
           const car = node.car;
           list.push(car instanceof AValue ? car.toJs() : car);
           node = node.cdr;

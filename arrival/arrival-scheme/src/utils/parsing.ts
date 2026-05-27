@@ -352,15 +352,23 @@ export const parse_symbol = (arg: string): SchemeSymbol =>
 // ----------------------------------------------------------------------
 // :: Constants map for parsing literal values
 // ----------------------------------------------------------------------
+// Hoisted to module level so every `+inf.0` / `-inf.0` / `+nan.0` literal in
+// the source resolves to the same instance — mirrors `nan`'s pattern. The
+// inf entries previously returned raw JS primitives, which leaked an
+// un-AValue past the parser and broke downstream code that expects every
+// numeric to be a SchemeExact/SchemeInexact (e.g. `is_inexact`, the bridge
+// wrapOperator, provenance algebra at L2+).
 const nan = new SchemeInexact(Number.NaN);
+const posInf = new SchemeInexact(Number.POSITIVE_INFINITY);
+const negInf = new SchemeInexact(Number.NEGATIVE_INFINITY);
 
 const constants: Record<string, unknown> = {
   "#t": schemeTrue,
   "#f": schemeFalse,
   "#true": schemeTrue,
   "#false": schemeFalse,
-  "+inf.0": Number.POSITIVE_INFINITY,
-  "-inf.0": Number.NEGATIVE_INFINITY,
+  "+inf.0": posInf,
+  "-inf.0": negInf,
   "+nan.0": nan,
   "-nan.0": nan,
   ...parsable_contants,

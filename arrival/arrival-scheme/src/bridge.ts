@@ -13,7 +13,7 @@ import unicodeProperties from "unicode-properties";
 import { AValue, unionProvenance } from "./AValue.js";
 import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
 import type { Environment } from "./Environment.js";
-import { SchemeBool } from "./LBool.js";
+import { SchemeBool, schemeFalse, schemeTrue } from "./LBool.js";
 import { global_env as lipsGlobalEnv, evaluate, exec } from "./lips.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
@@ -222,6 +222,17 @@ export function fromLIPS(value: unknown): SchemeNumeric {
  * `withProvenance` would just clone, and the clone is observationally identical —
  * skip the allocation. The `instanceof AValue` guard on `result` also covers
  * operators whose `op.call` returns raw JS (no provenance surface to stamp).
+ *
+ * Comparison-op bool boxing: operators declared with `out: Bool` (numEq/lt/gt/
+ * lte/gte, zero?/positive?/negative?/odd?/even?, finite?/infinite?/nan?, the
+ * type predicates) produce raw JS `true|false` via `Bool.fromJS = v => v`
+ * (membrane.ts:456-462). Without the boxing branch below, `(if (< x 5) ...)`
+ * loses lineage at `restrictControlFlowProvenance` (evaluator.ts:629 —
+ * `predicate instanceof AValue === false`), because most real `if`/`cond`
+ * predicates ARE comparisons. We only box when provenance is non-empty: with
+ * empty provenance, the boxed singletons would survive into call sites that
+ * still rely on raw `=== false` / `!== false` checks (the same landmine
+ * `withInputProvenance` in lips.ts:2042-2054 calls out as sealed).
  */
 export function wrapOperator<In extends any[], InRest extends Codec<any, any> | undefined, Out extends Codec<any, any>>(
   op: Operator<In, InRest, Out>,
@@ -231,13 +242,40 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
     const provenance = unionProvenance(args.filter((a): a is AValue => a instanceof AValue));
     const converted = args.map(fromLIPS);
     const result: unknown = op.call(converted);
-    if (result instanceof AValue && provenance.size > 0) {
-      return result.withProvenance(provenance);
+    if (provenance.size > 0) {
+      if (result instanceof AValue) return result.withProvenance(provenance);
+      // Box JS bool coming out of comparison/predicate operators (Bool codec).
+      // Empty-provenance path returns raw bool to keep find/`!== false` callers alive.
+      if (typeof result === "boolean") {
+        return (result ? schemeTrue : schemeFalse).withProvenance(provenance);
+      }
     }
     return result;
   };
   Object.defineProperty(fn, "name", { value: op.name });
   return fn;
+}
+
+/**
+ * Stamp `result` with the union of `args`' provenances. Parallel to lips.ts's
+ * `withInputProvenance` (same algebra, separate file because these builtins
+ * live in bridge.ts — `string-append`, `string-copy`, `list-copy`, `vector`,
+ * etc. all produce fresh AValue / array / Uint8Array results whose provenance
+ * must inherit from their inputs).
+ *
+ * Like the lips.ts twin, we deliberately don't box raw JS bool/number/bigint —
+ * boxing bool here would break the same `!== false` callers that withInputProvenance
+ * keeps sealed. Raw JS strings get boxed via `AValue.fromJs` so provenance has
+ * somewhere to live (mirrors lips.ts:2052).
+ */
+function withInputProvenance<T>(args: readonly unknown[], result: T): T {
+  const inputs = args.filter((a): a is AValue => a instanceof AValue);
+  if (inputs.length === 0) return result;
+  const prov = unionProvenance(inputs);
+  if (prov.size === 0) return result;
+  if (result instanceof AValue) return result.withProvenance(prov) as T;
+  if (typeof result === "string") return AValue.fromJs(result, prov) as T;
+  return result;
 }
 
 /**
@@ -624,11 +662,18 @@ export const wrappedOps = {
   "make-string"(k: unknown, char?: unknown): SchemeString {
     const len = Number(fromLIPS(k).valueOf());
     const c = char ? charValue(char) : "\u0000";
-    return new SchemeString(c.repeat(len));
+    // Both the length and (when present) the filling char contribute lineage —
+    // `(make-string n user-char)` should remember user-char as a source even
+    // though the length is what dictates the result's size.
+    return withInputProvenance(
+      char === undefined ? [k] : [k, char],
+      new SchemeString(c.repeat(len)),
+    );
   },
 
   string(...chars: unknown[]): SchemeString {
-    return new SchemeString(chars.map(charValue).join(""));
+    // Union of every character argument — same shape as `vector` below.
+    return withInputProvenance(chars, new SchemeString(chars.map(charValue).join("")));
   },
 
   "string-length"(str: unknown): SchemeExact {
@@ -717,7 +762,10 @@ export const wrappedOps = {
   },
 
   "string-append"(...strs: unknown[]): SchemeString {
-    return new SchemeString(strs.map(stringValue).join(""));
+    // Result strings inherit lineage from every concatenated input — without
+    // this, `(string-append prefix user-name suffix)` would forget where the
+    // user-name came from at the next `define` binding.
+    return withInputProvenance(strs, new SchemeString(strs.map(stringValue).join("")));
   },
 
   "string->list"(str: unknown, start?: unknown, end?: unknown): unknown {
@@ -743,7 +791,9 @@ export const wrappedOps = {
     const chars = [...stringValue(str)];
     const startIdx = start === undefined ? 0 : toIndex(start);
     const endIdx = end === undefined ? chars.length : toIndex(end);
-    return new SchemeString(chars.slice(startIdx, endIdx).join(""));
+    // The copy is a fresh allocation but semantically the same lineage as `str`
+    // (start/end indices don't carry meaning here, they shape the slice).
+    return withInputProvenance([str], new SchemeString(chars.slice(startIdx, endIdx).join("")));
   },
 
   "string-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
@@ -769,17 +819,19 @@ export const wrappedOps = {
     }
   },
 
-  // Case conversion for strings
+  // Case conversion for strings — case is a presentation transform, not a
+  // new origin; inherit the source's lineage so downstream `define` of the
+  // result still traces to the original infer/query call.
   "string-upcase"(str: unknown): SchemeString {
-    return new SchemeString(stringValue(str).toUpperCase());
+    return withInputProvenance([str], new SchemeString(stringValue(str).toUpperCase()));
   },
 
   "string-downcase"(str: unknown): SchemeString {
-    return new SchemeString(stringValue(str).toLowerCase());
+    return withInputProvenance([str], new SchemeString(stringValue(str).toLowerCase()));
   },
 
   "string-foldcase"(str: unknown): SchemeString {
-    return new SchemeString(foldCase(stringValue(str)));
+    return withInputProvenance([str], new SchemeString(foldCase(stringValue(str))));
   },
 
   // ============================================================================
@@ -891,7 +943,10 @@ export const wrappedOps = {
     for (let i = 0; i < count; i++) {
       result = new Pair(value, result);
     }
-    return result;
+    // Stamp the head Pair only — internal cons cells share the same lineage
+    // by definition; downstream traversal reads provenance off whichever pair
+    // is bound. Parallel to lips.ts `cons` which only stamps the produced cell.
+    return withInputProvenance(fill === undefined ? [k] : [k, fill], result);
   },
 
   "list-tail"(list: unknown, k: unknown): unknown {
@@ -935,7 +990,8 @@ export const wrappedOps = {
       if (!(lst instanceof Pair)) return lst; // improper list tail
       return new Pair(lst.car, copy(lst.cdr));
     };
-    return copy(list);
+    // Copy is a fresh allocation but semantically the same lineage as `list`.
+    return withInputProvenance([list], copy(list));
   },
 
   // R7RS 6.4 List searching functions
@@ -1023,6 +1079,10 @@ export const wrappedOps = {
     if (fill !== undefined) {
       arr.fill(fill);
     }
+    // Vectors are raw JS arrays — no AValue surface to stamp provenance on.
+    // Elements (if AValues) carry their own provenance individually; the
+    // container is provenance-transparent. Same for `vector`, `vector-copy`,
+    // and bytevector ops below.
     return arr;
   },
 
