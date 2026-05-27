@@ -12,6 +12,21 @@ export { startOrchestrator, type OrchestratorOptions } from "./worker.js";
 export { InferenceTask, InferenceResult, InferenceError } from "./task.js";
 export { Run, Hypothesis, RunResult, RunError, type RunStatus } from "./run.js";
 export { Draft } from "./draft.js";
+// Re-exported from arrival-scheme where AValue lives (L4 collapsed the draft).
+export {
+  type AKind,
+  ABool,
+  ANil,
+  AObject,
+  APair,
+  AProc,
+  AString,
+  ASymbol,
+  AValue,
+  EMPTY_PROVENANCE,
+  pointProvenance,
+  unionProvenance,
+} from "@here.build/arrival-scheme";
 // Re-export the LIPS→JS membrane so studio consumers can convert raw scheme
 // values (Pair / cons cells captured in trace.Invocation.value) into plain JS
 // without taking a direct dep on arrival-scheme.
