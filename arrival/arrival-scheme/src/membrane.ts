@@ -29,6 +29,7 @@ import { Pair } from "./Pair.js";
 import { __lambda__ } from "./primitives.js";
 import { QuotedPromise } from "./QuotedPromise.js";
 import {
+  markAsSandboxBoundary,
   NOT_FOUND,
   sandboxedAccess,
   sandboxedDelete,
@@ -37,7 +38,7 @@ import {
   sandboxedSet,
 } from "./sandbox-boundary.js";
 import { Syntax } from "./Syntax.js";
-import { type SchemeValue, nil, SchemeCharacter } from "./types.js";
+import { type SchemeValue, Nil, nil, SchemeCharacter } from "./types.js";
 
 // Re-export sandbox primitives for consumers
 export {
@@ -66,9 +67,16 @@ export const TO_JS = Symbol.for("scheme.toJS");
 
 /**
  * Check if a value is already a Scheme value (prevents double-wrapping).
+ *
+ * `instanceof Nil` not `=== nil`: after the AValue refactor, `nil.withProvenance(p)`
+ * mints fresh Nil clones (types.ts:87) — reference-equality misses them, and the
+ * boundary would then double-wrap a provenance-bearing list-terminator since
+ * downstream checks (SchemeString / SchemeJSObject / Pair) won't catch a Nil
+ * subclass either. This was the bug flagged in the Tier-1 cross-package audit
+ * and the canonical example for guards.ts:is_nil (fix in 5f7f9e46a).
  */
 export function isSchemeValue(value: unknown): boolean {
-  if (value === nil) return true;
+  if (value instanceof Nil) return true;
   if (value === null || value === undefined) return false;
   if (typeof value !== "object" && typeof value !== "function") return false;
 
@@ -269,6 +277,24 @@ export class SchemeJSFunction extends AValue {
   }
 }
 
+// ============================================================================
+// SANDBOX BOUNDARIES — SchemeJSObject, SchemeJSFunction
+// ============================================================================
+// War story (2026-05-28 audit): these two wrappers are explicitly the
+// JS↔Scheme membrane — every JS value crossing into the sandbox becomes one
+// of them. Their own `get/set/has/delete/keys` already route through
+// `sandboxedAccess` for the WRAPPED value, but the WRAPPER's prototype
+// itself is reachable via symbol-to-field auto-resolution. Without a boundary
+// marker, sandbox code could read the wrapper's `apply`, `call`, or
+// `toString` to reach the underlying `source` Function or Object. (`apply`
+// taking the wrapped source and running it with sandbox-controlled args is
+// the canonical escape shape.) Marking the wrapper classes ensures the
+// prototype chain stops here — only own sandbox-safe properties on the
+// wrapped value flow through.
+// ============================================================================
+markAsSandboxBoundary(SchemeJSObject);
+markAsSandboxBoundary(SchemeJSFunction);
+
 /**
  * Convert a JavaScript value to a Scheme value.
  * Entry point for JS → Scheme boundary crossing.
@@ -323,7 +349,10 @@ export function toJS(value: unknown): unknown {
   }
 
   // nil → null
-  if (value === nil) return null;
+  // `instanceof Nil`: see isSchemeValue above — provenance-bearing Nil clones must
+  // also project to JS null at the boundary, otherwise they leak into the JS caller
+  // as opaque Scheme objects.
+  if (value instanceof Nil) return null;
 
   // Native Scheme types with valueOf
   if (value instanceof SchemeString) return value.valueOf();

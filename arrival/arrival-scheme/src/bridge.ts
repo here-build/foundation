@@ -23,7 +23,7 @@ import { SchemeExact, SchemeInexact } from "./numbers.js";
 import * as ops from "./operators/index.js";
 // Import directly from source files to avoid circular dependency during init
 import { Pair } from "./Pair.js";
-import { SchemeCharacter, nil } from "./types.js";
+import { Nil, SchemeCharacter, nil } from "./types.js";
 import { Values } from "./Values.js";
 import invariant from "tiny-invariant";
 import "./errors.js";
@@ -492,7 +492,31 @@ export const wrappedOps = {
     const real = inexact.real;
     TypeError.invariant(Number.isFinite(real), "Cannot convert infinity or NaN to exact");
     if (Number.isInteger(real)) return new SchemeExact(BigInt(real));
+    // JS Number.toString picks between fixed (`0.5`) and exponential (`1e-10`,
+    // `1e+21`) notations based on magnitude. The fixed-notation path uses the
+    // decimal-place count to derive the denominator. The exponential path was
+    // unhandled — `indexOf(".") === -1` short-circuited to `BigInt(real)` and
+    // threw RangeError on the non-integer float. Parse the mantissa+exponent
+    // and combine into a single power-of-10 denominator.
     const str = real.toString();
+    const expMatch = str.match(/^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+    if (expMatch) {
+      const [, sign, intPart, fracPart = "", expStr] = expMatch;
+      const exp = Number(expStr);
+      // Combine: value = sign * (intPart.fracPart) * 10^exp
+      //                = sign * (intPart fracPart) * 10^(exp - fracPart.length)
+      const digits = intPart + fracPart;
+      const netExp = exp - fracPart.length;
+      const mantissa = BigInt(`${sign}${digits}`);
+      const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? a : gcd(b, a % b));
+      if (netExp >= 0) {
+        return new SchemeExact(mantissa * 10n ** BigInt(netExp));
+      }
+      const denomBig = 10n ** BigInt(-netExp);
+      const absNum = mantissa < 0n ? -mantissa : mantissa;
+      const g = gcd(absNum, denomBig);
+      return new SchemeExact(mantissa / g, denomBig / g);
+    }
     const decimalIndex = str.indexOf(".");
     if (decimalIndex === -1) return new SchemeExact(BigInt(real));
     const decimals = str.length - decimalIndex - 1;
@@ -511,6 +535,16 @@ export const wrappedOps = {
       return `${n.num.toString(base)}/${n.denom.toString(base)}`;
     }
     const inexact = n as SchemeInexact;
+    // Inexact mark preservation (R7RS § 6.2): `(number->string 5.0)` must NOT
+    // return "5" — round-tripping through `string->number` would yield an
+    // exact integer, violating the exactness contract. `SchemeInexact.toString()`
+    // already appends `.0` to integers and emits the chibi-compatible
+    // `+inf.0` / `+nan.0` markers. Delegate for base-10 (the only base R7RS
+    // actually specifies for inexact formatting); for non-decimal bases the
+    // JS Number formatter is the only realistic option.
+    if (base === 10) {
+      return inexact.toString();
+    }
     if (inexact.imag !== 0) {
       const realPart = inexact.real.toString(base);
       const imagPart = inexact.imag >= 0 ? `+${inexact.imag.toString(base)}i` : `${inexact.imag.toString(base)}i`;
@@ -597,28 +631,57 @@ export const wrappedOps = {
   },
 
   // Character classification
+  // R7RS § 6.6: each predicate returns #t iff the character's Unicode general
+  // category falls in the expected set. The previous round-trip-case heuristic
+  // (`lower !== upper`) misses every category-Lo script (CJK, Hangul, Hebrew,
+  // Arabic, …) because Lo has no case mapping → lower === upper → predicate
+  // returns #f. `unicodeProperties.getCategory(codepoint)` is the source of
+  // truth.
   "char-alphabetic?"(char: unknown): boolean {
-    const c = charValue(char);
-    return /^[a-z]$/i.test(c) || c.toLowerCase() !== c.toUpperCase();
+    const cp = charValue(char).codePointAt(0)!;
+    // Letter categories: Lu (upper), Ll (lower), Lt (title), Lm (modifier), Lo (other).
+    switch (unicodeProperties.getCategory(cp)) {
+      case "Lu":
+      case "Ll":
+      case "Lt":
+      case "Lm":
+      case "Lo":
+        return true;
+      default:
+        return false;
+    }
   },
 
   "char-numeric?"(char: unknown): boolean {
-    const c = charValue(char);
-    return unicodeProperties.isDigit(c.codePointAt(0)!);
+    const cp = charValue(char).codePointAt(0)!;
+    // Number categories: Nd (decimal digit), Nl (letter number), No (other).
+    // The previous `isDigit` only matched Nd — CJK numerals (Nl) and Roman
+    // numerals (Nl) were misclassified.
+    switch (unicodeProperties.getCategory(cp)) {
+      case "Nd":
+      case "Nl":
+      case "No":
+        return true;
+      default:
+        return false;
+    }
   },
 
   "char-whitespace?"(char: unknown): boolean {
+    // JS \s ≈ Unicode White_Space property — covers ASCII tab/LF/CR/space
+    // plus the Z* categories (Zs/Zl/Zp) plus a few format chars. Closer to
+    // R7RS than getCategory alone (which would miss tab/LF as Cc).
     return /^\s$/.test(charValue(char));
   },
 
   "char-upper-case?"(char: unknown): boolean {
-    const c = charValue(char);
-    return c === c.toUpperCase() && c !== c.toLowerCase();
+    const cp = charValue(char).codePointAt(0)!;
+    return unicodeProperties.getCategory(cp) === "Lu";
   },
 
   "char-lower-case?"(char: unknown): boolean {
-    const c = charValue(char);
-    return c === c.toLowerCase() && c !== c.toUpperCase();
+    const cp = charValue(char).codePointAt(0)!;
+    return unicodeProperties.getCategory(cp) === "Ll";
   },
 
   "digit-value"(char: unknown): number | false {
@@ -639,20 +702,36 @@ export const wrappedOps = {
   },
 
   "char-foldcase"(char: unknown): SchemeCharacter {
-    const folded = foldCase(charValue(char));
-    // char-foldcase returns a single character; if folding expands (e.g. ß→ss), return first char
-    return new SchemeCharacter(folded[0] || charValue(char));
+    const c = charValue(char);
+    const folded = foldCase(c);
+    // R7RS § 6.6: char-foldcase returns a character (single Unicode scalar).
+    // When fold would expand to MULTIPLE chars (Eszett ß → "ss", Greek final
+    // sigma, etc.), there is no single-char result, so the operation MUST
+    // return the input unchanged. Truncating to `folded[0]` produces a
+    // different character (ß → s) which violates the round-trip identity.
+    return [...folded].length === 1 ? new SchemeCharacter(folded) : char as SchemeCharacter;
   },
 
   // Character/integer conversion
+  // R7RS § 6.6: return the Unicode SCALAR (code point), not the UTF-16 code unit.
+  // `charCodeAt(0)` is wrong for non-BMP chars (e.g. emoji): it returns the high
+  // surrogate (e.g. 0xD83D for 😀) instead of the full code point (0x1F600).
+  // `codePointAt(0)` reads a full surrogate pair when present.
   "char->integer"(char: unknown): SchemeExact {
-    return new SchemeExact(BigInt(charValue(char).charCodeAt(0)));
+    return new SchemeExact(BigInt(charValue(char).codePointAt(0)!));
   },
 
+  // R7RS § 6.6: inverse of char->integer over Unicode scalar range.
+  // `fromCharCode` silently truncates above 0xFFFF (modulo 0x10000), corrupting
+  // any non-BMP code point. `fromCodePoint` accepts up to U+10FFFF and emits
+  // the correct surrogate pair. Surrogate code points themselves (D800..DFFF)
+  // are NOT Unicode scalars per the standard; reject explicitly.
   "integer->char"(n: unknown): SchemeCharacter {
     const num = fromLIPS(n);
     const code = num instanceof SchemeExact ? Number(num.num) : Math.floor((num as SchemeInexact).real);
-    return new SchemeCharacter(String.fromCharCode(code));
+    invariant(code >= 0 && code <= 0x10ffff, `integer->char: code point ${code} out of Unicode range`);
+    invariant(code < 0xd800 || code > 0xdfff, `integer->char: surrogate code point ${code.toString(16)} is not a Unicode scalar`);
+    return new SchemeCharacter(String.fromCodePoint(code));
   },
 
   // ============================================================================
@@ -843,13 +922,14 @@ export const wrappedOps = {
   },
 
   "error-object-message"(err: unknown): string {
-    if (err instanceof R7RSError) {
-      return err.message;
-    }
-    if (err instanceof Error) {
-      return err.message;
-    }
-    return String(err);
+    // R7RS § 6.11: `error-object-message` is only defined over error objects
+    // (values produced by the `error` procedure). The previous permissive
+    // implementation returned `err.message` for any JS `Error` and stringified
+    // anything else — meaning callers couldn't distinguish "real R7RS error"
+    // from "some other thrown value happened to expose a message field."
+    // Fail loudly instead.
+    TypeError.invariant(err instanceof R7RSError, "error-object-message: argument is not an error object");
+    return err.message;
   },
 
   "error-object-irritants"(err: unknown): unknown {
@@ -982,11 +1062,19 @@ export const wrappedOps = {
   },
 
   "list-copy"(list: unknown): unknown {
-    if (list === nil) return nil;
+    // `=== nil` would miss Nil clones (singletons minted via withProvenance by
+    // the evaluator's control-flow provenance pass). A clone bypassed the
+    // guard, fell to the `!(instanceof Pair)` improper-list branch on the next
+    // line, and aliased the input by reference — violating R7RS list-copy's
+    // fresh-allocation contract. `instanceof Nil` keeps the freshness story
+    // intact for both the singleton and any clones.
+    if (list instanceof Nil) return nil;
     if (!(list instanceof Pair)) return list;
     // Deep copy the spine of the list
     const copy = (lst: unknown): unknown => {
-      if (lst === nil) return nil;
+      // Same clone-aware check at the recursion base: a Nil clone in the cdr
+      // would otherwise be preserved as an improper-list tail.
+      if (lst instanceof Nil) return nil;
       if (!(lst instanceof Pair)) return lst; // improper list tail
       return new Pair(lst.car, copy(lst.cdr));
     };
@@ -1348,7 +1436,11 @@ export const wrappedOps = {
   // ============================================================================
 
   single(list: unknown): boolean {
-    return list instanceof Pair && list.cdr === nil;
+    // Provenance-stamped Nil clones (Nil instances that are NOT the canonical
+    // singleton) would make `single(Pair(x, nil-clone))` falsely report false,
+    // sending callers down the multi-element slow path. Use the structural
+    // `instanceof Nil` guard.
+    return list instanceof Pair && list.cdr instanceof Nil;
   },
 
   take(lst: unknown, n: unknown): Pair | typeof nil {

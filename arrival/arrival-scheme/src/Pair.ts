@@ -9,6 +9,7 @@ import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { __cycles__, __data__, __location__, __ref__ } from "./primitives.js";
+import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 import { type Nil, type PairLike } from "./types.js";
 import { nil, setPairConstructor } from "./types.js";
 
@@ -642,3 +643,17 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
 
 // Register Pair constructor with types.ts for Nil.append
 setPairConstructor(Pair);
+
+// ============================================================================
+// SANDBOX BOUNDARY
+// ============================================================================
+// War story (2026-05-28 audit): Pair carries a rich prototype surface
+// (`match`, `fromArray`, `toArray`, iteration helpers, cycle-detection
+// internals) plus instance-level metadata symbols (`__data__`, `__location__`).
+// A sandbox holding any cons cell can reach all of these via symbol-to-field
+// auto-resolution. The cycle/ref-tracking helpers in particular operate on
+// raw object references and would leak host-side identity comparisons if
+// exposed. Boundary marker stops the prototype-chain walk at Pair before any
+// inherited helper is reachable.
+// ============================================================================
+markAsSandboxBoundary(Pair);

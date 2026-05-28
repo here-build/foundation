@@ -111,7 +111,7 @@ describe("CRITICAL: sandbox escape vectors", () => {
    * built-in proto methods) must be marked as sandbox boundaries so the
    * prototype-chain walk in sandboxedAccess stops at them.
    */
-  it.fails("SchemeString is marked as a sandbox boundary", async () => {
+  it("SchemeString is marked as a sandbox boundary", async () => {
     const { SchemeString } = await import("../LString");
     // Direct check, two ways the marker can be present:
     const protoMarked =

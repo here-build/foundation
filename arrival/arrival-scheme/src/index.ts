@@ -86,8 +86,6 @@ export {
 export {
   evaluate as evaluateGenerator,
   exec as execGenerator,
-  execSync as execSyncGenerator,
-  runSync as runSyncGenerator,
   SchemeError,
   SchemePromise,
   is_scheme_promise,

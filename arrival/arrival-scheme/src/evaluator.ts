@@ -110,7 +110,11 @@ function getLocation(code: SchemeValue): SourceLocation | undefined {
  */
 function formatCode(code: SchemeValue, maxLen = 60): string {
   if (code === null || code === undefined) return "null";
-  if (code === nil) return "()";
+  // `is_nil` not `=== nil`: after the AValue refactor, `nil.withProvenance(p)` mints
+  // fresh Nil clones (types.ts:87) — reference-equality misses them and a provenance-
+  // bearing list-terminator would format as "[object Object]" in stack traces.
+  // Matches the pattern adopted at line 131 below. Tier-1 fix context: 5f7f9e46a.
+  if (is_nil(code)) return "()";
   if (code instanceof SchemeSymbol) return symbol_name(code);
   if (typeof code === "string") return JSON.stringify(code);
   if (typeof code === "number" || typeof code === "bigint") return String(code);
@@ -205,6 +209,31 @@ export interface EvalContext {
   nodeFilter?: (node: Pair) => boolean;
   /** Current dynamic-stack invocation; sub-evaluations receive this as parent. */
   currentInvocation?: Invocation;
+  /**
+   * Optional execution-budget signal. When `signal.aborted` becomes true the
+   * trampoline throws `signal.reason ?? DOMException("aborted", "AbortError")`
+   * at the next iteration boundary (the existing 1000-iter / 5ms event-loop
+   * yield in `run()` — see the war story there). Composes with Web APIs at
+   * the rosetta boundary: `fetch(url, { signal: ctx.signal })` becomes
+   * natural, so a single AbortController can cancel both Scheme execution
+   * and any in-flight host requests it spawned.
+   *
+   * Without this, `(define (loop) (loop))` runs forever — the 5ms yield
+   * gives the event loop room to breathe but does not bound CPU; sandbox
+   * code and agent-generated programs need an actual bound.
+   */
+  signal?: AbortSignal;
+}
+
+/** Options for the trampoline runner (`run`). */
+export interface RunOptions {
+  /**
+   * Execution-budget signal. See `EvalContext.signal` for the war story.
+   * Threaded as a runner option (not via the generator) because the
+   * trampoline lives outside any single `EvalContext` — generators created
+   * by sub-evaluations carry their own ctx, but the budget is per-run.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -407,8 +436,20 @@ function env_get(env: Environment, sym: SchemeSymbol): SchemeValue {
  * 3. Awaits any yielded promises (from JS interop)
  * 4. Periodically yields to the event loop (every ~5ms)
  * 5. Tracks stack frames for error reporting
+ * 6. Honors an optional AbortSignal at iteration boundaries
  */
-async function run<T>(generator: Generator<unknown, T, unknown>): Promise<T> {
+async function run<T>(
+  generator: Generator<unknown, T, unknown>,
+  options: RunOptions = {},
+): Promise<T> {
+  const { signal } = options;
+
+  // Fast-fail: if the caller passed an already-aborted signal, refuse
+  // before allocating the trampoline state. Mirrors fetch() semantics.
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("aborted", "AbortError");
+  }
+
   // Stack of generators - this is the key to flat trampolining
   const stack: Generator<unknown, unknown, unknown>[] = [generator];
   // Stack frames for error reporting (parallel to generator stack)
@@ -504,8 +545,21 @@ async function run<T>(generator: Generator<unknown, T, unknown>): Promise<T> {
       if (value === TICK) {
         // Explicit tick - check if we should yield to event loop
         iterations++;
-        // Yield every 1000 iterations or 5ms, whichever comes first
+        // Yield every 1000 iterations or 5ms, whichever comes first.
+        //
+        // WHY check the abort signal HERE rather than per-step: TICK fires at
+        // every loop-step / tail-call boundary in long-running Scheme code,
+        // which is exactly the granularity an infinite-loop body would hit.
+        // Per-step (every `current.next()` call) the check would burn ~1-2%
+        // CPU on signal.aborted reads that 99.999% of the time are false;
+        // at TICK boundaries it costs nothing and still bounds (let loop
+        // () (loop)) within one budget unit. The same logic applies for the
+        // event-loop yield itself — the 1000-iter / 5ms cadence IS the
+        // natural abort-check cadence.
         if (iterations > 1000 || performance.now() - lastYield > 5) {
+          if (signal?.aborted) {
+            throw signal.reason ?? new DOMException("aborted", "AbortError");
+          }
           await Promise.resolve(); // Minimal yield - just microtask
           lastYield = performance.now();
           iterations = 0;
@@ -532,71 +586,15 @@ async function run<T>(generator: Generator<unknown, T, unknown>): Promise<T> {
 
 export default run;
 
-/**
- * Synchronous runner for when we know there's no async.
- * Throws if a promise is encountered.
- * Also uses flat trampoline for stack safety.
- */
-export function runSync<T>(generator: Generator<unknown, T, unknown>): T {
-  const stack: Generator<unknown, unknown, unknown>[] = [generator];
-  const frameStack: (StackFrame | undefined)[] = [undefined];
-  let valueToSend: unknown = undefined;
-
-  try {
-    while (stack.length > 0) {
-      const current = stack.at(-1)!;
-      let result: IteratorResult<unknown, unknown>;
-
-      try {
-        result = current.next(valueToSend);
-      } catch (error) {
-        const frames = frameStack.filter((f): f is StackFrame => f !== undefined);
-        if (error instanceof SchemeError) {
-          throw error;
-        }
-        throw error instanceof Error
-          ? new SchemeError(error.message, frames, error)
-          : new SchemeError(String(error), frames, undefined);
-      }
-
-      valueToSend = undefined;
-
-      if (result.done) {
-        stack.pop();
-        frameStack.pop();
-        valueToSend = result.value;
-        continue;
-      }
-
-      const value = result.value;
-
-      if (is_call(value)) {
-        stack.push(value.call);
-        frameStack.push(value.frame);
-        continue;
-      }
-
-      invariant(!is_promise(value), "Unexpected promise in synchronous evaluation");
-
-      if (value === TICK) {
-        // In sync mode, just continue (no yielding)
-        continue;
-      }
-
-      valueToSend = value;
-    }
-
-    return valueToSend as T;
-  } catch (error) {
-    if (error instanceof SchemeError) {
-      throw error;
-    }
-    const frames = frameStack.filter((f): f is StackFrame => f !== undefined);
-    throw error instanceof Error
-      ? new SchemeError(error.message, frames, error)
-      : new SchemeError(String(error), frames);
-  }
-}
+// Why no sync runner: the env carries promise-returning callables (rosettas,
+// `infer`, host fetch). A sync trampoline can only honor pure scheme — the
+// first yielded promise must throw "Unexpected promise," which makes sync mode
+// a foot-gun that silently works for trivial expressions and fails on anything
+// real. The AbortSignal budget reinforces the asymmetry: it relies on the
+// event-loop yield cadence inside `run()`, so a sync path can't be cancelled
+// at the same granularity. We keep one path — async — and pay the microtask
+// cost everywhere rather than maintain a half-working escape hatch that drifts
+// out of sync with the async semantics it pretends to mirror.
 
 // ============================================================================
 // Special Form Handlers
@@ -914,8 +912,12 @@ function* evalLambda(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     // See _dynamicCallSite comment near EvalContext.
     const dynamicInv = _dynamicCallSite ?? ctx.currentInvocation;
 
-    // Evaluate body - returns a promise that runs the generator
-    return run(evalBegin(body, { ...ctx, env: callEnv, currentInvocation: dynamicInv }));
+    // Evaluate body - returns a promise that runs the generator.
+    // Forward the signal: a lambda invoked inside a long-running computation
+    // must honor the same abort budget as the outer `run()` call.
+    return run(evalBegin(body, { ...ctx, env: callEnv, currentInvocation: dynamicInv }), {
+      signal: ctx.signal,
+    });
   };
 
   // Mark as lambda for identification
@@ -978,8 +980,11 @@ function* evalDefineMacro(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       macroEnv.set(argNode, codeNode);
     }
 
-    // Evaluate macro body to get expansion
-    return run(evalBegin(body, { ...evalArgs, env: macroEnv }));
+    // Evaluate macro body to get expansion.
+    // Forward signal so macro expansion is also budget-bounded.
+    return run(evalBegin(body, { ...evalArgs, env: macroEnv }), {
+      signal: evalArgs.signal,
+    });
   };
 
   // Create and register the macro
@@ -1041,7 +1046,12 @@ function* evalLet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       }
 
       const dynamicInv = _dynamicCallSite ?? ctx.currentInvocation;
-      return run(evalBegin(body, { ...ctx, env: loopEnv, currentInvocation: dynamicInv }));
+      // Forward signal — a named-let loop is the canonical infinite-loop
+      // shape `(let loop () (loop))`, so the budget must propagate here or
+      // the abort would only fire at the top-level run() boundary.
+      return run(evalBegin(body, { ...ctx, env: loopEnv, currentInvocation: dynamicInv }), {
+        signal: ctx.signal,
+      });
     };
     loopFn.__lambda__ = true;
     loopFn.__name__ = symbol_name(name);
@@ -1453,9 +1463,12 @@ function* evalDelay(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   const expr = rest.car;
 
-  // Create a thunk that evaluates the expression when called
+  // Create a thunk that evaluates the expression when called.
+  // Forward signal so a delayed/forced computation honors the budget at
+  // force time (the signal captured here is the one alive when the delay
+  // was created — same as ctx capture for env/dynamic_env).
   const thunk = () => {
-    return run(evaluate(expr, ctx));
+    return run(evaluate(expr, ctx), { signal: ctx.signal });
   };
 
   return new SchemePromise(thunk);
@@ -1624,9 +1637,9 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     let result: SchemeValue;
     let caughtError: Error | null = null;
 
-    // Execute body
+    // Execute body. Forward signal so the body of a try/catch is bounded.
     try {
-      result = await run(evaluate(body, ctx));
+      result = await run(evaluate(body, ctx), { signal: ctx.signal });
     } catch (error) {
       caughtError = error instanceof Error ? error : new Error(String(error));
     }
@@ -1654,7 +1667,11 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       catchEnv.set(varName, errorValue);
 
       try {
-        result = await run(evalBegin(handlers, { ...ctx, env: catchEnv }));
+        // Forward signal: a catch handler running an unbounded computation
+        // (e.g. a recovery loop) must respect the same budget.
+        result = await run(evalBegin(handlers, { ...ctx, env: catchEnv }), {
+          signal: ctx.signal,
+        });
         caughtError = null; // Error was handled
       } catch (error) {
         // Error in catch handler - propagate
@@ -1662,11 +1679,13 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       }
     }
 
-    // Handle finally clause
+    // Handle finally clause. Forward signal — finally is allowed to be
+    // bounded too; aborts in finally propagate per JS semantics where any
+    // exception would (this catch swallows them, matching the old behavior).
     if (finallyClause) {
       const finallyCdr = (finallyClause as Pair).cdr;
       try {
-        await run(evalBegin(finallyCdr, ctx));
+        await run(evalBegin(finallyCdr, ctx), { signal: ctx.signal });
       } catch {
         // Errors in finally are ignored (per JS semantics)
       }
@@ -2034,13 +2053,5 @@ function* evaluateArgs(rest: SchemeValue, ctx: EvalContext): Generator<unknown, 
  * This is the main entry point.
  */
 export function exec(code: SchemeValue, ctx: EvalContext): Promise<SchemeValue> {
-  return run(evaluate(code, ctx));
-}
-
-/**
- * Execute Scheme code synchronously.
- * Throws if any async operations are encountered.
- */
-export function execSync(code: SchemeValue, ctx: EvalContext): SchemeValue {
-  return runSync(evaluate(code, ctx));
+  return run(evaluate(code, ctx), { signal: ctx.signal });
 }

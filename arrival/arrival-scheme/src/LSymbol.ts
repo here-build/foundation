@@ -2,6 +2,7 @@
 // :: SchemeSymbol - Lisp symbol type
 // -------------------------------------------------------------------------
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
+import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 import type { SchemeStringLike } from "./types.js";
 import { isSchemeString, isString } from "./types.js";
 
@@ -128,3 +129,18 @@ function is_gensym(symbol: unknown): boolean {
   }
   return false;
 }
+
+// ============================================================================
+// SANDBOX BOUNDARY
+// ============================================================================
+// War story (2026-05-28 audit): SchemeSymbol carries a process-global intern
+// table (`SchemeSymbol.list`) and tracks gensym/literal metadata via well-known
+// symbols (`SchemeSymbol.literal`, `SchemeSymbol.object`). Symbol-to-field
+// auto-resolution exposes any class-level or prototype-level property to
+// sandbox scheme — including the static `list` (read-write, would let sandbox
+// poison the intern table) and the literal/object metadata symbols.
+// Marking the boundary blocks inherited-property access on instances; static
+// access via `(.AValue.list)` is already blocked separately by the AValue
+// non-export policy (see registry-poisoning tests in sandbox-escape.test.ts).
+// ============================================================================
+markAsSandboxBoundary(SchemeSymbol);

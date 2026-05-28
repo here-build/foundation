@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { Environment } from "../Environment";
-import run, { exec, execSync, runSync, SchemeError } from "../evaluator";
+import run, { exec, SchemeError } from "../evaluator";
 import { SchemeSymbol } from "../LSymbol";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";
@@ -121,24 +121,6 @@ describe("Generator Evaluator with Real LIPS Types", () => {
         return "should not reach";
       }
       await expect(run(withError())).rejects.toThrow("test error");
-    });
-  });
-
-  describe("runSync() synchronous runner", () => {
-    it("should run a simple generator synchronously", () => {
-      function* simple() {
-        return 42;
-      }
-      const result = runSync(simple());
-      expect(result).toBe(42);
-    });
-
-    it("should throw if a promise is encountered", () => {
-      function* withPromise() {
-        yield Promise.resolve(10);
-        return 20;
-      }
-      expect(() => runSync(withPromise())).toThrow("Unexpected promise");
     });
   });
 
@@ -750,14 +732,6 @@ describe("Generator Evaluator with Real LIPS Types", () => {
         expect(result1).toEqual(num(3));
         expect(result2).toEqual(num(3));
       });
-    });
-  });
-
-  describe("execSync()", () => {
-    it("should evaluate synchronously when no promises", () => {
-      const code = list(sym("+"), num(1), num(2), num(3));
-      const result = execSync(code, { env });
-      expect(result).toEqual(num(6));
     });
   });
 

@@ -12,7 +12,7 @@ import { SchemeBool } from "./LBool.js";
 import { SchemeJSArray, SchemeJSObject } from "./membrane.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";
-import { nil } from "./types.js";
+import { Nil, nil } from "./types.js";
 
 interface RosettaOptions {
   forceBigInt?: boolean;
@@ -67,7 +67,11 @@ const isLipsPair = (x: any): boolean => x && typeof x === "object" && "car" in x
 
 export function lipsToJs(value: any, options: RosettaOptions = {}): any {
   // Handle null/undefined
-  if (value == null || value === nil) return value;
+  // `instanceof Nil` not `=== nil`: after the AValue refactor, `nil.withProvenance(p)`
+  // mints fresh Nil clones (types.ts:87) — reference-equality misses them and would
+  // leak the clone back into the JS caller. Mirrors guards.ts:is_nil (the Tier-1 fix
+  // in 5f7f9e46a) which adopted the same class-based check.
+  if (value == null || value instanceof Nil) return value;
 
   // Handle JS arrays (convert elements recursively)
   if (Array.isArray(value)) {
@@ -127,7 +131,9 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
       const tail = lipsToJs(value.cdr, options) ?? [];
       if (Array.isArray(tail)) {
         return [head, ...tail];
-      } else if (tail === nil) {
+      } else if (tail instanceof Nil) {
+        // Class check, not `=== nil`: a provenance-bearing Nil clone (see Nil import note above)
+        // must still terminate the list — otherwise the tail leaks as `[head, <Nil-clone>]`.
         return [head];
       } else {
         return [head, tail];

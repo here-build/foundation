@@ -14,7 +14,7 @@
 // Import directly from source files to avoid circular dependency with lips.ts
 import { SchemeString } from "./LString.js";
 import { Pair } from "./Pair.js";
-import { nil } from "./types.js";
+import { Nil, nil } from "./types.js";
 
 // Lazy getter for lipsGlobalEnv to avoid circular dependency
 // Only called at runtime in chainPair, not during module initialization
@@ -85,13 +85,19 @@ function patchLStringClass(): void {
   };
 }
 
+// All five recursors below terminate on Nil via `instanceof Nil`, not `=== nil`.
+// After the AValue refactor, `nil.withProvenance(p)` mints fresh Nil clones
+// (types.ts:87, exercised by restrictControlFlowProvenance in evaluator.ts:627),
+// so reference-equality would recurse past a provenance-bearing list end and
+// crash on `<Nil-clone>.cdr` / `<Nil-clone>.car`. Mirrors guards.ts:is_nil
+// (Tier-1 fix in 5f7f9e46a).
 function mapPair(f: Fn, pair: any): any {
-  if (!pair || pair === nil) return nil;
+  if (!pair || pair instanceof Nil) return nil;
   return new Pair(f(pair.car), mapPair(f, pair.cdr));
 }
 
 function filterPair(predicate: Fn, pair: any): any {
-  if (!pair || pair === nil) return nil;
+  if (!pair || pair instanceof Nil) return nil;
 
   const restFiltered = filterPair(predicate, pair.cdr);
 
@@ -99,13 +105,13 @@ function filterPair(predicate: Fn, pair: any): any {
 }
 
 function reducePair(f: Fn, initial: any, pair: any): any {
-  if (!pair || pair === nil) return initial;
+  if (!pair || pair instanceof Nil) return initial;
 
   return reducePair(f, f(initial, pair.car), pair.cdr);
 }
 
 function traversePair(of: Fn, f: Fn, pair: any): any {
-  if (!pair || pair === nil) return of(nil);
+  if (!pair || pair instanceof Nil) return of(nil);
 
   const mappedCar = f(pair.car);
   const mappedCdr = traversePair(of, f, pair.cdr);
@@ -117,7 +123,7 @@ function chainPair(f: Fn, pair: any): any {
   const lipsEnv = getLipsEnv();
   const concat = lipsEnv?.get("append", { throwError: false });
 
-  if (!pair || pair === nil) return nil;
+  if (!pair || pair instanceof Nil) return nil;
 
   const mapped = f(pair.car);
   const chained = chainPair(f, pair.cdr);

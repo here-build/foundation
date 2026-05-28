@@ -68,7 +68,7 @@ describe("r7rs unicode — passing invariants (regression guards)", () => {
 });
 
 describe("r7rs unicode — known bugs (it.fails — flipping to green = regression of the bug)", () => {
-  it.fails(
+  it(
     "char->integer on a non-BMP character returns the full code point",
     async () => {
       // R7RS § 6.6: `char->integer` returns the Unicode scalar value.
@@ -82,7 +82,7 @@ describe("r7rs unicode — known bugs (it.fails — flipping to green = regressi
     },
   );
 
-  it.fails(
+  it(
     "integer->char round-trips a non-BMP code point",
     async () => {
       // R7RS § 6.6: `integer->char` is the inverse of `char->integer` over
@@ -99,7 +99,7 @@ describe("r7rs unicode — known bugs (it.fails — flipping to green = regressi
     },
   );
 
-  it.fails(
+  it(
     "char-foldcase #\\ß returns #\\ß (multi-char folds are identity per R7RS § 6.6)",
     async () => {
       // R7RS § 6.6: char-foldcase takes a character and returns a character.
@@ -116,7 +116,7 @@ describe("r7rs unicode — known bugs (it.fails — flipping to green = regressi
     },
   );
 
-  it.fails(
+  it(
     "char-alphabetic? recognizes CJK ideographs (Unicode category Lo)",
     async () => {
       // R7RS § 6.6: char-alphabetic? returns #t iff the character is in

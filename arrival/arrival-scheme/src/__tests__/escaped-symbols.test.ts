@@ -233,9 +233,11 @@ describe("Escaped Symbol Resolution", () => {
       // Convert to LIPS list — scheme filter expects pair chains, not JS arrays
       sandboxedEnv.set("items", jsToLips(items));
 
+      // Use `string=?` for string comparison — `eq?` is reference identity (R7RS § 6.1)
+      // and post-eq?/eqv?-split returns #f for two distinct heap string instances.
       const result = await execOne(`
         (filter
-          (lambda (item) (eq? (@ item :|24|) "first"))
+          (lambda (item) (string=? (@ item :|24|) "first"))
           items)
       `);
 

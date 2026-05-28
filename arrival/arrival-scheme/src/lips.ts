@@ -676,6 +676,79 @@ function equal(x, y) {
 }
 
 // ----------------------------------------------------------------------
+// R7RS § 6.1 — three-tier equivalence hierarchy.
+//
+// War story: `eq?` and `eqv?` were both aliased to `equal` (lips.ts:3634-3635
+// pre-fix), so every dispatch flowed through one helper whose string branch
+// (lips.ts:670-672 — `x.valueOf() === y.valueOf()`) collapsed distinct heap
+// SchemeString instances to #t. That collapsed the three-tier R7RS hierarchy
+// into a single `equal?`-flavoured comparison, breaking `memq`/`assv`/`case`
+// dispatch and the R7RS § 6.1 atom-grade contract that `(eqv? (string-copy "a")
+// (string-copy "a"))` MUST be #f.
+//
+// Why three functions, not two-plus-an-alias:
+//   - `eq?` — pointer-grade. R7RS allows implementations to make immediates
+//     (numbers, chars, interned symbols, nil, booleans) answer #t even across
+//     distinct heap copies; we lean inclusive there because the provenance
+//     clone machinery (AValue.withProvenance) routinely mints copies of
+//     canonically-identifying values that should still compare eq? Without
+//     this carve-out, `(eq? (if #t #f #t) (if #f #t #f))` would surprise
+//     readers — both arms produce a SchemeBool(false) clone with different
+//     provenance heap-id, but the canonical answer is #t.
+//   - `eqv?` — same as eq? plus explicit number/char value equality. Per
+//     R7RS § 6.1, "eqv? returns #t if obj1 and obj2 are both exact numbers and
+//     are numerically equal" — but eq? above already covers SchemeExact and
+//     SchemeInexact via the .equals() call, so eqv?'s extra coverage is empty
+//     here. Kept as a distinct function so any future divergence (e.g.
+//     NaN/±0 handling change) lands in one place, and so the binding shape
+//     reflects the R7RS contract a reader expects.
+//   - `equal?` — structural recursion. Bound in bridge.ts via deepEqual,
+//     untouched.
+//
+// Provenance-clone trap: `x === y` is NOT sufficient for symbols/nil/booleans
+// because every withProvenance() call mints a fresh heap object. Use
+// instance-aware checks (SchemeSymbol.__name__, Nil instanceof, SchemeBool.value)
+// so clones still compare eq? — otherwise an `if`-induced provenance clone of
+// `nil` or `#f` would fail eq? against the singleton, breaking `(eq? x '())`
+// in the most common interpreter shape.
+function eq(x: SchemeValue, y: SchemeValue): boolean {
+  if (x === y) return true;
+  // Symbol interning: parser produces shared SchemeSymbol instances, but
+  // provenance clones break heap identity. Name equality is the canonical
+  // R7RS answer for interned symbols.
+  if (x instanceof SchemeSymbol && y instanceof SchemeSymbol) return x.__name__ === y.__name__;
+  // Nil singleton: every nil-clone (from withProvenance) is observably the
+  // empty list; eq? must answer #t. See clone-identity.test.ts for the
+  // meta-bug ledger across other modules.
+  if (x instanceof Nil && y instanceof Nil) return true;
+  // Booleans: #t and #f have schemeTrue/schemeFalse singletons, but clones
+  // exist. Compare by .value so clones still satisfy the contract.
+  if (x instanceof SchemeBool && y instanceof SchemeBool) return x.value === y.value;
+  // Characters: SchemeCharacter doesn't intern, so even literal `#\a` mints
+  // fresh instances. Compare by __char__.
+  if (x instanceof SchemeCharacter && y instanceof SchemeCharacter) return x.__char__ === y.__char__;
+  // Numbers: R7RS-implementation-defined for eq? on numbers, but treating
+  // them with eqv? semantics is the standard choice (chibi, gambit, racket).
+  if (x instanceof SchemeExact && y instanceof SchemeExact) return x.equals(y);
+  if (x instanceof SchemeInexact && y instanceof SchemeInexact) return x.equals(y);
+  // Everything else (Pair, vector/Array, SchemeString, plain objects) keeps
+  // strict pointer-grade: distinct heap instances answer #f. This is what
+  // distinguishes eq?/eqv? from equal? — and what makes the string-copy
+  // bug from the prior `equal`-alias collapse stay fixed.
+  return false;
+}
+
+function eqv(x: SchemeValue, y: SchemeValue): boolean {
+  // Per R7RS § 6.1: eqv? is "eq? plus explicit number/char equality." Our
+  // eq() above already includes both number branches (.equals on SchemeExact/
+  // SchemeInexact) and char equality (__char__), so eqv? today reduces to
+  // exactly eq?. Kept as a separate symbol so the binding mirrors the R7RS
+  // contract and so any future divergence (e.g. NaN handling, ±0, exact/
+  // inexact crossing) has a named home rather than living inside eq.
+  return eq(x, y);
+}
+
+// ----------------------------------------------------------------------
 function same_atom(a, b) {
   if (type(a) !== type(b)) {
     return false;
@@ -2064,14 +2137,36 @@ export const global_env = new Environment(
       return withInputProvenance([car, cdr], new Pair(car, cdr));
     }),
     // ------------------------------------------------------------------
+    // Spec §5.3 car/cdr element-only provenance.
+    //
+    // War story: previously `withInputProvenance([list], list.car)` unioned
+    // the *container*'s provenance into the *element*'s — so `(car xs)`
+    // returned a value stamped with every id that contributed to xs, even
+    // those carried by sibling cdr elements or the spine itself. That violates
+    // the spec §5.3 rule that car/cdr are *projections*: the result inherits
+    // ONLY the element's own provenance, not the container's. The audit
+    // surfaced this as the algebra gap behind a class of phantom-contributor
+    // attributions in downstream consumers.
+    //
+    // Fix: pass `list.car` (resp. `list.cdr`) as the single provenance input.
+    // - If element is an AValue, `withInputProvenance` re-stamps with its own
+    //   provenance (effectively a no-op clone — preserves element identity).
+    // - If element is raw JS (string/bool/number), `withInputProvenance`
+    //   skips work because `inputs.length === 0`; the element is returned
+    //   unchanged, which is correct because raw values have no container-
+    //   borrowed provenance to incorrectly carry.
+    //
+    // `cons`, `list`, and `length` are CONSTRUCTORS / aggregations, not
+    // projections — they correctly retain `withInputProvenance([car, cdr], …)`
+    // unioning over all inputs.
     car: doc("car", function car(list) {
       typecheck("car", list, "pair");
-      return withInputProvenance([list], list.car);
+      return withInputProvenance([list.car], list.car);
     }),
     // ------------------------------------------------------------------
     cdr: doc("cdr", function cdr(list) {
       typecheck("cdr", list, "pair");
-      return withInputProvenance([list], list.cdr);
+      return withInputProvenance([list.cdr], list.cdr);
     }),
     // ------------------------------------------------------------------
     "set!": doc(
@@ -3631,8 +3726,35 @@ export const global_env = new Environment(
     pipe: doc(null, pipe),
     curry: doc(null, curry),
     // ------------------------------------------------------------------
-    "eq?": doc("eq?", equal),
-    "eqv?": doc("eqv?", equal),
+    "eq?": doc("eq?", eq),
+    "eqv?": doc("eqv?", eqv),
+    // ------------------------------------------------------------------
+    // R5RS § 6.2.5 arrow-form aliases for R7RS § 6.2 exact/inexact.
+    //
+    // Why call-time lookup rather than direct binding:
+    // The target functions (`exact`, `inexact`) live in `bridge.ts` and are
+    // applied to `global_env` AFTER this object literal evaluates — see
+    // `applyToEnvironment` in initBridge(). Closing over the values now
+    // would capture `undefined`; the lookup MUST happen on call. Wrapping as
+    // a thin trampoline lets the same Scheme code that uses `exact->inexact`
+    // (chibi/gambit/racket conventions) work without bridge.ts changes.
+    //
+    // The R7RS-renamed `exact`/`inexact` are still the canonical names; these
+    // arrow forms are R5RS-compat aliases (kept by every Scheme that takes
+    // legacy code seriously). Cost is one extra lookup per call, paid only
+    // when downstream code uses the legacy spelling.
+    "exact->inexact": doc(
+      "exact->inexact",
+      function exactToInexact(z: SchemeValue): SchemeValue {
+        return (global_env.get("inexact") as SchemeFunction)(z);
+      },
+    ),
+    "inexact->exact": doc(
+      "inexact->exact",
+      function inexactToExact(z: SchemeValue): SchemeValue {
+        return (global_env.get("exact") as SchemeFunction)(z);
+      },
+    ),
     // ------------------------------------------------------------------
     or: genMacroWrapper("or"),
     // ------------------------------------------------------------------
@@ -3894,6 +4016,28 @@ function prepare_fn_args(fn: SchemeValue, args: SchemeValue[]): SchemeValue[] {
 }
 
 // -------------------------------------------------------------------------
+// War story (audit error shape #42): `(- (* 0 "") (- (- 0 0) 0))` used to
+// surface as "Unbound variable `-`" because something deep inside the
+// arithmetic dispatch threw and the env-lookup error message bubbled up
+// as the user-visible string. As of the bridge.ts → fromLIPS migration the
+// shape is now `TypeError: Invariant failed: Cannot convert to SchemeNumeric: `
+// (sandbox-boundary.ts:50 → bridge.ts:198 → Array.map → operator wrapper),
+// which already matches the fuzz harness's `msg.includes("type")` whitelist
+// (evaluator-provenance.fuzz.test.ts:63).
+//
+// TODO: error-shape sharpening — the TypeError doesn't name the operator or
+// the argument that failed conversion. Sharpening would require either:
+//   (a) tagging wrappedOps with their op name (already exists via Object
+//       .defineProperty(fn, "name", { value: op.name }) in bridge.ts:255)
+//       and wrapping `fn.apply` here to re-throw "Cannot apply <name> to
+//       <type1> + <type2>" — but this lies in bridge.ts territory, and
+//       breaking the catch boundary at call_function would change error
+//       shape for every operator, not just numeric ones.
+//   (b) catching at the operator wrapper itself (bridge.ts:241) with
+//       per-arg type info — cleaner but bridge.ts is off-limits this pass.
+// Punt to a separate ticket; the current shape is whitelisted and the
+// underlying behavior is correct. Verified path: lips.ts:4031 → fn.apply
+// → bridge.ts:241 wrapOperator → bridge.ts:198 fromLIPS → throw.
 export function call_function(
   fn: SchemeFunction,
   args: SchemeValue[],

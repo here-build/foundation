@@ -1,6 +1,6 @@
 import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
-import { global_env as lipsGlobalEnv, nil } from "./lips.js";
+import { global_env as lipsGlobalEnv, Nil, nil } from "./lips.js";
 import { RAMDA_FUNCTIONS } from "./ramda-functions.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
 import { sandboxedAccess, sandboxedHas, sandboxedKeys, NOT_FOUND, SandboxViolationError } from "./sandbox-boundary.js";
@@ -120,7 +120,12 @@ export const sandboxedEnv = new Environment(
 
       // Handle LIPS types (SchemeSymbol, SchemeString) - use valueOf() to get actual value
       const rawKeyStr = key.valueOf?.() ?? key;
-      if (rawKeyStr == null || rawKeyStr === nil) {
+      // `instanceof Nil` not `=== nil`: after the AValue refactor, `nil.withProvenance(p)`
+      // mints fresh Nil clones (types.ts:87). Reference-equality misses them, so a
+      // Nil-valued key would skip this guard and end up String()-cast at line 128,
+      // yielding "[object Object]" as the lookup key. Mirrors guards.ts:is_nil
+      // (Tier-1 fix in 5f7f9e46a).
+      if (rawKeyStr == null || rawKeyStr instanceof Nil) {
         return nil;
       }
 
@@ -160,7 +165,9 @@ export const sandboxedEnv = new Environment(
       if (obj == null) return false;
 
       const rawKeyStr = key.valueOf?.() ?? key;
-      if (rawKeyStr == null || rawKeyStr === nil) {
+      // `instanceof Nil`: see "@" above — Nil-valued keys must short-circuit before
+      // String()-cast leaks "[object Object]" into the host's property lookup.
+      if (rawKeyStr == null || rawKeyStr instanceof Nil) {
         return false;
       }
 

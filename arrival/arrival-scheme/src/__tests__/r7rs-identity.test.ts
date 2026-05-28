@@ -85,7 +85,7 @@ describe("r7rs identity — passing invariants (regression guards)", () => {
 });
 
 describe("r7rs identity — known bugs (it.fails — flipping to green = regression of the bug)", () => {
-  it.fails(
+  it(
     "eq? on two distinct string-copy results SHOULD be #f (R7RS § 6.1)",
     async () => {
       // R7RS § 6.1: `(eq? "x" "x")` on literals is implementation-defined,
@@ -102,7 +102,7 @@ describe("r7rs identity — known bugs (it.fails — flipping to green = regress
     },
   );
 
-  it.fails(
+  it(
     "eqv? on two distinct string-copy results SHOULD be #f (R7RS § 6.1)",
     async () => {
       // Same root cause: `lips.ts:3634-3635` aliases both eq? and eqv? to
@@ -117,7 +117,7 @@ describe("r7rs identity — known bugs (it.fails — flipping to green = regress
     },
   );
 
-  it.fails(
+  it(
     "eqv? on two distinct make-string results SHOULD be #f (R7RS § 6.1)",
     async () => {
       // Same alias chain exercised through a different constructor. Every

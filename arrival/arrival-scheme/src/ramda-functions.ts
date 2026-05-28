@@ -2,7 +2,7 @@
 import * as R from "ramda";
 import * as RA from "ramda-adjunct";
 
-import { env as globalEnv, nil, Pair } from "./lips.js";
+import { env as globalEnv, Nil, nil, Pair } from "./lips.js";
 
 type Fn = (...args: any[]) => any;
 
@@ -20,7 +20,11 @@ function polymorphicMap(fn: Fn, collection: any): any {
     return new Pair(fn(collection.car), polymorphicMap(fn, collection.cdr));
   }
 
-  if (collection === nil) {
+  // `instanceof Nil` not `=== nil`: after the AValue refactor, `nil.withProvenance(p)`
+  // mints fresh Nil clones (types.ts:87) — reference-equality misses them and would
+  // route a list-terminator through `R.map` as if it were a non-list collection.
+  // Mirrors guards.ts:is_nil (Tier-1 fix in 5f7f9e46a).
+  if (collection instanceof Nil) {
     return nil;
   }
 
@@ -147,7 +151,9 @@ export const RAMDA_FUNCTIONS = {
     }
     // LIPS Pair - recursively filter
     if (isLipsPair(collection)) {
-      if (collection.cdr === nil && collection.car === undefined) {
+      // `instanceof Nil`: see polymorphicMap above — provenance-bearing Nil clones must
+      // still register as the empty-list terminator.
+      if (collection.cdr instanceof Nil && collection.car === undefined) {
         // Empty list
         return collection;
       }
@@ -157,7 +163,7 @@ export const RAMDA_FUNCTIONS = {
       return predicate(collection.car) ? new Pair(collection.car, restFiltered) : restFiltered;
     }
 
-    if (collection === nil) {
+    if (collection instanceof Nil) {
       return collection;
     }
 
@@ -194,7 +200,9 @@ export const RAMDA_FUNCTIONS = {
     }
     // LIPS Pair - recursively reduce
     if (isLipsPair(collection)) {
-      if (collection.cdr === nil && collection.car === undefined) {
+      // `instanceof Nil`: see polymorphicMap above — provenance-bearing Nil clones must
+      // still register as the empty-list terminator.
+      if (collection.cdr instanceof Nil && collection.car === undefined) {
         // Empty list
         return initial;
       }
@@ -203,7 +211,7 @@ export const RAMDA_FUNCTIONS = {
       return RAMDA_FUNCTIONS.reduce(fn, accumulated, collection.cdr);
     }
 
-    if (collection === nil) {
+    if (collection instanceof Nil) {
       return initial;
     }
 

@@ -132,64 +132,50 @@ describe("r7rs numbers — known bugs (it.fails — flipping to green = regressi
     },
   );
 
-  it.fails(
+  it(
     "(exact 1e-10) does NOT throw and returns an exact rational",
     async () => {
-      // `bridge.ts:495-503`: the exact-conversion path stringifies the float
-      // and looks for `.`. For 1e-10, `(1e-10).toString()` is "1e-10" — no
-      // `.` → falls to `BigInt(real)` (line 497), which throws since BigInt
-      // refuses non-integer Numbers. Same hazard at
-      // `operators/numeric.ts:673-691` (floatToRational for numerator/
-      // denominator) for any float that doesn't stringify with a decimal
-      // point.
-      //
-      // Predicted failure value: throws RangeError "The number 1e-10 cannot
-      // be converted to a BigInt because it is not an integer".
+      // Fixed at `bridge.ts` — `exact` now recognizes exponential-notation
+      // float stringifications (`1e-10`, `1.5e+21`, …) and constructs the
+      // rational by combining mantissa + signed exponent into a single
+      // power-of-10 denominator instead of falling through to `BigInt(real)`
+      // (which threw RangeError on non-integer floats).
       const r = await evalScheme("(exact 1e-10)");
       // If we reach here without throwing, the bug is fixed.
       expect(truthy(await evalScheme(`(exact? ${num(r) === 0 ? "(exact 0)" : "1/10000000000"})`))).toBe(true);
     },
   );
 
-  it.fails(
+  it(
     '(number->string 5.0) preserves the inexact mark ("5." or "5.0", not "5")',
     async () => {
-      // `bridge.ts:519`: inexact path returns `inexact.real.toString(base)`.
-      // For 5.0, JS `(5.0).toString()` returns "5" — losing the inexact
-      // mark. Round-tripping through `string->number` would then yield an
-      // exact integer, violating R7RS § 6.2's exactness preservation.
-      // Chibi's reference output is "5." (with trailing dot).
-      //
-      // Predicted failure value: "5" instead of "5." or "5.0".
+      // Fixed at `bridge.ts` — base-10 inexact formatting now delegates to
+      // `SchemeInexact.toString()` which appends `.0` to integer-valued
+      // inexacts. Round-tripping through `string->number` now preserves
+      // exactness per R7RS § 6.2.
       const r = await evalScheme("(number->string 5.0)");
       const s = typeof r === "string" ? r : String((r as { valueOf: () => unknown }).valueOf());
-      // Either "5." or "5.0" would be R7RS-conformant.
+      // Either "5." or "5.0" is R7RS-conformant.
       expect(["5.", "5.0"]).toContain(s);
     },
   );
 
-  it.fails(
+  it(
     "exact->inexact is bound (R5RS alias, R7RS-compatible naming)",
     async () => {
-      // R5RS § 6.2.5 defines `exact->inexact`. R7RS § 6.2 renamed to plain
-      // `inexact` but the arrowed name is conventionally kept as an alias
-      // for backward compat (chibi, racket, gambit all bind both). Our
-      // bootstrap only registers `inexact` / `exact` (bridge.ts:479,487);
-      // the arrowed names are unbound.
-      //
-      // Predicted failure value: throws "Unbound variable `exact->inexact'".
+      // R5RS § 6.2.5 alias for R7RS `inexact`. Bound at `lips.ts` via a
+      // late-lookup trampoline (target lives in bridge.ts, applied during
+      // initBridge).
       const r = await evalScheme("(exact->inexact 1/2)");
       expect(num(r)).toBe(0.5);
     },
   );
 
-  it.fails(
+  it(
     "inexact->exact is bound (R5RS alias, R7RS-compatible naming)",
     async () => {
-      // Same root cause as exact->inexact: only the R7RS-renamed `exact` is
-      // registered. R5RS-style arrow form is unbound.
-      //
-      // Predicted failure value: throws "Unbound variable `inexact->exact'".
+      // R5RS § 6.2.5 alias for R7RS `exact`. Same trampoline shape as
+      // `exact->inexact`.
       const r = await evalScheme("(inexact->exact 0.5)");
       expect(truthy(await evalScheme("(exact? (inexact->exact 0.5))"))).toBe(true);
       // Type sanity: 0.5 → 1/2 exact, valueOf === 0.5.

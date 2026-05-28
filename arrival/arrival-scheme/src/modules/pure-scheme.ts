@@ -247,8 +247,23 @@ export const PURE_SCHEME_BINDINGS = [
   "call/cc",
   "dynamic-wind",
 
-  // Eval (meta)
-  "eval",
+  // ============================================================================
+  // INTENTIONALLY OMITTED: `eval`
+  // ============================================================================
+  // War story (2026-05-28 audit): `bridge.ts:1342` implements `eval(expr, env?)`
+  // as `evaluate(expr, { env: env || lipsGlobalEnv })`. When sandbox code calls
+  // `(eval x)` with no second argument, `env` is `undefined`, so eval falls
+  // back to `lipsGlobalEnv` — the FULLY UNSANDBOXED global env containing every
+  // wrappedOp (`set-obj!`, `new`, `instanceof`, `load`, the whole LIPS surface).
+  // `(eval (quote +))` returns the unwrapped JS function; `(eval (quote set-obj!))`
+  // hands the sandbox arbitrary host-property-write capability.
+  //
+  // Forbidding `eval` here is the correct fix — eval-with-an-env still works
+  // for non-sandbox callers (eval stays in lipsGlobalEnv), but the sandbox
+  // resolver can never hand it to user code. A "fix eval to default to
+  // caller env" alternative would require threading caller context through
+  // every JS-callable, which is what removing it from the sandbox sidesteps.
+  // ============================================================================
 
   // Type conversion
   "list->array",

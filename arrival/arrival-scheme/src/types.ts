@@ -3,6 +3,7 @@
  * These are the fundamental data types for the Scheme implementation.
  */
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
+import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 import invariant from "tiny-invariant";
 
 // SchemeValue is the generic type for any Scheme value
@@ -211,3 +212,17 @@ export class SchemeCharacter extends AValue {
 // — it only exists post-parse, so no boxer.
 AValue.registerBoxer("null", (_v, p) => new Nil(p));
 AValue.registerBoxer("undefined", (_v, p) => new Nil(p));
+
+// ============================================================================
+// SANDBOX BOUNDARIES
+// ============================================================================
+// War story (2026-05-28 audit): Nil and SchemeCharacter both extend AValue
+// and carry their own prototype surface (Nil: `append`, `to_object`,
+// `to_array`; SchemeCharacter: case-conversion helpers plus the static
+// `__names__` / `__rev_names__` character tables). Symbol-to-field
+// auto-resolution exposes these to sandbox scheme. The character name
+// tables in particular are arrays of host strings — read-only today, but
+// boundary-marking now prevents future writable additions from leaking.
+// ============================================================================
+markAsSandboxBoundary(Nil);
+markAsSandboxBoundary(SchemeCharacter);

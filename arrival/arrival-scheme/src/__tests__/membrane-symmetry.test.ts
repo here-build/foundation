@@ -270,7 +270,7 @@ describe("isSchemeValue completeness — every native AValue subtype is recognis
   // Nil clones — should be recognised but aren't. See clone-identity.test.ts
   // for the full enumeration of `=== nil` sites. This is a duplicate of the
   // membrane.ts:71 site, deliberately kept here for the completeness map.
-  it.fails("Nil clone → true (currently false; see membrane.ts:71 + clone-identity.test.ts)", () => {
+  it("Nil clone → true (see membrane.ts:71 + clone-identity.test.ts; fixed via `instanceof Nil`)", () => {
     const clone = nil.withProvenance(new Set<number>([1]));
     expect(isSchemeValue(clone)).toBe(true);
   });

@@ -1,4 +1,5 @@
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
+import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 
 export class SchemeBool extends AValue {
   static __class__ = "boolean";
@@ -32,3 +33,14 @@ export const schemeFalse = new SchemeBool(false);
 AValue.registerBoxer("boolean", (v, p) =>
   p === EMPTY_PROVENANCE ? (v ? schemeTrue : schemeFalse) : new SchemeBool(v as boolean, p),
 );
+
+// ============================================================================
+// SANDBOX BOUNDARY
+// ============================================================================
+// War story (2026-05-28 audit): SchemeBool's prototype is narrow today but
+// the boundary marker still matters — the singletons `schemeTrue` and
+// `schemeFalse` are heavily reused, so any future helper grafted onto
+// SchemeBool.prototype reaches every Boolean-valued response from the
+// sandbox. Mark now so the surface stays empty by default.
+// ============================================================================
+markAsSandboxBoundary(SchemeBool);

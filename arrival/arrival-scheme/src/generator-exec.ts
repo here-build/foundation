@@ -41,6 +41,15 @@ export interface ExecOptions {
   tap?: EvalTap;
   /** Predicate to suppress tap firing for specific nodes (atoms always skipped). */
   nodeFilter?: (node: Pair) => boolean;
+  /**
+   * Execution-budget signal. When the signal aborts, the trampoline throws
+   * `signal.reason ?? DOMException("aborted", "AbortError")` at the next
+   * iteration boundary. See `EvalContext.signal` in evaluator.ts for the
+   * full war story; the short version is that the 5ms event-loop yield
+   * prevents UI freeze but does NOT bound CPU, so `(define (loop) (loop))`
+   * needs an external bound for sandbox use.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -65,7 +74,7 @@ export interface ExecOptions {
  */
 export async function exec(
   code: string | SchemeValue,
-  { env, dynamic_env, use_dynamic, tap, nodeFilter }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal }: ExecOptions = {},
 ): Promise<SchemeValue[]> {
   const lips = await getLips();
 
@@ -94,7 +103,9 @@ export async function exec(
         use_dynamic,
         tap,
         nodeFilter,
+        signal,
       }),
+      { signal },
     );
     results.push(result);
   }
@@ -117,7 +128,7 @@ export async function parse(code: string, env?: Environment): Promise<SchemeValu
  */
 export async function execExpr(
   expr: SchemeValue,
-  { env, dynamic_env, use_dynamic, tap, nodeFilter }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal }: ExecOptions = {},
 ): Promise<SchemeValue> {
   const lips = await getLips();
   const actualEnv = env ?? lips.env;
@@ -129,6 +140,8 @@ export async function execExpr(
       use_dynamic,
       tap,
       nodeFilter,
+      signal,
     }),
+    { signal },
   );
 }
