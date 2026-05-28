@@ -39,6 +39,13 @@ export { runPipeline, type RunPipelineOptions, type PublishOptions } from "./run
 export { type RequireResolver } from "./require.js";
 export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "./trace.js";
 export { extractDefines, type DefineInfo } from "./extract-defines.js";
+export {
+  traceToStatechart,
+  type Statechart,
+  type ChartNode,
+  type ChartEdge,
+  type EdgeKind,
+} from "./statechart.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //
