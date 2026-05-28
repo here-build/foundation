@@ -33,15 +33,31 @@ describe("AbortSignal execution budget", () => {
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 50);
     const start = Date.now();
-    // Use named-let rather than `(define (loop) (loop)) (loop)` — named-let
-    // iterates inside the trampoline (each call to `(loop)` invokes the
-    // loopFn which calls `run(...)` again, but the outer run sees just one
-    // generator iteration per pass), while the `(define ...) (loop)` form
-    // chains promise resolutions per recursive call. Both *can* hit the
-    // abort, but named-let does so reliably; the define-then-call form
-    // races the JS promise-resolution stack and is non-deterministic.
+    // Use `(do () (#f))` — a do-loop with a constant-false test runs entirely
+    // INSIDE one generator's `while(true)` (see evalDo at evaluator.ts:1558),
+    // so iteration cycles through `yield { call: evaluate(test) }` and tail-
+    // pops back to the same frame. The trampoline's stack[] and the JS
+    // microtask chain stay flat, and the TICK abort check at the 5ms / 1000-
+    // iter cadence delivers the signal cleanly within ~one tick of the timer.
+    //
+    // War story: this test used to drive the loop via `(let loop () (loop))`
+    // on the assumption that named-let iterated inside the trampoline. It
+    // doesn't — each (loop) call invokes the LambdaFunction-style closure
+    // installed by evalLet (evaluator.ts:1041-1055), which itself calls
+    // `run(...)` recursively. Every recursive call produces a fresh Promise
+    // the outer trampoline awaits at the `is_promise(value)` branch
+    // (evaluator.ts:533), so each iteration adds one pending await to the JS
+    // promise-resolution chain. After ~10k recursions V8's stack overflows
+    // inside PromiseRejectCallback — sometimes BEFORE the abort fires
+    // (`SchemeError: Maximum call stack size exceeded`), sometimes AFTER
+    // (test "passes" but the worker process crashes with an unhandled
+    // RangeError that taints the next test in the suite). Proper TCO (see
+    // task #46) would fix the underlying recursion shape; until that lands,
+    // exercise the abort budget through a construct that actually iterates
+    // flat. `(define (loop) (loop)) (loop)` has the same hazard for the same
+    // reason — it goes through evalLambda's `run(...)` wrapper.
     await expect(
-      exec("(let loop () (loop))", { signal: ctrl.signal }),
+      exec("(do () (#f))", { signal: ctrl.signal }),
     ).rejects.toThrow(/abort/i);
     // Generous upper bound: the trampoline only checks at the 5ms / 1000-iter
     // cadence, so abort propagates within ~one tick of the 50ms timer.
@@ -74,15 +90,14 @@ describe("AbortSignal execution budget", () => {
   it("preserves signal.reason when abort fires mid-execution", async () => {
     const ctrl = new AbortController();
     const reason = new Error("mid-run budget exhausted");
-    // Fire the abort on the next microtask so the trampoline's first TICK
-    // check picks it up before the JS engine has a chance to overflow its
-    // promise-resolution stack on the recursive `(loop)` form. Using a
-    // named-let (`(let loop () (loop))`) keeps iteration inside the
-    // trampoline rather than chaining promise resolutions per-call —
-    // confirmed to deliver the abort cleanly.
+    // Fire abort on the next microtask so the trampoline's first TICK check
+    // picks it up. The loop body uses `(do () (#f))` rather than named-let
+    // for the trampoline-safety reasons documented on the first test above
+    // — until TCO (task #46) lands, named-let is a JS-call-stack hazard,
+    // not a flat-iteration construct.
     queueMicrotask(() => ctrl.abort(reason));
     await expect(
-      exec("(let loop () (loop))", { signal: ctrl.signal }),
+      exec("(do () (#f))", { signal: ctrl.signal }),
     ).rejects.toThrow("mid-run budget exhausted");
   });
 

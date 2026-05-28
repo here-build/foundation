@@ -223,6 +223,21 @@ export interface EvalContext {
    * code and agent-generated programs need an actual bound.
    */
   signal?: AbortSignal;
+  /**
+   * Tail-position flag (R7RS §3.5). True when this expression's value is the
+   * value of an enclosing lambda/let body — i.e. when a procedure call here
+   * is a tail call and should not grow the host stack. Propagation is
+   * structural: `begin`'s last expr inherits the parent flag, `if`'s chosen
+   * arm inherits, `and`/`or`'s last expr inherits, `cond`/`case`/`when`/
+   * `unless` matched-body inherits, `let`/`let*`/`letrec`/`letrec*` bodies
+   * inherit (they desugar to `begin`), `do`'s termination-result inherits.
+   * Predicate evaluation and earlier `begin`/`and`/`or` expressions do NOT
+   * inherit — only the final expression in tail position does.
+   *
+   * Read at evaluatePair to decide between `{ call }` (push as sub-call) and
+   * `{ tailCall }` (replace this slot) when the callable is a Scheme lambda.
+   */
+  tail?: boolean;
 }
 
 /** Options for the trampoline runner (`run`). */
@@ -253,6 +268,31 @@ export interface RunOptions {
  * each apply to handle nesting.
  */
 let _dynamicCallSite: Invocation | undefined = undefined;
+
+/**
+ * Module-level "may return a Bounce" flag — set by evaluatePair RIGHT BEFORE
+ * invoking a Scheme lambda from inside an active trampoline, cleared in the
+ * surrounding finally. When a Scheme lambda's JS body observes this true, it
+ * skips its own `run(...)` call and returns a Bounce token instead — the
+ * outer trampoline then drives the body generator without growing the host
+ * call stack via a Promise chain.
+ *
+ * Why a per-call flag and not just `_inTrampoline`: Scheme lambdas can be
+ * called back from JS HOFs (map/filter/reduce/native rosetta wrappers) that
+ * iterate inside a single trampoline tick. Those callers don't know about
+ * Bounce tokens — they treat the lambda's return as a SchemeValue (or a
+ * Promise to thread). So bouncing must be opt-in at the call site that
+ * speaks the protocol: evaluatePair (the Scheme-to-Scheme call boundary).
+ * evaluatePair sets the flag true only when fn.__lambda__ is true AND we're
+ * about to invoke from inside the trampoline; HOFs that subsequently call
+ * back into lambdas see the flag back to false (restored in finally), so
+ * those calls go through the normal `run(...)` Promise path and HOF code
+ * stays oblivious.
+ *
+ * Single-threaded JS makes a module-level holder safe; the save/restore
+ * around each apply handles nesting, mirroring `_dynamicCallSite`'s pattern.
+ */
+let _canBounce = false;
 
 /**
  * Re-install `_dynamicCallSite` on every invocation of a lambda passed as
@@ -354,10 +394,99 @@ interface Call {
    * the resolved-value transformer to close the lineage gap.
    */
   onReject?: (error: unknown) => unknown | undefined;
+  /**
+   * Tail-position marker (R7RS §3.5). True when the YIELDING generator does
+   * nothing but return this sub-call's result (a local pass-through —
+   * `return yield { call }`, modulo `onResolve`). The trampoline uses this
+   * to COLLAPSE the chain when a tail call bubbles up: it pops all
+   * consecutive `tail: true` slots down to the first slot that will do real
+   * work after its child returns (an argument collector, a predicate eval,
+   * a binding RHS — none of those are marked tail). The popped slots'
+   * `onResolve`/`onReject` hooks compose onto the replacement slot so taps
+   * stay enter/exit balanced and provenance transforms still fire when the
+   * tail chain eventually returns.
+   *
+   * Why this matters for O(1) space: a lambda body that tail-calls itself
+   * sits under a fixed-depth tower of pass-through slots (begin → if →
+   * evaluate → evaluatePair). Without collapse, each recursion would stack
+   * a fresh tower and `stack[]` would grow O(depth) — which is exactly the
+   * accumulation that made the first naive tailCall implementation return
+   * `undefined` and OOM at ~100 levels. Collapsing the tower per iteration
+   * keeps `stack[]` bounded.
+   */
+  tail?: boolean;
 }
 
 function is_call(o: unknown): o is Call {
   return o !== null && typeof o === "object" && "call" in o;
+}
+
+/**
+ * Marker for tail calls — yielded by evaluatePair when a Scheme-to-Scheme
+ * call lands in tail position (R7RS §3.5). The trampoline REPLACES the
+ * current slot with the callee generator instead of stacking it: the tail
+ * call doesn't return THROUGH the caller, it returns IN PLACE OF the caller.
+ *
+ * War story on the semantics: a tail call is identity-of-result, not nest-
+ * and-return. The slot we pop is the one that was about to compute the call
+ * and then immediately return its result; replacing it preserves both the
+ * "stack budget stays flat" guarantee (no growth per recursion level) AND
+ * the data-flow invariant that the eventual return value flows up through
+ * the ORIGINAL consumer. To keep the data flow correct we move the popped
+ * slot's `onResolve` to the new slot — that way when the tail body finally
+ * returns, the caller's caller (the original consumer of the tail-position
+ * expression's value) sees the value via the same hook that would have
+ * fired if the call had been a normal sub-call. Without this transfer, the
+ * tap-substitution chain breaks at every tail-recursive step and provenance
+ * stamping disappears for any value flowing through a tight loop.
+ *
+ * onReject moves the same way: an exception in the tail body should be
+ * delivered to the surviving consumer, not to the popped (now-gone) slot.
+ *
+ * Frame stack: the popped slot's frame goes away (we're no longer "inside"
+ * the popped function — it's done by definition once it tail-calls), and
+ * the new frame represents the calling Pair (e.g. `(loop n)`) so the stack
+ * trace still describes who initiated the tail dispatch. EvalTap.exit fires
+ * on that popped frame BEFORE we push the new one (lineage stays intact via
+ * the popped slot's invocation stamp).
+ */
+interface TailCall {
+  tailCall: {
+    generator: Generator<unknown, unknown, unknown>;
+    /** Frame attributed to the call site that initiated the tail dispatch. */
+    frame?: StackFrame;
+  };
+}
+
+function is_tailCall(o: unknown): o is TailCall {
+  return o !== null && typeof o === "object" && "tailCall" in o;
+}
+
+/**
+ * Sentinel returned by a Scheme lambda's JS function body when `_canBounce`
+ * was true at invocation time — i.e. when the calling evaluatePair speaks
+ * the bounce protocol and is willing to route the body generator back into
+ * the active trampoline. Bypasses the `run(evalBegin(body, ctx))` path that
+ * would otherwise mint a fresh Promise and grow the host stack one await
+ * per recursive call. See `_canBounce`'s war story for why HOF callbacks
+ * must NOT see this token.
+ */
+interface Bounce {
+  __bounce: true;
+  generator: Generator<unknown, unknown, unknown>;
+}
+
+function is_bounce(o: unknown): o is Bounce {
+  return o !== null && typeof o === "object" && (o as { __bounce?: unknown }).__bounce === true;
+}
+
+/**
+ * Wrap a lambda body generator as a Bounce token. Used by evalLambda and
+ * named-let loopFn when `_canBounce` is true — see the war story on the
+ * flag and on Bounce for the invariants this preserves.
+ */
+function makeBounce(generator: Generator<unknown, unknown, unknown>): Bounce {
+  return { __bounce: true, generator };
 }
 
 /**
@@ -529,6 +658,101 @@ async function run<T>(
         continue;
       }
 
+      // Tail-call dispatch (R7RS §3.5). A Scheme lambda was invoked in tail
+      // position; the callee's eventual return value IS the result of the
+      // whole tail-position chain, so rather than stack the callee and return
+      // through every intermediate frame, we COLLAPSE the chain.
+      //
+      // War story — why collapse, not single-slot replace: the first naive
+      // version popped ONLY the slot that yielded the tailCall and pushed the
+      // callee in its place. But that slot sits at the BOTTOM of a fixed tower
+      // of pass-through frames built every iteration: the lambda body's
+      // `begin`, the `if` whose tail arm is the recursive call, the `evaluate`
+      // wrappers. Replacing only the innermost slot left the tower standing,
+      // so `stack[]` grew O(depth) per recursion — the loop returned
+      // `undefined` (value lost in the orphaned tower) and OOM'd at ~100
+      // levels. Real TCO must unwind the ENTIRE tail tower down to the first
+      // frame that still has work to do after its child returns.
+      //
+      // Mechanism: every pass-through `{ call }` is tagged `tail: true` (the
+      // yielding code does nothing but `return yield { call }`). We pop the
+      // current slot plus all consecutive `tail: true` slots beneath it,
+      // stopping at the first NON-tail slot — an argument collector, a
+      // predicate eval, a binding RHS, or the root — which genuinely consumes
+      // the value. The callee is pushed ON TOP of that consumer, so its
+      // return flows to the right place.
+      //
+      // Hooks: each popped slot may carry an `onResolve` (tap.exit /
+      // provenance stamp) and `onReject`. We COMPOSE them (innermost first)
+      // onto the replacement slot so they fire when the tail chain finally
+      // returns — keeping tap enter/exit balanced and provenance transforms
+      // intact. In the common no-tap case every popped slot's hooks are
+      // undefined, so the composition is empty and this stays O(1) per
+      // iteration (the whole point — no per-level closure retention).
+      //
+      // EvalTap note: taps still see every regular call boundary. For tail
+      // sites the popped frames' exits are deferred to the composed hook
+      // rather than fired eagerly — lineage stays intact because each
+      // popped slot's invocation stamp was already recorded at enter time.
+      if (is_tailCall(value)) {
+        // Collect pass-through hooks while unwinding the tail tower.
+        const resolvers: Array<(value: unknown) => unknown | undefined> = [];
+        const rejecters: Array<(error: unknown) => unknown | undefined> = [];
+        // Pop the slot that yielded the tailCall first (it is pass-through by
+        // construction — evaluatePair does `return yield { tailCall }`).
+        {
+          const c = callStack.pop();
+          stack.pop();
+          frameStack.pop();
+          if (c?.onResolve) resolvers.push(c.onResolve);
+          if (c?.onReject) rejecters.push(c.onReject);
+        }
+        // Then pop consecutive pass-through (tail) slots until the first
+        // slot that consumes the value (non-tail) or the root.
+        while (callStack.length > 0 && callStack.at(-1)?.tail === true) {
+          const c = callStack.pop();
+          stack.pop();
+          frameStack.pop();
+          if (c?.onResolve) resolvers.push(c.onResolve);
+          if (c?.onReject) rejecters.push(c.onReject);
+        }
+        // Compose hooks (innermost first → outermost last) so the value
+        // threads through them in the same order it would have on a normal
+        // return walk back up the popped tower.
+        const composedResolve =
+          resolvers.length === 0
+            ? undefined
+            : (v: unknown): unknown | undefined => {
+                let acc = v;
+                for (const r of resolvers) {
+                  const subst = r(acc);
+                  if (subst !== undefined) acc = subst;
+                }
+                return acc === v ? undefined : acc;
+              };
+        const composedReject =
+          rejecters.length === 0
+            ? undefined
+            : (e: unknown): unknown | undefined => {
+                for (const r of rejecters) r(e);
+                return undefined;
+              };
+        const replacement: Call = {
+          call: value.tailCall.generator,
+          frame: value.tailCall.frame,
+          onResolve: composedResolve,
+          onReject: composedReject,
+          // The replacement is itself pass-through w.r.t. whatever consumer
+          // now sits beneath it — so a tail call from INSIDE the new body
+          // continues to collapse correctly.
+          tail: true,
+        };
+        stack.push(replacement.call);
+        frameStack.push(replacement.frame);
+        callStack.push(replacement);
+        continue;
+      }
+
       // If yielded value is a promise (from JS interop), await it
       if (is_promise(value)) {
         try {
@@ -633,7 +857,44 @@ function restrictControlFlowProvenance(predicate: SchemeValue, armResult: Scheme
 }
 
 /**
+ * Build the `onResolve` hook that applies control-flow provenance restriction
+ * to a branch arm result — but ONLY when the predicate actually carries
+ * provenance. When it doesn't (the overwhelmingly common no-tap / plain-value
+ * case), return `undefined` so the branch's tail `{ call }` carries no hook.
+ *
+ * Why this matters for TCO: branch arms run in tail position, so the arm's
+ * `{ call }` is marked `tail: true` and may collapse when the arm tail-calls
+ * a lambda. Collapsed slots' `onResolve` hooks are RETAINED as composed
+ * closures on the replacement slot (so the transform still fires when the
+ * tail chain returns). If we attached a hook unconditionally, a deep tail
+ * loop threaded through `if`/`cond`/`when` would accumulate one closure per
+ * iteration — O(n) memory, defeating the constant-space guarantee. Returning
+ * `undefined` for the no-provenance case keeps the steady-state loop O(1);
+ * provenance-bearing predicates (rare in a tight loop) pay the O(n) cost,
+ * which the spec accepts as reduced tail-loop fidelity.
+ *
+ * The post-yield call site that previously wrote
+ * `return restrictControlFlowProvenance(testResult, armResult)` now just
+ * returns `armResult` — the trampoline applies this hook before sending the
+ * value back, so the transform already happened for the non-collapsed path.
+ */
+function controlFlowResolve(
+  predicate: SchemeValue,
+): ((value: unknown) => unknown | undefined) | undefined {
+  if (!(predicate instanceof AValue) || predicate.provenance.size === 0) return undefined;
+  return (value: unknown): unknown | undefined => {
+    const stamped = restrictControlFlowProvenance(predicate, value as SchemeValue);
+    return stamped === value ? undefined : stamped;
+  };
+}
+
+/**
  * Handle 'if' special form: (if test then else?)
+ *
+ * R7RS §3.5 tail-position propagation: the chosen arm inherits the parent's
+ * tail flag — `(if p tail-call other)` in tail position means `tail-call`
+ * (when p is truthy) is still in tail position. The predicate is NOT in
+ * tail position; its value is consumed by the if itself, so we strip tail.
  */
 function* evalIf(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "if: missing test expression");
@@ -647,34 +908,57 @@ function* evalIf(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   const elseRest = restAfterTest.cdr;
   const elseExpr = is_pair(elseRest) ? elseRest.car : undefined;
 
-  // Evaluate test
-  let testResult = yield { call: evaluate(testExpr, ctx) };
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
+
+  // Evaluate test (non-tail — its value is consumed by the if dispatch).
+  let testResult = yield { call: evaluate(testExpr, nonTailCtx) };
   if (is_promise(testResult)) {
     testResult = yield testResult;
   }
 
-  // Evaluate appropriate branch
+  // Evaluate appropriate branch — inherits the if's own tail flag. The arm's
+  // call is pass-through (tail-collapsible); the provenance restriction rides
+  // as `onResolve` so it fires whether the arm tail-calls (collapsed) or
+  // returns a plain value (resumed). See controlFlowResolve for the war story.
+  const onResolve = controlFlowResolve(testResult);
+  const inTail = ctx.tail === true;
   if (is_false(testResult)) {
     if (elseExpr !== undefined) {
-      const armResult = yield { call: evaluate(elseExpr, ctx) };
-      return restrictControlFlowProvenance(testResult, armResult);
+      return yield { call: evaluate(elseExpr, ctx), tail: inTail, onResolve };
     }
     return undefined; // No else branch, return undefined
   } else {
-    const armResult = yield { call: evaluate(thenExpr, ctx) };
-    return restrictControlFlowProvenance(testResult, armResult);
+    return yield { call: evaluate(thenExpr, ctx), tail: inTail, onResolve };
   }
 }
 
 /**
  * Handle 'begin' special form: (begin expr*)
+ *
+ * R7RS §3.5 tail-position propagation: the LAST expression in the body
+ * inherits the parent's tail flag; earlier expressions are non-tail (their
+ * values are discarded). This is the load-bearing primitive — a lambda
+ * body is wrapped in begin via evalLambda, so this routing is what makes
+ * `(define (loop n) (loop (- n 1)))` tail-recursive.
  */
 function* evalBegin(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   let result: SchemeValue = undefined;
   let node = rest;
 
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
+
   while (is_pair(node)) {
-    result = yield { call: evaluate(node.car, ctx) };
+    // Last expression keeps the begin's tail flag; earlier ones are
+    // non-tail (their values are dropped, so tail dispatch wouldn't matter
+    // anyway — but threading `tail:true` through would have a Scheme lambda
+    // tail-replace this slot mid-body, breaking sequential semantics).
+    const isLast = is_nil(node.cdr) || !is_pair(node.cdr);
+    const inTail = isLast && ctx.tail === true;
+    const exprCtx = isLast ? ctx : nonTailCtx;
+    // Mark the LAST expr's call pass-through so a tail call emerging from it
+    // collapses this begin frame (the begin frame returns `result` unchanged
+    // once the loop sees node.cdr is nil — pure pass-through).
+    result = yield { call: evaluate(node.car, exprCtx), tail: inTail };
     if (is_promise(result)) {
       result = yield result;
     }
@@ -698,7 +982,10 @@ function* evalQuote(rest: SchemeValue, _ctx: EvalContext): EvalGenerator {
  */
 function* evalQuasiquote(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "quasiquote: missing argument");
-  return yield { call: processQuasiquote(rest.car, ctx, 1) };
+  // Unquoted sub-expressions are operands to implicit list construction —
+  // not tail positions. Strip tail so a `(unquote (some-lambda))` inside
+  // doesn't tail-replace this slot before the surrounding structure builds.
+  return yield { call: processQuasiquote(rest.car, ctx.tail ? { ...ctx, tail: false } : ctx, 1) };
 }
 
 /**
@@ -828,7 +1115,10 @@ function* evalDefine(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(first instanceof SchemeSymbol, "define: expected symbol");
   invariant(is_pair(valueRest), "define: missing value");
 
-  let value = yield { call: evaluate(valueRest.car, ctx) };
+  // NOT tail position — the value must return HERE so we can bind it. If we
+  // let `tail` flow through, a `(define x (some-lambda))` could tail-replace
+  // this slot and skip the `ctx.env.set` below. Strip it.
+  let value = yield { call: evaluate(valueRest.car, ctx.tail ? { ...ctx, tail: false } : ctx) };
   if (is_promise(value)) {
     value = yield value;
   }
@@ -854,7 +1144,8 @@ function* evalSet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   const valueRest = rest.cdr;
   invariant(is_pair(valueRest), "set!: missing value");
 
-  let value = yield { call: evaluate(valueRest.car, ctx) };
+  // NOT tail position — value returns here so we can store it. Strip tail.
+  let value = yield { call: evaluate(valueRest.car, ctx.tail ? { ...ctx, tail: false } : ctx) };
   if (is_promise(value)) {
     value = yield value;
   }
@@ -911,11 +1202,37 @@ function* evalLambda(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     // invoking us; otherwise fall back to the lexical ctx's invocation.
     // See _dynamicCallSite comment near EvalContext.
     const dynamicInv = _dynamicCallSite ?? ctx.currentInvocation;
+    // The body's evaluation context. Lambda bodies start in tail position
+    // by R7RS §3.5: the last expression in the body is tail w.r.t. the
+    // lambda's caller, so we set tail=true here and let evalBegin/evalIf/
+    // etc. propagate it to the structurally-terminal expression.
+    const bodyCtx: EvalContext = {
+      ...ctx,
+      env: callEnv,
+      currentInvocation: dynamicInv,
+      tail: true,
+    };
+
+    // Bounce protocol: if the calling evaluatePair flagged that it speaks
+    // the protocol (`_canBounce === true`), return the body generator as a
+    // Bounce token instead of spawning a fresh `run(...)` here. The outer
+    // trampoline then drives the body directly — the host stack stays flat
+    // across the lambda boundary, so `(define (loop) (loop)) (loop)` no
+    // longer accumulates one await per recursion (which V8 caps at ~10k
+    // before RangeError). See `_canBounce` for the protocol war story.
+    //
+    // When `_canBounce` is false the caller is JS code (HOF callback, JS
+    // host entry via `exec`, etc.) that expects a SchemeValue or Promise;
+    // we fall through to the original `run(...)` path so its return shape
+    // is unchanged.
+    if (_canBounce) {
+      return makeBounce(evalBegin(body, bodyCtx)) as SchemeValue;
+    }
 
     // Evaluate body - returns a promise that runs the generator.
     // Forward the signal: a lambda invoked inside a long-running computation
     // must honor the same abort budget as the outer `run()` call.
-    return run(evalBegin(body, { ...ctx, env: callEnv, currentInvocation: dynamicInv }), {
+    return run(evalBegin(body, bodyCtx), {
       signal: ctx.signal,
     });
   };
@@ -1038,6 +1355,32 @@ function* evalLet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     }
 
     // Create the loop function
+    //
+    // WAR STORY (task #46, R7RS §3.5 TCO): until 2026-05-28 each recursive
+    // `(loop ...)` call landed here, allocated a fresh loopEnv, and called
+    // `run(...)` again. The inner `run()` returned a Promise the outer
+    // trampoline awaited at the `is_promise(value)` branch — every recursion
+    // added one pending await to the JS promise-resolution chain, and after
+    // ~10k cycles V8's call-stack limit fired from inside PromiseRejectCallback.
+    // The abort budget couldn't rescue it: the overflow happened INSIDE the
+    // await machinery before the next TICK check could run. Concretely
+    // `(let loop () (loop))` with a 50ms abort tainted the worker with an
+    // unhandled RangeError; `(let loop ((i 0)) (loop (+ i 1)))` failed
+    // outright in ~17ms because the call-stack limit beat the timer.
+    //
+    // Fix: same Bounce protocol as evalLambda. When evaluatePair (the only
+    // Scheme-to-Scheme call boundary) sets `_canBounce = true` before
+    // invoking us, we hand back the body generator wrapped as a Bounce
+    // token. The outer trampoline drives the loop body directly, the host
+    // stack stays flat across all recursions, and the existing TICK abort
+    // cadence covers both bounded and infinite shapes. When `_canBounce` is
+    // false (the loop function escaped into a JS HOF — e.g. `(map loop xs)`
+    // somewhere), we fall back to the original `run(...)` path so HOF
+    // callers still see a Promise.
+    //
+    // We forward `signal` in the non-bounce path so that any *bounded*
+    // named-let loop honors the same abort budget as the outer `run()` call;
+    // in the bounce path the body inherits the outer ctx's signal directly.
     const loopFn: LambdaFunction = function (...values: SchemeValue[]): SchemeValue {
       const loopEnv = letEnv.inherit("named-let");
 
@@ -1046,10 +1389,20 @@ function* evalLet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       }
 
       const dynamicInv = _dynamicCallSite ?? ctx.currentInvocation;
-      // Forward signal — a named-let loop is the canonical infinite-loop
-      // shape `(let loop () (loop))`, so the budget must propagate here or
-      // the abort would only fire at the top-level run() boundary.
-      return run(evalBegin(body, { ...ctx, env: loopEnv, currentInvocation: dynamicInv }), {
+      const bodyCtx: EvalContext = {
+        ...ctx,
+        env: loopEnv,
+        currentInvocation: dynamicInv,
+        // Named-let body is tail w.r.t. its caller (the `(loop ...)` call
+        // site). Tail flag propagates structurally to the body's last
+        // expression — that's what makes `(loop (+ i 1))` actually
+        // tail-dispatch into the next iteration.
+        tail: true,
+      };
+      if (_canBounce) {
+        return makeBounce(evalBegin(body, bodyCtx)) as SchemeValue;
+      }
+      return run(evalBegin(body, bodyCtx), {
         signal: ctx.signal,
       });
     };
@@ -1060,9 +1413,12 @@ function* evalLet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     letEnv.set(name, loopFn);
   }
 
-  // Evaluate all bindings (in parallel for regular let)
+  // Evaluate all bindings (in parallel for regular let).
+  // Binding RHS expressions are non-tail (their values feed into the
+  // letEnv; only the body is tail w.r.t. the let's parent).
   const values: SchemeValue[] = [];
   const names: SchemeSymbol[] = [];
+  const bindingCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
 
   let bindNode: SchemeValue = bindings;
   while (is_pair(bindNode)) {
@@ -1079,7 +1435,7 @@ function* evalLet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     const valExpr = bindingCdr.car;
 
     // Evaluate in original environment (parallel semantics)
-    let value = yield { call: evaluate(valExpr, ctx) };
+    let value = yield { call: evaluate(valExpr, bindingCtx) };
     if (is_promise(value)) {
       value = yield value;
     }
@@ -1093,8 +1449,9 @@ function* evalLet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     letEnv.set(varName, values[i]);
   }
 
-  // Evaluate body
-  return yield { call: evalBegin(body, { ...ctx, env: letEnv }) };
+  // Evaluate body — inherits the let's tail flag via ctx spread; pass-through
+  // (tail-collapsible) so a tail call in the body collapses this let frame.
+  return yield { call: evalBegin(body, { ...ctx, env: letEnv }), tail: ctx.tail === true };
 }
 
 /**
@@ -1110,7 +1467,7 @@ function* evalLetStar(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   // Create new environment
   const currentEnv = ctx.env.inherit("let*");
 
-  // Evaluate bindings sequentially
+  // Evaluate bindings sequentially. Bindings are non-tail; only body is.
   let bindNode: SchemeValue = bindings;
   while (is_pair(bindNode)) {
     const binding = bindNode.car;
@@ -1124,7 +1481,7 @@ function* evalLetStar(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     const valExpr = bindingCdr.car;
 
     // Evaluate in current environment (sequential semantics)
-    let value = yield { call: evaluate(valExpr, { ...ctx, env: currentEnv }) };
+    let value = yield { call: evaluate(valExpr, { ...ctx, env: currentEnv, tail: false }) };
     if (is_promise(value)) {
       value = yield value;
     }
@@ -1133,8 +1490,8 @@ function* evalLetStar(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     bindNode = bindNode.cdr;
   }
 
-  // Evaluate body
-  return yield { call: evalBegin(body, { ...ctx, env: currentEnv }) };
+  // Evaluate body — inherits let*'s tail flag; pass-through (tail-collapsible).
+  return yield { call: evalBegin(body, { ...ctx, env: currentEnv }), tail: ctx.tail === true };
 }
 
 /**
@@ -1169,22 +1526,26 @@ function* evalLetrec(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     bindNode = bindNode.cdr;
   }
 
-  // Second pass: evaluate and assign (in the letrec environment)
+  // Second pass: evaluate and assign (in the letrec environment).
+  // Bindings are non-tail; only body inherits letrec's tail flag.
   for (const { name, expr } of bindingList) {
-    let value = yield { call: evaluate(expr, { ...ctx, env: letrecEnv }) };
+    let value = yield { call: evaluate(expr, { ...ctx, env: letrecEnv, tail: false }) };
     if (is_promise(value)) {
       value = yield value;
     }
     letrecEnv.set(name, value);
   }
 
-  // Evaluate body
-  return yield { call: evalBegin(body, { ...ctx, env: letrecEnv }) };
+  // Evaluate body — inherits letrec's tail flag; pass-through (tail-collapsible).
+  return yield { call: evalBegin(body, { ...ctx, env: letrecEnv }), tail: ctx.tail === true };
 }
 
 /**
  * Handle 'and' special form: (and expr...)
- * Short-circuit evaluation - returns first false value or last value
+ * Short-circuit evaluation - returns first false value or last value.
+ *
+ * R7RS §3.5 tail-position: only the LAST expression inherits the and's tail
+ * flag — earlier ones short-circuit on `#f` and don't reach tail dispatch.
  */
 function* evalAnd(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   // (and) with no args returns #t
@@ -1194,9 +1555,16 @@ function* evalAnd(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   let node: SchemeValue = rest;
   let result: SchemeValue = true;
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
 
   while (is_pair(node)) {
-    result = yield { call: evaluate(node.car, ctx) };
+    const isLast = is_nil(node.cdr) || !is_pair(node.cdr);
+    const inTail = isLast && ctx.tail === true;
+    const exprCtx = isLast ? ctx : nonTailCtx;
+    // Last expr is pass-through (its value is returned unchanged); mark tail
+    // so it collapses on a tail call. The short-circuit check below only
+    // matters for non-last exprs, so collapsing past it on the last is safe.
+    result = yield { call: evaluate(node.car, exprCtx), tail: inTail };
     if (is_promise(result)) {
       result = yield result;
     }
@@ -1214,7 +1582,10 @@ function* evalAnd(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
 /**
  * Handle 'or' special form: (or expr...)
- * Short-circuit evaluation - returns first true value or last value
+ * Short-circuit evaluation - returns first true value or last value.
+ *
+ * R7RS §3.5 tail-position: only the LAST expression inherits the or's tail
+ * flag — earlier ones short-circuit on truthy and don't reach tail dispatch.
  */
 function* evalOr(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   // (or) with no args returns #f
@@ -1224,9 +1595,14 @@ function* evalOr(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   let node: SchemeValue = rest;
   let result: SchemeValue = false;
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
 
   while (is_pair(node)) {
-    result = yield { call: evaluate(node.car, ctx) };
+    const isLast = is_nil(node.cdr) || !is_pair(node.cdr);
+    const inTail = isLast && ctx.tail === true;
+    const exprCtx = isLast ? ctx : nonTailCtx;
+    // Last expr is pass-through; mark tail so it collapses on a tail call.
+    result = yield { call: evaluate(node.car, exprCtx), tail: inTail };
     if (is_promise(result)) {
       result = yield result;
     }
@@ -1247,6 +1623,7 @@ function* evalOr(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
  */
 function* evalCond(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   let node: SchemeValue = rest;
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
 
   while (is_pair(node)) {
     const clause = node.car;
@@ -1255,26 +1632,30 @@ function* evalCond(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     const test = clause.car;
     const exprs = clause.cdr;
 
-    // Check for else clause
+    // Check for else clause. Matched-clause body inherits cond's tail flag
+    // and is pass-through (tail-collapsible).
     if (test instanceof SchemeSymbol && symbol_name(test) === "else") {
-      return yield { call: evalBegin(exprs, ctx) };
+      return yield { call: evalBegin(exprs, ctx), tail: ctx.tail === true };
     }
 
-    // Evaluate test
-    let testResult = yield { call: evaluate(test, ctx) };
+    // Evaluate test (non-tail — its value drives dispatch, not the result).
+    let testResult = yield { call: evaluate(test, nonTailCtx) };
     if (is_promise(testResult)) {
       testResult = yield testResult;
     }
 
     if (!is_false(testResult)) {
-      // Check for => syntax: (test => proc)
+      // Check for => syntax: (test => proc). The (proc testResult) call is a
+      // direct JS apply, not a Scheme-to-Scheme tail dispatch, so it does NOT
+      // collapse — `=>` is outside the TCO surface (acceptable; rare in tight
+      // loops). The provenance transform applies synchronously as before.
       if (is_pair(exprs)) {
         const firstExpr = exprs.car;
         if (firstExpr instanceof SchemeSymbol && symbol_name(firstExpr) === "=>") {
           const exprsCdr = exprs.cdr;
           invariant(is_pair(exprsCdr), "cond: missing procedure after =>");
           const procExpr = exprsCdr.car;
-          let proc = yield { call: evaluate(procExpr, ctx) };
+          let proc = yield { call: evaluate(procExpr, nonTailCtx) };
           if (is_promise(proc)) {
             proc = yield proc;
           }
@@ -1299,9 +1680,10 @@ function* evalCond(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
         return testResult;
       }
 
-      // Evaluate expressions
-      const armResult = yield { call: evalBegin(exprs, ctx) };
-      return restrictControlFlowProvenance(testResult, armResult);
+      // Evaluate expressions — pass-through (tail-collapsible). Provenance
+      // restriction rides as onResolve so it fires for both the collapsed
+      // (tail-call) and resumed (plain-value) paths.
+      return yield { call: evalBegin(exprs, ctx), tail: ctx.tail === true, onResolve: controlFlowResolve(testResult) };
     }
 
     node = node.cdr;
@@ -1317,8 +1699,10 @@ function* evalCond(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 function* evalCase(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "case: missing key");
 
-  // Evaluate key
-  let key = yield { call: evaluate(rest.car, ctx) };
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
+
+  // Evaluate key (non-tail — drives dispatch, value is consumed by case).
+  let key = yield { call: evaluate(rest.car, nonTailCtx) };
   if (is_promise(key)) {
     key = yield key;
   }
@@ -1332,9 +1716,9 @@ function* evalCase(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     const datums = clause.car;
     const exprs = clause.cdr;
 
-    // Check for else clause
+    // Check for else clause — pass-through (tail-collapsible).
     if (datums instanceof SchemeSymbol && symbol_name(datums) === "else") {
-      return yield { call: evalBegin(exprs, ctx) };
+      return yield { call: evalBegin(exprs, ctx), tail: ctx.tail === true };
     }
 
     // Check if key matches any datum (using eqv? semantics)
@@ -1353,12 +1737,11 @@ function* evalCase(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     }
 
     if (matched) {
-      const armResult = yield { call: evalBegin(exprs, ctx) };
-      // Per spec §5.3 the dispatching value (the case key) plays the predicate
-      // role here — that's the one runtime value whose lineage was consulted
-      // to pick this arm. The literal datums are source constants with no
-      // provenance to propagate.
-      return restrictControlFlowProvenance(key, armResult);
+      // Pass-through (tail-collapsible). Per spec §5.3 the dispatching value
+      // (the case key) plays the predicate role — its lineage was consulted
+      // to pick this arm. Provenance restriction rides as onResolve so it
+      // applies for both the collapsed and resumed paths.
+      return yield { call: evalBegin(exprs, ctx), tail: ctx.tail === true, onResolve: controlFlowResolve(key) };
     }
 
     node = node.cdr;
@@ -1376,15 +1759,17 @@ function* evalWhen(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   const test = rest.car;
   const body = rest.cdr;
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
 
-  let testResult = yield { call: evaluate(test, ctx) };
+  let testResult = yield { call: evaluate(test, nonTailCtx) };
   if (is_promise(testResult)) {
     testResult = yield testResult;
   }
 
   if (!is_false(testResult)) {
-    const armResult = yield { call: evalBegin(body, ctx) };
-    return restrictControlFlowProvenance(testResult, armResult);
+    // Matched body inherits when's tail flag; pass-through (tail-collapsible),
+    // provenance restriction rides as onResolve.
+    return yield { call: evalBegin(body, ctx), tail: ctx.tail === true, onResolve: controlFlowResolve(testResult) };
   }
 
   return undefined;
@@ -1399,15 +1784,17 @@ function* evalUnless(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   const test = rest.car;
   const body = rest.cdr;
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
 
-  let testResult = yield { call: evaluate(test, ctx) };
+  let testResult = yield { call: evaluate(test, nonTailCtx) };
   if (is_promise(testResult)) {
     testResult = yield testResult;
   }
 
   if (is_false(testResult)) {
-    const armResult = yield { call: evalBegin(body, ctx) };
-    return restrictControlFlowProvenance(testResult, armResult);
+    // Matched body inherits unless's tail flag; pass-through (tail-collapsible),
+    // provenance restriction rides as onResolve.
+    return yield { call: evalBegin(body, ctx), tail: ctx.tail === true, onResolve: controlFlowResolve(testResult) };
   }
 
   return undefined;
@@ -1420,7 +1807,8 @@ function* evalUnless(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 function* evalRaise(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "raise: missing message");
 
-  let message = yield { call: evaluate(rest.car, ctx) };
+  // Non-tail — we throw after evaluating, so the message must return here.
+  let message = yield { call: evaluate(rest.car, ctx.tail ? { ...ctx, tail: false } : ctx) };
   if (is_promise(message)) {
     message = yield message;
   }
@@ -1435,7 +1823,10 @@ function* evalRaise(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 function* evalError(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "error: missing who");
 
-  let who = yield { call: evaluate(rest.car, ctx) };
+  // Non-tail — we throw after evaluating who/message; they must return here.
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
+
+  let who = yield { call: evaluate(rest.car, nonTailCtx) };
   if (is_promise(who)) {
     who = yield who;
   }
@@ -1443,7 +1834,7 @@ function* evalError(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   const restAfterWho = rest.cdr;
   invariant(is_pair(restAfterWho), "error: missing message");
 
-  let message = yield { call: evaluate(restAfterWho.car, ctx) };
+  let message = yield { call: evaluate(restAfterWho.car, nonTailCtx) };
   if (is_promise(message)) {
     message = yield message;
   }
@@ -1481,7 +1872,8 @@ function* evalDelay(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 function* evalForce(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "force: missing argument");
 
-  let promise = yield { call: evaluate(rest.car, ctx) };
+  // Non-tail — force inspects/forces the result after it returns here.
+  let promise = yield { call: evaluate(rest.car, ctx.tail ? { ...ctx, tail: false } : ctx) };
   if (is_promise(promise)) {
     promise = yield promise;
   }
@@ -1521,7 +1913,15 @@ function* evalDo(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   const doEnv = ctx.env.inherit("do");
   const vars: Array<{ name: SchemeSymbol; step: SchemeValue | null }> = [];
 
-  // Initialize variables
+  // do's structural tail-position: ONLY the result-expression(s) are tail.
+  // Bindings, test, step, body all evaluate as side-effects/predicates and
+  // are explicitly non-tail. (do itself already iterates inside ONE
+  // generator's `while (true)` — recursion is flat regardless, so the
+  // tail flag matters only for what the result expressions eventually do.)
+  const doNonTail: EvalContext = { ...ctx, env: doEnv, tail: false };
+  const doTail: EvalContext = { ...ctx, env: doEnv };
+
+  // Initialize variables (non-tail — values feed into doEnv).
   let bindNode: SchemeValue = bindings;
   while (is_pair(bindNode)) {
     const binding = bindNode.car;
@@ -1543,7 +1943,7 @@ function* evalDo(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     }
 
     // Evaluate initial value
-    let initValue = yield { call: evaluate(initExpr, ctx) };
+    let initValue = yield { call: evaluate(initExpr, ctx.tail ? { ...ctx, tail: false } : ctx) };
     if (is_promise(initValue)) {
       initValue = yield initValue;
     }
@@ -1556,23 +1956,24 @@ function* evalDo(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   // Main loop
   while (true) {
-    // Test condition
-    let testResult = yield { call: evaluate(test, { ...ctx, env: doEnv }) };
+    // Test condition (non-tail — predicate for loop dispatch).
+    let testResult = yield { call: evaluate(test, doNonTail) };
     if (is_promise(testResult)) {
       testResult = yield testResult;
     }
 
     if (!is_false(testResult)) {
-      // Test is true - evaluate result expressions and return
+      // Test is true - evaluate result expressions in tail position;
+      // pass-through (tail-collapsible).
       if (is_pair(resultExprs)) {
-        return yield { call: evalBegin(resultExprs, { ...ctx, env: doEnv }) };
+        return yield { call: evalBegin(resultExprs, doTail), tail: ctx.tail === true };
       }
       return undefined;
     }
 
-    // Execute body
+    // Execute body (non-tail — body's value is discarded each iteration).
     if (is_pair(body)) {
-      yield { call: evalBegin(body, { ...ctx, env: doEnv }) };
+      yield { call: evalBegin(body, doNonTail) };
     }
 
     // Update variables
@@ -1581,7 +1982,7 @@ function* evalDo(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       if (step === null) {
         newValues.push(undefined); // placeholder
       } else {
-        let newValue = yield { call: evaluate(step, { ...ctx, env: doEnv }) };
+        let newValue = yield { call: evaluate(step, doNonTail) };
         if (is_promise(newValue)) {
           newValue = yield newValue;
         }
@@ -1633,13 +2034,22 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
   // Create a promise to handle the try/catch/finally logic
   // This is necessary because errors can come from yielded promises
+  //
+  // Each clause runs in its OWN fresh `run()` (nested trampoline) so the
+  // outer try/catch can intercept thrown errors. That fresh-trampoline
+  // boundary already isolates the host stack — but we strip `tail` so the
+  // body/handlers are treated as top-of-trampoline (not tail w.r.t. the
+  // surrounding form), keeping the bounce protocol from reaching across
+  // the `run()` boundary in a confusing way. A tail loop INSIDE the body
+  // still gets full TCO within its own trampoline.
+  const bodyCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
   const resultPromise = (async () => {
     let result: SchemeValue;
     let caughtError: Error | null = null;
 
     // Execute body. Forward signal so the body of a try/catch is bounded.
     try {
-      result = await run(evaluate(body, ctx), { signal: ctx.signal });
+      result = await run(evaluate(body, bodyCtx), { signal: ctx.signal });
     } catch (error) {
       caughtError = error instanceof Error ? error : new Error(String(error));
     }
@@ -1669,7 +2079,7 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       try {
         // Forward signal: a catch handler running an unbounded computation
         // (e.g. a recovery loop) must respect the same budget.
-        result = await run(evalBegin(handlers, { ...ctx, env: catchEnv }), {
+        result = await run(evalBegin(handlers, { ...ctx, env: catchEnv, tail: false }), {
           signal: ctx.signal,
         });
         caughtError = null; // Error was handled
@@ -1685,7 +2095,7 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     if (finallyClause) {
       const finallyCdr = (finallyClause as Pair).cdr;
       try {
-        await run(evalBegin(finallyCdr, ctx), { signal: ctx.signal });
+        await run(evalBegin(finallyCdr, { ...ctx, tail: false }), { signal: ctx.signal });
       } catch {
         // Errors in finally are ignored (per JS semantics)
       }
@@ -1736,11 +2146,11 @@ function* evalParameterize(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     const param = (ctx.dynamic_env ?? ctx.env).get(paramName, { throwError: false });
     invariant(is_parameter(param), `Unknown parameter ${String(paramName)}`);
 
-    // Evaluate the value expression
+    // Evaluate the value expression (non-tail).
     const bindingCdr = (binding as Pair).cdr;
     invariant(is_pair(bindingCdr), "parameterize: missing value");
 
-    let value = yield { call: evaluate(bindingCdr.car, ctx) };
+    let value = yield { call: evaluate(bindingCdr.car, ctx.tail ? { ...ctx, tail: false } : ctx) };
     if (is_promise(value)) {
       value = yield value;
     }
@@ -1756,8 +2166,18 @@ function* evalParameterize(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     bindNode = bindNode.cdr;
   }
 
-  // Evaluate body with new dynamic environment
-  return yield { call: evalBegin(body, { ...ctx, dynamic_env: dynamicEnv }) };
+  // Evaluate body with new dynamic environment.
+  //
+  // NOT tail position (deliberate): parameterize establishes a dynamic
+  // extent that must persist for the WHOLE body and unwind when it
+  // completes (R7RS §4.2.6 / dynamic-wind). This implementation captures
+  // the parameterized values in a per-frame dynamicEnv rather than a
+  // stack-restore, so allowing a tail call to replace this slot would let
+  // the callee inherit the parameterization indefinitely instead of
+  // unwinding at body end. Keeping the body non-tail preserves the dynamic
+  // extent at the cost of TCO inside parameterize — an acceptable trade
+  // (parameterize loops are rare; correctness of dynamic extent is not).
+  return yield { call: evalBegin(body, { ...ctx, dynamic_env: dynamicEnv, tail: false }) };
 }
 
 // ============================================================================
@@ -1835,6 +2255,11 @@ export function* evaluate(code: SchemeValue, ctx: EvalContext): EvalGenerator {
     const childCtx: EvalContext = { ...ctx, currentInvocation: inv };
     return yield {
       call: evaluatePair(code, childCtx),
+      // Pass-through (`return yield {...}`) → tail-collapsible. If the
+      // evaluated form tail-calls a lambda, this slot's tap.exit is composed
+      // onto the replacement so it still fires when the tail chain returns
+      // (lineage stays balanced — see the trampoline tailCall war story).
+      tail: true,
       // Surface the tap's substituted value (if any) back through the
       // trampoline. The provenance pipeline depends on this: `tap.exit`
       // computes provenance, clones the value with `withProvenance`, and
@@ -1866,12 +2291,24 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     procedure: first instanceof SchemeSymbol ? symbol_name(first) : undefined,
   };
 
+  // Tail-position context for sub-expressions of THIS call. The call head
+  // (`first`) and the arguments are evaluated in NON-tail position — only
+  // the final fn.apply step is the tail-relevant boundary. The special
+  // forms below thread `ctx.tail` through to their structurally-terminal
+  // expressions; we pass the parent's tail flag into the special handler
+  // so it can do that. Arg/head evaluation strips the flag.
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
+
   // Check for special forms first (before evaluation)
   if (first instanceof SchemeSymbol) {
     const name = symbol_name(first);
     const specialHandler = SPECIAL_FORMS[name];
     if (specialHandler) {
-      return yield { call: specialHandler(rest, ctx), frame };
+      // Pass-through dispatch — the special form's result IS this Pair's
+      // result. Mark tail so a tail call emerging from the special form's
+      // terminal expression collapses this frame too (the special handler
+      // threads `ctx.tail` to its own structurally-terminal sub-expression).
+      return yield { call: specialHandler(rest, ctx), frame, tail: true };
     }
   }
 
@@ -1879,7 +2316,7 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
   let fn: SchemeValue;
   if (is_pair(first)) {
     // FLAT: yield { call } instead of yield*
-    fn = yield { call: evaluate(first, ctx), frame };
+    fn = yield { call: evaluate(first, nonTailCtx), frame };
     // If fn is a promise (from JS), yield it
     if (is_promise(fn)) {
       fn = yield fn;
@@ -1900,7 +2337,7 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
   if (is_function(fn) && !is_macro(fn)) {
     // Regular function - evaluate args then call
     // FLAT: yield { call } instead of yield*
-    const argsResult = yield { call: evaluateArgs(rest, ctx) };
+    const argsResult = yield { call: evaluateArgs(rest, nonTailCtx) };
     // evaluateArgs returns SchemeValue[], narrow with Array.isArray
     invariant(Array.isArray(argsResult), "evaluateArgs must return array");
     const args = argsResult;
@@ -1923,9 +2360,19 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     // a microtask AFTER finally restores the holder). Each wrapped lambda
     // re-installs its dynamic site on every invocation, so iter N+1 from
     // a microtask still sees the right parent.
+    //
+    // _canBounce: opt fn into the bounce protocol if it's a Scheme lambda
+    // (or named-let loopFn — both carry __lambda__). The lambda's JS body
+    // reads this flag and returns a Bounce token instead of spawning a
+    // fresh `run(...)`. Setting it true ONLY on the immediate fn.apply
+    // boundary (and restoring in finally) keeps JS HOFs that subsequently
+    // call back into lambdas oblivious — they see `_canBounce` false and
+    // get a Promise as before. See the flag's war story.
     const dynSite = ctx.currentInvocation;
     const __savedDynamicCallSite = _dynamicCallSite;
     _dynamicCallSite = dynSite;
+    const __savedCanBounce = _canBounce;
+    _canBounce = (fn as LambdaFunction).__lambda__ === true;
     const wrappedArgs = wrapLambdaArgs(args, dynSite);
     let result: SchemeValue;
     try {
@@ -1934,6 +2381,27 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
         : fn.apply(ctx.env, wrappedArgs);
     } finally {
       _dynamicCallSite = __savedDynamicCallSite;
+      _canBounce = __savedCanBounce;
+    }
+
+    // Bounce result — the callee was a Scheme lambda speaking the protocol
+    // and handed back its body generator instead of running it itself.
+    // Route it through the trampoline:
+    //  - In tail position: yield a `tailCall` so the trampoline COLLAPSES
+    //    the whole tail tower (this frame plus all enclosing pass-through
+    //    frames) and the host stack stays flat across the recursion.
+    //  - Otherwise: push the body as a normal sub-call, but mark it `tail`
+    //    because `return yield { call }` is itself pass-through — so a tail
+    //    call from INSIDE the callee's body still collapses up to (but not
+    //    through) whatever non-tail consumer sits beneath THIS frame (e.g.
+    //    the evaluateArgs collector when the callee is an argument). The
+    //    callee's own body runs in tail context, so its terminal call
+    //    collapses naturally.
+    if (is_bounce(result)) {
+      if (ctx.tail) {
+        return yield { tailCall: { generator: result.generator, frame } } as unknown as SchemeValue;
+      }
+      return yield { call: result.generator, frame, tail: true };
     }
 
     // If result is a promise, yield it for the runner to await
@@ -1972,8 +2440,15 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
       return expansion;
     }
 
-    // Recursively evaluate the macro expansion
-    let result = yield { call: evaluate(expansion, ctx) };
+    // Recursively evaluate the macro expansion. The expansion takes the
+    // PARENT's tail flag — a macro invocation in tail position should make
+    // its expansion run in tail position too, otherwise rewriting any TCO-
+    // critical form through a macro (e.g. `when` rewritten as `(if test
+    // body)`) silently loses TCO at the rewrite boundary. Mark pass-through
+    // (tail) so the collapse reaches through this dispatch; the post-yield
+    // promise check only runs for non-tail-call results (a tail call is
+    // never a JS promise), so collapsing past it is safe.
+    let result = yield { call: evaluate(expansion, ctx), tail: true };
     if (is_promise(result)) {
       result = yield result;
     }
@@ -1983,12 +2458,16 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
   // Handle SchemeJSFunction - wrapped JS functions from membrane
   if (fn instanceof SchemeJSFunction) {
     // Evaluate args then call via the wrapper's apply method
-    const argsResult = yield { call: evaluateArgs(rest, ctx) };
+    const argsResult = yield { call: evaluateArgs(rest, nonTailCtx) };
     invariant(Array.isArray(argsResult), "evaluateArgs must return array");
     const args = argsResult;
 
     // SchemeJSFunction.apply handles toJS/fromJS boundary crossing.
     // Thread dynamic call site (see comment in regular function path above).
+    // SchemeJSFunction wraps a JS function across the membrane — it's never
+    // a Scheme lambda, so the bounce protocol doesn't apply here (the JS
+    // function inside the membrane wouldn't know how to produce a Bounce
+    // anyway). Leave _canBounce alone.
     const dynSite = ctx.currentInvocation;
     const __savedDynamicCallSite = _dynamicCallSite;
     _dynamicCallSite = dynSite;

@@ -5,6 +5,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Environment } from "../Environment";
 import run, { exec, SchemeError } from "../evaluator";
+// String-based exec with the full default env (provides `=`, `-`, etc.) — used
+// only by the tail-call optimization test, which exercises the trampoline's
+// cross-`run()` recursion shape and needs real `if`/`=`/`-` rather than the
+// minimal hand-rolled `env` above.
+import { exec as execSource } from "../generator-exec";
 import { SchemeSymbol } from "../LSymbol";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";
@@ -760,6 +765,21 @@ describe("Generator Evaluator with Real LIPS Types", () => {
       const result = await exec(code, { env });
       expect(result).toEqual(num(42));
     });
+
+    it("tail recursion to 10k depth does not overflow", async () => {
+      // R7RS §3.5: a self-call in tail position must run in O(1) space. This
+      // is NOT the same as the nested-`+` test above — that nesting lives in a
+      // single `run()` generator's stack[]. Here each `(loop (- n 1))` is a
+      // FRESH lambda invocation; before TCO (task #46) each one minted a new
+      // `run()` Promise the outer trampoline awaited, growing the host call
+      // stack one frame per level and overflowing V8 at ~10k ("Maximum call
+      // stack size exceeded"). With tail-call collapse + the bounce protocol
+      // the loop iterates flat, so 10k completes cleanly.
+      const [, result] = await execSource(
+        "(define (loop n) (if (= n 0) 'done (loop (- n 1)))) (loop 10000)",
+      );
+      expect(String(result)).toBe("done");
+    }, 15000);
   });
 });
 
