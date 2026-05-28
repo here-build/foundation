@@ -24,6 +24,7 @@ import * as ops from "./operators/index.js";
 // Import directly from source files to avoid circular dependency during init
 import { Pair } from "./Pair.js";
 import { Nil, SchemeCharacter, nil } from "./types.js";
+import { type } from "./utils/typecheck.js";
 import { Values } from "./Values.js";
 import invariant from "tiny-invariant";
 import "./errors.js";
@@ -237,10 +238,45 @@ export function fromLIPS(value: unknown): SchemeNumeric {
 export function wrapOperator<In extends any[], InRest extends Codec<any, any> | undefined, Out extends Codec<any, any>>(
   op: Operator<In, InRest, Out>,
 ): (...args: unknown[]) => unknown {
+  // ════════════════════════════════════════════════════════════════════════════
+  // War story (fuzz audit #42): `(- (* 0 "") (- (- 0 0) 0))` surfaced as
+  // "Unbound variable `-'" — pointing at a downstream env lookup, not the
+  // real cause (string was passed to `*`). Trace: fromLIPS throws on `""`,
+  // the TypeError travels up through `Array.map` (line below) → `op.call`
+  // → `call_function` (lips.ts:4057) → `apply` (lips.ts:4067) → into
+  // `evaluate` (lips.ts:4180). The masking happens because every catch path
+  // on the way up either swallows or rewraps the original, and only the
+  // OUTER form's name remained on a downstream `env.get(first)` retry, so
+  // the *symptom* presented as a name-lookup failure on an unrelated symbol.
+  //
+  // The fix tags fromLIPS conversion failures with operator name + arg type
+  // names at THIS boundary — the only frame that has both pieces (op.name
+  // here, type() applied to args). Original TypeError carried via `cause`
+  // so the membrane/sandbox stack still traces the converter's invariant.
+  // No catch on op.call itself — operator-internal failures (arity, codec
+  // mismatch on already-numeric args, etc.) already include `op.name` in
+  // their messages via membrane.ts:671-679.
+  // ════════════════════════════════════════════════════════════════════════════
   // Use Object.defineProperty to set the name from operator
   const fn = function (...args: unknown[]): unknown {
     const provenance = unionProvenance(args.filter((a): a is AValue => a instanceof AValue));
-    const converted = args.map(fromLIPS);
+    let converted: SchemeNumeric[];
+    try {
+      converted = args.map(fromLIPS);
+    } catch (cause) {
+      // Find the first non-numeric arg so the error names what actually failed,
+      // not just "some arg." Mirror isSchemeNumber's contract — anything it
+      // rejects is what fromLIPS would have thrown on.
+      const badIndex = args.findIndex((a) => !isSchemeNumber(a));
+      const typeNames = args.map(type).join(", ");
+      const detail = badIndex >= 0
+        ? `argument ${badIndex} is ${type(args[badIndex])}`
+        : "argument type mismatch";
+      throw new TypeError(
+        `Cannot apply ${op.name} to (${typeNames}): ${detail}`,
+        { cause },
+      );
+    }
     const result: unknown = op.call(converted);
     if (provenance.size > 0) {
       if (result instanceof AValue) return result.withProvenance(provenance);

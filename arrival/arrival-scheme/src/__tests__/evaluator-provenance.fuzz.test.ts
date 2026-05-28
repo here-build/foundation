@@ -21,11 +21,21 @@
  */
 
 import * as fc from "fast-check";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { AValue, EMPTY_PROVENANCE, unionProvenance } from "../AValue.js";
+import { initBridge } from "../bridge.js";
 import { SchemeBool } from "../LBool.js";
 import { exec } from "./exec-adapter.js";
+
+// exec-adapter only imports lips.ts (not index.ts), so wrappedOps don't get
+// installed automatically. Without this, every random program below would
+// fail with "Unbound variable `+'" — the harness used to "pass" by routing
+// through the unbound-variable whitelist branch, never actually exercising
+// the arithmetic dispatch. See bridge.ts:236 war story.
+beforeAll(async () => {
+  await initBridge();
+});
 
 /**
  * Recursive grammar for small Scheme programs. Two terminal categories
@@ -48,12 +58,14 @@ const arbExpr = fc.letrec((tie) => ({
 
 /**
  * Whitelist of expected runtime errors — anything outside this list is a real
- * bug. "Unbound variable" was added after the harness surfaced a deterministic
- * repro: `(- (* 0 "") (- (- 0 0) 0))` reports "Unbound variable `-`" even
- * though `-` is bound. The string-numeric mix throws something deep inside the
- * arithmetic dispatch and bubbles as an env-lookup error — known sloppy error
- * shape, not a crash. Track as a separate ticket; the fuzz harness's job is
- * to flag THIS class once and let provenance round-trip checks proceed.
+ * bug. The grammar above mixes integers, strings, and operators that only
+ * accept numerics, so type errors are the typical outcome of a random sample.
+ *
+ * The "unbound variable" entry was removed after audit #42: with `initBridge`
+ * installed (see beforeAll above), the previous "Unbound variable `-`" repro
+ * for `(- (* 0 "") (- (- 0 0) 0))` is gone — the dispatch now throws a clean
+ * `Cannot apply * to (number, string): argument 1 is string` which matches
+ * the "cannot apply" + "argument" branches below.
  */
 function isExpectedRuntimeError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -64,9 +76,9 @@ function isExpectedRuntimeError(err: unknown): boolean {
     msg.includes("argument") ||
     msg.includes("not a") ||
     msg.includes("invalid") ||
+    msg.includes("cannot apply") || // wrapOperator's new sharpened shape (audit #42)
     msg.includes("cannot convert") ||
-    msg.includes("expected") ||
-    msg.includes("unbound variable") // see comment above — known sloppy error shape
+    msg.includes("expected")
   );
 }
 

@@ -4020,28 +4020,27 @@ function prepare_fn_args(fn: SchemeValue, args: SchemeValue[]): SchemeValue[] {
 }
 
 // -------------------------------------------------------------------------
-// War story (audit error shape #42): `(- (* 0 "") (- (- 0 0) 0))` used to
-// surface as "Unbound variable `-`" because something deep inside the
-// arithmetic dispatch threw and the env-lookup error message bubbled up
-// as the user-visible string. As of the bridge.ts → fromLIPS migration the
-// shape is now `TypeError: Invariant failed: Cannot convert to SchemeNumeric: `
-// (sandbox-boundary.ts:50 → bridge.ts:198 → Array.map → operator wrapper),
-// which already matches the fuzz harness's `msg.includes("type")` whitelist
-// (evaluator-provenance.fuzz.test.ts:63).
+// War story (audit error shape #42, FIXED): `(- (* 0 "") (- (- 0 0) 0))`
+// used to surface as "Unbound variable `-`". Two layers of masking made
+// the diagnostic point at the wrong place:
+//   (1) The fuzz harness ran without `initBridge()` because its setup file
+//       only imported lips.ts (not index.ts), so wrappedOps were never
+//       installed in global_env and `(* …)` legitimately had no `*` binding.
+//       The fuzz "passing" was a false-positive: every random program took
+//       the unbound-variable branch and got whitelisted.
+//   (2) When the bridge IS initialized, `fromLIPS("")` threw a TypeError
+//       reading `Invariant failed: Cannot convert to SchemeNumeric: ` —
+//       technically a type error but it named neither operator nor argument.
 //
-// TODO: error-shape sharpening — the TypeError doesn't name the operator or
-// the argument that failed conversion. Sharpening would require either:
-//   (a) tagging wrappedOps with their op name (already exists via Object
-//       .defineProperty(fn, "name", { value: op.name }) in bridge.ts:255)
-//       and wrapping `fn.apply` here to re-throw "Cannot apply <name> to
-//       <type1> + <type2>" — but this lies in bridge.ts territory, and
-//       breaking the catch boundary at call_function would change error
-//       shape for every operator, not just numeric ones.
-//   (b) catching at the operator wrapper itself (bridge.ts:241) with
-//       per-arg type info — cleaner but bridge.ts is off-limits this pass.
-// Punt to a separate ticket; the current shape is whitelisted and the
-// underlying behavior is correct. Verified path: lips.ts:4031 → fn.apply
-// → bridge.ts:241 wrapOperator → bridge.ts:198 fromLIPS → throw.
+// Both addressed:
+//   (a) `evaluator-provenance.fuzz.test.ts` now calls `initBridge()` once
+//       in `beforeAll`, dropping the bogus "unbound variable" whitelist.
+//   (b) `wrapOperator` (bridge.ts:241) catches fromLIPS failures and
+//       rethrows `TypeError: Cannot apply <op> to (<types>): argument N is
+//       <type>` with the original as `cause`. The membrane stack is still
+//       reachable through `.cause` for sandbox/security debugging.
+// Verified path (post-fix): apply → bridge wrapOperator try/catch →
+// rethrown TypeError naming op + arg types.
 export function call_function(
   fn: SchemeFunction,
   args: SchemeValue[],

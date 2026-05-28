@@ -53,11 +53,13 @@ describe("CRITICAL: sandbox escape vectors", () => {
    * (i.e. the sandbox), NOT to lipsGlobalEnv. Inside the sandbox, looking up
    * `+` should fail with Unbound — `+` isn't an exported sandbox binding.
    */
-  it.fails("eval defaults to sandbox env, NOT global, when no env arg", async () => {
+  it("eval defaults to sandbox env, NOT global, when no env arg", async () => {
     await initBridge();
     // `+` is NOT in sandboxedEnv directly (sandbox uses scheme arithmetic),
     // but IS in lipsGlobalEnv (via applyToEnvironment in initBridge).
-    // If eval correctly stays in caller env, this throws Unbound.
+    // Post-#43 fix: eval is no longer in sandboxedEnv (FORBIDDEN_IN_SANDBOX
+    // strip in sandbox-env.ts), so the eval-escape path is closed entirely —
+    // the throw is Unbound on `eval` itself, not on `+`.
     await expect(exec("(eval (quote +))", { env: sandboxedEnv })).rejects.toThrow(/Unbound/);
   });
 
@@ -66,10 +68,12 @@ describe("CRITICAL: sandbox escape vectors", () => {
    * the real result". Catches a regression where eval gets locked down for
    * lookup but escaped values are still callable.
    */
-  it.fails("eval-escaped function cannot be invoked to perform host computation", async () => {
+  it("eval-escaped function cannot be invoked to perform host computation", async () => {
     await initBridge();
     // Build a sandbox program that pulls + via eval and applies it.
-    // Today: returns 5. Post-fix: throws Unbound at the eval site.
+    // Pre-#43: returned 5 (eval-escape worked).
+    // Post-#43: throws Unbound at the eval site — eval is no longer in the
+    // sandbox env, so the very first form `(eval ...)` fails to resolve.
     await expect(
       exec(`((eval (quote +)) 2 3)`, { env: sandboxedEnv })
     ).rejects.toThrow(/Unbound/);
@@ -86,8 +90,12 @@ describe("CRITICAL: sandbox escape vectors", () => {
    * on arbitrary JS objects, which combined with the eval escape lets a
    * sandbox program mutate host state.
    */
-  it.fails("FORBIDDEN_IN_SANDBOX names cannot be reached via eval", async () => {
+  it("FORBIDDEN_IN_SANDBOX names cannot be reached via eval", async () => {
     await initBridge();
+    // Post-#43 fix: `eval` itself is no longer in sandboxedEnv, so the lookup
+    // of `eval` in the head position fails before the forbidden name is even
+    // quoted. The error message is Unbound on `eval`, not on the inner name —
+    // but the security invariant ("forbidden name not reachable") holds.
     for (const forbidden of ["load", "set-obj!", "new", "instanceof"]) {
       await expect(
         exec(`(eval (quote ${forbidden}))`, { env: sandboxedEnv }),
