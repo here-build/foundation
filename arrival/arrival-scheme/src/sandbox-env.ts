@@ -136,10 +136,19 @@ export const sandboxedEnv = new Environment(
       if (keyStr.startsWith("_")) return nil;
 
       try {
-        // Unwrap membrane wrappers — properties live on .source, not the wrapper
-        const rawObj = obj instanceof SchemeJSObject ? obj.source
-          : obj instanceof SchemeJSArray ? obj.source
-          : obj;
+        // SchemeJSObject is the membrane wrapper — route through its `.get`
+        // so the cached, provenance-stamped entry surfaces (spec §5.3:
+        // `(@ obj "key")` carries the key's tag, which after Option C deep-
+        // stamping at the rosetta boundary IS the wrapper's provenance).
+        // Identity is stable: `(eq? (@ x :a) (@ x :a))` returns #t.
+        if (obj instanceof SchemeJSObject) {
+          return obj.get(keyStr);
+        }
+        // SchemeJSArray + raw JS objects fall through to inline access —
+        // arrays don't carry provenance through indexed access today; raw
+        // JS objects are escaped from the sandbox path (rosetta-emitted
+        // values are always SchemeJSObject post-deep-stamp).
+        const rawObj = obj instanceof SchemeJSArray ? obj.source : obj;
         const result = sandboxedAccess(rawObj, keyStr);
         if (result === NOT_FOUND) {
           return nil;

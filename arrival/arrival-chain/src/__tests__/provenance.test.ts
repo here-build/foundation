@@ -194,13 +194,7 @@ describe("provenance algebra", () => {
     await done;
   });
 
-  // TEMP `.fails` pending Option C — jsToLips needs to deep-stamp the returned
-  // Pair's children so `(car list)` carries the SchemeString's own provenance.
-  // The Tier-1 lips.ts car-element-only fix (correct per spec §5.3) exposed
-  // that infer's rosetta only stamps the outer Pair; children stay empty-
-  // provenance. Option C: jsToLips with provenance param + WeakSet cycle
-  // protection + SchemeJSObject.get cache. Flip back to plain `it` after.
-  it.fails("(define greeting (car (infer …))) flows provenance through a primitive-shaped binding", async () => {
+  it("(define greeting (car (infer …))) flows provenance through a primitive-shaped binding", async () => {
     // Pre-L1 the (car …) result was a bare SchemeString → couldn't key the
     // valueOrigin WeakMap → `greeting`'s consumer saw empty provenance even
     // though the chain ran. L1+L2 puts provenance on the value itself, so

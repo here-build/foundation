@@ -124,10 +124,13 @@ describe("Rosetta Environment", () => {
       console.log("JS object:", jsObject);
       console.log("LIPS object:", lipsObject);
 
-      // Should preserve object structure but convert array values
-      expect(lipsObject.name).toBe("test");
-      expect(lipsObject.value).toBe(42);
-      expect(lipsObject.items.constructor.name).toBe("Pair"); // Array became LIPS list
+      // Option C (2026-05-28): plain JS objects now wrap as SchemeJSObject —
+      // entries box lazily through `.get(key)` carrying the wrapper's
+      // provenance. Round-trip via `lipsToJs` reads `.source` and unwraps.
+      expect(lipsObject.constructor.name).toBe("SchemeJSObject");
+      expect(lipsObject.get("name").valueOf()).toBe("test");
+      expect(lipsObject.get("value").valueOf()).toBe(42);
+      expect(lipsObject.get("items").constructor.name).toBe("Pair"); // Array became LIPS list
 
       // Convert back to verify
       const backToJs = lipsToJs(lipsObject, {});

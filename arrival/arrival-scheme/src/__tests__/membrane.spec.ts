@@ -514,7 +514,13 @@ describe("Wrapper Layer", () => {
       const inner = { b: 2 };
       const obj = new SchemeJSObject({ a: 1, inner });
 
-      expect(obj.get("a")).toBe(1);
+      // Option C (2026-05-28): `.get(key)` now boxes entries through
+      // jsToLips so they inherit the wrapper's provenance — a primitive
+      // surfaces as the corresponding AValue subtype, not raw JS. `valueOf`
+      // unwraps to the underlying JS value for callers that need it.
+      const a = obj.get("a");
+      expect(a).toBeInstanceOf(SchemeExact);
+      expect((a as SchemeExact).valueOf()).toBe(1);
       const wrappedInner = obj.get("inner");
       expect(wrappedInner).toBeInstanceOf(SchemeJSObject);
       expect((wrappedInner as SchemeJSObject).source).toBe(inner);

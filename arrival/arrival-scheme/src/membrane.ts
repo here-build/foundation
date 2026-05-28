@@ -28,9 +28,16 @@ import { type SchemeNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";
 import { __lambda__ } from "./primitives.js";
 import { QuotedPromise } from "./QuotedPromise.js";
+// `jsToLips` import is intentionally a runtime cycle with rosetta.ts —
+// rosetta.ts statically imports `SchemeJSObject` from this file. ES module
+// resolution lets the cycle close at definition time (both functions are
+// declared before any call site fires); the lazy `.get` body below only
+// reads `jsToLips` when actually invoked.
+import { jsToLips } from "./rosetta.js";
 import {
   markAsSandboxBoundary,
   NOT_FOUND,
+  SandboxViolationError,
   sandboxedAccess,
   sandboxedDelete,
   sandboxedHas,
@@ -149,10 +156,31 @@ export class SchemeJSArray {
 const jsToWrapper = new WeakMap<object, SchemeValue>();
 
 /**
- * Thin wrapper for JS objects. Lazy property access.
- * Following cljs-bean pattern: O(1) creation, convert on access.
+ * Module-level entry cache keyed by wrapper identity. WeakMap rather than an
+ * instance field for two reasons: (1) true encapsulation — the Map never
+ * appears on the wrapper's own properties so sandbox symbol-to-field auto-
+ * resolution can't reach it; (2) the tslib-helper avoidance the workspace
+ * `importHelpers: true` triggers on TS6 `#`-private slots in this build.
+ * GC-correct: cache entry disappears with the wrapper.
+ */
+const entryCaches = new WeakMap<SchemeJSObject, Map<string, AValue>>();
+
+/**
+ * Thin wrapper for JS objects. Lazy property access — entries box on
+ * demand through `jsToLips` (rosetta.ts), carrying the wrapper's provenance.
  *
  * All property access is sandboxed - see sandbox-boundary.ts for security model.
+ *
+ * War story (Option C — 2026-05-28): `get(key)` used to call `fromJS(result)`,
+ * which passed JS primitives through unboxed and threw away any chance of
+ * the entry carrying the container's provenance. With the rosetta deep-stamp
+ * (jsToLips passes provenance into every constructed AValue), the wrapper's
+ * own surface needs the same discipline: entries must box through the boxer
+ * registry stamped with `this.provenance`, so `(@ obj :x)` on a wrapper that
+ * came from an `(infer …)` result carries infer's id at the access point,
+ * not just at the container level. Identity stability is preserved via the
+ * module-level cache: the same `.get("x")` twice returns the same AValue, so
+ * `(eq? (@ obj :x) (@ obj :x))` holds.
  */
 export class SchemeJSObject extends AValue {
   static __class__ = "js-object";
@@ -175,27 +203,78 @@ export class SchemeJSObject extends AValue {
   }
 
   withProvenance(p: ReadonlySet<number>): SchemeJSObject {
+    // New wrapper = new identity = empty cache. Provenance-variant entries
+    // would otherwise leak between wrappers; cleaner to let each lineage
+    // build its own cache the first time it's queried.
     return new SchemeJSObject(this.source, p);
   }
 
   /**
-   * Get property value, wrapping result through membrane.
-   * Uses sandboxed access - blocks prototype chain escapes.
+   * Read a property as a security-validated, provenanced, cached AValue.
+   * Single dispatch point for `dict-ref` / `@` / `:key` consumers — they
+   * route here, getting boundary checks + provenance flow + identity
+   * stability (`(eq? (@ obj :x) (@ obj :x))` returns #t because the cached
+   * AValue is reused).
+   *
+   * Missing key returns `nil` (matches dict-ref's existing semantics).
+   * `sandboxedAccess` filters the boundary; `NOT_FOUND` → either blocked
+   * or absent — same `nil` from this surface either way.
+   *
+   * Cycle protection lives in `jsToLips`'s WeakSet: if `source` participates
+   * in a JS-side cycle that surfaces through a property access, the inner
+   * traversal terminates before re-entering this wrapper.
    */
   get(key: string | symbol): SchemeValue {
-    const result = sandboxedAccess(this.source, key);
-    if (result === NOT_FOUND) {
-      return nil;
+    // Cache keyed by stringified key — symbol keys are an edge case (the
+    // sandbox boundary blocks most symbol access anyway) and skipping the
+    // cache for them keeps the Map<string, AValue> shape clean.
+    const cacheKey = typeof key === "string" ? key : undefined;
+    let cache = cacheKey !== undefined ? entryCaches.get(this) : undefined;
+    if (cacheKey !== undefined && cache !== undefined) {
+      const cached = cache.get(cacheKey);
+      if (cached !== undefined) return cached;
     }
-    return fromJS(result);
+
+    let raw: unknown;
+    try {
+      raw = sandboxedAccess(this.source, key);
+    } catch (e) {
+      // Boundary violations (Object.prototype methods, dangerous names,
+      // boundary-marked prototypes) collapse to `nil` — same shape as
+      // "absent." Spec §5.3 says `(@ obj "key")` returns the value at key
+      // or nil; the wrapper doesn't expose error detail to the sandbox.
+      if (e instanceof SandboxViolationError) return nil;
+      throw e;
+    }
+    if (raw === NOT_FOUND) return nil;
+
+    // Box through jsToLips so primitives become AValue subtypes stamped with
+    // this wrapper's provenance. SchemeJSObject's instance was constructed
+    // through rosetta deep-stamping for the common case (jsToLips reached
+    // here on the way down); direct construction with empty provenance keeps
+    // the empty-provenance fast-path everywhere.
+    const boxed = jsToLips(raw, {}, this.provenance);
+    if (cacheKey !== undefined && boxed instanceof AValue) {
+      if (cache === undefined) {
+        cache = new Map();
+        entryCaches.set(this, cache);
+      }
+      cache.set(cacheKey, boxed);
+    }
+    return boxed;
   }
 
   /**
-   * Set property value, unwrapping through membrane.
-   * Uses sandboxed set - blocks dangerous property names.
+   * Set property value, unwrapping through membrane. Cache invalidation for
+   * the touched key keeps subsequent `.get(key)` consistent with the new
+   * underlying value.
    */
   set(key: string | symbol, value: SchemeValue): void {
     sandboxedSet(this.source, key, toJS(value));
+    if (typeof key === "string") {
+      const cache = entryCaches.get(this);
+      if (cache !== undefined) cache.delete(key);
+    }
   }
 
   /**
@@ -210,7 +289,12 @@ export class SchemeJSObject extends AValue {
    * Delete a property (sandboxed - only own properties).
    */
   delete(key: string | symbol): boolean {
-    return sandboxedDelete(this.source, key);
+    const ok = sandboxedDelete(this.source, key);
+    if (ok && typeof key === "string") {
+      const cache = entryCaches.get(this);
+      if (cache !== undefined) cache.delete(key);
+    }
+    return ok;
   }
 
   /** Get own enumerable property keys (never includes inherited). */

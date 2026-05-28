@@ -152,15 +152,12 @@ describe("AValue.fromJs — boxer dispatch produces the expected subtype per typ
 // =========================================================================
 
 describe("jsToLips → lipsToJs round-trip", () => {
-  // Rosetta's jsToLips at rosetta.ts:159 is DELIBERATELY thin: only arrays
-  // (cons up into Pair) and plain objects (recurse) are converted. Primitives
-  // pass through unchanged — so the "round trip" succeeds by accident.
-  // This .failing test marks the shape divergence: a string in produces a
-  // JS string out, not a SchemeString round-trip (i.e., jsToLips is not
-  // actually wrapping primitives).
-  it.fails("string is wrapped through jsToLips (currently: passes through raw)", () => {
+  // Option C (2026-05-28): jsToLips deep-stamps every constructed AValue —
+  // primitives now route through `AValue.fromJs` (boxer registry) so a JS
+  // string in produces a `SchemeString` carrying the supplied provenance.
+  // Closes the shape divergence the membrane symmetry audit flagged.
+  it("string is wrapped through jsToLips into SchemeString", () => {
     const lipsified = jsToLips("hello");
-    // We'd expect SchemeString if jsToLips were a true mirror of AValue.fromJs.
     expect(lipsified).toBeInstanceOf(SchemeString);
   });
 

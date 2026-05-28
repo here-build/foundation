@@ -418,8 +418,11 @@ export class Environment {
           if (!obj) {
             return keyPluck;
           }
-          // Unwrap SchemeJSObject — properties live on .source
-          if (obj instanceof SchemeJSObject) obj = obj.source;
+          // SchemeJSObject routes through `.get` so the cached, provenance-
+          // stamped entry surfaces. Same dispatch point as `(@ obj :k)` —
+          // `(eq? (:k obj) (@ obj :k))` holds because the wrapper's cache
+          // returns the same AValue instance for the same key.
+          if (obj instanceof SchemeJSObject) return obj.get(key);
           let target = obj as { constructor: { prototype: unknown } } | null;
           while (target !== null && target !== Object.prototype) {
             if (

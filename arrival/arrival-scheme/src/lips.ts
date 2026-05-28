@@ -3712,13 +3712,17 @@ export const global_env = new Environment(
       const predicateResults = array.map((item) => fn(item));
       const hasPromises = predicateResults.some(is_promise);
 
+      // `is_false` rather than raw `!r`: post-Option-C, predicates can return
+      // SchemeBool wrappers (e.g. `:active` on a SchemeJSObject yields a
+      // boxed boolean carrying container provenance). Raw `&&` treats any
+      // object as truthy and would retain false-valued entries.
       if (hasPromises) {
         return (promise_all(predicateResults) as Promise<unknown[]>).then((results) => {
-          const filtered = array.filter((_, i) => results[i] && !is_nil(results[i]));
+          const filtered = array.filter((_, i) => !is_false(results[i]) && !is_nil(results[i]));
           return Pair.fromArray(filtered);
         });
       }
-      const filtered = array.filter((_, i) => predicateResults[i] && !is_nil(predicateResults[i]));
+      const filtered = array.filter((_, i) => !is_false(predicateResults[i]) && !is_nil(predicateResults[i]));
       return Pair.fromArray(filtered);
     }),
     // ------------------------------------------------------------------

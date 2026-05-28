@@ -7,7 +7,7 @@
 
 import invariant from "tiny-invariant";
 
-import { AValue, pointProvenance, unionProvenance } from "./AValue.js";
+import { AValue, EMPTY_PROVENANCE, pointProvenance, unionProvenance } from "./AValue.js";
 import { SchemeBool } from "./LBool.js";
 import { SchemeJSArray, SchemeJSObject } from "./membrane.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
@@ -162,18 +162,86 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
   return value;
 }
 
-export function jsToLips(value: any, options: RosettaOptions = {}): any {
-  if (value == null) {
-    return nil;
+/**
+ * JS → scheme deep-stamping membrane. Single pass: every AValue constructed
+ * on the way down inherits the supplied `provenance` set, so downstream
+ * extractors (`car`, `cdr`, `dict-ref`, `@`) see element-only lineage that
+ * already carries the rosetta's origin id (spec §5.3 Interpretation A).
+ *
+ * War story: pre-deep-stamp, jsToLips constructed a Pair-chain whose outer
+ * Pair received provenance via `result.withProvenance(...)` at the wrapper,
+ * but every spine cons + every leaf inside stayed empty. The Tier-1 audit's
+ * car/cdr "element-only" landing (lips.ts:2162) — correct per spec — then
+ * exposed this gap: `(car (infer …))` returned a SchemeString carrying nothing,
+ * and the v0 chain `(string-append "h" greeting)` lost the upstream infer id.
+ * Pushing the stamp INTO `jsToLips` reaches every constructed value in one
+ * pass; no per-builtin re-stamp; symmetric with the membrane discipline
+ * already applied at the AValue.fromJs entry.
+ *
+ * Plain JS objects → `SchemeJSObject` (was raw passthrough — closes the
+ * cross-package audit's "jsToLips doesn't consult boxer registry" finding).
+ * Their entries box lazily on `.get(key)` so the wrapper's cache amortises
+ * the cost without paying the full traversal on construction.
+ *
+ * `seen: WeakSet` terminates cycles on the JS-input side. If the source has a
+ * cycle, the inner reference is returned as-is — the caller's outer Pair (or
+ * SchemeJSObject) already carries the provenance, and the cycle re-enters
+ * that wrapper rather than allocating an infinite spine.
+ */
+export function jsToLips(
+  value: any,
+  options: RosettaOptions = {},
+  provenance: ReadonlySet<number> = EMPTY_PROVENANCE,
+  seen: WeakSet<object> = new WeakSet(),
+): any {
+  if (value === null || value === undefined) {
+    return provenance === EMPTY_PROVENANCE ? nil : new Nil(provenance);
   }
+
+  // Cycle in JS-side input — return as-is. The caller's outer wrapper already
+  // carries the stamp; this prevents the recursion from looping forever.
+  if (typeof value === "object" && seen.has(value)) return value;
+  if (typeof value === "object") seen.add(value);
+
+  // Already-AValue input. Same-provenance fast-path preserves identity; Pair
+  // recurses so children share the new lineage; leaves go through wrapper-
+  // level `withProvenance` (entries of SchemeJSObject stay lazy via `.get`).
+  if (value instanceof AValue) {
+    if (provenance === EMPTY_PROVENANCE || provenance === value.provenance) return value;
+    if (value instanceof Pair) {
+      return new Pair(
+        jsToLips(value.car, options, provenance, seen),
+        jsToLips(value.cdr, options, provenance, seen),
+        provenance,
+      );
+    }
+    return value.withProvenance(provenance);
+  }
+
+  // JS array → Pair-chain, each cons + each leaf stamped on the way down.
   if (Array.isArray(value)) {
-    return value.map((record) => jsToLips(record, options)).reduceRight((acc, record) => new Pair(record, acc), nil);
+    let list: AValue = provenance === EMPTY_PROVENANCE ? nil : new Nil(provenance);
+    for (let i = value.length - 1; i >= 0; i--) {
+      list = new Pair(jsToLips(value[i], options, provenance, seen), list, provenance);
+    }
+    return list;
   }
-  if (Object.getPrototypeOf(value) === Object.getPrototypeOf({}) || Object.getPrototypeOf(value) === null) {
-    // todo ideally we should return proxies to support reflecting live objects and also get performance wins, but
-    // this is good enough for current sandbox needs
-    return Object.fromEntries(Object.entries(value).map(([key, value]) => [key, jsToLips(value, options)]));
+
+  // Plain JS object → SchemeJSObject (lazy entries via .get cache).
+  if (
+    typeof value === "object" &&
+    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+  ) {
+    return new SchemeJSObject(value as object, provenance);
   }
+
+  // JS primitives → AValue.fromJs (boxer registry handles bool/number/string/bigint).
+  const tag = typeof value;
+  if (tag === "string" || tag === "number" || tag === "boolean" || tag === "bigint") {
+    return AValue.fromJs(value, provenance);
+  }
+
+  // Functions, exotic objects (Promise, Buffer, …): the caller's responsibility.
   return value;
 }
 
@@ -209,27 +277,25 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
 
     try {
       const rawResult = await fn(...callArgs);
-      let result = jsToLips(rawResult, options);
 
-      // Provenance algebra: if this rosetta is a provenance point, the result's
-      // provenance is { inv.id } (origin marker). Otherwise it's the union of
-      // input provenances. AValue path only — primitives that jsToLips passes
-      // through unchanged carry no provenance (acceptable; matches spec §5).
-      if (result instanceof AValue) {
-        if (options.provenancePoint === true) {
-          const inv = (ctx as CtxWithInvocation | undefined)?.currentInvocation;
-          if (inv && typeof inv.id === "number") {
-            inv.isProvenancePoint = true;
-            result = result.withProvenance(pointProvenance(inv.id));
-          }
-          // No invocation in ctx: silent. The rosetta is being called from a
-          // path the tap doesn't reach (e.g., direct JS invocation in tests);
-          // there's no provenance point to mark.
-        } else if (inputProvenance.size > 0) {
-          result = result.withProvenance(inputProvenance);
+      // Decide the output provenance BEFORE jsToLips so the deep-stamp pass
+      // reaches every constructed AValue in one traversal (spec §5.3 — every
+      // element returned by a rosetta carries its origin from the moment it
+      // crosses the boundary, not after a separate `withProvenance` walk on
+      // the top-level container). Provenance-point overrides inputs.
+      let resultProvenance = inputProvenance;
+      if (options.provenancePoint === true) {
+        const inv = (ctx as CtxWithInvocation | undefined)?.currentInvocation;
+        if (inv && typeof inv.id === "number") {
+          inv.isProvenancePoint = true;
+          resultProvenance = pointProvenance(inv.id);
         }
+        // No invocation in ctx: silent. The rosetta is being called from a
+        // path the tap doesn't reach (e.g., direct JS invocation in tests);
+        // there's no provenance point to mark, fall back to input provenance.
       }
 
+      const result = jsToLips(rawResult, options, resultProvenance);
       return options.returnEither ? [result, nil] : result;
     } catch (error) {
       console.error("Rosetta function error:", error);
