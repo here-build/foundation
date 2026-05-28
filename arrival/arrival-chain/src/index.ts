@@ -41,6 +41,8 @@ export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "./trace
 export { extractDefines, type DefineInfo } from "./extract-defines.js";
 export {
   traceToStatechart,
+  forwardCone,
+  backwardCone,
   type Statechart,
   type ChartNode,
   type ChartEdge,

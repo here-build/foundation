@@ -165,3 +165,38 @@ export function traceToStatechart(trace: EvalTrace): Statechart {
   const layerCount = nodes.reduce((m, n) => Math.max(m, n.layer + 1), 0);
   return { nodes, edges, layerCount };
 }
+
+/**
+ * Causal reachability over the chart's directed edges, ignoring `kind` — a
+ * `loopback` edge (iter-k → iter-k+1) is a real causal edge, so changing a node
+ * genuinely re-fires what its loop-back reaches. Cycles (the react⇄reflect tight
+ * loop) terminate via the visited set; in a cycle a node's two cones overlap,
+ * which is the honest answer (the loop is mutually entangled). Self is never
+ * included in the returned set.
+ *
+ * `forward` = blast radius ("what re-fires if I change X"); `backward` = the
+ * causal why ("what produced X").
+ */
+function cone(chart: Statechart, startId: number, direction: "forward" | "backward"): Set<number> {
+  const adj = new Map<number, number[]>();
+  for (const e of chart.edges) {
+    const [from, to] = direction === "forward" ? [e.from, e.to] : [e.to, e.from];
+    (adj.get(from) ?? adj.set(from, []).get(from)!).push(to);
+  }
+  const out = new Set<number>();
+  const queue = [startId];
+  while (queue.length) {
+    for (const next of adj.get(queue.shift()!) ?? []) {
+      if (next === startId || out.has(next)) continue;
+      out.add(next);
+      queue.push(next);
+    }
+  }
+  return out;
+}
+
+/** Blast radius: every node that re-fires if the given node changes. */
+export const forwardCone = (chart: Statechart, id: number): Set<number> => cone(chart, id, "forward");
+
+/** Causal why: every node whose output flowed into the given node. */
+export const backwardCone = (chart: Statechart, id: number): Set<number> => cone(chart, id, "backward");

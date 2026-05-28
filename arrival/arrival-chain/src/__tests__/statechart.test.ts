@@ -20,7 +20,7 @@ import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
-import { traceToStatechart } from "../statechart.js";
+import { backwardCone, forwardCone, traceToStatechart, type Statechart } from "../statechart.js";
 
 // Trimmed gepa harness — react fans out over personas, reflect proposes the
 // next tagline, loop is a tail call. (Same shape as gepa-loop.test.ts; kept
@@ -108,5 +108,54 @@ describe("traceToStatechart — gepa-loop causal DAG", () => {
     const back = chart.edges.find((e) => e.from === reflect!.id && e.to === react!.id);
     expect(fwd?.kind).toBe("forward");
     expect(back?.kind).toBe("loopback");
+  });
+});
+
+describe("forwardCone / backwardCone — why & blast reachability", () => {
+  // a → b → c (forward edges), plus a stray d with no edges.
+  const linear: Statechart = {
+    nodes: [
+      { id: 0, count: 1, layer: 0, label: "a" },
+      { id: 1, count: 1, layer: 1, label: "b" },
+      { id: 2, count: 1, layer: 2, label: "c" },
+      { id: 9, count: 1, layer: 0, label: "d" },
+    ],
+    edges: [
+      { from: 0, to: 1, kind: "forward" },
+      { from: 1, to: 2, kind: "forward" },
+    ],
+    layerCount: 3,
+  };
+
+  it("blast radius is the transitive downstream set, excluding self", () => {
+    expect([...forwardCone(linear, 0)].sort()).toEqual([1, 2]);
+    expect([...forwardCone(linear, 2)]).toEqual([]); // leaf — nothing re-fires
+    expect([...forwardCone(linear, 9)]).toEqual([]); // isolated
+  });
+
+  it("causal why is the transitive upstream set, excluding self", () => {
+    expect([...backwardCone(linear, 2)].sort()).toEqual([0, 1]);
+    expect([...backwardCone(linear, 0)]).toEqual([]); // source — nothing caused it
+  });
+
+  it("a loop-back cycle entangles both nodes in each direction (terminates, no self)", () => {
+    // react ⇄ reflect: forward react→reflect, loopback reflect→react.
+    const loop: Statechart = {
+      nodes: [
+        { id: 0, count: 3, layer: 0, label: "react" },
+        { id: 1, count: 2, layer: 1, label: "reflect" },
+      ],
+      edges: [
+        { from: 0, to: 1, kind: "forward" },
+        { from: 1, to: 0, kind: "loopback" },
+      ],
+      layerCount: 2,
+    };
+    // Each reaches the OTHER (and would reach self via the cycle, but self is
+    // excluded) — the honest "tight loop is mutually entangled" answer.
+    expect([...forwardCone(loop, 0)]).toEqual([1]);
+    expect([...backwardCone(loop, 0)]).toEqual([1]);
+    expect([...forwardCone(loop, 1)]).toEqual([0]);
+    expect([...backwardCone(loop, 1)]).toEqual([0]);
   });
 });
