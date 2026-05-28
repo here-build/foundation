@@ -1,91 +1,150 @@
 /**
- * MDL collapse optimizer — behavioral proof.
- *
- * The risky part of the MDL approach isn't the renderer, it's whether the
- * tree-DP + parsimony tax produces the RIGHT collapse decisions. These tests
- * pin the four behaviors the design relies on (doc §4):
- *   1. a real loop with many similar iterations collapses; its inner fan-out too
- *   2. a single-iteration "loop" does NOT get boxed (overhead > saving)
- *   3. λ is the zoom knob — #collapsed is monotone non-increasing as λ rises
- *   4. high per-instance binding variance keeps a box EXPANDED (don't fake-
- *      collapse instances that actually rewire differently)
- * plus: nesting composes (inner can expand while outer collapses).
+ * MDL collapse optimizer — behavioral + correctness proof (formally-correct
+ * grammar model). Beyond "decisions look right," these pin the properties the
+ * design's optimality claim rests on, and regression-guard the def/ref
+ * double-count bug that adversarial review caught in the first prototype.
  */
 import { describe, expect, it } from "vitest";
 
 import { type CandidateBox, collapseMDL } from "../mdl-collapse.js";
 
-/** gepa shape: a ×K loop whose body contains a ×N persona fan-out. */
-const gepaForest = (loopN: number, fanoutN: number, residual = 0): CandidateBox[] => [
-  {
+const box = (over: Partial<CandidateBox> & Pick<CandidateBox, "id" | "type" | "n" | "localBits">): CandidateBox => ({
+  children: [],
+  ...over,
+});
+
+/** gepa shape: ×K loop whose body contains a ×N persona fan-out. */
+const gepaForest = (loopN: number, fanoutN: number, fanoutShapes = 1): CandidateBox[] => [
+  box({
     id: "loop",
     type: "loop",
     n: loopN,
     localBits: 6,
-    perInstanceResidualBits: residual,
-    children: [{ id: "react", type: "unfold", n: fanoutN, localBits: 4, perInstanceResidualBits: residual, children: [] }],
-  },
+    children: [box({ id: "react", type: "unfold", n: fanoutN, localBits: 4, distinctShapes: fanoutShapes })],
+  }),
 ];
 
-describe("collapseMDL — decision behavior", () => {
-  it("collapses a real loop and its inner fan-out (the gepa case)", () => {
+describe("collapseMDL — correctness", () => {
+  it("REGRESSION: a shared child's definition is paid ONCE, not per inlined parent copy", () => {
+    // The bug: parent expands, child collapses; naive `n×body` re-charged the
+    // 200-bit child inside all 4 parent copies (~830 bits). The def/ref split
+    // pays the child body once. Force the parent to expand with high shape
+    // variance so we exercise the "collapsed box under an expanded box" path.
+    const forest = [
+      box({
+        id: "parent",
+        type: "loop",
+        n: 4,
+        localBits: 1,
+        distinctShapes: 256, // huge structural variance ⇒ parent must expand
+        children: [box({ id: "child", type: "unfold", n: 2, localBits: 200 })],
+      }),
+    ];
+    const { decisions, totalBits } = collapseMDL(forest);
+    expect(decisions.get("parent")).toBe("expanded");
+    expect(decisions.get("child")).toBe("collapsed");
+    // The 200-bit child body must appear ~once. Naive double-count would be
+    // ≥ 4×200=800; correct optimum pays it once (~200 + small overhead).
+    expect(totalBits).toBeLessThan(400);
+  });
+
+  it("ANCHOR: an all-expanded forest costs exactly rawBits (admissibility floor)", () => {
+    // Every box single-occurrence (n=1) ⇒ a reference always costs more than
+    // inlining ⇒ everything expands ⇒ total must equal the raw cost.
+    const forest = [
+      box({ id: "a", type: "loop", n: 1, localBits: 30, children: [box({ id: "b", type: "unfold", n: 1, localBits: 20 })] }),
+    ];
+    const { decisions, totalBits, rawBits } = collapseMDL(forest);
+    expect([...decisions.values()].every((d) => d === "expanded")).toBe(true);
+    expect(totalBits).toBeCloseTo(rawBits, 6);
+  });
+
+  it("totalBits never exceeds rawBits (a grouping is only admitted if it beats raw)", () => {
+    for (const f of [gepaForest(50, 3), gepaForest(1, 1), gepaForest(50, 3, 256)]) {
+      const { totalBits, rawBits } = collapseMDL(f);
+      expect(totalBits).toBeLessThanOrEqual(rawBits + 1e-9);
+    }
+  });
+
+  it("THRESHOLD: single-box decision matches the closed-form inequality (tests logic, not constants)", () => {
+    // For a lone top-level box (ancestorMult=1, no children, uniform): collapse
+    // iff refCost < (n-1)·localBits. Replicate the cost and assert agreement
+    // across a grid — so the test pins the DERIVED rule, not a magic number.
+    const refBits = 1; // countScopes=1 → log2(1)=0 → fallback 1
+    const univ = (n: number) => (n <= 1 ? 0 : Math.log2(n)) + Math.log2(2.865);
+    for (const n of [1, 2, 3, 5, 10, 50]) {
+      for (const localBits of [1, 2, 4, 8, 16, 64]) {
+        const refCost = refBits + univ(n); // λ=1, ports=0
+        const expected = refCost < (n - 1) * localBits ? "collapsed" : "expanded";
+        const { decisions } = collapseMDL([box({ id: "x", type: "unfold", n, localBits })]);
+        expect(decisions.get("x"), `n=${n} localBits=${localBits}`).toBe(expected);
+      }
+    }
+  });
+});
+
+describe("collapseMDL — behavior", () => {
+  it("collapses a real loop and its inner fan-out (gepa)", () => {
     const { decisions } = collapseMDL(gepaForest(50, 3));
     expect(decisions.get("loop")).toBe("collapsed");
     expect(decisions.get("react")).toBe("collapsed");
   });
 
-  it("does NOT box a single-iteration loop (overhead exceeds any saving)", () => {
-    const { decisions } = collapseMDL([
-      { id: "once", type: "loop", n: 1, localBits: 6, perInstanceResidualBits: 0, children: [] },
-    ]);
-    expect(decisions.get("once")).toBe("expanded");
+  it("the big loop stays collapsed across a wide λ sweep (high-n is robust, not knife-edge)", () => {
+    // The loop (n=50) is far from any flip threshold; assert it's robust where
+    // the small fan-out (n=3) is not. (Review finding 3: don't pin a knife-edge.)
+    for (const lambda of [0.25, 0.5, 1, 2, 4]) {
+      expect(collapseMDL(gepaForest(50, 3), { lambda }).decisions.get("loop")).toBe("collapsed");
+    }
   });
 
-  it("keeps a box EXPANDED when its instances rewire differently (high binding residual)", () => {
-    // Identical instances → collapse; same shape with high per-instance variance → expand.
-    expect(collapseMDL(gepaForest(50, 3, 0)).decisions.get("react")).toBe("collapsed");
-    expect(collapseMDL(gepaForest(50, 3, 5)).decisions.get("react")).toBe("expanded");
+  it("does NOT box a single-iteration loop (parsimony is derived from ref overhead, no ε knob)", () => {
+    expect(collapseMDL([box({ id: "once", type: "loop", n: 1, localBits: 6 })]).decisions.get("once")).toBe("expanded");
   });
 
-  it("λ is the zoom knob: #collapsed is monotone non-increasing as λ rises", () => {
+  it("STRUCTURAL residual: many distinct instance SHAPES keep a box expanded (value-independent)", () => {
+    expect(collapseMDL(gepaForest(50, 3, 1)).decisions.get("react")).toBe("collapsed");
+    expect(collapseMDL(gepaForest(50, 3, 256)).decisions.get("react")).toBe("expanded");
+  });
+
+  it("λ is the zoom knob: #collapsed monotone non-increasing as λ rises", () => {
     const countCollapsed = (lambda: number): number => {
-      // A forest of several independent small boxes so the count can vary.
-      const forest: CandidateBox[] = [3, 4, 5, 6].map((n, i) => ({
-        id: `b${i}`,
-        type: "unfold",
-        n,
-        localBits: 4,
-        perInstanceResidualBits: 0,
-        children: [],
-      }));
-      const { decisions } = collapseMDL(forest, { lambda });
-      return [...decisions.values()].filter((d) => d === "collapsed").length;
+      const forest = [3, 4, 5, 6].map((n, i) => box({ id: `b${i}`, type: "unfold", n, localBits: 4 }));
+      return [...collapseMDL(forest, { lambda }).decisions.values()].filter((d) => d === "collapsed").length;
     };
-    const lambdas = [0.1, 0.5, 1, 2, 4, 8, 16];
-    const counts = lambdas.map(countCollapsed);
-    // Non-increasing, and the extremes actually differ (the knob does something).
+    const counts = [0.1, 0.5, 1, 2, 4, 8, 16, 64].map(countCollapsed);
     for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]!);
     expect(counts[0]).toBeGreaterThan(counts[counts.length - 1]!);
   });
 
-  it("nesting composes: inner fan-out expands (tiny + high residual) while the outer loop still collapses", () => {
+  it("nesting composes: inner fan-out expands (high shape variance) while outer loop collapses", () => {
     const { decisions } = collapseMDL([
-      {
+      box({
         id: "outer",
         type: "loop",
         n: 40,
         localBits: 5,
-        perInstanceResidualBits: 0,
-        children: [{ id: "inner", type: "unfold", n: 2, localBits: 2, perInstanceResidualBits: 8, children: [] }],
-      },
+        children: [box({ id: "inner", type: "unfold", n: 2, localBits: 2, distinctShapes: 64 })],
+      }),
     ]);
     expect(decisions.get("inner")).toBe("expanded");
     expect(decisions.get("outer")).toBe("collapsed");
   });
 
-  it("is deterministic — ties resolve to collapsed, stable across runs", () => {
-    const run = () => collapseMDL(gepaForest(50, 3)).decisions.get("loop");
-    expect(run()).toBe(run());
-    expect(run()).toBe("collapsed");
+  it("is deterministic and order-independent (id-sorted internally)", () => {
+    const a = gepaForest(50, 3);
+    const shuffled: CandidateBox[] = [
+      box({
+        id: "loop",
+        type: "loop",
+        n: 50,
+        localBits: 6,
+        children: [box({ id: "react", type: "unfold", n: 3, localBits: 4 })],
+      }),
+    ];
+    const r1 = collapseMDL(a);
+    const r2 = collapseMDL(shuffled);
+    expect(r1.totalBits).toBeCloseTo(r2.totalBits, 9);
+    expect([...r1.decisions.entries()].sort()).toEqual([...r2.decisions.entries()].sort());
   });
 });

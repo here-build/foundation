@@ -48,6 +48,14 @@ export {
   type ChartEdge,
   type EdgeKind,
 } from "./statechart.js";
+export {
+  collapseMDL,
+  type CandidateBox,
+  type BoxType,
+  type CollapseParams,
+  type CollapseResult,
+  type Decision,
+} from "./mdl-collapse.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //

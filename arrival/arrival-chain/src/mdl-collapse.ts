@@ -1,35 +1,48 @@
 /**
  * MDL collapse optimizer — decides which AST-licensed boxes to fold in the
- * causal graph, by minimizing a Minimum-Description-Length cost.
+ * causal graph, by minimizing a Minimum-Description-Length cost. This is the
+ * anti-spaghetti core (design doc:
+ * docs/working-proposals/todo/host-studio-causal-graph-home.md §4).
  *
- * This is the anti-spaghetti core (design doc:
- * docs/working-proposals/todo/host-studio-causal-graph-home.md §4). The
- * `statechart.ts` ×N collapse is the degenerate fixed-λ, AST-identity case of
- * this; this generalizes it to the MDL-optimal grouping.
+ * ── Formally-correct grammar (SLP) cost ──────────────────────────────────────
+ * The description is a straight-line grammar over the provenance trace. A
+ * collapsed box is a NONTERMINAL: its body (definition) is written ONCE, and
+ * every occurrence pays only a REFERENCE (a symbol id + the ×n count + its port
+ * bindings). An expanded box is inlined: its body is written at every
+ * occurrence. This def/ref split is load-bearing — an earlier prototype used a
+ * single per-node cost (`n × bodyBits`) which re-charged a shared child's whole
+ * body inside every inlined parent copy, producing answers up to 3.5× over
+ * optimal whenever a collapsed box nested under an expanded one (the exact
+ * binding-residual regime the design leans on). Adversarial review caught it
+ * with a concrete counterexample; this module is the corrected rebuild.
  *
- * ── Why this is tractable (and SUBDUE/VoG are not) ───────────────────────────
- * SUBDUE/VoG are NP-hard because they SEARCH for repeated substructure
- * (subgraph isomorphism). We don't search: the AST hands us the candidate boxes
- * (every map/reduce/fold = unfold/fold, every cond/case/variant = dnf, every
- * named-let/self-recursion = loop), and those scopes NEST → a laminar family =
- * a containment forest. Optimal selection over a laminar family with an
- * ADDITIVE objective is a bottom-up tree DP, linear in the forest. We use VoG's
- * additive L(M)+L(E) form, NOT SUBDUE's ratio DL(G)/(DL(S)+DL(G|S)) — the ratio
- * does not decompose over independent subtrees and would silently break the DP
- * (the single most likely implementation bug; see design doc §4.2).
+ * ── Why it's optimal AND a cheap two-pass DP ─────────────────────────────────
+ * Candidates are GIVEN by the AST (every map/reduce=unfold/fold, cond/case=dnf,
+ * named-let=loop) and NEST → a laminar family = containment forest. The number
+ * of trace-slots a scope occupies, `ancestorMult(s)` = ∏ strict-ancestor
+ * multiplicities, is a pure structural product, independent of any
+ * collapse/expand decision. Precompute it top-down; then each scope's decision
+ * (compare its COLLAPSED vs EXPANDED total contribution, given `ancestorMult`
+ * and its children's already-resolved placements) is INDEPENDENT of every other
+ * scope's decision — so greedy bottom-up local minimization is globally
+ * optimal. No search, no global budget, polynomial. (Refs: VoG additive
+ * L(M)+L(E) — Koutra et al., https://arxiv.org/abs/1406.3411 — NOT SUBDUE's
+ * ratio, which doesn't decompose over the DP; SLP/grammar compression — Lohrey.)
  *
- * ── Scope of THIS module (honest) ────────────────────────────────────────────
- * This is the DECISION ENGINE: candidate forest + cost params → optimal
- * collapse/expand per box, via the tree DP, using the REAL MDL membership term
- * (§4.3) so the "expose a lone node unless boxing pays" behavior is derived not
- * tuned. It deliberately uses a SIMPLIFIED additive cost model (per-box body
- * bits + membership + binding residual), NOT the bit-exact prefix-coded L(M)+
- * L(E) over the literal adjacency. That bit-exact accounting (prefix codes,
- * E⁺/E⁻ error matrices, type-label streams) is the productionization step; the
- * simplified model is faithful enough to prove the decision STRUCTURE behaves
- * (collapse flips correctly on multiplicity, on the zoom knob λ, and on
- * per-instance binding variance; nesting composes bottom-up). See
- * mdl-collapse.test.ts for the behavioral proof against a gepa-shaped forest.
+ * ── Stability (grouping is run-invariant up to topology) ─────────────────────
+ * Every quantity in the objective is STRUCTURAL: `localBits` (a scope's own
+ * sub-DAG size), `boundaryPorts` (its external bindings), `distinctShapes` (how
+ * many distinct sub-DAG SHAPES its instances take — topology, NOT values), and
+ * `n` (trace multiplicity). No per-instance VALUE enters the decision, so value
+ * noise never jitters the layout (the bug a prior `perInstanceResidualBits`
+ * field introduced). Box existence is invariant across all runs; only ×n labels
+ * and which boxes are collapsed at a given zoom vary with trace topology —
+ * which is correct (a loop that ran once should not read as a stack).
+ *
+ * Scope: this is the decision engine. `localBits`/`boundaryPorts` are abstract
+ * structural bit-counts; the bit-exact prefix-coded adjacency accounting (E⁺/E⁻
+ * matrices) and the AST→candidate-forest extraction are the productionization
+ * steps (doc §9). The cost ALGEBRA here is the formally-correct one.
  */
 
 export type BoxType = "unfold" | "loop" | "dnf" | "fold";
@@ -37,108 +50,142 @@ export type BoxType = "unfold" | "loop" | "dnf" | "fold";
 export interface CandidateBox {
   id: string;
   type: BoxType;
-  /** Multiplicity: iterations (loop), fan-out width (unfold), #arms (dnf). */
+  /** Trace multiplicity: iterations (loop), fan-out width (unfold), arms (dnf). */
   n: number;
-  /** Description bits of this box's OWN body structure, excluding children
-   *  (one instance). Children are costed via the DP, not folded in here. */
+  /** Description bits of this scope's OWN body structure, excluding children. */
   localBits: number;
-  /** Per-instance binding variance: bits by which the n instances DIFFER from
-   *  the template. 0 ⇒ identical instances (collapse is nearly free); high ⇒
-   *  data-dependent rewiring, so a ×N box loses to inlining (design doc §4.7 —
-   *  "charge the binding residual honestly"). */
-  perInstanceResidualBits: number;
+  /** External bindings the box connects to — encoded once in the definition AND
+   *  per reference (the residual identification cost AST-licensing does NOT make
+   *  free; adversarial-review finding 2). Default 0. */
+  boundaryPorts?: number;
+  /** Number of DISTINCT structural sub-DAG shapes across the n instances. 1 ⇒
+   *  uniform (collapse is residual-free). k>1 ⇒ a collapsed box must encode a
+   *  per-instance shape selector (log2 k bits each) — the grammar-derivation
+   *  residual, kept STRUCTURAL (topology) so the layout stays value-stable.
+   *  Default 1. */
+  distinctShapes?: number;
   children: CandidateBox[];
 }
 
 export interface CollapseParams {
-  /** λ — weight on box-declaration overhead (universalInt(n) + type label).
-   *  The zoom knob. LOW λ ⇒ cheap boxes ⇒ MORE collapse ⇒ fewer visible nodes
-   *  (zoomed OUT, summarized); HIGH λ ⇒ expensive boxes ⇒ less collapse ⇒
-   *  instances inlined (zoomed IN, detail). (Note: this is the opposite
-   *  direction from an early design-doc draft — implementing it fixed the sign.
-   *  #collapsed is monotone non-increasing in λ — see the test.) Lagrangian
-   *  dual of a hard box-limit K. Default 1. */
+  /** λ — zoom knob, scales the per-occurrence reference overhead. LOW λ ⇒ cheap
+   *  references ⇒ MORE collapse ⇒ fewer visible nodes (zoomed OUT); HIGH λ ⇒
+   *  expensive references ⇒ instances inlined (zoomed IN). #collapsed is monotone
+   *  non-increasing in λ. Lagrangian dual of a hard box-limit K. Default 1. */
   lambda?: number;
-  /** ε — V's per-in-box parsimony tax: a collapsed box's body costs ×(1+ε), so
-   *  a lone call stays OUTSIDE a box unless boxing genuinely pays. This is the
-   *  RIGHT shape for AST-licensed boxes (membership is free — the scope names
-   *  its members), NOT the VoG combinatorial term log2(C(n,m)) (which applies
-   *  only when boxes are DISCOVERED over arbitrary subsets and would over-
-   *  suppress small-but-wanted boxes like a ×3 fan-out). Default 0.01. */
-  epsilon?: number;
 }
 
 export type Decision = "collapsed" | "expanded";
 
 export interface CollapseResult {
-  /** Decision per box id. */
   decisions: Map<string, Decision>;
   /** Total description length (bits) of the optimal grouping. */
   totalBits: number;
+  /** Fully-expanded (raw) description length — the admissibility anchor: a
+   *  grouping is only admitted if it beats this. `totalBits <= rawBits` always. */
+  rawBits: number;
 }
 
-/** log2(k) with a floor so log2(0)=log2(1)=0 stays finite. */
 const log2 = (k: number): number => (k <= 1 ? 0 : Math.log2(k));
+/** Rissanen universal integer code length (bits). Exact constant log2(2.865). */
+const universalIntBits = (n: number): number => log2(n) + Math.log2(2.865);
 
-/**
- * Rissanen universal code length for a non-negative integer (bits) — the cost
- * to write down "this box has n instances". `log2(n) + log2 2.865` is the
- * standard one-term approximation (the full log* iterates the log; one term is
- * plenty at our scales). This (× λ) is the box-declaration overhead — and
- * because n=1 ⇒ log2(1)=0, it already discourages boxing a single iteration.
- */
-const universalIntBits = (n: number): number => log2(n) + 1.5165;
+/** Count scopes in the forest → the grammar alphabet size; a reference names one
+ *  symbol, so refBits = log2(alphabet). */
+function countScopes(forest: CandidateBox[]): number {
+  let c = 0;
+  const walk = (b: CandidateBox): void => {
+    c++;
+    for (const ch of b.children) walk(ch);
+  };
+  for (const b of forest) walk(b);
+  return c;
+}
 
-/**
- * Bottom-up tree DP over the laminar candidate forest. For each box, choose the
- * cheaper of:
- *   COLLAPSED — declare the box once: overhead (λ·[universalInt(n) + type label]
- *               + membership) + ONE template body (children at their optimal
- *               cost) + the n instances' binding residual.
- *   EXPANDED  — inline all n instances: n × (template body, children optimal).
- * The min is the subtree's optimal description length; the decision is recorded.
- * Children are resolved first (post-order), so `bodyBits` already reflects their
- * optimal grouping — this is what makes nesting (×3 fan-out inside ×K loop)
- * compose for free (design doc §4.6).
- *
- * Deterministic tie-break: COLLAPSED wins ties (then leave id order to the
- * caller's stable map) — equal-cost flips would cause visual churn across runs
- * (design doc §4.7), same discipline as canonical-DNF variant ordering.
- */
-function solve(box: CandidateBox, params: Required<CollapseParams>, out: Map<string, Decision>): number {
-  // Post-order: children first.
-  let childrenBits = 0;
-  for (const child of box.children) childrenBits += solve(child, params, out);
+interface Ctx {
+  lambda: number;
+  refBits: number;
+  out: Map<string, Decision>;
+}
 
-  // One instance of this box's body = its own structure + children's optimal cost.
-  const bodyBits = box.localBits + childrenBits;
-
-  const TYPE_LABEL_BITS = 2; // 4 box types → 2 bits to name which.
-  const overhead = params.lambda * (universalIntBits(box.n) + TYPE_LABEL_BITS);
-
-  // COLLAPSED: declare the box once (overhead) + ONE template body taxed by
-  // (1+ε) (V's parsimony pressure) + the n instances' binding residual.
-  const collapsed = overhead + bodyBits * (1 + params.epsilon) + box.n * box.perInstanceResidualBits;
-  // EXPANDED: inline all n instances of the body.
-  const expanded = box.n * bodyBits;
-
-  // COLLAPSED wins ties (deterministic, bias toward the compressed view).
-  if (collapsed <= expanded) {
-    out.set(box.id, "collapsed");
-    return collapsed;
-  }
-  out.set(box.id, "expanded");
-  return expanded;
+/** Per-occurrence reference cost: name the nonterminal + its ×n count + bind its
+ *  ports. Scaled by λ (the zoom knob). */
+function refCost(box: CandidateBox, ctx: Ctx): number {
+  const ports = box.boundaryPorts ?? 0;
+  return ctx.lambda * (ctx.refBits + universalIntBits(box.n) + ports * ctx.refBits);
 }
 
 /**
- * Run the optimizer over a forest of top-level candidate boxes. Returns the
- * per-box collapse/expand decisions and the total optimal description length.
+ * Post-order DP. `ancestorMult` = ∏ strict-ancestor multiplicities = the number
+ * of trace-slots this scope occupies (precomputed structurally — independent of
+ * decisions). Returns `{ defBits, placeBits }`:
+ *   - defBits  = total one-time definition bits in this subtree (collapsed
+ *     nonterminals' bodies, each counted once).
+ *   - placeBits = cost to place ONE occurrence of this scope in its parent's
+ *     body: a reference if collapsed, else n inlined body copies.
+ * Decision per scope: COLLAPSED iff its total contribution is cheaper.
+ *   COLLAPSED total = defBody(once) + ancestorMult·refCost + shape-selector
+ *   EXPANDED total  = ancestorMult · n · defBody
+ * (defBody = localBits + Σ children placeBits; a collapsed child contributes a
+ * cheap reference here, NOT its whole body — this is the fix to the double-count.)
+ */
+function solve(box: CandidateBox, ancestorMult: number, ctx: Ctx): { defBits: number; placeBits: number } {
+  let childDefBits = 0;
+  let childPlaceBits = 0;
+  const childMult = ancestorMult * box.n; // each child occupies this many slots
+  for (const child of box.children) {
+    const r = solve(child, childMult, ctx);
+    childDefBits += r.defBits;
+    childPlaceBits += r.placeBits;
+  }
+
+  const defBody = box.localBits + childPlaceBits; // one instance of this box's body
+  const shapeSelector = ancestorMult * box.n * log2(box.distinctShapes ?? 1);
+
+  const collapsedTotal = defBody + ancestorMult * refCost(box, ctx) + shapeSelector;
+  const expandedTotal = ancestorMult * box.n * defBody;
+
+  // Deterministic tiebreak: COLLAPSED wins ties (bias to the compressed view).
+  if (collapsedTotal <= expandedTotal) {
+    ctx.out.set(box.id, "collapsed");
+    // Definition paid once here; parent pays only a reference per slot.
+    return { defBits: childDefBits + defBody, placeBits: refCost(box, ctx) };
+  }
+  ctx.out.set(box.id, "expanded");
+  // No nonterminal; parent inlines n copies of the body (children defs still
+  // counted once via childDefBits — that's the double-count fix).
+  return { defBits: childDefBits, placeBits: box.n * defBody };
+}
+
+/** Fully-expanded (raw) description length: every instance's local structure
+ *  written out, no references/ports. Σ over scopes of ancestorMult·n·localBits. */
+function rawCost(forest: CandidateBox[]): number {
+  let total = 0;
+  const walk = (b: CandidateBox, ancestorMult: number): void => {
+    total += ancestorMult * b.n * b.localBits;
+    for (const ch of b.children) walk(ch, ancestorMult * b.n);
+  };
+  for (const b of forest) walk(b, 1);
+  return total;
+}
+
+/**
+ * Run the optimizer. Children/forest are processed in id-sorted order so the
+ * decision map is deterministic regardless of input array order (review nit 6).
  */
 export function collapseMDL(forest: CandidateBox[], params: CollapseParams = {}): CollapseResult {
-  const resolved: Required<CollapseParams> = { lambda: params.lambda ?? 1, epsilon: params.epsilon ?? 0.01 };
-  const decisions = new Map<string, Decision>();
+  const sortById = (boxes: CandidateBox[]): CandidateBox[] =>
+    [...boxes]
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((b) => ({ ...b, children: sortById(b.children) }));
+  const sorted = sortById(forest);
+
+  const ctx: Ctx = { lambda: params.lambda ?? 1, refBits: log2(countScopes(sorted)) || 1, out: new Map() };
+
   let totalBits = 0;
-  for (const box of forest) totalBits += solve(box, resolved, decisions);
-  return { decisions, totalBits };
+  for (const root of sorted) {
+    const r = solve(root, 1, ctx);
+    totalBits += r.defBits + r.placeBits; // start symbol places each root once
+  }
+  return { decisions: ctx.out, totalBits, rawBits: rawCost(sorted) };
 }
