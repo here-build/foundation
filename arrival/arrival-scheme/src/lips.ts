@@ -267,7 +267,7 @@ specials.on(["remove", "append"], function () {
 // :: or macro assigned to symbol, this function is async because
 // :: it evaluates the code, from parser extensions, that may return a promise.
 // ----------------------------------------------------------------------
-async function* _parse(arg: SchemeValue, env?: Environment) {
+async function* _parse(arg: SchemeValue, env?: Environment, source?: string) {
   if (!env) {
     env = global_env
       ? (global_env.get("**interaction-environment**", {
@@ -279,7 +279,7 @@ async function* _parse(arg: SchemeValue, env?: Environment) {
   if (arg instanceof Parser) {
     parser = arg;
   } else {
-    parser = new Parser({ env });
+    parser = new Parser({ env, source });
     parser.parse(arg);
   }
   let prev;
@@ -4300,9 +4300,9 @@ for (const [i, cls] of Object.entries(available_class)) {
 // -------------------------------------------------------------------------
 
 // unwrap async generator into Promise<Array>
-export const parse = async (arg: SchemeValue, env?: Environment) => {
+export const parse = async (arg: SchemeValue, env?: Environment, source?: string) => {
   const result: SchemeValue[] = [];
-  for await (const item of _parse(arg, env)) {
+  for await (const item of _parse(arg, env, source)) {
     result.push(item);
   }
   return result;

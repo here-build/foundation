@@ -115,11 +115,13 @@ export async function exec(
 
 /**
  * Parse Scheme code without evaluating.
- * Re-exported from LIPS for convenience.
+ * Re-exported from LIPS for convenience. `source` (a filename / module path) is
+ * stamped onto every produced location, so frames built from these forms read as
+ * `file:line` — used by `(require …)` to attribute a module's throws to its file.
  */
-export async function parse(code: string, env?: Environment): Promise<SchemeValue[]> {
+export async function parse(code: string, env?: Environment, source?: string): Promise<SchemeValue[]> {
   const lips = await getLips();
-  return lips.parse(code, env);
+  return lips.parse(code, env, source);
 }
 
 /**

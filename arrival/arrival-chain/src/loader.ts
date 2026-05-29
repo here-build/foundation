@@ -139,7 +139,10 @@ export function defaultResolvers(): Map<string, ContentResolver> {
     }),
   ]);
   return new Map<string, ContentResolver>([
-    [".scm", async (contents) => ({ kind: "load", forms: await parse(String(contents)) })],
+    // Pass the module path as `source` so a throw inside this file reads as
+    // `path:line` in the scheme stack (L3). `.hbs` deliberately omits it — its
+    // parsed forms are a synthetic `(lambda …)`, not the file's own content.
+    [".scm", async (contents, { path }) => ({ kind: "load", forms: await parse(String(contents), undefined, path) })],
     ...dataResolvers,
     [".txt", (contents, { path }) => ({ kind: "value", value: String(contents), bindAs: pathToIdent(path) })],
     // `.hbs` evaluates to a SCHEME lambda (not a raw JS fn — membrane-safe): the

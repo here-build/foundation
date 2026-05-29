@@ -53,6 +53,9 @@ interface ParserOptions {
   env?: Environment;
   meta?: boolean;
   formatter?: (token: TokenMeta) => TokenMeta;
+  /** Source identifier (filename / module path) stamped onto every location this
+   *  parser produces — so a throw inside a required module reads as `file:line`. */
+  source?: string;
 }
 
 // -------------------------------------------------------------------------
@@ -72,12 +75,18 @@ export class Parser {
   __env__?: Environment;
   private readonly _formatter!: (token: TokenMeta) => TokenMeta;
   private readonly _meta!: boolean;
+  private readonly _source?: string;
   private _refs!: (SchemeValue | Promise<SchemeValue>)[];
   private readonly _state!: { parentheses: number; fold_case: boolean };
 
-  constructor({ env, meta = false, formatter = defaultFormatter }: ParserOptions = {}) {
+  constructor({ env, meta = false, formatter = defaultFormatter, source }: ParserOptions = {}) {
     Object.defineProperty(this, "_formatter", {
       value: formatter,
+      configurable: true,
+      enumerable: false,
+    });
+    Object.defineProperty(this, "_source", {
+      value: source,
       configurable: true,
       enumerable: false,
     });
@@ -200,6 +209,9 @@ export class Parser {
       line: meta.line + 1, // Convert 0-indexed to 1-indexed
       col: meta.col,
       offset: meta.offset,
+      // `source` (this parser's filename/module path) makes frames read as
+      // `file:line`; undefined for sourceless parses (the bare REPL/entry).
+      source: this._source,
     };
   }
 

@@ -210,4 +210,25 @@ describe("require — Plexus VFS preamble", () => {
     expect(err).toBeDefined();
     expect((err as { requireChain?: string[] }).requireChain).toEqual(["a.scm", "b.scm"]);
   });
+
+  it("tags a required module's frames with its file path (file:line in the scheme stack)", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    // A require-time throw via a USER-function call located in the module: only
+    // user-function calls push a frame (builtins like `car` are leaf ops), so the
+    // `(boom)` call — located in util.scm via the `source` threaded through parse —
+    // is what's captured (car's typecheck throws inside, TCO-folded into boom's
+    // frame). The rendered SchemeError stack reads `util.scm:line`.
+    project.addFile("util.scm", `(define (boom) (car 5)) (boom)`);
+
+    let err: unknown;
+    try {
+      await project.run(`(require "util.scm")`);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect(String(err)).toContain("util.scm");
+  });
 });
