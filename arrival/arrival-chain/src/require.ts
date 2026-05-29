@@ -39,7 +39,76 @@ function dataExt(path: string): string | null {
  */
 export type RequireResolver = (path: string) => string;
 
-const REQUIRE_RE = /\(require\s+"([^"]+)"\)/g;
+const REQUIRE_STICKY = /\(require\s+"([^"]+)"\)/y;
+
+/**
+ * Replace every CODE-CONTEXT `(require "…")` form via `replace`, copying the rest
+ * of the text verbatim. Unlike a raw regex over the source, this skips matches
+ * inside line comments (`;…`), block comments (`#| … |#`, nestable), and string
+ * literals — so a library that documents its own usage in a header comment
+ * (`;; (require "_lib.scm")`) or mentions a require inside a string isn't mistaken
+ * for a real (self-)require. (Datum comments `#;` aren't handled — rare; a
+ * `#;(require …)` would still be treated as real.)
+ */
+function replaceRealRequires(text: string, replace: (path: string) => string): string {
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text[i]!;
+    if (ch === ";") {
+      const nl = text.indexOf("\n", i);
+      const end = nl === -1 ? n : nl;
+      out += text.slice(i, end);
+      i = end;
+    } else if (ch === "#" && text[i + 1] === "|") {
+      let depth = 1;
+      let k = i + 2;
+      while (k < n && depth > 0) {
+        if (text[k] === "#" && text[k + 1] === "|") {
+          depth++;
+          k += 2;
+        } else if (text[k] === "|" && text[k + 1] === "#") {
+          depth--;
+          k += 2;
+        } else {
+          k++;
+        }
+      }
+      out += text.slice(i, k);
+      i = k;
+    } else if (ch === '"') {
+      let k = i + 1;
+      while (k < n) {
+        if (text[k] === "\\") {
+          k += 2;
+          continue;
+        }
+        if (text[k] === '"') {
+          k++;
+          break;
+        }
+        k++;
+      }
+      out += text.slice(i, k);
+      i = k;
+    } else if (ch === "(") {
+      REQUIRE_STICKY.lastIndex = i;
+      const m = REQUIRE_STICKY.exec(text);
+      if (m) {
+        out += replace(m[1]!);
+        i += m[0].length;
+      } else {
+        out += ch;
+        i++;
+      }
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  return out;
+}
 
 /** `_lib.scm` → `_lib`, `data.json` → `data`. */
 function pathToIdent(path: string): string {
@@ -89,7 +158,7 @@ export function resolveRequires(
   const segments: string[] = [];
 
   const rewrite = (text: string, stack: ReadonlySet<string>): string =>
-    text.replaceAll(REQUIRE_RE, (_match, path: string) => {
+    replaceRealRequires(text, (path: string) => {
       if (path.endsWith(".hbs")) {
         // Inline-callable: rewrite the call site to a lambda literal. No
         // preamble binding — the user names it (or invokes inline).

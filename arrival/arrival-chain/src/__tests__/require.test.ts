@@ -83,6 +83,38 @@ describe("require — Plexus VFS preamble", () => {
     expect(value).toBe(3); // 1 + 2; if _base were inlined twice, the second define would be a re-bind (no-op here) but more concerning, transitive ordering would break
   });
 
+  it("ignores (require …) tokens in comments and strings — not real requires", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    // A real-world library that documents its own usage in a header comment and
+    // mentions a require inside a string. Neither is a real require; the naive
+    // regex used to match them → false `_lib.scm → _lib.scm` self-cycle.
+    project.addFile(
+      "_lib.scm",
+      [
+        `;; Shared helpers. Load with: (require "_lib.scm")`,
+        `(define note "to import, write (require \\"_lib.scm\\")")`,
+        `(define (greet who) (string-append "hi " who))`,
+      ].join("\n"),
+    );
+
+    const value = await project.run(`
+      (require "_lib.scm")
+      (greet "world")
+    `);
+    expect(value).toBe("hi world");
+  });
+
+  it("ignores a (require …) inside a block comment", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile("_b.scm", `#| example: (require "_b.scm") |# (define x 7)`);
+    const value = await project.run(`(require "_b.scm") x`);
+    expect(value).toBe(7);
+  });
+
   it("throws on a cyclic require", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
