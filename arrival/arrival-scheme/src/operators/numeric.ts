@@ -336,11 +336,42 @@ export const lcm = Operator.create("lcm", {
   },
 });
 
-/** (expt base power) - Exponentiation. */
+/**
+ * (expt base power) - Exponentiation.
+ *
+ * R7RS § 6.2.6: when both arguments are exact and the result is exactly
+ * representable, the result is exact. The old `fn: Math.pow` round-tripped
+ * everything through a JS double, so `(expt 2 1000)` returned a lossy
+ * ~1.07e+301 inexact and `(expt 2 -1)` returned 0.5 instead of the exact 1/2.
+ * We now special-case an exact base raised to an exact INTEGER power and
+ * compute it with BigInt `**` (exact rational for negative powers), falling
+ * back to `Math.pow` only when an operand is inexact or the exponent is a
+ * non-integer rational (where the result genuinely isn't exact-representable).
+ */
+function schemeExpt(base: SchemeNumeric, power: SchemeNumeric): SchemeNumeric {
+  if (
+    base instanceof SchemeExact &&
+    power instanceof SchemeExact &&
+    power.denom === 1n // integer exponent only — rational exponents go inexact
+  ) {
+    const n = power.num;
+    if (n >= 0n) {
+      // (p/q)^n = p^n / q^n. SchemeExact normalizes/reduces.
+      return new SchemeExact(base.num ** n, base.denom ** n);
+    }
+    // Negative exponent → reciprocal: (p/q)^(-m) = q^m / p^m. Guard 0 base.
+    invariant(base.num !== 0n, "expt: division by zero (0 raised to a negative power)");
+    const m = -n;
+    return new SchemeExact(base.denom ** m, base.num ** m);
+  }
+  // Inexact (or non-integer exponent): float exponentiation is correct here.
+  return new SchemeInexact(Math.pow(toReal(base, "expt"), toReal(power, "expt")));
+}
+
 export const expt = new Operator("expt", {
-  in: [Num, Num],
-  out: Num,
-  fn: Math.pow,
+  in: [SchemeNum, SchemeNum],
+  out: SchemeNum,
+  fn: schemeExpt,
 });
 
 // ============================================================================
@@ -389,17 +420,39 @@ function toReal(n: SchemeNumeric, opName: string): number {
   return n.real;
 }
 
+/**
+ * Three-way comparison of two reals: -1 / 0 / 1, or NaN if incomparable
+ * (either operand is a NaN inexact). The exact/exact case routes through
+ * `SchemeExact.cmp` (bigint cross-multiplication) instead of coercing to a
+ * JS double — that float coercion was the source of the R7RS bug where
+ * `(< 999999999999999998 999999999999999999)` returned #f: both 18-digit
+ * integers collapse to the same double (1e18), so `prev < curr` was false.
+ * Only when at least one side is inexact do we fall back to `toReal`, where
+ * the precision is already gone and float comparison is the correct semantics
+ * (and NaN naturally propagates → every comparison against it is #f).
+ */
+function schemeCompare(a: SchemeNumeric, b: SchemeNumeric, opName: string): number {
+  if (a instanceof SchemeExact && b instanceof SchemeExact) {
+    return a.cmp(b);
+  }
+  const ar = toReal(a, opName);
+  const br = toReal(b, opName);
+  if (ar < br) return -1;
+  if (ar > br) return 1;
+  if (ar === br) return 0;
+  return Number.NaN; // a NaN operand → incomparable; all chained tests fail
+}
+
 /** (< n1 n2 ...) - Returns #t if arguments are in strictly increasing order. */
 export const lt = new Operator("<", {
   in: [SchemeNum],
   inRest: SchemeNum,
   out: Bool,
   fn: (first: SchemeNumeric, ...rest: SchemeNumeric[]) => {
-    let prev = toReal(first, "<");
+    let prev = first;
     for (const x of rest) {
-      const curr = toReal(x, "<");
-      if (!(prev < curr)) return false;
-      prev = curr;
+      if (!(schemeCompare(prev, x, "<") < 0)) return false;
+      prev = x;
     }
     return true;
   },
@@ -411,11 +464,10 @@ export const gt = new Operator(">", {
   inRest: SchemeNum,
   out: Bool,
   fn: (first: SchemeNumeric, ...rest: SchemeNumeric[]) => {
-    let prev = toReal(first, ">");
+    let prev = first;
     for (const x of rest) {
-      const curr = toReal(x, ">");
-      if (!(prev > curr)) return false;
-      prev = curr;
+      if (!(schemeCompare(prev, x, ">") > 0)) return false;
+      prev = x;
     }
     return true;
   },
@@ -427,11 +479,11 @@ export const lte = new Operator("<=", {
   inRest: SchemeNum,
   out: Bool,
   fn: (first: SchemeNumeric, ...rest: SchemeNumeric[]) => {
-    let prev = toReal(first, "<=");
+    let prev = first;
     for (const x of rest) {
-      const curr = toReal(x, "<=");
-      if (!(prev <= curr)) return false;
-      prev = curr;
+      // NaN ⇒ schemeCompare returns NaN ⇒ `NaN <= 0` is false ⇒ short-circuit.
+      if (!(schemeCompare(prev, x, "<=") <= 0)) return false;
+      prev = x;
     }
     return true;
   },
@@ -443,11 +495,10 @@ export const gte = new Operator(">=", {
   inRest: SchemeNum,
   out: Bool,
   fn: (first: SchemeNumeric, ...rest: SchemeNumeric[]) => {
-    let prev = toReal(first, ">=");
+    let prev = first;
     for (const x of rest) {
-      const curr = toReal(x, ">=");
-      if (!(prev >= curr)) return false;
-      prev = curr;
+      if (!(schemeCompare(prev, x, ">=") >= 0)) return false;
+      prev = x;
     }
     return true;
   },

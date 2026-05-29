@@ -88,45 +88,38 @@ describe("r7rs numbers — passing invariants (regression guards)", () => {
   });
 });
 
-describe("r7rs numbers — known bugs (it.fails — flipping to green = regression of the bug)", () => {
-  it.fails(
+describe("r7rs numbers — exactness/precision fixes (regression guards)", () => {
+  it(
     "(expt 2 -1) returns exact 1/2 (R7RS § 6.2: exact args + exact-representable result → exact)",
     async () => {
-      // `operators/numeric.ts:340-344`: `expt: Math.pow`. Math.pow(2,-1) = 0.5,
-      // not a safe integer → `Num.fromJS` (membrane.ts:443-448) returns
-      // SchemeInexact. R7RS allows exact-result detection for rational
-      // exponents; we don't even try.
-      //
-      // Predicted failure value: (exact? (expt 2 -1)) === #f.
+      // FIXED at `operators/numeric.ts` (schemeExpt): exact integer base raised
+      // to an exact integer power computes with BigInt `**` (exact rational for
+      // negative powers) instead of `Math.pow`, which used to return 0.5
+      // (inexact). Flipping this back to red = regression of the exactness fix.
       const r = await evalScheme("(exact? (expt 2 -1))");
       expect(truthy(r)).toBe(true);
     },
   );
 
-  it.fails(
+  it(
     "(expt 2 1000) returns an exact bigint, not inexact ~1.07e+301",
     async () => {
-      // Same Math.pow root cause. 2^1000 is a perfectly representable
-      // SchemeExact (BigInt), but `expt` round-trips through float and
-      // returns ~1.0715086071862673e+301 — inexact, AND lossy (only the
-      // top ~53 bits survive).
-      //
-      // Predicted failure value: (exact? (expt 2 1000)) === #f.
+      // FIXED with the same schemeExpt path. 2^1000 is a representable
+      // SchemeExact (BigInt); the old Math.pow round-trip returned a lossy
+      // ~1.0715086071862673e+301 inexact (only the top ~53 bits survived).
       const r = await evalScheme("(exact? (expt 2 1000))");
       expect(truthy(r)).toBe(true);
     },
   );
 
-  it.fails(
+  it(
     "(< 999999999999999998 999999999999999999) returns #t for huge exacts",
     async () => {
-      // `operators/numeric.ts:384-390`: `toReal` coerces every SchemeNumeric
-      // to a JS number via `Number(num) / Number(denom)`. Both 10^18-2 and
-      // 10^18-1 round to the SAME double precision float (1e18), so
-      // `prev < curr` is false and `lt` returns #f. Same hazard in `>`,
-      // `<=`, `>=` (same toReal path).
-      //
-      // Predicted failure value: #f instead of #t.
+      // FIXED at `operators/numeric.ts` (schemeCompare): the exact/exact case
+      // now routes through `SchemeExact.cmp` (bigint cross-multiplication)
+      // instead of coercing to a JS double. Both 10^18-2 and 10^18-1 used to
+      // round to the SAME double (1e18), so `<` returned #f. Same fix covers
+      // `>`, `<=`, `>=`.
       const r = await evalScheme("(< 999999999999999998 999999999999999999)");
       expect(truthy(r)).toBe(true);
     },
