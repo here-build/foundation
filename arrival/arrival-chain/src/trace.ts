@@ -96,6 +96,13 @@ export class Invocation {
    */
   isProvenancePoint = false;
   /**
+   * True when this Pair was evaluated in tail position (R7RS §3.5) — set from
+   * the evaluator's own tail flag at enter (NOT inferred from trace shape). A
+   * call in tail position is a tail call; `traceToForest` reads this to identify
+   * tail-recursive loops (the clean ×K stack) vs. stack-growing recursion.
+   */
+  tailPosition = false;
+  /**
    * Provenance contributions from symbol resolutions during this invocation's
    * evaluation. Populated by `onSymbolResolved`: when a bare symbol (`x`)
    * resolves to an AValue with non-empty provenance, that set is added here.
@@ -194,8 +201,9 @@ export class EvalTrace implements EvalTap {
   // and are fired from the evaluator (i.e. outside any user-facing action),
   // so they are themselves bound as MobX actions to satisfy strict mode.
 
-  enter = action((node: Pair, parent: unknown): Invocation => {
+  enter = action((node: Pair, parent: unknown, tailPosition?: boolean): Invocation => {
     const inv = new Invocation(this.#nextId++, node, parent as Invocation | null);
+    if (tailPosition) inv.tailPosition = true;
     let rec = this.records.get(node);
     if (!rec) {
       rec = new NodeRecord();

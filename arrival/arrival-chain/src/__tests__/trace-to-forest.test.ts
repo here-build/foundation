@@ -143,3 +143,30 @@ describe("traceToForest — real gepa trace", () => {
     expect(byHead(flatten(forest), "react-cell")).toHaveLength(0);
   });
 });
+
+describe("TCO detection — tailPosition flows from the evaluator to the trace", () => {
+  it("marks the recursive loop call as a tail call; non-tail work as not", async () => {
+    const trace = await gepaTrace();
+    const all = [...trace.records.values()].flatMap((r) => [...r.bindings]);
+    const headOf = (i: { node: unknown }) =>
+      ((i.node as { car?: { __name__?: unknown } })?.car?.__name__ as string | undefined) ?? "?";
+
+    // The recursive `(loop …)` call (head "loop" with a same-Pair ancestor) is
+    // in tail position → a tail call. Detected from the evaluator's own flag,
+    // not inferred from the (flattened) trace shape.
+    const recursiveLoopCalls = all.filter((i) => {
+      if (headOf(i) !== "loop") return false;
+      for (let p = i.parent; p; p = p.parent) if (p.node === i.node) return true;
+      return false;
+    });
+    expect(recursiveLoopCalls.length).toBeGreaterThan(0);
+    expect(recursiveLoopCalls.every((i) => i.tailPosition)).toBe(true);
+
+    // The map (a let-binding RHS) and the inferences (arguments to `car`) are
+    // NOT in tail position — so we can tell a tail loop from stack-growing work.
+    const maps = all.filter((i) => headOf(i) === "map");
+    expect(maps.length).toBeGreaterThan(0);
+    expect(maps.every((i) => !i.tailPosition)).toBe(true);
+    expect(all.filter((i) => i.isProvenancePoint).every((i) => !i.tailPosition)).toBe(true);
+  });
+});

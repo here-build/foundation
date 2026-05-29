@@ -161,7 +161,15 @@ export type Invocation = unknown;
  * arbitrary async work, with either a value or an error.
  */
 export interface EvalTap {
-  enter(node: Pair, parent: Invocation | null): Invocation;
+  /**
+   * `tailPosition` surfaces the evaluator's ground-truth: this Pair is being
+   * evaluated in tail position (R7RS §3.5), so a call here is a tail call. The
+   * trace uses it to identify tail-recursive loops precisely — don't infer TCO
+   * from the flattened parent structure, read the flag the evaluator already
+   * computes for the trampoline. Optional for backward-compat with taps that
+   * don't care.
+   */
+  enter(node: Pair, parent: Invocation | null, tailPosition?: boolean): Invocation;
   /**
    * Returning a value-shaped result substitutes the evaluator's outgoing value
    * for the invocation. Used by provenance plumbing: the tap stamps the result
@@ -2251,7 +2259,7 @@ export function* evaluate(code: SchemeValue, ctx: EvalContext): EvalGenerator {
   // Atoms above and macro-expansion-constructed Pairs (no location) are skipped.
   const tap = ctx.tap;
   if (tap && __location__ in code && (!ctx.nodeFilter || ctx.nodeFilter(code))) {
-    const inv = tap.enter(code, ctx.currentInvocation ?? null);
+    const inv = tap.enter(code, ctx.currentInvocation ?? null, ctx.tail === true);
     const childCtx: EvalContext = { ...ctx, currentInvocation: inv };
     return yield {
       call: evaluatePair(code, childCtx),
