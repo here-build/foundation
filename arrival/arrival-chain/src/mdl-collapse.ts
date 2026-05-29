@@ -45,7 +45,7 @@
  * steps (doc §9). The cost ALGEBRA here is the formally-correct one.
  */
 
-export type BoxType = "unfold" | "loop" | "dnf" | "fold";
+export type BoxType = "unfold" | "loop" | "dnf" | "fold" | "leaf";
 
 export interface CandidateBox {
   id: string;
@@ -64,6 +64,12 @@ export interface CandidateBox {
    *  residual, kept STRUCTURAL (topology) so the layout stays value-stable.
    *  Default 1. */
   distinctShapes?: number;
+  /** Override the MDL decision (design §4.6 / §5.4 marks-as-override). Unset ⇒
+   *  the optimizer decides ("suggested"). `"collapsed"` ⇒ always a box
+   *  ("forced", e.g. a promoted user-define). `"expanded"` ⇒ always flattened
+   *  (force-suppress a box the MDL wanted). The human's deliberate disagreement
+   *  with the optimizer, honored. */
+  force?: Decision;
   children: CandidateBox[];
 }
 
@@ -145,8 +151,11 @@ function solve(box: CandidateBox, ancestorMult: number, ctx: Ctx): { defBits: nu
   const collapsedTotal = defBody + ancestorMult * refCost(box, ctx) + shapeSelector;
   const expandedTotal = ancestorMult * box.n * defBody;
 
-  // Deterministic tiebreak: COLLAPSED wins ties (bias to the compressed view).
-  if (collapsedTotal <= expandedTotal) {
+  // `force` overrides the MDL decision (a "forced" promoted define, or a human
+  // force-expand). Otherwise COLLAPSED wins ties (bias to the compressed view).
+  const collapse = box.force ? box.force === "collapsed" : collapsedTotal <= expandedTotal;
+
+  if (collapse) {
     ctx.out.set(box.id, "collapsed");
     // Definition paid once here; parent pays only a reference per slot.
     return { defBits: childDefBits + defBody, placeBits: refCost(box, ctx) };

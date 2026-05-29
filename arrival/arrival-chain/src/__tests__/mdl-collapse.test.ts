@@ -148,3 +148,24 @@ describe("collapseMDL — behavior", () => {
     expect([...r1.decisions.entries()].sort()).toEqual([...r2.decisions.entries()].sort());
   });
 });
+
+describe("collapseMDL — force override (suggested vs forced / §5.4 marks)", () => {
+  it('FORCED: a "forced" box collapses even when MDL would expand it (single occurrence)', () => {
+    // n=1 ⇒ MDL expands (ref overhead > 0 saving). force:"collapsed" overrides.
+    const plain = collapseMDL([box({ id: "x", type: "leaf", n: 1, localBits: 6 })]);
+    expect(plain.decisions.get("x")).toBe("expanded");
+    const forced = collapseMDL([box({ id: "x", type: "leaf", n: 1, localBits: 6, force: "collapsed" })]);
+    expect(forced.decisions.get("x")).toBe("collapsed");
+  });
+
+  it('FORCE-EXPAND: flattens a box the MDL wanted to collapse (a deliberate human override)', () => {
+    // The gepa loop MDL-collapses; force:"expanded" flattens it.
+    const forest = gepaForest(50, 3);
+    forest[0]!.force = "expanded";
+    expect(collapseMDL(forest).decisions.get("loop")).toBe("expanded");
+  });
+
+  it("SUGGESTED (no force) defers to the optimizer — unchanged behavior", () => {
+    expect(collapseMDL(gepaForest(50, 3)).decisions.get("loop")).toBe("collapsed");
+  });
+});
