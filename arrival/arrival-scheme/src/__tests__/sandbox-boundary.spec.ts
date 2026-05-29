@@ -360,4 +360,37 @@ describe("Sandbox Boundary", () => {
       expect(sandboxedAccess(child, "ownProp")).toBe("own");
     });
   });
+
+  describe("isSandboxBoundary — global-constructor rule", () => {
+    it("flags a global ctor's prototype that is NOT in the explicit list (TypeError)", () => {
+      // TypeError is global, but TypeError.prototype is not enumerated in
+      // BUILTIN_BOUNDARY_PROTOTYPES — the globalThis[name]===ctor rule covers it
+      // (and every other global built-in we don't list, e.g. the Error subclasses).
+      expect(isSandboxBoundary(TypeError.prototype)).toBe(true);
+    });
+
+    it("does NOT flag a local (non-global) class prototype; its own method stays reachable", () => {
+      class Widget {
+        greet() {
+          return "hi";
+        }
+      }
+      expect(isSandboxBoundary(Widget.prototype)).toBe(false);
+      expect(sandboxedAccess(new Widget(), "greet")).toBeInstanceOf(Function);
+    });
+
+    it("does NOT falsely flag an ad-hoc object used as a prototype (own data stays reachable)", () => {
+      // It inherits `constructor` from Object — the own-constructor guard keeps it
+      // OFF the boundary set, so a child's access to its own data is not blocked.
+      const proto = { helper: 1 };
+      expect(isSandboxBoundary(proto)).toBe(false);
+      expect(sandboxedAccess(Object.create(proto), "helper")).toBe(1);
+    });
+
+    it("is identity-checked: spoofing constructor.name = 'Object' is not a boundary", () => {
+      // ctor.name === "Object" but globalThis.Object !== this impostor → not flagged.
+      const impostor = { constructor: function Object() {} };
+      expect(isSandboxBoundary(impostor)).toBe(false);
+    });
+  });
 });

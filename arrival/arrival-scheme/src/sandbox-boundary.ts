@@ -159,6 +159,26 @@ const BLOCKED_WELL_KNOWN_SYMBOLS: Set<symbol> = new Set([
 const boundaryCache = new WeakMap<object, boolean>();
 
 /**
+ * A prototype whose OWN `constructor` is a global — `globalThis[ctor.name] ===
+ * ctor` — is a built-in's prototype, hence a boundary. Generalizes the explicit
+ * BUILTIN_BOUNDARY_PROTOTYPES list so we don't enumerate every global (Date,
+ * RegExp, Map, the Error subclasses, …). Identity-checked, not name-checked: a
+ * hostile `constructor.name = "Object"` still fails, because `globalThis["Object"]`
+ * is the REAL Object, not the impostor.
+ *
+ * The OWN-constructor requirement is the discriminator: built-in AND class
+ * prototypes have an own `constructor` (`X.prototype.constructor === X`); an
+ * ad-hoc object used as a prototype does NOT — it inherits `Object`, and without
+ * this guard would be falsely flagged as a boundary, blocking its own data.
+ */
+function isGlobalConstructorPrototype(proto: object): boolean {
+  if (!Object.prototype.hasOwnProperty.call(proto, "constructor")) return false;
+  const ctor = (proto as { constructor?: unknown }).constructor;
+  if (typeof ctor !== "function" || typeof ctor.name !== "string" || ctor.name.length === 0) return false;
+  return (globalThis as Record<string, unknown>)[ctor.name] === ctor;
+}
+
+/**
  * Check if a prototype is a sandbox boundary.
  * Results are cached for performance.
  */
@@ -172,6 +192,14 @@ export function isSandboxBoundary(proto: object | null): boolean {
 
   // Check if it's a built-in prototype
   if (BUILTIN_BOUNDARY_PROTOTYPES.has(proto)) {
+    boundaryCache.set(proto, true);
+    return true;
+  }
+
+  // A global constructor's prototype is a boundary — generalizes the explicit
+  // list above so any global built-in (incl. ones not enumerated, like the
+  // Error subclasses) stops the inheritance walk without being listed.
+  if (isGlobalConstructorPrototype(proto)) {
     boundaryCache.set(proto, true);
     return true;
   }
