@@ -37,8 +37,10 @@ export { InferenceCache, ArrivalCache } from "./cache.js";
 export { ArrivalChain } from "./arrival-chain.js";
 export { runPipeline, type RunPipelineOptions, type PublishOptions } from "./runner.js";
 export {
-  defineRequireRosetta,
   defaultResolvers,
+  defineImport,
+  defineImportRosetta,
+  defineRequireRosetta,
   loaderFromResolver,
   makeProjectLoader,
   type ContentResolver,

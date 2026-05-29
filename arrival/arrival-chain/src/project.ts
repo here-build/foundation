@@ -15,6 +15,7 @@ import { Draft } from "./draft.js";
 import { Program, ProgramVersion } from "./program.js";
 import { Hypothesis, Run, RunError, RunResult } from "./run.js";
 import {
+  defineImportRosetta,
   defineRequireRosetta,
   loaderFromResolver,
   makeProjectLoader,
@@ -280,6 +281,9 @@ export class Project extends PlexusModel<null> {
       loader?: Loader;
       /** Directory of the entry module, for resolving relative `(require …)`. */
       dirname?: string;
+      /** Per-run curated `import` registry — `(import "name")` resolves here.
+       *  Merged onto the loader's defaults (per-run entries win). */
+      imports?: Map<string, unknown>;
       /** Called with the canonical tuple-key for every `(infer …)` invocation. */
       onInfer?: (tupleKey: string) => void;
       /**
@@ -428,6 +432,10 @@ export class Project extends PlexusModel<null> {
     // required file's defines/macros are installed before the next form. The
     // module internals share this run's tap, so library infers carry provenance.
     const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
+    // `import` is the curated host-capability registry (FS-free). Merge the
+    // per-run set onto the loader's defaults; define the rosetta before exec.
+    if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
+    defineImportRosetta({ env, loader });
     defineRequireRosetta({ env, loader, tap: opts.trace, baseDir: opts.dirname ?? "" });
     const results = await exec(BUILTIN_PREAMBLE + source, { env, tap: opts.trace });
     let last: unknown = results.at(-1);
@@ -754,6 +762,9 @@ export class Project extends PlexusModel<null> {
       loader?: Loader;
       /** Directory of the entry module, for resolving relative `(require …)`. */
       dirname?: string;
+      /** Per-run curated `import` registry — `(import "name")` resolves here.
+       *  Merged onto the loader's defaults (per-run entries win). */
+      imports?: Map<string, unknown>;
       /** Called with the canonical tuple-key for every `(infer …)` invocation. */
       onInfer?: (tupleKey: string) => void;
       /** Hypothesis-style infer-result overrides keyed by canonical tuple JSON. */
@@ -835,6 +846,10 @@ export class Project extends PlexusModel<null> {
     });
 
     const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
+    // `import` is the curated host-capability registry (FS-free). Merge the
+    // per-run set onto the loader's defaults; define the rosetta before exec.
+    if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
+    defineImportRosetta({ env, loader });
     // Evaluate the builtin preamble first, tap-free, so the records map starts
     // with only user-program forms. `require` is a runtime form now: its module
     // internals are NOT tapped here (tap omitted) so a required library doesn't

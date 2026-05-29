@@ -61,6 +61,10 @@ export interface Loader {
   read(path: string): MaybePromise<string | Uint8Array>;
   /** extension → terminal resolver. Longest matching suffix wins. */
   resolvers: Map<string, ContentResolver>;
+  /** `import` name → host-provided value (a membrane namespace, a proc, any
+   *  value). Evaluate-once — holds already-built values. This is the curated
+   *  capability set a run is granted; `require` is FS, `import` is the registry. */
+  imports: Map<string, unknown>;
 }
 
 /** Legacy single-function resolver (CLI `--file` mode): `path → source`. */
@@ -177,6 +181,7 @@ export function makeProjectLoader(project: Project): Loader {
       return latest.source;
     },
     resolvers: defaultResolvers(),
+    imports: new Map(),
   };
 }
 
@@ -186,6 +191,7 @@ export function loaderFromResolver(resolver: RequireResolver): Loader {
     resolve: (specifier, fromDir) => joinPath(fromDir, specifier),
     read: (path) => resolver(path),
     resolvers: defaultResolvers(),
+    imports: new Map(),
   };
 }
 
@@ -248,6 +254,45 @@ export function defineRequireRosetta(opts: {
         loading.delete(path);
         loadingStack.pop();
       }
+    },
+  });
+}
+
+/**
+ * Builder for an `import`-able module value: wrap a record of named exports into
+ * a membrane namespace. `@`/`field` access on it routes through the sandbox
+ * boundary (so a granted capability can't be unwrapped to reach host internals —
+ * see the accessor-isolation hardening). Pre-wrapping once gives evaluate-once
+ * identity: `(eq? (import "x") (import "x"))` holds.
+ *
+ *   loader.imports.set("greet-lib", defineImport({ greet: (n) => `hi ${n}` }))
+ *   ;; scheme:  (define lib (import "greet-lib"))  ((@ lib "greet") "world")
+ *
+ * For a bare value import (a proc, a constant) register it directly — no wrap
+ * needed; the `import` rosetta's return path membrane-wraps on the way out.
+ */
+export function defineImport(exports: Record<string, unknown>): unknown {
+  return jsToLips(exports);
+}
+
+/**
+ * Define the `import` rosetta on `env`: `(import "name")` → host registry lookup
+ * (`loader.imports`) → the stored value. Unregistered → error listing what IS
+ * registered. Unlike `require`, `import` is FS-free and always available — it's
+ * the curated capability set, not file access.
+ */
+export function defineImportRosetta(opts: { env: Environment; loader: Loader }): void {
+  const { env, loader } = opts;
+  env.defineRosetta("import", {
+    fn: (nameArg: unknown) => {
+      const name = String(nameArg);
+      if (!loader.imports.has(name)) {
+        const known = [...loader.imports.keys()];
+        throw new Error(
+          `import: unknown module "${name}" (registered: ${known.length > 0 ? known.join(", ") : "none"})`,
+        );
+      }
+      return loader.imports.get(name);
     },
   });
 }
