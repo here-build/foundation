@@ -56,6 +56,7 @@ export {
   type CollapseResult,
   type Decision,
 } from "./mdl-collapse.js";
+export { traceToForest, type ForestOptions } from "./trace-to-forest.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //
