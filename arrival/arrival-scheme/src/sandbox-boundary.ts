@@ -172,9 +172,14 @@ const boundaryCache = new WeakMap<object, boolean>();
  * this guard would be falsely flagged as a boundary, blocking its own data.
  */
 function isGlobalConstructorPrototype(proto: object): boolean {
-  if (!Object.prototype.hasOwnProperty.call(proto, "constructor")) return false;
-  const ctor = (proto as { constructor?: unknown }).constructor;
+  // Read `constructor` via its OWN descriptor: own + data-slot only. This both
+  // enforces the own-requirement (an ad-hoc prototype inherits `Object` → no own
+  // descriptor → undefined) AND hardens the read — a hostile own *accessor*
+  // `constructor` is never invoked (no getter fires).
+  const ctor = Reflect.getOwnPropertyDescriptor(proto, "constructor")?.value;
   if (typeof ctor !== "function" || typeof ctor.name !== "string" || ctor.name.length === 0) return false;
+  // Identity, not name: a spoofed `constructor.name` still fails — `globalThis[name]`
+  // is the REAL global, not the impostor.
   return (globalThis as Record<string, unknown>)[ctor.name] === ctor;
 }
 
@@ -212,8 +217,10 @@ export function isSandboxBoundary(proto: object | null): boolean {
   }
 
   // Check constructor for boundary marker (class-level static property)
-  // This allows marking a class as a boundary via `static [SANDBOX_BOUNDARY] = true`
-  const ctor = proto.constructor;
+  // This allows marking a class as a boundary via `static [SANDBOX_BOUNDARY] = true`.
+  // Read via the OWN descriptor (a marked class's prototype has an own
+  // `constructor`), so a hostile accessor `constructor` is never invoked.
+  const ctor = Reflect.getOwnPropertyDescriptor(proto, "constructor")?.value;
   if (ctor && typeof ctor === "function") {
     // Again, use hasOwnProperty to avoid inheritance issues
     if (Object.prototype.hasOwnProperty.call(ctor, SANDBOX_BOUNDARY) && (ctor as unknown as Record<symbol, unknown>)[SANDBOX_BOUNDARY] === true) {
@@ -310,16 +317,16 @@ export function sandboxedAccess(data: unknown, key: string | symbol): AccessResu
 
   // Fast path: own property
   if (Object.prototype.hasOwnProperty.call(obj, keyStr)) {
-    return obj[keyStr as keyof typeof obj];
+    return Reflect.get(obj, keyStr);
   }
 
   // Check if property exists anywhere in prototype chain
-  if (!(keyStr in obj)) {
+  if (!Reflect.has(obj, keyStr)) {
     return NOT_FOUND;
   }
 
   // Property is inherited - trace the prototype chain to find it
-  let proto = Object.getPrototypeOf(obj);
+  let proto = Reflect.getPrototypeOf(obj);
 
   while (proto !== null) {
     // Hit a sandbox boundary before finding the property?
@@ -334,10 +341,10 @@ export function sandboxedAccess(data: unknown, key: string | symbol): AccessResu
 
     // Found it on a non-boundary prototype - allow it
     if (Object.prototype.hasOwnProperty.call(proto, keyStr)) {
-      return obj[keyStr as keyof typeof obj];
+      return Reflect.get(obj, keyStr);
     }
 
-    proto = Object.getPrototypeOf(proto);
+    proto = Reflect.getPrototypeOf(proto);
   }
 
   // Shouldn't reach here (we checked `in` above), but be safe
@@ -373,12 +380,12 @@ export function sandboxedHas(data: unknown, key: string | symbol): boolean {
   }
 
   // Check if property exists anywhere
-  if (!(keyStr in obj)) {
+  if (!Reflect.has(obj, keyStr)) {
     return false;
   }
 
   // Property is inherited - check if it's accessible
-  let proto = Object.getPrototypeOf(obj);
+  let proto = Reflect.getPrototypeOf(obj);
 
   while (proto !== null) {
     // Hit boundary? Property doesn't "exist" from sandbox perspective
@@ -391,7 +398,7 @@ export function sandboxedHas(data: unknown, key: string | symbol): boolean {
       return true;
     }
 
-    proto = Object.getPrototypeOf(proto);
+    proto = Reflect.getPrototypeOf(proto);
   }
 
   return false;
@@ -451,7 +458,7 @@ export function sandboxedDelete(data: unknown, key: string | symbol): boolean {
 
   // Only delete if it's an own property
   if (Object.prototype.hasOwnProperty.call(obj, keyStr)) {
-    return delete obj[keyStr];
+    return Reflect.deleteProperty(obj, keyStr);
   }
 
   // Silently ignore attempts to delete inherited properties

@@ -392,5 +392,21 @@ describe("Sandbox Boundary", () => {
       const impostor = { constructor: function Object() {} };
       expect(isSandboxBoundary(impostor)).toBe(false);
     });
+
+    it("never invokes a hostile own accessor `constructor` (descriptor read, not [[Get]])", () => {
+      let fired = false;
+      const proto = {};
+      Object.defineProperty(proto, "constructor", {
+        get() {
+          fired = true;
+          return Object; // tries to masquerade as the real Object
+        },
+        configurable: true,
+      });
+      // The boundary read uses the own DESCRIPTOR's .value (undefined for an
+      // accessor), so it neither fires the getter nor is fooled into a boundary.
+      expect(isSandboxBoundary(proto)).toBe(false);
+      expect(fired).toBe(false);
+    });
   });
 });
