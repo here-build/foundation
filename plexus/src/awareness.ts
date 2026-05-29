@@ -170,14 +170,27 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     return deserialize(raw, this.doc) as Shape[K];
   }
 
-  /** Get all local field values as a plain object. Entity references are auto-deserialized. */
-  override getLocalState(): Partial<Shape> | null {
+  /**
+   * Merged local state with channel values left in their raw (un-deserialized)
+   * wire form. Entity markers are NOT resolved. Use this when you need the
+   * serialized shape (e.g. JSON dedup) without triggering entity proxies.
+   */
+  getRawLocalState(): Record<string, unknown> | null {
     if (!this.states.has(this.clientID)) return null;
-    const result: Record<string, any> = {};
+    const result: Record<string, unknown> = {};
     for (const [name, idx] of this._fieldIndex) {
       const val = this.states.get(channelId(this.clientID, idx));
-      if (val !== undefined && val !== null) result[name] = deserialize(val, this.doc);
+      if (val !== undefined && val !== null) result[name] = val;
     }
+    return result;
+  }
+
+  /** Get all local field values as a plain object. Entity references are auto-deserialized. */
+  override getLocalState(): Partial<Shape> | null {
+    const raw = this.getRawLocalState();
+    if (!raw) return null;
+    const result: Record<string, any> = {};
+    for (const [name, val] of Object.entries(raw)) result[name] = deserialize(val, this.doc);
     return result as Partial<Shape>;
   }
 
@@ -211,15 +224,27 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
 
   // ── Peer state ───────────────────────────────────────────────────
 
-  /** Get merged state for a remote peer. Entity references are auto-deserialized. */
-  getPeer(baseClientId: number): Partial<Shape> | null {
+  /**
+   * Merged remote-peer state with channel values left in their raw
+   * (un-deserialized) wire form. Entity markers are NOT resolved.
+   */
+  getRawPeer(baseClientId: number): Record<string, unknown> | null {
     const schema = this.states.get(baseClientId) as string[] | undefined;
     if (!schema || !Array.isArray(schema)) return null;
-    const result: Record<string, any> = {};
+    const result: Record<string, unknown> = {};
     for (const [i, element] of schema.entries()) {
       const val = this.states.get(channelId(baseClientId, i + 1));
-      if (val !== undefined && val !== null) result[element] = deserialize(val, this.doc);
+      if (val !== undefined && val !== null) result[element] = val;
     }
+    return result;
+  }
+
+  /** Get merged state for a remote peer. Entity references are auto-deserialized. */
+  getPeer(baseClientId: number): Partial<Shape> | null {
+    const raw = this.getRawPeer(baseClientId);
+    if (!raw) return null;
+    const result: Record<string, any> = {};
+    for (const [name, val] of Object.entries(raw)) result[name] = deserialize(val, this.doc);
     return result as Partial<Shape>;
   }
 
