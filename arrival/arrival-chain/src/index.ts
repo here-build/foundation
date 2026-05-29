@@ -10,7 +10,7 @@ export {
 export { startOrchestrator, type OrchestratorOptions } from "./worker.js";
 
 export { InferenceTask, InferenceResult, InferenceError } from "./task.js";
-export { Run, Hypothesis, RunResult, RunError, type RunStatus } from "./run.js";
+export { Run, Hypothesis, RunResult, RunError, formatRunError, type RunStatus } from "./run.js";
 export { Draft } from "./draft.js";
 // Re-exported from arrival-scheme where AValue lives (L4 collapsed the draft).
 export {

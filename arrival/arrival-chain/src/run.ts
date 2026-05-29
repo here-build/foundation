@@ -37,6 +37,21 @@ export class RunError extends PlexusModel<Run | Hypothesis> {
 }
 
 /**
+ * Render a thrown error into a RunError message for the studio's run-error
+ * surface. A `SchemeError` contributes its formatted scheme stack (the
+ * `file:line` frames, via `toString()`); a `requireChain` (annotated by the
+ * loader when a throw escapes a required module — entry → failing module) is
+ * appended. Plain errors fall back to `.message`. Duck-typed (`schemeStack` /
+ * `requireChain`) so this stays free of an arrival-scheme import.
+ */
+export function formatRunError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const base = "schemeStack" in error ? error.toString() : error.message;
+  const chain = (error as { requireChain?: unknown }).requireChain;
+  return Array.isArray(chain) && chain.length > 0 ? `${base}\n\nrequire chain: ${chain.join(" → ")}` : base;
+}
+
+/**
  * Counterfactual replay of a Run with chosen inference overrides.
  *
  * `tweaks` keys are the canonical JSON-stringified content tuples

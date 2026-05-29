@@ -13,7 +13,7 @@ import invariant from "tiny-invariant";
 import type { InferenceCache } from "./cache.js";
 import { Draft } from "./draft.js";
 import { Program, ProgramVersion } from "./program.js";
-import { Hypothesis, Run, RunError, RunResult } from "./run.js";
+import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
 import {
   defineImportRosetta,
   defineRequireRosetta,
@@ -604,7 +604,7 @@ export class Project extends PlexusModel<null> {
     } catch (error) {
       this.transact(() => {
         run.output = new RunError({
-          message: error instanceof Error ? error.message : String(error),
+          message: formatRunError(error),
         });
         run.status = "failed";
         run.finishedAt = Date.now();
@@ -663,7 +663,7 @@ export class Project extends PlexusModel<null> {
       } catch (error) {
         this.transact(() => {
           hypothesis.output = new RunError({
-            message: error instanceof Error ? error.message : String(error),
+            message: formatRunError(error),
           });
           hypothesis.status = "failed";
           hypothesis.finishedAt = Date.now();
@@ -725,7 +725,7 @@ export class Project extends PlexusModel<null> {
       } catch (error) {
         this.transact(() => {
           run.output = new RunError({
-            message: error instanceof Error ? error.message : String(error),
+            message: formatRunError(error),
           });
           run.status = "failed";
           run.finishedAt = Date.now();
