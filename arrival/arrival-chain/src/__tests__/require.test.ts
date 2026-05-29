@@ -170,4 +170,23 @@ describe("require — Plexus VFS preamble", () => {
     const value = await project.run(`(require "people.ndjson") (length people)`);
     expect(value).toBe(3);
   });
+
+  it("makes a define-macro from a required file available to the caller", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    // A library's `define-macro` must be installed before the CALLER's next form
+    // expands. `require` is eager-sequential (the macro spills during the require
+    // form) and macro expansion is at eval time — so by the time `(when …)`
+    // evaluates, `when` is already a macro in env. This is the core property the
+    // runtime-load redesign must preserve (the old textual splice got it for free
+    // via source ordering; runtime require earns it via eager-sequential eval).
+    project.addFile("_macros.scm", "(define-macro (when test . body) `(if ,test (begin ,@body)))");
+
+    const value = await project.run(`
+      (require "_macros.scm")
+      (when #t 1 2 3)
+    `);
+    expect(value).toBe(3);
+  });
 });

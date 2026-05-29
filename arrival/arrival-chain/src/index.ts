@@ -36,7 +36,16 @@ export { Project } from "./project.js";
 export { InferenceCache, ArrivalCache } from "./cache.js";
 export { ArrivalChain } from "./arrival-chain.js";
 export { runPipeline, type RunPipelineOptions, type PublishOptions } from "./runner.js";
-export { type RequireResolver } from "./require.js";
+export {
+  defineRequireRosetta,
+  defaultResolvers,
+  loaderFromResolver,
+  makeProjectLoader,
+  type ContentResolver,
+  type Loader,
+  type RequireResolver,
+  type ResolverResult,
+} from "./loader.js";
 export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "./trace.js";
 export { extractDefines, type DefineInfo } from "./extract-defines.js";
 export {

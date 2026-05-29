@@ -14,7 +14,13 @@ import type { InferenceCache } from "./cache.js";
 import { Draft } from "./draft.js";
 import { Program, ProgramVersion } from "./program.js";
 import { Hypothesis, Run, RunError, RunResult } from "./run.js";
-import { resolveRequires, type RequireResolver } from "./require.js";
+import {
+  defineRequireRosetta,
+  loaderFromResolver,
+  makeProjectLoader,
+  type Loader,
+  type RequireResolver,
+} from "./loader.js";
 import { analyzeTemplate, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "./trace.js";
 
@@ -270,6 +276,10 @@ export class Project extends PlexusModel<null> {
     opts: {
       trace?: EvalTrace;
       resolver?: RequireResolver;
+      /** Override the module loader for `(require …)`. Defaults to the project VFS. */
+      loader?: Loader;
+      /** Directory of the entry module, for resolving relative `(require …)`. */
+      dirname?: string;
       /** Called with the canonical tuple-key for every `(infer …)` invocation. */
       onInfer?: (tupleKey: string) => void;
       /**
@@ -412,11 +422,14 @@ export class Project extends PlexusModel<null> {
       },
     });
 
-    const { preamble: requirePreamble, body } = resolveRequires(this, source, opts.resolver);
-    const results = await exec(BUILTIN_PREAMBLE + requirePreamble + body, {
-      env,
-      tap: opts.trace,
-    });
+    // `require` is a runtime rosetta now (not a textual splice): it resolves a
+    // specifier against the loader, reads the file, and spills its defines into
+    // `env` when the form runs. Eager-sequential + statement-position, so a
+    // required file's defines/macros are installed before the next form. The
+    // module internals share this run's tap, so library infers carry provenance.
+    const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
+    defineRequireRosetta({ env, loader, tap: opts.trace, baseDir: opts.dirname ?? "" });
+    const results = await exec(BUILTIN_PREAMBLE + source, { env, tap: opts.trace });
     let last: unknown = results.at(-1);
     if (isThenable(last)) last = await last;
     return lipsToJs(last, {});
@@ -737,6 +750,10 @@ export class Project extends PlexusModel<null> {
     opts: {
       trace: EvalTrace;
       resolver?: RequireResolver;
+      /** Override the module loader for `(require …)`. Defaults to the project VFS. */
+      loader?: Loader;
+      /** Directory of the entry module, for resolving relative `(require …)`. */
+      dirname?: string;
       /** Called with the canonical tuple-key for every `(infer …)` invocation. */
       onInfer?: (tupleKey: string) => void;
       /** Hypothesis-style infer-result overrides keyed by canonical tuple JSON. */
@@ -817,15 +834,20 @@ export class Project extends PlexusModel<null> {
       },
     });
 
-    const { preamble: requirePreamble, body } = resolveRequires(this, source, opts.resolver);
-    // Evaluate builtin + require preamble first, tap-free, so records map
-    // contains only user-program forms.
-    await exec(BUILTIN_PREAMBLE + requirePreamble, { env });
-    // Parse user body separately — these are the Pair identities the UI renders
-    // AND the ones the evaluator will tap on.
-    const userForms = await parse(body, env);
+    const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
+    // Evaluate the builtin preamble first, tap-free, so the records map starts
+    // with only user-program forms. `require` is a runtime form now: its module
+    // internals are NOT tapped here (tap omitted) so a required library doesn't
+    // explode the live trace — the (require …) call itself still appears as a
+    // top-level user form. Provenance for library infers rides the plain run().
+    defineRequireRosetta({ env, loader, tap: undefined, baseDir: opts.dirname ?? "" });
+    await exec(BUILTIN_PREAMBLE, { env });
+    // Parse the whole user source — these are the Pair identities the UI renders
+    // AND the ones the evaluator taps. A `(require …)` resolves when its form runs.
+    const userForms = await parse(source, env);
 
     // Kick off evaluation of each user form sequentially, with the tap attached.
+    // A `(require …)` spills its defines/macros before the next form (eager-seq).
     const finished = (async () => {
       let last: unknown = undefined;
       for (const form of userForms) {
