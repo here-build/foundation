@@ -56,7 +56,17 @@ export {
   type CollapseResult,
   type Decision,
 } from "./mdl-collapse.js";
-export { traceToForest, type ForestOptions } from "./trace-to-forest.js";
+export { traceToForest, scopeId, type ForestOptions } from "./trace-to-forest.js";
+export {
+  traceToFlowGraph,
+  flowForwardCone,
+  flowBackwardCone,
+  type FlowGraph,
+  type FlowGraphNode,
+  type FlowGraphEdge,
+  type FlowNodeKind,
+  type FlowGraphOptions,
+} from "./trace-to-flow-graph.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //

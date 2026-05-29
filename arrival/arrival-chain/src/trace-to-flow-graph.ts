@@ -1,0 +1,198 @@
+/**
+ * trace → unified flow-graph: the single render-ready model behind the
+ * industrial flowchart (React Flow + elkjs renderer in the host studio).
+ *
+ * The approved causal-statechart mockup is NOT a containment treemap — it is
+ * MDL regions (loop / parallel / branch) *wrapping* Lamport-layered infer nodes,
+ * connected by causal arrows (forward + `↺` loopback), with why/blast cones on
+ * select. That needs BOTH graphs the kernel already builds:
+ *
+ *   - `traceToForest` + `collapseMDL` → the containment hierarchy + which boxes
+ *     start collapsed (the anti-spaghetti optimizer, design §4). String ids
+ *     (`head@line:col`, stable across runs).
+ *   - `traceToStatechart` → the causal DAG: Lamport layers + forward/loopback
+ *     edges + the cones. Numeric ids (representative invocation id).
+ *
+ * This composes the three (no new core logic) into one model with a SINGLE id
+ * space — so the renderer's nodes, region nesting, and cone highlighting all
+ * share keys. The only genuinely new step is the leaf↔chart correlation.
+ *
+ * ── why the bridge is sound ──────────────────────────────────────────────────
+ * Both builders collapse by Pair identity (the same AST node entered N times).
+ * A forest leaf's id is `scopeId(Pair)`; a chart node's id is the representative
+ * invocation of that same Pair. So `scopeId(invById[chartNodeId].node)` is
+ * exactly the forest leaf id. The map is a bijection on provenance-point Pairs.
+ *
+ * The one place it could fail: two DISTINCT Pairs sharing `head@line:col` (only
+ * possible under macro expansion stamping identical locations). For infer/query
+ * leaves this does not occur in practice (you don't write two infers at one
+ * column, and macros expand to plumbing, not to multiple infer calls at one
+ * source loc). We GUARD it anyway — a collision keeps the first node bridged,
+ * routes the second to a distinct sentinel id (so it still renders, just without
+ * a causal layer/edges), and records a non-fatal warning. Surfaced, not hidden.
+ *
+ * ── nesting caveat (inherited, not introduced) ───────────────────────────────
+ * The forest's documented TCO gap (a tail-recursive loop body floats to root as
+ * a sibling of the loop box rather than nesting under it — see trace-to-forest)
+ * affects only visual CONTAINMENT here. The causal edges are independent of
+ * nesting, so the graph stays causally correct; only the loop region won't wrap
+ * its body until the `tailPosition`-anchored fix lands.
+ */
+import {
+  collapseMDL,
+  type BoxType,
+  type CandidateBox,
+  type CollapseParams,
+} from "./mdl-collapse.js";
+import { traceToStatechart, type EdgeKind } from "./statechart.js";
+import { scopeId, traceToForest, type ForestOptions } from "./trace-to-forest.js";
+import type { EvalTrace, Invocation } from "./trace.js";
+
+export type FlowNodeKind = "region" | "leaf";
+
+export interface FlowGraphNode {
+  /** Single id space — the forest's structural scope id (`head@line:col`),
+   *  stable across runs. */
+  id: string;
+  /** `region` = has nested boxes (a compound/parent node); `leaf` = a terminal
+   *  box (typically an infer/query provenance point, or an empty scope). */
+  kind: FlowNodeKind;
+  /** unfold (map fan-out) | loop (recursion) | dnf (branch) | fold | leaf. */
+  boxType: BoxType;
+  /** Parent region id, or null for a root. */
+  parentId: string | null;
+  /** Display label — the form's leading symbol (e.g. `map`, `infer/chat`). */
+  label: string;
+  /** Local multiplicity for the ×N stack badge: occurrences-per-parent-occurrence
+   *  (the per-level number the mockup shows — ×3 inside ×K, not the flat 3K). 1 ⇒
+   *  ran once ⇒ no stack (renderer hides the badge). */
+  count: number;
+  /** Lamport causal depth (longest upstream infer chain) for causal nodes; null
+   *  for regions/leaves with no provenance counterpart. Drives left→right lanes. */
+  layer: number | null;
+  /** The optimizer's INITIAL fold decision: a region folds its children to a ×N
+   *  card; a multi-instance leaf folds to a ×N stack (the mockup's stacked
+   *  fan-out). n=1 scopes never fold. The human can expand/collapse from here. */
+  collapsedByDefault: boolean;
+  /** A human-forced collapse override (a promoted "forced" user-define). */
+  forced: boolean;
+}
+
+export interface FlowGraphEdge {
+  /** Upstream leaf scope id. */
+  from: string;
+  /** Downstream leaf scope id. */
+  to: string;
+  /** `forward` = within-iteration dataflow (solid arrow); `loopback` = the `↺`
+   *  back-edge (iter-k → iter-k+1 collapsed onto the same cells). */
+  kind: EdgeKind;
+}
+
+export interface FlowGraph {
+  nodes: FlowGraphNode[];
+  edges: FlowGraphEdge[];
+  /** MDL bit-budget of the chosen grouping (caption / debug). */
+  totalBits: number;
+  /** Fully-expanded raw bits — the compression anchor (`totalBits <= rawBits`). */
+  rawBits: number;
+  /** Non-fatal correlation issues (scope-id collisions). Empty in the common
+   *  case; surfaced rather than hidden. */
+  warnings: string[];
+}
+
+export interface FlowGraphOptions extends ForestOptions, CollapseParams {}
+
+export function traceToFlowGraph(trace: EvalTrace, opts: FlowGraphOptions = {}): FlowGraph {
+  const forest = traceToForest(trace, { promoted: opts.promoted });
+  const { decisions, totalBits, rawBits } = collapseMDL(forest, { lambda: opts.lambda });
+  const chart = traceToStatechart(trace);
+
+  // Bridge chart node id (numeric rep invocation id) → forest scope id (string).
+  const invById = new Map<number, Invocation>();
+  for (const rec of trace.records.values()) for (const inv of rec.bindings) invById.set(inv.id, inv);
+
+  const warnings: string[] = [];
+  const scopeIdOfChart = new Map<number, string>(); // chart id → (bridged) scope id
+  const claimedBy = new Map<string, number>(); // scope id → first chart id that claimed it
+  for (const node of chart.nodes) {
+    const inv = invById.get(node.id);
+    const sid = inv ? scopeId(inv.node) : `#${node.id}`;
+    const prior = claimedBy.get(sid);
+    if (prior !== undefined && prior !== node.id) {
+      warnings.push(
+        `scope-id collision: "${sid}" maps to chart nodes ${prior} and ${node.id} ` +
+          `(distinct AST Pairs at one source location); causal layer/edges kept on the first.`,
+      );
+      scopeIdOfChart.set(node.id, `${sid}#${node.id}`); // distinct sentinel ⇒ unbridged
+      continue;
+    }
+    claimedBy.set(sid, node.id);
+    scopeIdOfChart.set(node.id, sid);
+  }
+
+  // Layer per bridged leaf (sentinel ids carry no layer).
+  const layerOf = new Map<string, number>();
+  for (const node of chart.nodes) {
+    const sid = scopeIdOfChart.get(node.id)!;
+    if (claimedBy.get(sid) === node.id) layerOf.set(sid, node.layer);
+  }
+
+  // Flatten the forest into nodes (regions + leaves), parentId from nesting.
+  const nodes: FlowGraphNode[] = [];
+  const walk = (box: CandidateBox, parentId: string | null): void => {
+    const kind: FlowNodeKind = box.children.length > 0 ? "region" : "leaf";
+    nodes.push({
+      id: box.id,
+      kind,
+      boxType: box.type,
+      parentId,
+      label: box.id.split("@")[0] ?? box.id,
+      count: Math.max(1, Math.round(box.n)),
+      layer: layerOf.has(box.id) ? layerOf.get(box.id)! : null,
+      collapsedByDefault: (decisions.get(box.id) ?? "expanded") === "collapsed",
+      forced: box.force === "collapsed",
+    });
+    for (const child of box.children) walk(child, box.id);
+  };
+  for (const root of forest) walk(root, null);
+
+  // Lift causal edges to scope ids (drop any touching a collision sentinel).
+  const edges: FlowGraphEdge[] = [];
+  for (const e of chart.edges) {
+    const from = scopeIdOfChart.get(e.from);
+    const to = scopeIdOfChart.get(e.to);
+    if (from === undefined || to === undefined || from.includes("#") || to.includes("#")) continue;
+    edges.push({ from, to, kind: e.kind });
+  }
+
+  return { nodes, edges, totalBits, rawBits, warnings };
+}
+
+/** Causal cone over the flow-graph's directed edges (ignoring `kind` — a
+ *  loopback is a real causal edge). `forward` = blast radius; `backward` = why.
+ *  Self is never included; cycles terminate via the visited set. Mirrors
+ *  statechart's `cone`, in the flow-graph's string id space (what the renderer
+ *  selects on). */
+function flowCone(graph: FlowGraph, startId: string, direction: "forward" | "backward"): Set<string> {
+  const adj = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    const [from, to] = direction === "forward" ? [e.from, e.to] : [e.to, e.from];
+    (adj.get(from) ?? adj.set(from, []).get(from)!).push(to);
+  }
+  const out = new Set<string>();
+  const queue = [startId];
+  while (queue.length) {
+    for (const next of adj.get(queue.shift()!) ?? []) {
+      if (next === startId || out.has(next)) continue;
+      out.add(next);
+      queue.push(next);
+    }
+  }
+  return out;
+}
+
+/** Blast radius: every node that re-fires if the given node changes. */
+export const flowForwardCone = (graph: FlowGraph, id: string): Set<string> => flowCone(graph, id, "forward");
+
+/** Causal why: every node whose output flowed into the given node. */
+export const flowBackwardCone = (graph: FlowGraph, id: string): Set<string> => flowCone(graph, id, "backward");

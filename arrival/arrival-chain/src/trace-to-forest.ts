@@ -86,8 +86,11 @@ function headOf(node: unknown): string {
 }
 
 /** Stable structural scope id: `head@line:col` (or `head` if unlocated). The
- *  parser stamps a `__location__` symbol on located Pairs. */
-function scopeId(node: unknown): string {
+ *  parser stamps a `__location__` symbol on located Pairs. Exported so the
+ *  unified flow-graph builder can bridge causal-chart nodes (keyed by Pair
+ *  identity) back to forest boxes (keyed by this id) — both group by the same
+ *  Pair, so the strings coincide. */
+export function scopeId(node: unknown): string {
   const head = headOf(node);
   if (node && typeof node === "object") {
     for (const s of Object.getOwnPropertySymbols(node)) {
