@@ -257,6 +257,21 @@ export interface RunOptions {
    * by sub-evaluations carry their own ctx, but the budget is per-run.
    */
   signal?: AbortSignal;
+  /**
+   * Wall-clock execution budget in milliseconds. When set, the trampoline
+   * starts a deadline at `performance.now() + budgetMs` and throws a
+   * `SchemeError(/budget/)` once the deadline passes — checked at the SAME
+   * iteration boundary as the abort signal (the 1000-iter / 5ms TICK
+   * cadence), so it costs nothing on the hot path and bounds
+   * `(let loop () (loop))` to within one cadence unit.
+   *
+   * This is the "L0" host bound: an `AbortSignal` lets an EXTERNAL controller
+   * cancel (UI cancel button, parent `fetch` abort), but sandbox / agent code
+   * needs an INTERNAL bound that fires even when nobody is holding a
+   * controller. `budgetMs` is that bound — independent of, and composable
+   * with, `signal` (whichever fires first wins).
+   */
+  budgetMs?: number;
 }
 
 /**
@@ -579,12 +594,22 @@ async function run<T>(
   generator: Generator<unknown, T, unknown>,
   options: RunOptions = {},
 ): Promise<T> {
-  const { signal } = options;
+  const { signal, budgetMs } = options;
 
   // Fast-fail: if the caller passed an already-aborted signal, refuse
   // before allocating the trampoline state. Mirrors fetch() semantics.
   if (signal?.aborted) {
     throw signal.reason ?? new DOMException("aborted", "AbortError");
+  }
+
+  // Wall-clock deadline. `undefined` when no budget was requested, so the
+  // per-TICK comparison short-circuits to a single `!== undefined` check.
+  // A non-positive budget means "already expired" — refuse on entry, the
+  // budget analogue of the pre-aborted-signal fast path above.
+  const deadline =
+    budgetMs === undefined ? undefined : performance.now() + budgetMs;
+  if (deadline !== undefined && budgetMs! <= 0) {
+    throw new SchemeError(`execution budget exceeded (${budgetMs}ms)`, []);
   }
 
   // Stack of generators - this is the key to flat trampolining
@@ -792,8 +817,21 @@ async function run<T>(
           if (signal?.aborted) {
             throw signal.reason ?? new DOMException("aborted", "AbortError");
           }
+          // Budget check rides the SAME cadence as the abort check — see the
+          // WHY-HERE note above. `now` is reused for the yield-timer reset so
+          // we read the clock once. A SchemeError (not DOMException) because a
+          // budget overrun is OUR policy, not a Web-standard cancellation, and
+          // its `/budget/` message is what `exec(code, { budgetMs })` callers
+          // (and the sandbox-escape suite) match on.
+          const now = performance.now();
+          if (deadline !== undefined && now > deadline) {
+            throw new SchemeError(
+              `execution budget exceeded (${budgetMs}ms)`,
+              frameStack.filter((f): f is StackFrame => f !== undefined),
+            );
+          }
           await Promise.resolve(); // Minimal yield - just microtask
-          lastYield = performance.now();
+          lastYield = now;
           iterations = 0;
         }
         continue;

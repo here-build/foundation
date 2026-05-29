@@ -221,7 +221,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
    * Secure invariant: `make-string` with a length > some host-configured cap
    * must throw a cap-related error in O(1), not allocate.
    */
-  it.fails("(make-string 1e8 ...) errors fast instead of allocating ~200MB", async () => {
+  it("(make-string 1e8 ...) errors fast instead of allocating ~200MB", async () => {
     await initBridge();
     const start = Date.now();
     let caught = false;
@@ -244,7 +244,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
    *
    * Secure invariant: same as make-string — host-configurable cap, error fast.
    */
-  it.fails("(make-vector 1e8 ...) errors or completes fast (no host hang)", async () => {
+  it("(make-vector 1e8 ...) errors or completes fast (no host hang)", async () => {
     await initBridge();
     const start = Date.now();
     let caught = false;
@@ -273,12 +273,26 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
    * The shape is: when budget infra exists, this test will compile against
    * its public API and the .failing marker can be removed.
    */
-  it.skip("TODO: infinite loop is bounded by a wall-clock budget (needs budget API)", async () => {
-    // Once a budget API exists, something like:
-    //   await expect(exec("(let loop () (loop))", { env: sandboxedEnv, budgetMs: 100 }))
-    //     .rejects.toThrow(/budget/i);
-    // For now, skipped — running this test without a budget would hang the run.
-  });
+  it("infinite loop is bounded by a wall-clock budget (budgetMs)", async () => {
+    await initBridge();
+    // The budget lives on the GENERATOR-EXEC trampoline (`run()` in
+    // evaluator.ts), which is the path the actual sandbox/MCP runtime uses
+    // (arrival-chain's loader calls `execGeneratorExpr`). The file-level `exec`
+    // import is `lips.exec` (legacy REPL evaluator) — used by the other tests
+    // here — so we import the generator-exec `exec` locally for the budget API.
+    // `budgetMs` throws a SchemeError(/budget/) at the existing 1000-iter / 5ms
+    // event-loop yield once the deadline passes; it composes with `signal`
+    // (whichever fires first wins). See evaluator.ts RunOptions.budgetMs.
+    const { exec: gexec } = await import("../generator-exec");
+    const start = Date.now();
+    // `(let loop () (loop))` is now flat under TCO (task #46), so the budget
+    // fires cleanly instead of the loop blowing the JS stack first.
+    await expect(
+      gexec("(let loop () (loop))", { env: sandboxedEnv, budgetMs: 150 }),
+    ).rejects.toThrow(/budget/i);
+    // Bounded to ~one yield cadence past the 150ms deadline.
+    expect(Date.now() - start).toBeLessThan(2000);
+  }, 10000);
 
   /**
    * Audit finding: `LSymbol.ts:23` — `static readonly list: Record<string, SchemeSymbol> = {}`.
@@ -321,7 +335,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
    * with a clear message ("input nesting depth exceeded N"), not a native
    * RangeError. The parser should track depth explicitly and bail.
    */
-  it.fails("deeply-nested input throws a graceful parse error, not stack overflow", async () => {
+  it("deeply-nested input throws a graceful parse error, not stack overflow", async () => {
     await initBridge();
     const deep = "(".repeat(10000) + "1" + ")".repeat(10000);
     let err: Error | undefined;
@@ -349,7 +363,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
    * throw a Scheme-level error. Cyclic structures should compare via
    * structural-equality-with-occurs-check, not JSON.stringify.
    */
-  it.fails("(equal? a b) on cyclic structures does not throw native JSON error", async () => {
+  it("(equal? a b) on cyclic structures does not throw native JSON error", async () => {
     await initBridge();
     const a: Record<string, unknown> = {};
     a.self = a;

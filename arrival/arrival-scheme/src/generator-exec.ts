@@ -50,6 +50,15 @@ export interface ExecOptions {
    * needs an external bound for sandbox use.
    */
   signal?: AbortSignal;
+  /**
+   * Wall-clock execution budget in milliseconds. Unlike `signal` (which needs
+   * an external controller to fire), this is an INTERNAL bound: the trampoline
+   * throws a `SchemeError(/budget/)` once `budgetMs` of wall-clock elapses,
+   * checked at the same iteration boundary that yields to the event loop. This
+   * is the bound sandbox / agent code needs so `(let loop () (loop))` can't hang
+   * the host. Composable with `signal` — whichever fires first wins.
+   */
+  budgetMs?: number;
 }
 
 /**
@@ -74,7 +83,7 @@ export interface ExecOptions {
  */
 export async function exec(
   code: string | SchemeValue,
-  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal, budgetMs }: ExecOptions = {},
 ): Promise<SchemeValue[]> {
   const lips = await getLips();
 
@@ -93,9 +102,15 @@ export async function exec(
     parsed = [code];
   }
 
-  // Evaluate each expression in sequence
+  // Evaluate each expression in sequence. The budget spans the WHOLE exec call
+  // (all top-level forms share one deadline) — a sandbox program that splits a
+  // hang across several forms is still bounded. Recompute the remaining budget
+  // per form from a single start so we don't reset the clock between forms.
   const results: SchemeValue[] = [];
+  const start = budgetMs === undefined ? 0 : performance.now();
   for (const expr of parsed) {
+    const remaining =
+      budgetMs === undefined ? undefined : budgetMs - (performance.now() - start);
     const result = await run(
       evaluate(expr, {
         env: actualEnv,
@@ -105,7 +120,7 @@ export async function exec(
         nodeFilter,
         signal,
       }),
-      { signal },
+      { signal, budgetMs: remaining },
     );
     results.push(result);
   }
@@ -130,7 +145,7 @@ export async function parse(code: string, env?: Environment, source?: string): P
  */
 export async function execExpr(
   expr: SchemeValue,
-  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal, budgetMs }: ExecOptions = {},
 ): Promise<SchemeValue> {
   const lips = await getLips();
   const actualEnv = env ?? lips.env;
@@ -144,6 +159,6 @@ export async function execExpr(
       nodeFilter,
       signal,
     }),
-    { signal },
+    { signal, budgetMs },
   );
 }

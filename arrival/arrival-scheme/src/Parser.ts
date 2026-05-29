@@ -20,7 +20,7 @@ import {
 import { Environment, EnvironmentValue } from "./Environment.js";
 import type { EOF } from "./EOF.js";
 import { eof } from "./EOF.js";
-import { type SourceLocation, Unterminated } from "./errors.js";
+import { type SourceLocation, ParseError, Unterminated } from "./errors.js";
 import { Lexer } from "./Lexer.js";
 // -------------------------------------------------------------------------
 // :: Runtime dependencies - ES6 live bindings resolve the cycle
@@ -35,6 +35,50 @@ import { Pair } from "./Pair.js";
 import type { Nil, SchemeValue } from "./types.js";
 import { nil } from "./types.js";
 import invariant from "tiny-invariant";
+
+// ---------------------------------------------------------------------------
+// Nesting-depth cap — native-stack-overflow defense for the parser.
+// ---------------------------------------------------------------------------
+// War story (2026-05-30 sandbox-escape audit): `_read_object` ⇄ `read_list`
+// recurse through real JS call frames, one level per open paren. Input like
+// `"(".repeat(10000) + "1" + ")".repeat(10000)` overflows the native stack
+// BEFORE the parser can produce a structured value, surfacing as a raw
+// `RangeError: Maximum call stack size exceeded` — a host-implementation leak
+// that sandbox code can't `guard` cleanly. The parser already tracks a running
+// paren balance (`_state.parentheses`), which is exactly the live descent depth
+// while reading (it only decrements once a list closes, after the recursion for
+// its contents has returned). So an O(1) check at each open site bails with a
+// Scheme-level ParseError well before V8's frame limit.
+//
+// Default: 2,000. Calibrated against the MOST fragile downstream consumer, not
+// the parser alone. Empirical overflow points on Node/V8 (2026-05-30):
+//   - parser recursion alone: graceful past depth 12,000;
+//   - generator trampoline eval (the sandbox/MCP runtime path): stack-SAFE at
+//     every depth — deep input yields a graceful "cannot apply" error;
+//   - legacy `lips.exec` recursive evaluator: native stack overflow at ~3,500.
+// 2,000 sits comfortably below that 3,500 floor (so a deeply-nested form is
+// rejected at PARSE time, before any evaluator recurses into it) while staying
+// orders of magnitude above any hand-written or machine-generated s-expression
+// depth. Host-overridable via `setMaxNestingDepth` for trusted/looser contexts.
+let maxNestingDepth = 2_000;
+
+/** Current parser nesting-depth cap (open delimiters before a ParseError). */
+export function getMaxNestingDepth(): number {
+  return maxNestingDepth;
+}
+
+/**
+ * Override the parser nesting-depth cap. `Infinity` disables it (trusted input
+ * only — re-exposes the native-stack-overflow vector). Must be a positive
+ * number.
+ */
+export function setMaxNestingDepth(depth: number): void {
+  invariant(
+    typeof depth === "number" && !Number.isNaN(depth) && depth > 0,
+    `setMaxNestingDepth: expected a positive number, got ${depth}`,
+  );
+  maxNestingDepth = depth;
+}
 
 /**
  * Token metadata from lexer.
@@ -231,6 +275,21 @@ export class Parser {
     return m?.[1] ?? null;
   }
 
+  /**
+   * Enter one nesting level. Increments the live descent depth and throws a
+   * Scheme-level ParseError if it would exceed the cap — called at every open
+   * delimiter (list, vector literal, bytevector literal) BEFORE recursing, so
+   * we bail before the native JS stack overflows. See `maxNestingDepth`.
+   */
+  private _enterNesting() {
+    if (++this._state.parentheses > maxNestingDepth) {
+      throw new ParseError(
+        `input nesting depth exceeded ${maxNestingDepth}`,
+        this._getLocation(),
+      );
+    }
+  }
+
   is_open(token: string) {
     return ["(", "["].includes(token);
   }
@@ -380,7 +439,7 @@ export class Parser {
       // Handle vector literals #(...) specially
       if (is_vector_literal(token)) {
         this.skip();
-        ++this._state.parentheses;
+        this._enterNesting();
         const list = await this.read_list();
         // Convert list to array
         if (is_nil(list)) {
@@ -391,7 +450,7 @@ export class Parser {
       // Handle bytevector literals #u8(...) specially
       if (is_bytevector_literal(token)) {
         this.skip();
-        ++this._state.parentheses;
+        this._enterNesting();
         const list = await this.read_list();
         // Convert list to Uint8Array
         if (is_nil(list)) {
@@ -479,7 +538,7 @@ export class Parser {
       this.skip();
       // invalid state, we don't need to return anything
     } else if (this.is_open(token)) {
-      ++this._state.parentheses;
+      this._enterNesting();
       this.skip();
       const list = await this.read_list();
       // Attach location of opening paren to head of list

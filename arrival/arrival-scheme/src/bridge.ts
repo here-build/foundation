@@ -32,6 +32,60 @@ import "./errors.js";
 // doesn't get imported during lips.ts initialization
 
 // ============================================================================
+// Allocation cap — DoS defense for size-parameterized constructors
+// ============================================================================
+// War story (2026-05-30 sandbox-escape audit): `make-string` / `make-vector`
+// take an unbounded length `k`. V8 has its own ceiling (~2^29 chars, ~2^32
+// array slots) and throws RangeError above it — but that's the ENGINE's limit,
+// not OUR policy, and the attack window is exactly BELOW it: `(make-string 1e8)`
+// allocates 200MB of UTF-16 in ~1ms and succeeds, `(make-vector 1e8)` spins for
+// >10s materializing 100M slots. A single sandbox call drives host memory
+// pressure. The fix is an O(1) length check BEFORE allocation.
+//
+// Default: 2^24 (16,777,216). Large enough that no legitimate Scheme program
+// hits it (a 16M-char string / 16M-slot vector is already pathological for an
+// in-memory AST language), small enough that the worst case is ~32MB UTF-16 /
+// one 16M-slot array — recoverable, not a host-killer. Host-overridable via
+// `setAllocationLimit` so a tighter sandbox (or a looser trusted batch job)
+// can retune without forking.
+let allocationLimit = 1 << 24; // 16,777,216
+
+/** Current per-call allocation cap for size-parameterized constructors. */
+export function getAllocationLimit(): number {
+  return allocationLimit;
+}
+
+/**
+ * Override the per-call allocation cap (`make-string` / `make-vector` length).
+ * Pass `Infinity` to disable (trusted contexts only). Negative / NaN is
+ * rejected — the cap must be a meaningful upper bound.
+ */
+export function setAllocationLimit(limit: number): void {
+  invariant(
+    typeof limit === "number" && !Number.isNaN(limit) && limit >= 0,
+    `setAllocationLimit: expected a non-negative number, got ${limit}`,
+  );
+  allocationLimit = limit;
+}
+
+/**
+ * Throw a Scheme-surfaceable error (O(1), pre-allocation) when a requested
+ * length exceeds the cap or is otherwise not a usable count. `len` is read
+ * once by the caller; we validate it here so both constructors share one
+ * message shape and one policy.
+ */
+function assertAllocatable(len: number, fnName: string): void {
+  invariant(
+    Number.isFinite(len) && len >= 0,
+    `${fnName}: length must be a non-negative integer, got ${len}`,
+  );
+  invariant(
+    len <= allocationLimit,
+    `${fnName}: requested length ${len} exceeds allocation limit ${allocationLimit}`,
+  );
+}
+
+// ============================================================================
 // Internal Helpers (extracted to avoid duplication)
 // ============================================================================
 
@@ -776,6 +830,8 @@ export const wrappedOps = {
 
   "make-string"(k: unknown, char?: unknown): SchemeString {
     const len = Number(fromLIPS(k).valueOf());
+    // O(1) cap check BEFORE `.repeat(len)` allocates — see assertAllocatable.
+    assertAllocatable(len, "make-string");
     const c = char ? charValue(char) : "\u0000";
     // Both the length and (when present) the filling char contribute lineage —
     // `(make-string n user-char)` should remember user-char as a source even
@@ -1198,7 +1254,11 @@ export const wrappedOps = {
   // ============================================================================
 
   "make-vector"(k: unknown, fill?: unknown): unknown[] {
-    const len = typeof k === "number" ? k : (k as SchemeExact).valueOf();
+    const len = Number(typeof k === "number" ? k : (k as SchemeExact).valueOf());
+    // O(1) cap check BEFORE Array.from materializes `len` slots — see
+    // assertAllocatable. `Array.from({length})` on an oversized count is the
+    // >10s hang the audit caught.
+    assertAllocatable(len, "make-vector");
     const arr = Array.from({ length: len });
     if (fill !== undefined) {
       arr.fill(fill);
