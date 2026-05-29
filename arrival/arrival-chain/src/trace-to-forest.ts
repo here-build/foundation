@@ -10,7 +10,7 @@
  *   - provenance points (infer/query) — repeated `leaf` boxes
  *   - recognized control forms — map/filter/for-each (unfold), reduce/fold
  *     (fold), cond/case/when/unless (dnf)
- *   - self-recursion — a scope whose invocation has a same-scope ancestor (loop)
+ *   - self-recursion — the BODY of a self-recursive function (loop), ×K iters
  *   - promoted user `define`s — opted-in via `opts.promoted` (suggested/forced)
  * User function calls are otherwise TRANSPARENT (their children re-parent up).
  *
@@ -28,15 +28,11 @@
  *   - `localBits` is a proxy (count of a representative instance's immediate
  *     plumbing children); `distinctShapes` defaults to 1 (structural shape-class
  *     detection across instances is the next step).
- *   - KNOWN GAP — tail-recursive loop body does not nest under the loop box.
- *     The loop anchors to the recursive call-site (fires K−1 back-edges, not K
- *     iterations); under TCO the iteration body (e.g. the map) is parented
- *     outside that Pair, so it floats to root as a SIBLING of the loop instead
- *     of nesting under it. The box TYPES, fan-out multiplicities, leaf
- *     extraction, promotion and end-to-end collapse are all correct; only
- *     loop-body containment is wrong. Fix (next design pass): anchor the loop to
- *     the recursive function's body scope and nest its iterations. Pinned in
- *     trace-to-forest.test.ts ("KNOWN v1 GAP").
+ *   - Loop bodies now nest correctly (the loop box is the recursive function's
+ *     BODY scope — entered ×K, including the first call — so the per-iteration
+ *     work nests under one box; see the loop-detection comment below). The prior
+ *     gap (loop boxed at the call-site → first iteration's map orphaned at root)
+ *     is fixed.
  *   - Accessor macros (`field`/`@`) expand to a `cond` the classifier currently
  *     sees as a dnf box (minor noise; refine by skipping macro-internal forms).
  */
@@ -115,17 +111,35 @@ export function traceToForest(trace: EvalTrace, opts: ForestOptions = {}): Candi
   const all: Invocation[] = [];
   for (const rec of trace.records.values()) for (const inv of rec.bindings) all.push(inv);
 
-  // Loop scopes: a recursive APPLICATION (a scope with a same-Pair ancestor),
-  // excluding structural special-forms (whose re-entry is the recursion's body,
-  // not the loop itself — see STRUCTURAL_FORMS).
-  const loopScopes = new Set<object>();
+  // A loop = a self-recursive function. We box its BODY (the lambda-body scope,
+  // entered once per iteration — INCLUDING the first, top-level call), NOT the
+  // recursive call-site. The body Pair telescopes all K iterations into one ×K
+  // box and the per-iteration work (map / infer / …) nests under it; the
+  // call-site fires only K−1 times and orphans the first iteration's body at root
+  // (the old behaviour — see the trace: `loop`-call ⊃ `let`-body ⊃ {work, `if` ⊃
+  // recursive `loop`-call ⊃ `let`-body ⊃ …}).
+  //
+  // Two steps:
+  //  1. recursive functions — a (non-structural) APPLICATION whose Pair recurs on
+  //     its own ancestor chain; its head names the recursive function.
+  //  2. loop bodies — a re-entrant scope whose PARENT is a recursive-function
+  //     application (the form that function evaluates each call). The first,
+  //     top-level body entry isn't itself re-entrant but shares the body Pair, so
+  //     it joins the same box via grouping. Works for tail- AND stack-recursion
+  //     (the body Pair is entered K times either way; multiplicity collapses it).
+  const hasSelfAncestor = (inv: Invocation): boolean => {
+    for (let p = inv.parent; p; p = p.parent) if (p.node === inv.node) return true;
+    return false;
+  };
+  const recursiveFnHeads = new Set<string>();
   for (const inv of all) {
     if (STRUCTURAL_FORMS.has(headOf(inv.node))) continue;
-    for (let p = inv.parent; p; p = p.parent) {
-      if (p.node === inv.node) {
-        loopScopes.add(inv.node as object);
-        break;
-      }
+    if (hasSelfAncestor(inv)) recursiveFnHeads.add(headOf(inv.node));
+  }
+  const loopScopes = new Set<object>();
+  for (const inv of all) {
+    if (inv.parent && hasSelfAncestor(inv) && recursiveFnHeads.has(headOf(inv.parent.node))) {
+      loopScopes.add(inv.node as object);
     }
   }
 

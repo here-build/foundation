@@ -98,20 +98,23 @@ describe("traceToForest — real gepa trace", () => {
     expect(leaves.length).toBeGreaterThanOrEqual(2); // react + reflect, distinct locations
   });
 
-  it("KNOWN v1 GAP: a tail-recursive loop's body does not nest under the loop box", async () => {
-    // Under TCO the recursive call-site (the loop anchor, fires K-1=2 back-edges)
-    // and the iteration body (the map, runs K=3×) end up SIBLINGS at root — the
-    // body is entered via the function mechanism, parented outside the call-site
-    // Pair. So `map` floats to root instead of nesting under `loop`, and the loop
-    // box counts back-edges (2) not iterations (3). This test pins that reality
-    // as the regression baseline; the fix (anchor the loop to the recursive
-    // function's body scope and nest its iterations) is the next design pass.
+  it("nests a tail-recursive loop's body under the loop box, ×K iterations", async () => {
+    // FIXED (was the v1 gap): the loop box is the recursive function's BODY scope,
+    // entered K=3× (every iteration, including the first top-level call) — so it
+    // counts ITERATIONS not back-edges, and the per-iteration work nests under it.
     const forest = traceToForest(await gepaTrace());
     const loop = forest.find((b) => b.type === "loop");
-    const map = forest.find((b) => b.id.startsWith("map@"));
     expect(loop).toBeDefined();
-    expect(map).toBeDefined(); // map is a ROOT (the gap) — should eventually be under loop
-    expect(loop!.n).toBeCloseTo(2, 5); // back-edges, not 3 iterations (the gap)
+    expect(loop!.n).toBeCloseTo(3, 5); // iterations, not 2 back-edges
+
+    // The map is no longer orphaned at root — it nests directly under the loop,
+    // and its react fan-out (×2 personas) under the map.
+    expect(forest.some((b) => b.id.startsWith("map@"))).toBe(false);
+    const all = flatten(forest);
+    const map = byHead(all, "map")[0]!;
+    expect(map.type).toBe("unfold");
+    expect(loop!.children.includes(map)).toBe(true);
+    expect(map.children.find((b) => b.type === "leaf")!.n).toBeCloseTo(2, 5);
   });
 
   it("feeds the optimizer end-to-end: the loop and the react fan-out collapse", async () => {
