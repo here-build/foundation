@@ -67,6 +67,7 @@ export {
   type FlowNodeKind,
   type FlowGraphOptions,
 } from "./trace-to-flow-graph.js";
+export { inferTasksByScope } from "./infer-content.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //
