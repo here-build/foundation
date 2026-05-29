@@ -250,6 +250,21 @@ export function defineRequireRosetta(opts: {
         }
         loaded.set(path, { value });
         return value;
+      } catch (error) {
+        // Annotate a throw from inside a required module with the require chain
+        // (which `require` led here: a → b → c). The DEEPEST require wins —
+        // outer levels see it already set and leave it, so the chain reads
+        // entry→failing-module. Survives evaluator propagation: an
+        // already-SchemeError is re-thrown unchanged (evaluator.ts:615), and a
+        // plain assignment to an Error object sticks. Best-effort (frozen → skip).
+        if (error !== null && typeof error === "object" && !("requireChain" in error)) {
+          try {
+            (error as { requireChain?: string[] }).requireChain = [...loadingStack];
+          } catch {
+            /* frozen/sealed error — annotation is best-effort */
+          }
+        }
+        throw error;
       } finally {
         loading.delete(path);
         loadingStack.pop();

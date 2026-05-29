@@ -189,4 +189,25 @@ describe("require — Plexus VFS preamble", () => {
     `);
     expect(value).toBe(3);
   });
+
+  it("annotates a throw inside a required module with the require chain", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    // a requires b; b throws (unbound variable). The error carries the chain of
+    // files loading when it threw — the deepest require wins, so the chain reads
+    // entry → failing module. (L3 stacktraces: this is the "which require led
+    // here" half; file:line within a module is the complementary half.)
+    project.addFile("a.scm", `(require "b.scm")`);
+    project.addFile("b.scm", `boom-unbound-variable`);
+
+    let err: unknown;
+    try {
+      await project.run(`(require "a.scm")`);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect((err as { requireChain?: string[] }).requireChain).toEqual(["a.scm", "b.scm"]);
+  });
 });
