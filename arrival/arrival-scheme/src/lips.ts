@@ -68,7 +68,7 @@ import { compose, curry, fold, pipe } from "./utils/functional.js";
 
 import { SchemeBool } from "./LBool.js";
 import { SchemeString } from "./LString.js";
-import { SchemeJSFunction, SchemeJSObject } from "./membrane.js";
+import { NOT_FOUND, SandboxViolationError, SchemeJSFunction, SchemeJSObject, sandboxedAccess } from "./membrane.js";
 import genRun, { type EvalContext, evaluate as genEvaluate } from "./evaluator.js";
 
 // Declare jQuery for browser environments
@@ -2043,7 +2043,23 @@ export const get = doc("get", function get(object, ...args) {
       // Use SchemeJSObject.get() for sandboxed membrane access
       value = object.get(name);
     } else {
-      value = object[name];
+      // Route raw property access through the SAME isolation as `@` /
+      // SchemeJSObject.get: blocked names (constructor, __proto__, prototype, …)
+      // and inherited props past a sandbox boundary (Function.prototype.*,
+      // Array.prototype.*) must not be reachable via dot-notation — otherwise
+      // `f.constructor("…")()` is RCE. Absent or blocked → undefined, the
+      // chain-terminator the `value === undefined` check below already handles.
+      const key = typeof name === "symbol" ? name : String(name);
+      try {
+        const accessed = sandboxedAccess(object, key);
+        value = accessed === NOT_FOUND ? undefined : accessed;
+      } catch (e) {
+        if (e instanceof SandboxViolationError) {
+          value = undefined;
+        } else {
+          throw e;
+        }
+      }
     }
     if (value === undefined) {
       invariant(args.length === 0, () => `Try to get ${args[0]} from undefined`);

@@ -28,7 +28,7 @@ import { EnvLookup } from "./EnvLookup.js";
 import type { Syntax } from "./Syntax.js";
 import type { QuotedPromise } from "./QuotedPromise.js";
 import invariant from "tiny-invariant";
-import { fromJS, isSchemeValue, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
+import { fromJS, isSchemeValue, NOT_FOUND, SandboxViolationError, sandboxedAccess, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
 
 // -------------------------------------------------------------------------
 // :: Runtime dependencies - deferred loading to break circular dependency
@@ -423,21 +423,29 @@ export class Environment {
           // `(eq? (:k obj) (@ obj :k))` holds because the wrapper's cache
           // returns the same AValue instance for the same key.
           if (obj instanceof SchemeJSObject) return obj.get(key);
-          let target = obj as { constructor: { prototype: unknown } } | null;
-          while (target !== null && target !== Object.prototype) {
-            if (
-              [SchemeSymbol, SchemeString, SchemeCharacter, Environment, SchemeExact, SchemeInexact].includes(
-                target.constructor as typeof SchemeSymbol,
-              )
-            ) {
-              return nil;
-            }
-            if (Object.hasOwn(target, key)) {
-              return (obj as Record<string, unknown>)[key] ?? nil;
-            }
-            target = target.constructor.prototype as typeof target;
+          // Scheme value types never expose their host internals via plucking.
+          if (
+            obj instanceof SchemeSymbol ||
+            obj instanceof SchemeString ||
+            obj instanceof SchemeCharacter ||
+            obj instanceof Environment ||
+            obj instanceof SchemeExact ||
+            obj instanceof SchemeInexact
+          ) {
+            return nil;
           }
-          return nil;
+          // Any other raw value (plain object, function, primitive): route through
+          // the SAME isolation as `(@ obj :k)` / SchemeJSObject.get — blocked
+          // names (constructor, __proto__, prototype, …) and boundary-crossing
+          // inherited props collapse to nil. Without this, `(:constructor f)` on
+          // a lambda hands back the Function constructor → RCE.
+          try {
+            const raw = sandboxedAccess(obj, key);
+            return raw === NOT_FOUND ? nil : ((raw as EnvironmentValue) ?? nil);
+          } catch (e) {
+            if (e instanceof SandboxViolationError) return nil;
+            throw e;
+          }
         },
         {
           valueOf: () => symbol.__name__,

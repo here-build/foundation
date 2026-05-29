@@ -134,6 +134,73 @@ describe("CRITICAL: sandbox escape vectors", () => {
 });
 
 // ============================================================================
+// CRITICAL: accessor isolation leaks (dot-notation `get` + `:keyword` plucker)
+// ============================================================================
+//
+// Audit finding (2026-05-30, require/import loader plan): field retrieval IS
+// gated for `@`/`field` (they route through `sandboxedAccess` →
+// SchemeJSObject.get), but TWO other property-access paths bypass it for RAW
+// (non-SchemeJSObject) values:
+//   - `lips.ts` `get` (dot-notation `x.y`) — `else` branch does raw `object[name]`.
+//   - `Environment.ts` `:keyword` plucker — raw branch does `obj[key]` after
+//     `Object.hasOwn`, never consulting BLOCKED_PROPERTY_NAMES.
+// A lambda / rosetta is a raw JS function in sandbox scope, so `(:constructor f)`
+// or `f.constructor` walks to `Function.prototype.constructor` → the `Function`
+// constructor → `((:constructor f) "return process")()` is RCE.
+//
+// Secure invariant: both paths route through the SAME `sandboxedAccess`
+// isolation as `@` — blocked names (constructor, __proto__, prototype, …) and
+// boundary-crossing inherited props collapse to nil/undefined.
+// ============================================================================
+
+describe("CRITICAL: accessor isolation leaks", () => {
+  it(":keyword plucking 'constructor' off a lambda does not leak Function", async () => {
+    await initBridge();
+    const [fromLambda] = await exec("(:constructor (lambda (x) x))", { env: sandboxedEnv });
+    // Pre-fix: === Function (RCE primitive). Post-fix: nil.
+    expect(fromLambda).not.toBe(Function);
+  });
+
+  it(":keyword plucking '__proto__' / 'prototype' off a lambda is blocked", async () => {
+    await initBridge();
+    const [proto] = await exec("(:prototype (lambda (x) x))", { env: sandboxedEnv });
+    const [dunder] = await exec("(:__proto__ (lambda (x) x))", { env: sandboxedEnv });
+    expect(proto).not.toBe(Function.prototype);
+    // __proto__ must not hand back Function.prototype (→ chains to constructor).
+    expect(dunder).not.toBe(Object.getPrototypeOf(() => {}));
+  });
+
+  it("lips get() (dot-notation accessor) blocks raw constructor/__proto__ access", async () => {
+    // `get` is the dot-notation property accessor (`foo.bar` → get(foo, "bar"),
+    // routed via Environment.get's dotted resolution). On a raw function its
+    // `else` branch used to do `object[name]` — so get(fn, "constructor") handed
+    // back the Function constructor (RCE). It now routes through sandboxedAccess.
+    const { get } = await import("../lips");
+    const fn = (x: number) => x;
+    expect(get(fn, "constructor")).toBeUndefined();
+    expect(get(fn, "__proto__")).toBeUndefined();
+    expect(get(fn, "prototype")).toBeUndefined();
+    // Inherited built-in proto methods are past a sandbox boundary → blocked.
+    expect(get([1, 2, 3], "map")).toBeUndefined();
+    // Benign own-property access still resolves (guard against over-blocking).
+    // `get` boxes the result through `patch_value` (numbers → SchemeExact), so
+    // assert "not blocked" + the unboxed value rather than raw identity.
+    expect(get({ a: 1, b: 2 }, "a")).not.toBeUndefined();
+    expect(String(get({ a: 1, b: 2 }, "a"))).toBe("1");
+    expect(String(get([1, 2, 3], "length"))).toBe("3");
+  });
+
+  it("benign :keyword and dot access on a plain object still resolve", async () => {
+    await initBridge();
+    // Guard against over-blocking: legitimate own-property access must keep
+    // working through both paths after the isolation is applied.
+    sandboxedEnv.set("__probe_obj", { name: "maya", nested: { city: "lisbon" } });
+    const [byKeyword] = await exec("(:name __probe_obj)", { env: sandboxedEnv });
+    expect(String(byKeyword)).toBe("maya");
+  });
+});
+
+// ============================================================================
 // CRITICAL: resource exhaustion (DoS vectors)
 // ============================================================================
 
