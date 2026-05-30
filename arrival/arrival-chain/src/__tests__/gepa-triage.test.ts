@@ -66,7 +66,7 @@ const triageStub = (
       const [, persona] = user.split("|");
       const v = verdicts[persona!];
       if (!v) throw new Error(`stub: no triage verdict for ${persona}`);
-      return v;
+      return { value: v };
     }
     throw new Error(`stub: unexpected prompt: ${user}`);
   });

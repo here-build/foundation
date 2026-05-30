@@ -51,30 +51,34 @@ const routedBackend = () => {
     if (user.includes("Map the audience boundary")) {
       calls.boundary++;
       return {
-        axes: [{ name: "x", description: "y", polarity: "+" }],
-        boundaryDescription: "boundary X",
-        inScopeCount: 2,
-        adjacentCount: 1,
-        outOfScopeCount: 0,
+        value: {
+          axes: [{ name: "x", description: "y", polarity: "+" }],
+          boundaryDescription: "boundary X",
+          inScopeCount: 2,
+          adjacentCount: 1,
+          outOfScopeCount: 0,
+        },
       };
     }
     if (user.includes("Analyse gaps")) {
       calls.gap++;
-      return { gaps: [{ region: "r", rationale: "r", targetPersonaCount: 3, priority: 0.5 }] };
+      return { value: { gaps: [{ region: "r", rationale: "r", targetPersonaCount: 3, priority: 0.5 }] } };
     }
     if (user.includes("Classify how this persona")) {
       calls.classify++;
       return {
-        acceptance: 0.5,
-        confidence: 0.5,
-        proximityToScope: 0.5,
-        bucket: "B",
-        reasoning: "stub",
+        value: {
+          acceptance: 0.5,
+          confidence: 0.5,
+          proximityToScope: 0.5,
+          bucket: "B",
+          reasoning: "stub",
+        },
       };
     }
     if (user.includes("You are a synthetic respondent")) {
       calls.reaction++;
-      return "(a) trades clarity for brevity (b) keep reading (c) what about pricing?";
+      return { value: "(a) trades clarity for brevity (b) keep reading (c) what about pricing?" };
     }
     throw new Error(`unexpected user prompt:\n${user.slice(0, 200)}`);
   });

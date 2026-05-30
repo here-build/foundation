@@ -32,7 +32,7 @@ describe("live call-stack capture at (infer) time", () => {
     const worker = startOrchestrator({
       cache,
       router: singletonRouter({
-        complete: vi.fn(async (s: { prompt: string }) => `seen:${s.prompt}`),
+        complete: vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` })),
       }),
       signal: ac.signal,
     }).done;
@@ -98,7 +98,7 @@ describe("live call-stack capture at (infer) time", () => {
     const worker = startOrchestrator({
       cache,
       router: singletonRouter({
-        complete: vi.fn(async (s: { prompt: string }) => `seen:${s.prompt}`),
+        complete: vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` })),
       }),
       signal: ac.signal,
     }).done;

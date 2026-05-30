@@ -88,7 +88,7 @@ const recordingBackend = () => {
     const user = messages.find((m) => m.role === "user")?.content ?? "";
     const seedMatch = user.match(/Sketch: A ([^\n]+)/);
     const tag = seedMatch ? seedMatch[1].slice(0, 12) : "unk";
-    return { id: `enriched_${tag}`, name: `E-${tag}`, oneLine: `enriched: ${tag}` };
+    return { value: { id: `enriched_${tag}`, name: `E-${tag}`, oneLine: `enriched: ${tag}` } };
   });
   return { complete, calls };
 };

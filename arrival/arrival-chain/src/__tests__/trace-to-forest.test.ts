@@ -49,9 +49,9 @@ async function gepaTrace(): Promise<EvalTrace> {
       complete: async (spec: ModelSpec) => {
         const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
         const user = parsed.find((m) => m.role === "user")?.content ?? "";
-        if (user.startsWith("REACT|")) return { verdict: "click" };
+        if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
         const [, current] = user.split("|");
-        return { next: current === "t0" ? "t1" : "t2" };
+        return { value: { next: current === "t0" ? "t1" : "t2" } };
       },
     }),
     signal: ac.signal,

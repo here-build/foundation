@@ -10,7 +10,7 @@ import { singletonRouter } from "../registry.js";
 
 const counterStub = () => {
   let n = 0;
-  const complete = vi.fn(async (_s: ModelSpec) => `draw-${n++}`);
+  const complete = vi.fn(async (_s: ModelSpec) => ({ value: `draw-${n++}` }));
   return { complete };
 };
 

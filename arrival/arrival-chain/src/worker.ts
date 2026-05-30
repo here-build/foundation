@@ -52,13 +52,17 @@ export function startOrchestrator(opts: OrchestratorOptions): { done: Promise<vo
         }
         log("dispatch calling backend.complete model=", modelId);
         try {
-          const value = await backend.complete({
+          const { value, usage } = await backend.complete({
             model: modelId,
             prompt: task.prompt,
             schema: task.schema,
           });
           log("dispatch backend OK model=", modelId, "preview=", JSON.stringify(value).slice(0, 120));
-          task.result = new InferenceResult({ valueJson: JSON.stringify(value, null, 2) });
+          task.result = new InferenceResult({
+            valueJson: JSON.stringify(value, null, 2),
+            inputTokens: usage?.inputTokens ?? 0,
+            outputTokens: usage?.outputTokens ?? 0,
+          });
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           log("dispatch backend FAIL model=", modelId, "err=", msg);

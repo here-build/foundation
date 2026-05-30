@@ -25,7 +25,7 @@ describe("infer — schema as tagged-list DSL", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => ({ name: "Maya" }));
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: { name: "Maya" } }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -46,7 +46,7 @@ describe("infer — schema as tagged-list DSL", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => ({}));
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -65,7 +65,7 @@ describe("infer — schema as tagged-list DSL", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => ({}));
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -83,7 +83,7 @@ describe("infer — schema as tagged-list DSL", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => []);
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: [] }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -114,7 +114,7 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => ({}));
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -133,7 +133,7 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => ({}));
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -159,7 +159,7 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => ({}));
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -179,7 +179,7 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => ({}));
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 

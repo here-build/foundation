@@ -1,4 +1,4 @@
-import type { ModelBackend, ModelSpec } from "../model.js";
+import type { Completion, ModelBackend, ModelSpec } from "../model.js";
 import { lazyBackend, renderSchema, specMessages } from "./_shared.js";
 
 export interface AnthropicOptions {
@@ -18,7 +18,7 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
     const client = new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
     const maxTokens = opts.maxTokens ?? 4096;
     return {
-      async complete(spec: ModelSpec): Promise<unknown> {
+      async complete(spec: ModelSpec): Promise<Completion> {
         const messages = specMessages(spec);
         const systemMessage = messages.find((m) => m.role === "system")?.content ?? "";
         const convo = messages
@@ -39,7 +39,13 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
         });
         const block = res.content[0];
         const text = block?.type === "text" ? block.text : "";
-        return wantsJson ? JSON.parse(text) : text;
+        const value = wantsJson ? JSON.parse(text) : text;
+        // Anthropic returns usage.{input,output}_tokens — capture it (unrecoverable
+        // once cached). See the OpenAI backend + model.ts Completion.
+        return {
+          value,
+          usage: { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens },
+        };
       },
     };
   });

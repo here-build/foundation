@@ -87,7 +87,7 @@ describe("Project.invoke — reverse-membrane apiCall Run", () => {
 
   it("records every infer call in run.inferences as the trace", async () => {
     const { project, cache } = fresh();
-    const complete = vi.fn(async (s: { prompt: string }) => `seen:${s.prompt}`);
+    const complete = vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` }));
     const ac = new AbortController();
     const worker = startOrchestrator({
       cache,
@@ -121,7 +121,7 @@ describe("Project.sandboxRun — forward-membrane sandbox Run", () => {
     const ac = new AbortController();
     const worker = startOrchestrator({
       cache,
-      router: singletonRouter({ complete: async () => "ok" }),
+      router: singletonRouter({ complete: async () => ({ value: "ok" }) }),
       signal: ac.signal,
     }).done;
 
@@ -225,7 +225,7 @@ describe("Project.sandboxRunTraced — studio sandbox with userForms", () => {
 describe("Project.runHypothesis — counterfactual replay", () => {
   it("substitutes a tweaked infer result, leaves other cells intact", async () => {
     const { project, cache } = fresh();
-    const complete = vi.fn(async (s: { prompt: string }) => `real:${s.prompt}`);
+    const complete = vi.fn(async (s: { prompt: string }) => ({ value: `real:${s.prompt}` }));
     const ac = new AbortController();
     const worker = startOrchestrator({
       cache,

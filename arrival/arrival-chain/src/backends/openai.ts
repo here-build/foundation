@@ -1,4 +1,4 @@
-import type { ModelBackend, ModelSpec } from "../model.js";
+import type { Completion, ModelBackend, ModelSpec } from "../model.js";
 import { lazyBackend, renderSchema, specMessages } from "./_shared.js";
 
 export interface OpenAIOptions {
@@ -29,7 +29,7 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
       ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
     });
     return {
-      async complete(spec: ModelSpec): Promise<unknown> {
+      async complete(spec: ModelSpec): Promise<Completion> {
         const messages = specMessages(spec);
         const schema = renderSchema(spec.schema);
         const res = await client.chat.completions.create({
@@ -47,7 +47,17 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
               : { response_format: { type: "json_object" as const } }),
         });
         const text = res.choices[0]?.message?.content ?? "";
-        return spec.schema === null ? text : JSON.parse(text);
+        const value = spec.schema === null ? text : JSON.parse(text);
+        // Capture the usage the API already returns (LM Studio + OpenAI both do)
+        // — the stable fact behind spent/saved/projected cost. Discarding it is
+        // unrecoverable once a result is cached, so capture it on the miss.
+        return {
+          value,
+          usage: {
+            inputTokens: res.usage?.prompt_tokens ?? 0,
+            outputTokens: res.usage?.completion_tokens ?? 0,
+          },
+        };
       },
     };
   });

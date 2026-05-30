@@ -33,7 +33,7 @@ describe("herebuild-multi.scm — K × N × M reactions", () => {
       const msgs = parseChatPrompt(spec.prompt) ?? [];
       const user = msgs.find((m) => m.role === "user")?.content ?? "";
       const m = user.match(/Name: (\w+)/);
-      return { interpretation: `i-${m?.[1] ?? "?"}`, verdict: "click", concern: "" };
+      return { value: { interpretation: `i-${m?.[1] ?? "?"}`, verdict: "click", concern: "" } };
     });
 
     const result = await runPipeline({

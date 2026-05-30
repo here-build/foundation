@@ -13,6 +13,12 @@ import type { InferenceCache } from "./cache.js";
 @syncing("ArrivalChainInferenceResult")
 export class InferenceResult extends PlexusModel<InferenceTask> {
   @syncing accessor valueJson: string = "null";
+  // Provider-reported token counts — the stable fact behind cost accounting
+  // (spent/saved/projected). Persisted with the cached result because it's
+  // unrecoverable later: a pinned result with no usage can never be costed
+  // without re-tokenising or re-calling. 0 = a backend that reported no usage.
+  @syncing accessor inputTokens: number = 0;
+  @syncing accessor outputTokens: number = 0;
   get value(): unknown {
     return JSON.parse(this.valueJson);
   }

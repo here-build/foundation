@@ -5,7 +5,7 @@ import { singletonRouter, StaticRouter } from "../registry.js";
 import { runPipeline } from "../runner.js";
 
 const stubBackend = (impl?: (s: ModelSpec) => unknown) => {
-  const complete = vi.fn(async (s: ModelSpec) => (impl ? impl(s) : `echo:${s.prompt}`));
+  const complete = vi.fn(async (s: ModelSpec) => ({ value: impl ? impl(s) : `echo:${s.prompt}` }));
   return { complete };
 };
 

@@ -11,7 +11,7 @@ import { singletonRouter } from "../registry.js";
 const echoStub = (delayMs = 0) =>
   vi.fn(async (s: ModelSpec) => {
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-    return `echo(${s.model}):${s.prompt}`;
+    return { value: `echo(${s.model}):${s.prompt}` };
   });
 
 describe("Project.run — the converge kernel", () => {

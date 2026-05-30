@@ -212,19 +212,19 @@ const stub = (
       const [, tagline, persona] = user.split("|");
       const verdict = taglineVerdicts[tagline!]?.[persona!];
       if (!verdict) throw new Error(`stub: no react for ${user}`);
-      return { verdict };
+      return { value: { verdict } };
     }
     if (user.startsWith("REFLECT|")) {
       const [, tagline] = user.split("|");
       const next = reflectionChain[tagline!];
       if (next === undefined) throw new Error(`stub: no reflect for ${user}`);
-      return { next };
+      return { value: { next } };
     }
     if (user.startsWith("TRIAGE|")) {
       const [, persona] = user.split("|");
       const v = triageVerdicts[persona!];
       if (!v) throw new Error(`stub: no triage for ${user}`);
-      return v;
+      return { value: v };
     }
     throw new Error(`stub: unexpected: ${user}`);
   });

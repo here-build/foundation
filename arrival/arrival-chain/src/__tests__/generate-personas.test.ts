@@ -44,7 +44,7 @@ const batchStub = () => {
         pains: [], goals: [], jobsToBeDone: [], currentToolStack: [], dealbreakers: [],
       });
     }
-    return { personas };
+    return { value: { personas } };
   });
   return { complete, calls };
 };

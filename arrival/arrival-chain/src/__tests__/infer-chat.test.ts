@@ -13,7 +13,7 @@ describe("infer/chat — role-tagged message list", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (s: ModelSpec) => `recv:${s.prompt}`);
+    const complete = vi.fn(async (s: ModelSpec) => ({ value: `recv:${s.prompt}` }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -34,7 +34,7 @@ describe("infer/chat — role-tagged message list", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => "ok");
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: "ok" }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -55,7 +55,7 @@ describe("infer/chat — role-tagged message list", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => "ok");
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: "ok" }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 
@@ -73,7 +73,7 @@ describe("infer/chat — role-tagged message list", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    const complete = vi.fn(async (_s: ModelSpec) => "ok");
+    const complete = vi.fn(async (_s: ModelSpec) => ({ value: "ok" }));
     const ac = new AbortController();
     const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
 

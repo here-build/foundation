@@ -36,7 +36,7 @@ const stub = () => {
     const user = msgs.find((m) => m.role === "user")?.content ?? "";
     const m = user.match(/Name: (\w+)/);
     const name = m ? m[1] : "?";
-    return { interpretation: `i-${name}`, verdict: "click", concern: "none" };
+    return { value: { interpretation: `i-${name}`, verdict: "click", concern: "none" } };
   });
   return { complete };
 };
@@ -74,7 +74,7 @@ describe("herebuild-react.scm — N × M parallel reactions", () => {
     const slow = () => ({
       complete: vi.fn(async (_s: ModelSpec) => {
         await new Promise((r) => setTimeout(r, 50));
-        return { interpretation: "x", verdict: "click", concern: "" };
+        return { value: { interpretation: "x", verdict: "click", concern: "" } };
       }),
     });
 

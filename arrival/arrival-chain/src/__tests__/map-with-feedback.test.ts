@@ -67,15 +67,18 @@ const routedBackend = () => {
       calls.critique++;
       const m = user.match(/q-(\d+)/);
       const i = m ? Number(m[1]) : 0;
-      return i % 2 === 0
-        ? { specific: false, fix: `tighter version of q-${i}` }
-        : { specific: true, fix: "" };
+      return {
+        value:
+          i % 2 === 0
+            ? { specific: false, fix: `tighter version of q-${i}` }
+            : { specific: true, fix: "" },
+      };
     }
     if (system === "rewrite") {
       calls.rewrite++;
       const m = user.match(/q-(\d+)/);
       const i = m ? Number(m[1]) : 0;
-      return { question: `q-${i}-tight` };
+      return { value: { question: `q-${i}-tight` } };
     }
     throw new Error(`unexpected system: ${system}`);
   });

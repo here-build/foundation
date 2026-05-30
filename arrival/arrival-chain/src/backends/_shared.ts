@@ -1,6 +1,6 @@
 import invariant from "tiny-invariant";
 
-import type { ModelBackend, ModelSpec } from "../model.js";
+import type { Completion, ModelBackend, ModelSpec } from "../model.js";
 
 /**
  * Wrap a backend behind a lazy loader. The provider SDK is imported on
@@ -9,7 +9,7 @@ import type { ModelBackend, ModelSpec } from "../model.js";
 export function lazyBackend(loader: () => Promise<ModelBackend>): ModelBackend {
   let cached: Promise<ModelBackend> | null = null;
   return {
-    async complete(spec: ModelSpec): Promise<unknown> {
+    async complete(spec: ModelSpec): Promise<Completion> {
       cached ??= loader();
       return (await cached).complete(spec);
     },

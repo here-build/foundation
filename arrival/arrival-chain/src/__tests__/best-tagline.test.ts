@@ -69,25 +69,25 @@ const stub = (
     const user = msgs.find((m) => m.role === "user")?.content ?? "";
 
     if (user.includes("REASONS:")) {
-      return { summary: "stub consolidation summary", "key-points": ["theme-a", "theme-b"] };
+      return { value: { summary: "stub consolidation summary", "key-points": ["theme-a", "theme-b"] } };
     }
     if (user.includes("TAGLINE A:") && user.includes("TAGLINE B:")) {
-      return { next: "merged-tagline", rationale: "stub merge" };
+      return { value: { next: "merged-tagline", rationale: "stub merge" } };
     }
     if (user.includes("CURRENT TAGLINE:")) {
       const m = user.match(/CURRENT TAGLINE:\n"([^"]*)"/);
       const current = m?.[1] ?? "t0";
-      return { next: nextTagline(current), rationale: "stub" };
+      return { value: { next: nextTagline(current), rationale: "stub" } };
     }
     if (user.includes("TAGLINE THEY SAW:")) {
       const nameMatch = user.match(/Name: (\w+)/);
       const name = nameMatch?.[1] ?? "?";
-      return { mismatch: mismatchFor(name), reason: `stub triage for ${name}` };
+      return { value: { mismatch: mismatchFor(name), reason: `stub triage for ${name}` } };
     }
     // reaction
     const tag = user.match(/TAGLINE:\n"([^"]*)"/)?.[1] ?? "?";
     const name = user.match(/Name: (\w+)/)?.[1] ?? "?";
-    return { verdict: verdictFor(name, tag), concern: `${name} on ${tag}` };
+    return { value: { verdict: verdictFor(name, tag), concern: `${name} on ${tag}` } };
   });
   return { complete };
 };

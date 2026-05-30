@@ -12,7 +12,7 @@ import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 
 const stubModel = () => ({
-  complete: async (s: ModelSpec) => `echo(${s.model}):${s.prompt}`,
+  complete: async (s: ModelSpec) => ({ value: `echo(${s.model}):${s.prompt}` }),
 });
 
 /**

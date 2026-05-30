@@ -33,7 +33,7 @@ function workerOver(project: Project, cache: InferenceCache) {
   const done = startOrchestrator({
     cache,
     router: singletonRouter({
-      complete: vi.fn(async (s: { prompt: string }) => `R[${s.prompt}]`),
+      complete: vi.fn(async (s: { prompt: string }) => ({ value: `R[${s.prompt}]` })),
     }),
     signal: ac.signal,
   }).done;

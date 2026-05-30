@@ -22,7 +22,7 @@ const NESTED = {
   p2: { id: "p2", versions: [{ n: 1, state: { name: "Priya", oneLine: "twenty" } }] },
 };
 
-const noopBackend = () => ({ complete: vi.fn(async (_s: ModelSpec) => "ok") });
+const noopBackend = () => ({ complete: vi.fn(async (_s: ModelSpec) => ({ value: "ok" })) });
 
 describe("nested-shape data access from scheme", () => {
   it("values-of: object-map → list of records", async () => {

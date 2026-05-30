@@ -126,13 +126,13 @@ const gepaStub = (
       const [, tagline, persona] = user.split("|");
       const verdict = taglineVerdicts[tagline!]?.[persona!];
       if (!verdict) throw new Error(`stub: no verdict for ${user}`);
-      return { verdict };
+      return { value: { verdict } };
     }
     if (user.startsWith("REFLECT|")) {
       const [, tagline] = user.split("|");
       const next = reflectionChain[tagline!];
       if (next === undefined) throw new Error(`stub: no reflection for ${user}`);
-      return { next };
+      return { value: { next } };
     }
     throw new Error(`stub: unexpected prompt: ${user}`);
   });
@@ -231,11 +231,11 @@ ${PROGRAM_PREAMBLE}
       const user = parsed.find((m) => m.role === "user")?.content ?? "";
       if (user.startsWith("REACT|")) {
         const [, tagline] = user.split("|");
-        return { verdict: tagline === "t0" ? "bounce" : "click" };
+        return { value: { verdict: tagline === "t0" ? "bounce" : "click" } };
       }
       if (user.startsWith("REFLECT|")) {
         const sawPriorHint = user.includes("t-prior:p1");
-        return { next: sawPriorHint ? "t-merged" : "t1" };
+        return { value: { next: sawPriorHint ? "t-merged" : "t1" } };
       }
       throw new Error(`unexpected: ${user}`);
     });

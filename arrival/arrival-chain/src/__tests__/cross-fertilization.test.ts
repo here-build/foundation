@@ -21,7 +21,7 @@ import { singletonRouter } from "../registry.js";
 const stub = (delayMs = 0) => {
   const complete = vi.fn(async (_s: ModelSpec) => {
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-    return { strength: "x", weakness: "y", challenge: "z" };
+    return { value: { strength: "x", weakness: "y", challenge: "z" } };
   });
   return { complete };
 };

@@ -51,8 +51,8 @@ const PROGRAM = `
 
 const stubBackend = () => {
   const complete = vi.fn(async (spec: ModelSpec) => {
-    if (spec.prompt === "hi alice") return "HELLO_ALICE";
-    if (spec.prompt === "yo bob")   return "HEY_BOB";
+    if (spec.prompt === "hi alice") return { value: "HELLO_ALICE" };
+    if (spec.prompt === "yo bob")   return { value: "HEY_BOB" };
     throw new Error(`stub: unexpected prompt: ${spec.prompt}`);
   });
   return { complete };
@@ -61,7 +61,7 @@ const stubBackend = () => {
 /** Permissive backend that echoes any prompt back wrapped in brackets.
  *  Used by G-tests that vary the program shape rather than the prompts. */
 const echoBackend = () => ({
-  complete: vi.fn(async (spec: ModelSpec) => `[${spec.prompt}]`),
+  complete: vi.fn(async (spec: ModelSpec) => ({ value: `[${spec.prompt}]` })),
 });
 
 const baseConfig = (): TraceConfig => ({
@@ -249,7 +249,7 @@ describe("traceForOutput", () => {
   it("errors when site doesn't belong to the session", async () => {
     const sessionA = await recordSession(baseConfig());
     const otherProgram = "(car (infer \"fast\" \"hello\"))";
-    const helloStub = { complete: vi.fn(async () => "HELLO") };
+    const helloStub = { complete: vi.fn(async () => ({ value: "HELLO" })) };
     const sessionB = await recordSession({
       ...baseConfig(),
       files: { "main.scm": otherProgram },

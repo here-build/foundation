@@ -68,7 +68,7 @@ const momTestStub = () => {
     const user = parsed.find((m) => m.role === "user")?.content ?? "";
     const verdict = fixesByInput[user];
     if (!verdict) throw new Error(`stub: unexpected user prompt: ${user}`);
-    return verdict;
+    return { value: verdict };
   });
   return { complete };
 };
