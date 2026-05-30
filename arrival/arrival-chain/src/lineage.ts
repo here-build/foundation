@@ -35,7 +35,6 @@ import { startOrchestrator } from "./worker.js";
 export interface TraceConfig {
   files: Readonly<Record<string, string>>;
   entry: string;
-  env: Readonly<Record<string, string | number | boolean>>;
   /**
    * Model-id → backend lookup. Pass a stub for tests via `singletonRouter`,
    * a `StaticRouter({ "gpt-4o-mini": ..., "claude-3-5-sonnet": ... })` for
@@ -278,11 +277,11 @@ function classifySymbolOrigin(
     }
     walker = walker.parent;
   }
-  // Fallback: env-read for `project/...` symbols (resolved via fallback resolver).
-  if (symbolName.startsWith("project/")) {
-    const path = symbolName.slice("project/".length).split("/");
-    return { kind: "env-read", path };
-  }
+  // Config-as-code: `config/<name>` references are ordinary spilled bindings
+  // (from `(require "config.scm")`), so they classify as `literal` like any
+  // other free symbol resolving to a captured value — there is no env-resolver
+  // fallback to detect anymore. (The `env-read` TraceOrigin variant is retained
+  // for back-compat with any external consumer but is no longer produced.)
   return { kind: "literal" };
 }
 
@@ -344,9 +343,6 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
 
   for (const [path, content] of Object.entries(config.files)) {
     project.addFile(path, content);
-  }
-  for (const [key, value] of Object.entries(config.env)) {
-    project.setEnv(key, value);
   }
 
   const entryFile = project.files.get(config.entry);
@@ -421,13 +417,26 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
   }
 
   return {
-    version: { programHash, envHash: envHashOf(project.env) },
+    version: { programHash, filesHash: filesHashOf(sourcesByPath(project), { exclude: config.entry }) },
     inferences,
     cache: createPathCache(),
     programSource: source,
     trace,
     invByTaskId,
   };
+}
+
+/**
+ * Project a Project's VFS into a plain `path → latest-source` map — the input
+ * shape `filesHashOf` and the cache-invalidation reaction both consume. Reads
+ * each Program's latest version source (the form `require` would load).
+ */
+function sourcesByPath(project: { files: ReadonlyMap<string, { versions: ReadonlyArray<{ source: string }> }> }): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [path, program] of project.files) {
+    out.set(path, program.versions.at(-1)?.source ?? "");
+  }
+  return out;
 }
 
 /** Pull __location__ off a Pair without exposing the symbol-key dance. */
@@ -550,20 +559,26 @@ export function createPathCache(capacity = 50_000): PathCache {
 }
 
 /**
- * Wire a cache to a project's env so the cache clears when env mutates.
- * Returns a disposer; call it to detach the reaction. Use this when the
- * cache outlives a single recordSession and shares lifetime with a
- * live project (e.g., monitor-chain UI editing flow).
+ * Wire a cache to a project's files so the cache clears when any file mutates.
+ * Returns a disposer; call it to detach the reaction. Use this when the cache
+ * outlives a single recordSession and shares lifetime with a live project
+ * (e.g., monitor-chain UI editing flow).
  *
- * recordSession does NOT call this — its project is ephemeral and the
- * env is frozen for the session's lifetime.
+ * Config-as-code: per-run knobs live in a `config.scm` file the entry
+ * requires, so the cache-relevant project state IS the file set. Editing a
+ * file (config or otherwise), adding one, or publishing a new version shifts
+ * `filesHashOf` and clears the cache — the same wholesale invalidation the
+ * env-mutation reaction used to provide.
+ *
+ * recordSession does NOT call this — its project is ephemeral and its files
+ * are frozen for the session's lifetime.
  */
-export function bindCacheToProjectEnv(
+export function bindCacheToProjectFiles(
   cache: PathCache,
-  project: { env: ReadonlyMap<readonly string[], string | number | boolean> },
+  project: { files: ReadonlyMap<string, { versions: ReadonlyArray<{ source: string }> }> },
 ): () => void {
   return reaction(
-    () => envHashOf(project.env),
+    () => filesHashOf(sourcesByPath(project)),
     () => cache.clear(),
   );
 }
@@ -629,7 +644,8 @@ export type DNFPath = readonly DNFEntry[];
 
 export interface PathVersion {
   programHash: string;
-  envHash: string;
+  /** Hash over the non-entry files (config-as-code + data) the entry requires. */
+  filesHash: string;
 }
 
 /**
@@ -679,10 +695,22 @@ export function programHashOf(source: string): string {
   return fnv1a(source);
 }
 
-/** Deterministic across env iteration order — entries sorted by joined key. */
-export function envHashOf(env: ReadonlyMap<readonly string[], string | number | boolean>): string {
-  const entries: Array<readonly [string, string | number | boolean]> = [];
-  for (const [k, v] of env) entries.push([k.join("/"), v] as const);
+/**
+ * Hash over the project's files (config-as-code: config + data live in the VFS,
+ * not in a separate env map). Deterministic across iteration order — entries
+ * sorted by path. `exclude` drops one path (the entry program, whose source is
+ * already captured by `programHash`) so the two version axes stay orthogonal:
+ * `programHash` = the entry, `filesHash` = everything it requires.
+ */
+export function filesHashOf(
+  sourcesByPath: ReadonlyMap<string, string>,
+  opts: { exclude?: string } = {},
+): string {
+  const entries: Array<readonly [string, string]> = [];
+  for (const [path, source] of sourcesByPath) {
+    if (path === opts.exclude) continue;
+    entries.push([path, source] as const);
+  }
   entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   return fnv1a(JSON.stringify(entries));
 }

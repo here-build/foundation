@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { envHashOf, programHashOf } from "../lineage.js";
+import { filesHashOf, programHashOf } from "../lineage.js";
 
 describe("programHashOf", () => {
   it("returns the same hash for identical source", () => {
@@ -36,50 +36,50 @@ describe("programHashOf", () => {
   });
 });
 
-describe("envHashOf", () => {
+describe("filesHashOf", () => {
   it("returns the same hash regardless of insertion order", () => {
-    const a = new Map<readonly string[], string | number | boolean>([
-      [["a"], "1"],
-      [["b"], 2],
+    const a = new Map<string, string>([
+      ["a.scm", "(define config/a 1)"],
+      ["b.json", "[1,2]"],
     ]);
-    const b = new Map<readonly string[], string | number | boolean>([
-      [["b"], 2],
-      [["a"], "1"],
+    const b = new Map<string, string>([
+      ["b.json", "[1,2]"],
+      ["a.scm", "(define config/a 1)"],
     ]);
-    expect(envHashOf(a)).toBe(envHashOf(b));
+    expect(filesHashOf(a)).toBe(filesHashOf(b));
   });
 
-  it("returns different hashes when values differ", () => {
-    const a = new Map<readonly string[], string | number | boolean>([[["x"], 1]]);
-    const b = new Map<readonly string[], string | number | boolean>([[["x"], 2]]);
-    expect(envHashOf(a)).not.toBe(envHashOf(b));
+  it("returns different hashes when a file's source differs", () => {
+    const a = new Map<string, string>([["config.scm", "(define config/x 1)"]]);
+    const b = new Map<string, string>([["config.scm", "(define config/x 2)"]]);
+    expect(filesHashOf(a)).not.toBe(filesHashOf(b));
   });
 
-  it("returns different hashes when keys differ", () => {
-    const a = new Map<readonly string[], string | number | boolean>([[["x"], 1]]);
-    const b = new Map<readonly string[], string | number | boolean>([[["y"], 1]]);
-    expect(envHashOf(a)).not.toBe(envHashOf(b));
+  it("returns different hashes when paths differ", () => {
+    const a = new Map<string, string>([["x.scm", "(define config/v 1)"]]);
+    const b = new Map<string, string>([["y.scm", "(define config/v 1)"]]);
+    expect(filesHashOf(a)).not.toBe(filesHashOf(b));
   });
 
-  it("distinguishes nested keys by their joined form", () => {
-    const a = new Map<readonly string[], string | number | boolean>([[["a", "b"], 1]]);
-    const b = new Map<readonly string[], string | number | boolean>([[["a"], 1]]);
-    expect(envHashOf(a)).not.toBe(envHashOf(b));
-  });
-
-  it("distinguishes string from number values", () => {
-    const a = new Map<readonly string[], string | number | boolean>([[["x"], "1"]]);
-    const b = new Map<readonly string[], string | number | boolean>([[["x"], 1]]);
-    expect(envHashOf(a)).not.toBe(envHashOf(b));
+  it("excludes the named path (the entry, already covered by programHash)", () => {
+    const withEntry = new Map<string, string>([
+      ["main.scm", "(+ 1 1)"],
+      ["config.scm", "(define config/x 1)"],
+    ]);
+    const configOnly = new Map<string, string>([["config.scm", "(define config/x 1)"]]);
+    // Excluding main.scm leaves only config.scm — same hash as the config-only map.
+    expect(filesHashOf(withEntry, { exclude: "main.scm" })).toBe(filesHashOf(configOnly));
+    // Without the exclude, the entry source contributes — hashes differ.
+    expect(filesHashOf(withEntry)).not.toBe(filesHashOf(configOnly));
   });
 
   it("returns 8 hex chars", () => {
-    const e = new Map<readonly string[], string | number | boolean>([[["a"], 1]]);
-    expect(envHashOf(e)).toMatch(/^[0-9a-f]{8}$/);
+    const e = new Map<string, string>([["config.scm", "(define config/a 1)"]]);
+    expect(filesHashOf(e)).toMatch(/^[0-9a-f]{8}$/);
   });
 
-  it("handles empty env", () => {
-    expect(envHashOf(new Map())).toMatch(/^[0-9a-f]{8}$/);
+  it("handles an empty file set", () => {
+    expect(filesHashOf(new Map())).toMatch(/^[0-9a-f]{8}$/);
   });
 });
 

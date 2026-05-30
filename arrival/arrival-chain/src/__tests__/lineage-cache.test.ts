@@ -4,22 +4,27 @@
  * Two surfaces under test:
  *   - serializePrefix: deterministic encoding of DNFPath into a cache key
  *   - createPathCache: get / set / clear / size + LRU eviction
- *   - bindCacheToProjectEnv: mobx-reaction clears cache on env mutation
+ *   - bindCacheToProjectFiles: mobx-reaction clears cache on file mutation
  *
  * No interpreter, no I/O — pure data + mobx reactions.
  */
 import "@here.build/plexus/mobx/register";
-import { runInAction } from "mobx";
 import { describe, expect, it } from "vitest";
 
 import {
-  bindCacheToProjectEnv,
+  bindCacheToProjectFiles,
   createPathCache,
   serializePrefix,
   type DNFPath,
   type PathCache,
 } from "../lineage.js";
+import { ArrivalChain } from "../arrival-chain.js";
 import { Project } from "../project.js";
+
+// addFile / publish go through Project.transact, which needs a Plexus doc —
+// bootstrap rather than `new Project()` so the file-mutation triggers (and the
+// mobx reaction that observes them) operate on a real synced doc.
+const freshProject = (): Project => ArrivalChain.bootstrap(new Project()).root;
 
 const refAt = (line: number, col: number) => ({ programHash: "p", line, col });
 
@@ -143,47 +148,66 @@ describe("createPathCache", () => {
   });
 });
 
-describe("bindCacheToProjectEnv", () => {
-  it("clears the cache when project.env mutates", () => {
+describe("bindCacheToProjectFiles", () => {
+  // Config-as-code: per-run knobs live in a config.scm file the entry requires,
+  // so the cache-relevant project state IS the file set. These mirror the old
+  // env-mutation tests against the real remaining trigger — file edits.
+  it("clears the cache when a file is added/changed", () => {
     const cache = createPathCache();
     cache.set(branchPath(0), { value: "warm", tasksCreated: [] });
 
-    const project = new Project();
-    const dispose = bindCacheToProjectEnv(cache, project);
+    const project = freshProject();
+    const dispose = bindCacheToProjectFiles(cache, project);
 
     expect(cache.size()).toBe(1);
-    runInAction(() => project.setEnv("mood", "happy"));
+    // addFile publishes a new source → filesHash shifts → cache clears.
+    project.addFile("config.scm", `(define config/mood "happy")`);
     expect(cache.size()).toBe(0);
 
     dispose();
   });
 
-  it("does not fire on the same env state set twice (envHash unchanged)", () => {
+  it("clears again when an existing file's source changes", () => {
     const cache = createPathCache();
+    const project = freshProject();
+    project.addFile("config.scm", `(define config/mood "calm")`);
 
-    const project = new Project();
-    runInAction(() => project.setEnv("mood", "happy"));
+    const dispose = bindCacheToProjectFiles(cache, project);
+    cache.set(branchPath(0), { value: "warm", tasksCreated: [] });
+    expect(cache.size()).toBe(1);
+
+    // Publish a new version with different source → filesHash shifts → clears.
+    project.findFile("config.scm")!.publish(`(define config/mood "happy")`);
+    expect(cache.size()).toBe(0);
+
+    dispose();
+  });
+
+  it("does not fire when the file set's sources are unchanged (filesHash stable)", () => {
+    const cache = createPathCache();
+    const project = freshProject();
+    project.addFile("config.scm", `(define config/mood "happy")`);
 
     cache.set(branchPath(0), { value: "warm", tasksCreated: [] });
-    const dispose = bindCacheToProjectEnv(cache, project);
+    const dispose = bindCacheToProjectFiles(cache, project);
 
-    // Setting the same key to the same value: envHash is identical;
-    // reaction should not fire and the cache should persist.
-    runInAction(() => project.setEnv("mood", "happy"));
+    // Re-publishing the SAME source: filesHash is identical; the reaction
+    // should not fire and the cache should persist.
+    project.findFile("config.scm")!.publish(`(define config/mood "happy")`);
     expect(cache.size()).toBe(1);
 
     dispose();
   });
 
-  it("dispose() detaches the reaction — subsequent env changes don't clear", () => {
+  it("dispose() detaches the reaction — subsequent file changes don't clear", () => {
     const cache = createPathCache();
     cache.set(branchPath(0), { value: "warm", tasksCreated: [] });
 
-    const project = new Project();
-    const dispose = bindCacheToProjectEnv(cache, project);
+    const project = freshProject();
+    const dispose = bindCacheToProjectFiles(cache, project);
     dispose();
 
-    runInAction(() => project.setEnv("mood", "anything"));
+    project.addFile("config.scm", `(define config/mood "anything")`);
     expect(cache.size()).toBe(1);
   });
 });

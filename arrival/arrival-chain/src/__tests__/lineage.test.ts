@@ -67,7 +67,6 @@ const echoBackend = () => ({
 const baseConfig = (): TraceConfig => ({
   files:   { "main.scm": PROGRAM },
   entry:   "main.scm",
-  env:     {},
   // Router resolves the literal model-id the program writes. PROGRAM uses
   // `(infer "fast" …)` — that string is the model-id under the new model.
   router: new StaticRouter({ fast: stubBackend() }),
@@ -109,11 +108,11 @@ describe("recordSession", () => {
     expect(bobArm.kind   === "branch" && bobArm.arm).toBe(1);
   });
 
-  it("stamps a version matching the program + env", async () => {
+  it("stamps a version matching the program + files", async () => {
     const a = await recordSession(baseConfig());
     const b = await recordSession(baseConfig());
     expect(a.version.programHash).toBe(b.version.programHash);
-    expect(a.version.envHash).toBe(b.version.envHash);
+    expect(a.version.filesHash).toBe(b.version.filesHash);
   });
 
   it("changes the program hash when the source changes", async () => {
@@ -123,10 +122,21 @@ describe("recordSession", () => {
     expect(a.version.programHash).not.toBe(b.version.programHash);
   });
 
-  it("changes the env hash when env values change", async () => {
-    const a = await recordSession(baseConfig());
-    const b = await recordSession({ ...baseConfig(), env: { mood: "happy" } });
-    expect(a.version.envHash).not.toBe(b.version.envHash);
+  it("changes the files hash when a config file changes", async () => {
+    // Config-as-code: per-run knobs live in a config.scm file the entry
+    // requires. Editing that file shifts filesHash (the env-mutation analog),
+    // while the entry source — and thus programHash — is unchanged.
+    const program = `(require "config.scm")\n${PROGRAM}`;
+    const a = await recordSession({
+      ...baseConfig(),
+      files: { "main.scm": program, "config.scm": `(define config/mood "calm")` },
+    });
+    const b = await recordSession({
+      ...baseConfig(),
+      files: { "main.scm": program, "config.scm": `(define config/mood "happy")` },
+    });
+    expect(a.version.programHash).toBe(b.version.programHash);
+    expect(a.version.filesHash).not.toBe(b.version.filesHash);
   });
 
   it("each site has a result of kind 'value' for successful inferences", async () => {

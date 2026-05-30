@@ -24,6 +24,7 @@ import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
+import { configScm } from "./fixtures/config-scm.js";
 
 const PREAMBLE = `
 ;; take/drop/count-if/max-by live in BUILTIN_PREAMBLE.
@@ -144,11 +145,11 @@ const PREAMBLE = `
          (initial    (field task "initial"))
          (hints      (field task "hints"))
          (best-entry (gepa-until-plateau initial personas
-                       project/max-iter project/plateau-delta hints))
+                       config/max-iter config/plateau-delta hints))
          (best-tag   (car best-entry))
          (reactions  (caddr best-entry))
          (br         (- 1 (cadr best-entry)))
-         (triaged    (if (>= br project/bounce-threshold)
+         (triaged    (if (>= br config/bounce-threshold)
                          (triage-bouncers personas reactions best-tag)
                          '()))
          (unsatisfied (filter (lambda (t) (equal? (field t "mismatch") #f)) triaged)))
@@ -177,7 +178,7 @@ const PREAMBLE = `
   (define (drive worklist results total-iter)
     (cond
       ((null? worklist) (reverse results))
-      ((>= total-iter project/total-iter-cap) (reverse results))
+      ((>= total-iter config/total-iter-cap) (reverse results))
       (else
        (let ((task (car worklist)) (rest (cdr worklist)))
          (apply
@@ -185,7 +186,7 @@ const PREAMBLE = `
              (let* ((node-id (length results))
                     (node    (make-node node-id task best-entry br triaged)))
                (cond
-                 ((or (< br project/bounce-threshold) (null? unsatisfied))
+                 ((or (< br config/bounce-threshold) (null? unsatisfied))
                   (drive rest (cons node results) (+ total-iter 1)))
                  (else
                   (drive (cons (child-task-of task best-entry node-id unsatisfied) rest)
@@ -235,10 +236,12 @@ describe("optimize-tagline — worklist driver", () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    project.setEnv("max-iter", 1);
-    project.setEnv("plateau-delta", -1);     // never plateau
-    project.setEnv("total-iter-cap", 10);
-    project.setEnv("bounce-threshold", 0.5);
+    project.addFile("config.scm", configScm({
+      "max-iter": 1,
+      "plateau-delta": -1,     // never plateau
+      "total-iter-cap": 10,
+      "bounce-threshold": 0.5,
+    }));
 
     // iter 0 react t0: p1/p2/p3 all bounce → score 0
     // reflect → t1
@@ -254,6 +257,7 @@ describe("optimize-tagline — worklist driver", () => {
     const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
+(require "config.scm")
 ${PREAMBLE}
 (optimize-tagline "t0" (list "p1" "p2" "p3"))
 `)) as Array<Record<string, unknown>>;
@@ -273,10 +277,12 @@ ${PREAMBLE}
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    project.setEnv("max-iter", 1);
-    project.setEnv("plateau-delta", -1);
-    project.setEnv("total-iter-cap", 10);
-    project.setEnv("bounce-threshold", 0.25);
+    project.addFile("config.scm", configScm({
+      "max-iter": 1,
+      "plateau-delta": -1,
+      "total-iter-cap": 10,
+      "bounce-threshold": 0.25,
+    }));
 
     // Root branch on [p1,p2,p3]:
     //   t0: p1=click p2=bounce p3=bounce → score 1/3, bounce 2/3 > 0.25
@@ -311,6 +317,7 @@ ${PREAMBLE}
     const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
+(require "config.scm")
 ${PREAMBLE}
 (optimize-tagline "t0" (list "p1" "p2" "p3"))
 `)) as Array<Record<string, unknown>>;
@@ -333,10 +340,12 @@ ${PREAMBLE}
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
-    project.setEnv("max-iter", 0);
-    project.setEnv("plateau-delta", -1);
-    project.setEnv("total-iter-cap", 3);     // hard stop
-    project.setEnv("bounce-threshold", 0.0); // any bounce triggers triage
+    project.addFile("config.scm", configScm({
+      "max-iter": 0,
+      "plateau-delta": -1,
+      "total-iter-cap": 3,     // hard stop
+      "bounce-threshold": 0.0, // any bounce triggers triage
+    }));
 
     // Every persona bounces forever; every triage says "latent fit" → would
     // recurse infinitely. Cap forces stop after 3 branches.
@@ -349,6 +358,7 @@ ${PREAMBLE}
     const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
 
     const out = (await project.run(`
+(require "config.scm")
 ${PREAMBLE}
 (optimize-tagline "t0" (list "p1"))
 `)) as Array<Record<string, unknown>>;

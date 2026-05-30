@@ -10,17 +10,18 @@ const stubBackend = (impl?: (s: ModelSpec) => unknown) => {
 };
 
 describe("runPipeline — top-to-bottom entry point", () => {
-  it("runs a program against in-memory files + env + a single backend", async () => {
+  it("runs a program against in-memory files + config + a single backend", async () => {
     const result = await runPipeline({
       files: {
+        "config.scm": `(define config/name "world")`,
         "_lib.scm": `(define (greet who) (string-append "hi " who))`,
         "main.scm": `
+          (require "config.scm")
           (require "_lib.scm")
-          (greet (project/get "name"))
+          (greet config/name)
         `,
       },
       entry: "main.scm",
-      env: { name: "world" },
       router: singletonRouter(stubBackend()),
     });
 
