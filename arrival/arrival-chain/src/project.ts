@@ -173,55 +173,11 @@ export class Project extends PlexusModel<null> {
     return this.#cache;
   }
 
-  /**
-   * Read-only environment surface for scheme programs. Keyed by a path
-   * tuple, values are JSON primitives. Reachable from a program via
-   *
-   *   (project/get "audience" "count")
-   *
-   * which delegates to `this.env.get(["audience", "count"])`. There is
-   * deliberately NO scheme-side write path — execution stays a pure
-   * function of the project's state, which is what makes replay sound.
-   */
-  @syncing.map accessor env: Map<string[], string | number | boolean> = new Map();
-
-  setEnv(...args: [...path: string[], value: string | number | boolean]): void {
-    invariant(args.length >= 2, "setEnv: need at least one path component and a value");
-    const value = args.at(-1) as string | number | boolean;
-    const path = args.slice(0, -1) as string[];
-    this.env.set(path, value);
-  }
-
-  getEnv(...path: string[]): string | number | boolean {
-    const v = this.env.get(path);
-    invariant(v !== undefined, `project/get: no env entry at path [${path.join(", ")}]`);
-    return v;
-  }
-
-  /**
-   * Fallback resolver that turns bare `project/<seg>[/<seg>…]` symbols into
-   * env lookups. `project/replays` IS the value stored at env path
-   * `["replays"]`; `project/audience/count` IS the value at
-   * `["audience", "count"]`. Misses fall through to "Unbound variable",
-   * which is the right signal — the program named something that simply
-   * doesn't exist in this project's env.
-   */
-  #installProjectEnvResolver(env: {
-    registerResolver: (r: { id: string; resolve: (name: string) => unknown }) => unknown;
-  }): void {
-    env.registerResolver({
-      id: "project-env",
-      resolve: (name: string) => {
-        if (!name.startsWith("project/")) return undefined;
-        const rest = name.slice("project/".length);
-        // `project/get` and any other `project/*` rosetta are direct
-        // bindings and resolve before fallback resolvers fire — but
-        // guard the empty/single-segment edge anyway.
-        if (rest.length === 0) return undefined;
-        return this.env.get(rest.split("/"));
-      },
-    });
-  }
+  // Config-as-code: per-run configuration is no longer a project-env map.
+  // A program `(require "config.scm")`s a file of `(define config/<name> …)`
+  // forms, which spill ordinary bindings into the run env. There is no
+  // scheme-side write path and no host-injected env — execution stays a pure
+  // function of the project's files, which is what makes replay sound.
 
   transact(fn: () => void): void {
     const plexus = docPlexus.get(this.__doc__!);
@@ -295,7 +251,6 @@ export class Project extends PlexusModel<null> {
     } = {},
   ): Promise<unknown> {
     const env = sandboxedEnv.inherit("arrival-chain");
-    this.#installProjectEnvResolver(env);
 
     const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
 
@@ -392,15 +347,6 @@ export class Project extends PlexusModel<null> {
     // rendering — mismatches throw with a path-oriented error.
     env.defineRosetta("template/handlebars", {
       fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
-    });
-
-    // ── project/get — read-only env access ────────────────────────────
-    //
-    // `(project/get "audience" "count")` resolves to the env entry at
-    // path ["audience", "count"]. Throws on miss. No project/set —
-    // scheme execution remains a pure function of project state.
-    env.defineRosetta("project/get", {
-      fn: (...path: unknown[]) => this.getEnv(...path.map(String)),
     });
 
     // ── infer/chat — role-tagged message list ─────────────────────────
@@ -775,7 +721,6 @@ export class Project extends PlexusModel<null> {
     // preamble half, then parsing and tap-evaluating the user body ourselves.
     // To avoid duplicating the env-setup, we set up the env inline here.
     const env = sandboxedEnv.inherit("arrival-chain-traced");
-    this.#installProjectEnvResolver(env);
 
     const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
     const schemaSlot = (v: unknown): string | null => {
@@ -828,7 +773,6 @@ export class Project extends PlexusModel<null> {
     env.defineRosetta("template/handlebars", {
       fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
     });
-    env.defineRosetta("project/get", { fn: (...path: unknown[]) => this.getEnv(...path.map(String)) });
     env.defineRosetta("infer/chat", {
       withContext: true,
       options: { provenancePoint: true },

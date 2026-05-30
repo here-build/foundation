@@ -18,8 +18,6 @@ export interface RunPipelineOptions {
   files: Record<string, string>;
   /** Path of the entry program (must be a key of `files`). */
   entry: string;
-  /** Project env. Each entry is path... + value (the runner unfolds it). */
-  env?: Record<string, string | number | boolean>;
   /** Model-id → backend lookup (required). Construct via `StaticRouter`, `LayeredRouter`, or `singletonRouter`. */
   router: ModelRouter;
   /** Optional abort signal to stop running workers + program. */
@@ -38,9 +36,10 @@ interface Disposable {
  * exercise the whole substrate top-to-bottom.
  *
  * Bootstraps a fresh in-process Project + InferenceCache (one of each),
- * binds them, populates from `files` / `env` / `models`, spawns a
- * worker, runs the entry program, then tears the worker down cleanly.
- * Returns whatever the program evaluates to as its last expression.
+ * binds them, populates from `files` (config-as-code: per-run config lives
+ * in a `config.scm` file the entry requires), spawns a worker, runs the entry
+ * program, then tears the worker down cleanly. Returns whatever the program
+ * evaluates to as its last expression.
  */
 export async function runPipeline(opts: RunPipelineOptions): Promise<unknown> {
   let chain;
@@ -74,12 +73,6 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<unknown> {
 
   for (const [path, content] of Object.entries(opts.files)) {
     project.addFile(path, content);
-  }
-
-  if (opts.env) {
-    for (const [key, value] of Object.entries(opts.env)) {
-      project.setEnv(key, value);
-    }
   }
 
   const ownAc = opts.signal ? null : new AbortController();
