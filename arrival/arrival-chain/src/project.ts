@@ -288,6 +288,10 @@ export class Project extends PlexusModel<null> {
       const inv = ctx?.currentInvocation;
       if (inv && opts.trace) {
         opts.trace.bindTask(task, inv as never);
+        // Colour the trace bar: a task that ALREADY holds a result at bind
+        // time means an earlier run/invocation paid for it — this one is a
+        // cache hit (blue). Read now, before the await resolves every task.
+        opts.trace.markInferCached(inv as never, task.isResolved);
         // Mark this invocation as a provenance point — every (infer …) call
         // is a new singleton {self.id} regardless of input provenances.
         opts.trace.markProvenancePoint(inv as never);
@@ -747,6 +751,7 @@ export class Project extends PlexusModel<null> {
       const inv = ctx?.currentInvocation;
       if (inv) {
         opts.trace.bindTask(task, inv as never);
+        opts.trace.markInferCached(inv as never, task.isResolved);
         opts.trace.markProvenancePoint(inv as never);
       }
       const value = await task.waitFor();

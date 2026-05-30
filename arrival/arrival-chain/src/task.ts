@@ -63,6 +63,13 @@ export class InferenceTask extends PlexusModel<InferenceCache> {
     return this.tuple[3];
   }
 
+  /** True when a successful result is already present — i.e. an infer that binds
+   *  to this task NOW is a cache HIT (paid for by an earlier run/invocation), not
+   *  a fresh call. Read at bind time to colour the trace bar (cached vs fresh). */
+  get isResolved(): boolean {
+    return this.result instanceof InferenceResult;
+  }
+
   /** Resolve when result is set; reject if it's an error. */
   waitFor(): Promise<unknown> {
     // Fast path: avoid the TDZ trap where autorun fires synchronously

@@ -96,6 +96,13 @@ export class Invocation {
    */
   isProvenancePoint = false;
   /**
+   * For an `(infer …)` invocation: whether it bound to an already-resolved task
+   * (a cache HIT — `true`, blue/saved) vs triggered a fresh call (`false`,
+   * green/spent). `undefined` for non-infer invocations. Set once at bind time
+   * via `EvalTrace.markInferCached`; drives the per-node cached/fresh bar.
+   */
+  cached: boolean | undefined = undefined;
+  /**
    * True when this Pair was evaluated in tail position (R7RS §3.5) — set from
    * the evaluator's own tail flag at enter (NOT inferred from trace shape). A
    * call in tail position is a tail call; `traceToForest` reads this to identify
@@ -181,6 +188,13 @@ export class EvalTrace implements EvalTap {
     }
     if (!list.includes(invocation)) list.push(invocation);
   }
+
+  /** Record whether an infer invocation was served from cache (hit) or fired a
+   *  fresh call. Set at bind time, before the await — `cached` never changes
+   *  after. Drives the per-node cached/fresh (blue/green) bar. */
+  markInferCached = action((invocation: Invocation, cached: boolean): void => {
+    invocation.cached = cached;
+  });
 
   /** First (canonical) invocation that produced the task; undefined if unbound. */
   invocationFor(task: object): Invocation | undefined {
