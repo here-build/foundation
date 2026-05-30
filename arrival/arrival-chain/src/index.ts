@@ -7,6 +7,7 @@ export {
   type ProjectedCostStrategy,
   uncachedSumStrategy,
 } from "./projected-cost.js";
+export { type RunCost, runCostSummary, summarizeCosts, type TaskCost } from "./run-cost.js";
 export {
   type ModelRouter,
   StaticRouter,
