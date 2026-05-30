@@ -127,6 +127,124 @@ function pathToIdent(path: string): string {
 // eslint-disable-next-line unicorn/prefer-structured-clone -- JSON projection, not a clone
 const normalizeToJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
 
+/** A `.chat.hbs` file is split into role-tagged sections by `{{role "x"}}`
+ *  markers — the dotprompt convention. The split happens HERE, at load time,
+ *  over the trusted author source, BEFORE any call-site value is interpolated.
+ *  That's the security property: a rendered hole value containing the literal
+ *  text `{{role "user"}}` lands inside one section as plain text and can never
+ *  forge a new message boundary (the boundaries are fixed before substitution).
+ *  Contrast dotprompt's own parser, which renders first then splits a flat
+ *  string on in-band sentinels — injectable by untrusted content. */
+const CHAT_ROLES = new Set(["system", "user", "assistant"]);
+const ROLE_MARKER = /\{\{\s*role\s+["']([a-zA-Z]+)["']\s*\}\}/g;
+
+export function splitChatSections(src: string): { role: string; body: string }[] {
+  const sections: { role: string; body: string }[] = [];
+  let bodyStart = 0;
+  let role: string | null = null;
+  ROLE_MARKER.lastIndex = 0;
+  for (let m = ROLE_MARKER.exec(src); m; m = ROLE_MARKER.exec(src)) {
+    if (role === null) {
+      if (src.slice(0, m.index).trim() !== "") {
+        throw new Error(
+          `.chat.hbs: text before the first {{role}} marker — a chat template must open with {{role "system|user|assistant"}}`,
+        );
+      }
+    } else {
+      sections.push({ role, body: src.slice(bodyStart, m.index).trim() });
+    }
+    const next = m[1]!.toLowerCase();
+    if (!CHAT_ROLES.has(next)) {
+      throw new Error(`.chat.hbs: unknown role "${m[1]}" — use system, user, or assistant`);
+    }
+    role = next;
+    bodyStart = ROLE_MARKER.lastIndex;
+  }
+  if (role === null) {
+    throw new Error(`.chat.hbs: no {{role "..."}} markers — a chat template needs at least one`);
+  }
+  sections.push({ role, body: src.slice(bodyStart).trim() });
+  return sections;
+}
+
+// ── .prompt (dotprompt) support ──────────────────────────────────────────────
+//
+// A `.prompt` file is a whole inference unit: YAML frontmatter (`model:` tier +
+// optional Picoschema `output:`) over a `{{role}}`-marked body. `(require)`ing
+// one yields a lambda `(key . kv)` that RUNS infer/chat with the frontmatter
+// tier, the compiled output schema, and the rendered messages — so the verbose
+// `s/object` schema blocks, the tier, and the (list (system…)(user…)) ceremony
+// all collapse into the file. The cache-key stays a call argument (it's the
+// provenance/dedup identity — often a computed loop key like "V0/p1/3" that
+// inputs alone don't determine), passed first.
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === "object" && !Array.isArray(v);
+
+const SCALAR_TYPES = new Set(["string", "number", "integer", "boolean"]);
+
+/** Split `"type, the description"` (Picoschema's scalar form) on the first comma. */
+function splitTypeDesc(s: string): { type: string; desc: string } {
+  const i = s.indexOf(",");
+  return i === -1 ? { type: s.trim(), desc: "" } : { type: s.slice(0, i).trim(), desc: s.slice(i + 1).trim() };
+}
+
+/** Picoschema (the dotprompt schema shorthand) → `s/…` scheme source. Supports
+ *  scalars (`field: type, desc`), `field(enum): [..]`, `field(array): elem|map`,
+ *  `field(object): map`, parenthetical `type, desc`, and nesting. Optional `?`
+ *  is rejected — the `s/` schema has no optional marker (add one before lifting). */
+function compilePicoschema(node: unknown): string {
+  if (!isPlainObject(node)) throw new Error(".prompt: output schema must be a map of fields");
+  const fields = Object.entries(node).map(([k, v]) => compilePicoField(k, v));
+  return `(s/object ${fields.join(" ")})`;
+}
+
+function scalarFieldSrc(name: string, type: string, desc: string): string {
+  if (!SCALAR_TYPES.has(type)) throw new Error(`.prompt: unknown scalar type "${type}" for field "${name}"`);
+  const d = desc ? ` ${JSON.stringify(desc)}` : "";
+  return `(s/field/${type} ${JSON.stringify(name)}${d})`;
+}
+
+function compileElement(val: unknown): string {
+  if (typeof val === "string") {
+    const { type } = splitTypeDesc(val);
+    if (!SCALAR_TYPES.has(type)) throw new Error(`.prompt: unknown array element type "${type}"`);
+    return JSON.stringify(type);
+  }
+  if (isPlainObject(val)) return compilePicoschema(val);
+  throw new Error(".prompt: array element must be a scalar type or an object map");
+}
+
+function compilePicoField(rawKey: string, val: unknown): string {
+  const m = rawKey.match(/^([A-Za-z_][\w-]*)(\??)(?:\(([^)]*)\))?$/);
+  if (!m) throw new Error(`.prompt: malformed schema key "${rawKey}"`);
+  const name = m[1]!;
+  if (m[2]) throw new Error(`.prompt: optional field "${name}" — optional schema fields aren't supported yet`);
+  const q = JSON.stringify(name);
+  if (m[3] === undefined) {
+    const { type, desc } = splitTypeDesc(String(val)); // scalar; type+desc in the value
+    return scalarFieldSrc(name, type, desc);
+  }
+  const { type, desc } = splitTypeDesc(m[3]); // composite; type+desc in the parens
+  const d = desc ? ` ${JSON.stringify(desc)}` : "";
+  if (type === "enum") {
+    const vals = (val as unknown[]).map((v) => JSON.stringify(String(v))).join(" ");
+    return `(s/field/enum ${q}${d} (s/enum ${vals}))`;
+  }
+  if (type === "array") return `(s/field/array ${q}${d} (s/array ${compileElement(val)}))`;
+  if (type === "object") return `(s/field/object ${q}${d} ${compilePicoschema(val)})`;
+  return scalarFieldSrc(name, type, desc); // explicit scalar type in parens
+}
+
+/** Strip a leading `---\n…\n---` YAML frontmatter block (optional) from a `.prompt`. */
+function parsePromptFile(src: string): { fm: Record<string, unknown>; body: string } {
+  const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { fm: {}, body: src };
+  const fm = parseYaml(m[1]!) ?? {};
+  if (!isPlainObject(fm)) throw new Error(".prompt: frontmatter must be a YAML map");
+  return { fm, body: src.slice(m[0].length) };
+}
+
 /** The default extension registry: `.scm` loads (spill), data files parse to a
  *  bound value, `.txt` binds a string, `.hbs` evaluates to a render lambda. */
 export function defaultResolvers(): Map<string, ContentResolver> {
@@ -153,6 +271,36 @@ export function defaultResolvers(): Map<string, ContentResolver> {
         kind: "eval",
         forms: await parse(`(lambda args (template/handlebars ${JSON.stringify(String(contents))} args))`),
       }),
+    ],
+    // `.prompt` (dotprompt) evaluates to a lambda `(key . kv)` that RUNS
+    // infer/chat: tier + output schema come from the YAML frontmatter, the
+    // message list from the {{role}}-split body, the cache-key from the call.
+    // Sections split HERE (trusted, pre-interpolation), so a rendered hole value
+    // containing `{{role "user"}}` lands as inert text in one section and can
+    // never forge a turn. Each body renders via the ordinary template/handlebars
+    // path against ONE shared dict (`apply dict kv`); extra keys a section
+    // doesn't use are tolerated (validateShape checks only a template's own
+    // fields). Returns the unwrapped result (infer/chat yields `[value]`).
+    // Longest-suffix resolution routes `*.prompt` here.
+    [
+      ".prompt",
+      async (contents) => {
+        const { fm, body } = parsePromptFile(String(contents));
+        const tier = fm.model ?? fm.tier;
+        if (typeof tier !== "string") {
+          throw new Error('.prompt: frontmatter needs a `model:` (our tier, e.g. "fast" or "high")');
+        }
+        const schemaSrc = fm.output === undefined ? "#f" : compilePicoschema(fm.output);
+        const msgs = splitChatSections(body)
+          .map((s) => `(list ${JSON.stringify(s.role)} (template/handlebars ${JSON.stringify(s.body)} d))`)
+          .join(" ");
+        return {
+          kind: "eval",
+          forms: await parse(
+            `(lambda (key . kv) (let ((d (apply dict kv))) (car (infer/chat ${JSON.stringify(tier)} (list ${msgs}) ${schemaSrc} key))))`,
+          ),
+        };
+      },
     ],
   ]);
 }
