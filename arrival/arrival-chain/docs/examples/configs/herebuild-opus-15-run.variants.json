@@ -1,7 +1,0 @@
-[
-  { "id": "V0", "lead": "We are structurally not in your AI inference path." },
-  { "id": "V1", "lead": "No token markup. No surprise inference bill. The AI runs on your existing Claude or Cursor subscription — we never see the call." },
-  { "id": "V2", "lead": "Works the day our servers go down. The generation just happened on your machine, through your AI client. Your keys, your model, your call." },
-  { "id": "V3", "lead": "Build apps visually. Bring your own AI. The model you're already paying for does the work — no proxied prompts, no second token bill." },
-  { "id": "V4", "lead": "A visual builder that works without AI. Add AI when you're ready — through the AI client you already use." }
-]
