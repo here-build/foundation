@@ -22,8 +22,9 @@ import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
+import { configScm } from "./fixtures/config-scm.js";
 
-const PROGRAMS_DIR = path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs");
+const PROGRAMS_DIR = path.resolve(__dirname, "fixtures/programs");
 const read = (name: string) => readFileSync(path.join(PROGRAMS_DIR, name), "utf-8");
 
 const FILES = {
@@ -106,13 +107,16 @@ describe("best-tagline.scm — integration smoke", () => {
       if (path !== "personas.json") project.addFile(path, content);
     }
 
-    // System prompts live in the .scm as constants — no setEnv needed.
-    project.setEnv("initial-tagline", "t0");
-    project.setEnv("pov-count", 1);
-    project.setEnv("max-iter", 0);
-    project.setEnv("plateau-delta", -1);
-    project.setEnv("total-iter-cap", 5);
-    project.setEnv("bounce-threshold", 0.5);
+    // System prompts live in the .scm as constants. Per-run knobs ship as a
+    // config.scm the program (require "config.scm")s.
+    project.addFile("config.scm", configScm({
+      "initial-tagline": "t0",
+      "pov-count": 1,
+      "max-iter": 0,
+      "plateau-delta": -1,
+      "total-iter-cap": 5,
+      "bounce-threshold": 0.5,
+    }));
 
     const backend = stub(() => "click");
     const ac = new AbortController();
@@ -157,13 +161,16 @@ describe("best-tagline.scm — integration smoke", () => {
       if (path !== "personas.json") project.addFile(path, content);
     }
 
-    // System prompts live in the .scm as constants — no setEnv needed.
-    project.setEnv("initial-tagline", "t0");
-    project.setEnv("pov-count", 1);
-    project.setEnv("max-iter", 1);
-    project.setEnv("plateau-delta", -1);
-    project.setEnv("total-iter-cap", 5);
-    project.setEnv("bounce-threshold", 0.5);
+    // System prompts live in the .scm as constants. Per-run knobs ship as a
+    // config.scm the program (require "config.scm")s.
+    project.addFile("config.scm", configScm({
+      "initial-tagline": "t0",
+      "pov-count": 1,
+      "max-iter": 1,
+      "plateau-delta": -1,
+      "total-iter-cap": 5,
+      "bounce-threshold": 0.5,
+    }));
 
     const verdictFor = (name: string, tag: string): "click" | "bounce" => {
       if (name === "Maya") return "click";

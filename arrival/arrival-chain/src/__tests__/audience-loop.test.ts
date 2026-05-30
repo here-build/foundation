@@ -17,9 +17,10 @@ import { describe, expect, it, vi } from "vitest";
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
+import { configScm } from "./fixtures/config-scm.js";
 
 const PROGRAM = readFileSync(
-  path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs/audience-loop.scm"),
+  path.resolve(__dirname, "fixtures/programs/audience-loop.scm"),
   "utf-8",
 );
 
@@ -87,14 +88,14 @@ describe("audience-loop.scm — full 4-stage pipeline", () => {
       files: {
         "personas.json": JSON.stringify(PERSONAS),
         "variants.json": JSON.stringify(VARIANTS),
+        "config.scm": configScm({
+          "product-context": "test",
+          "min-replays": 2,
+          "min-for-boundary": 3,
+        }),
         "main.scm": PROGRAM,
       },
       entry: "main.scm",
-      env: {
-        "product-context": "test",
-        "min-replays": 2,
-        "min-for-boundary": 3,
-      },
       router: singletonRouter(backend),
     });
 
@@ -120,14 +121,14 @@ describe("audience-loop.scm — full 4-stage pipeline", () => {
       files: {
         "personas.json": JSON.stringify({ p1: profile("p1", "Maya") }),
         "variants.json": JSON.stringify(VARIANTS),
+        "config.scm": configScm({
+          "product-context": "test",
+          "min-replays": 2,
+          "min-for-boundary": 3,
+        }),
         "main.scm": PROGRAM,
       },
       entry: "main.scm",
-      env: {
-        "product-context": "test",
-        "min-replays": 2,
-        "min-for-boundary": 3,
-      },
       router: singletonRouter(backend),
     });
 

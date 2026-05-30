@@ -11,9 +11,10 @@ import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
 import { singletonRouter } from "../registry.js";
+import { configScm } from "./fixtures/config-scm.js";
 
 const PROGRAM = readFileSync(
-  path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs/generate-personas.scm"),
+  path.resolve(__dirname, "fixtures/programs/generate-personas.scm"),
   "utf-8",
 );
 
@@ -52,13 +53,15 @@ describe("generate-personas.scm — accumulating batch generation", () => {
   it("each subsequent batch sees the prior batch's personas in its prompt", async () => {
     const backend = batchStub();
     const result = await runPipeline({
-      files: { "main.scm": PROGRAM },
-      entry: "main.scm",
-      env: {
-        "total-count": 6,
-        "batch-size":  2,
-        "system-prompt": "test-sys",
+      files: {
+        "config.scm": configScm({
+          "total-count": 6,
+          "batch-size":  2,
+          "system-prompt": "test-sys",
+        }),
+        "main.scm": PROGRAM,
       },
+      entry: "main.scm",
       router: singletonRouter(backend),
     });
 
@@ -89,22 +92,26 @@ describe("generate-personas.scm — accumulating batch generation", () => {
     // First pass populates cache.
     const b1 = batchStub();
     await runPipeline({
-      files: { "main.scm": PROGRAM },
+      files: {
+        "config.scm": configScm({ "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" }),
+        "main.scm": PROGRAM,
+      },
       entry: "main.scm",
-      env: { "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" },
       router: singletonRouter(b1),
     });
     expect(b1.complete).toHaveBeenCalledTimes(2);
 
-    // Second pass — same project state (env + files) would yield same
+    // Second pass — same project state (config + files) would yield same
     // cache keys at every step. (We bootstrap a fresh project each run
     // here for isolation; the deeper test is in enrich-distant.spec.ts
     // which uses one Project across two runs.)
     const b2 = batchStub();
     await runPipeline({
-      files: { "main.scm": PROGRAM },
+      files: {
+        "config.scm": configScm({ "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" }),
+        "main.scm": PROGRAM,
+      },
       entry: "main.scm",
-      env: { "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" },
       router: singletonRouter(b2),
     });
     // Different Project ⇒ different doc ⇒ fresh cache. So this fires

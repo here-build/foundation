@@ -10,8 +10,9 @@ import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
 import { singletonRouter } from "../registry.js";
+import { configScm } from "./fixtures/config-scm.js";
 
-const PROGRAMS_DIR = path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs");
+const PROGRAMS_DIR = path.resolve(__dirname, "fixtures/programs");
 const readProgramFile = (name: string) => readFileSync(path.join(PROGRAMS_DIR, name), "utf-8");
 
 const PROGRAM = readProgramFile("herebuild-react.scm");
@@ -49,14 +50,14 @@ describe("herebuild-react.scm — N × M parallel reactions", () => {
         "main.scm":                         PROGRAM,
         "summary-of-persona.hbs":           SUMMARY_HBS,
         "reaction-prompt-of-persona.hbs":   REACTION_HBS,
+        "config.scm":                       configScm({
+          "hero-id":       "V_TEST",
+          "hero-lead":     "test hero",
+          "replays":       4,
+          "system-prompt": "test-sys",
+        }),
       },
       entry: "main.scm",
-      env: {
-        "hero-id":       "V_TEST",
-        "hero-lead":     "test hero",
-        "replays":       4,
-        "system-prompt": "test-sys",
-      },
       router: singletonRouter(backend),
     });
 
@@ -85,14 +86,14 @@ describe("herebuild-react.scm — N × M parallel reactions", () => {
         "main.scm":                         PROGRAM,
         "summary-of-persona.hbs":           SUMMARY_HBS,
         "reaction-prompt-of-persona.hbs":   REACTION_HBS,
+        "config.scm":                       configScm({
+          "hero-id":       "V_TEST",
+          "hero-lead":     "t",
+          "replays":       4,
+          "system-prompt": "s",
+        }),
       },
       entry: "main.scm",
-      env: {
-        "hero-id":       "V_TEST",
-        "hero-lead":     "t",
-        "replays":       4,
-        "system-prompt": "s",
-      },
       router: singletonRouter(backend),
     });
     const elapsed = Date.now() - t0;

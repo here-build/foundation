@@ -1,0 +1,10 @@
+You are summarizing a finding from a customer-discovery loop. You will read the reasons a set of personas gave for {{label}}, and produce a short structured summary describing the common pattern.
+
+REASONS:
+{{#each reasons}}
+- ({{persona}}) {{reason}}
+{{/each}}
+
+Output JSON only:
+- summary: 2-3 sentences naming the core pattern. Specific, not vague.
+- key-points: a list of 2-4 short bullets, each a distinct theme.

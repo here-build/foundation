@@ -10,9 +10,10 @@ import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
 import { singletonRouter } from "../registry.js";
+import { configScm } from "./fixtures/config-scm.js";
 
 const PROGRAM = readFileSync(
-  path.resolve(__dirname, "../../../../../../50testers/scripts/arrival-chain/programs/herebuild-multi.scm"),
+  path.resolve(__dirname, "fixtures/programs/herebuild-multi.scm"),
   "utf-8",
 );
 
@@ -39,10 +40,10 @@ describe("herebuild-multi.scm — K × N × M reactions", () => {
       files: {
         "personas.json": JSON.stringify(personas),
         "variants.json": JSON.stringify(variants),
+        "config.scm":    configScm({ "replays": 3, "system-prompt": "test-sys" }),
         "main.scm":      PROGRAM,
       },
       entry: "main.scm",
-      env: { "replays": 3, "system-prompt": "test-sys" },
       router: singletonRouter({ complete }),
     });
 
