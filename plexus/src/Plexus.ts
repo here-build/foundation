@@ -37,6 +37,7 @@ import { entityClasses } from "./globals.js";
 import { docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
+import { deserializeKey } from "./proxies/key-serialization.js";
 import { ORIGIN_KIND, type OriginKindLabel, telemetry, type TelemetrySpan } from "./telemetry.js";
 import { GENESIS_ORIGIN } from "./virtual-children-genesis.js";
 import type { AllowedYValue, AwarenessShape, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
@@ -258,7 +259,7 @@ export class Plexus<
                     fieldCache[key] ??= value
                       ? new Map(
                           Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [
-                            k,
+                            deserializeKey(k, this.doc),
                             deref(this.doc, v, resolveProjectId),
                           ]),
                         )
