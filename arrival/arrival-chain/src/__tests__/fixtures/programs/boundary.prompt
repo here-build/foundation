@@ -1,0 +1,24 @@
+---
+model: gpt-oss-120b
+output:
+  axes(array):
+    name: string
+    description: string
+    polarity: string
+  boundaryDescription: string
+  inScopeCount: integer
+  adjacentCount: integer
+  outOfScopeCount: integer
+---
+{{role "system"}}
+Return only JSON.
+
+{{role "user"}}
+{{productHeader}}Map the audience boundary from classified reactions.
+
+Hero variant (id={{variantId}}):
+{{lead}}
+
+Classified personas ({{clsCount}}):
+{{clsBlock}}
+Identify 3-5 structural axes separating in-scope (A/B/C) from out-of-scope (D), and the boundary in one or two sentences.

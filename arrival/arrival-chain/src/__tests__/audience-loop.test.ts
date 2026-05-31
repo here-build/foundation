@@ -13,16 +13,30 @@ import { singletonRouter } from "../registry.js";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { stringify as stringifyYaml } from "yaml";
 
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
 import { configScm } from "./fixtures/config-scm.js";
 
-const PROGRAM = readFileSync(
-  path.resolve(__dirname, "fixtures/programs/audience-loop.scm"),
-  "utf-8",
-);
+const fixture = (name: string) =>
+  readFileSync(path.resolve(__dirname, "fixtures/programs", name), "utf-8");
+
+const PROGRAM = fixture("audience-loop.scm");
+
+// audience-loop.scm is the latest spec: it `require`s each stage as a .prompt
+// (model + output schema + body in one file) and shapes data through the
+// _util.scm stdlib and the summary-of-persona.hbs fragment. Ship those next to
+// it so the fixture runs self-contained — no coupling to examples/.
+const DEPS = {
+  "_util.scm": fixture("_util.scm"),
+  "summary-of-persona.hbs": fixture("summary-of-persona.hbs"),
+  "react.prompt": fixture("react.prompt"),
+  "classify.prompt": fixture("classify.prompt"),
+  "boundary.prompt": fixture("boundary.prompt"),
+  "gap.prompt": fixture("gap.prompt"),
+};
 
 const profile = (id: string, name: string) => ({
   id,
@@ -90,8 +104,9 @@ describe("audience-loop.scm — full 4-stage pipeline", () => {
     const backend = routedBackend();
     const result = await runPipeline({
       files: {
-        "personas.json": JSON.stringify(PERSONAS),
-        "variants.json": JSON.stringify(VARIANTS),
+        ...DEPS,
+        "personas.yaml": stringifyYaml(PERSONAS),
+        "variants.yaml": stringifyYaml(VARIANTS),
         "config.scm": configScm({
           "product-context": "test",
           "min-replays": 2,
@@ -123,8 +138,9 @@ describe("audience-loop.scm — full 4-stage pipeline", () => {
     const backend = routedBackend();
     const result = await runPipeline({
       files: {
-        "personas.json": JSON.stringify({ p1: profile("p1", "Maya") }),
-        "variants.json": JSON.stringify(VARIANTS),
+        ...DEPS,
+        "personas.yaml": stringifyYaml({ p1: profile("p1", "Maya") }),
+        "variants.yaml": stringifyYaml(VARIANTS),
         "config.scm": configScm({
           "product-context": "test",
           "min-replays": 2,

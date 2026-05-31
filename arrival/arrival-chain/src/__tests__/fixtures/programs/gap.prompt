@@ -1,0 +1,18 @@
+---
+model: gpt-oss-120b
+output:
+  gaps(array):
+    region: string
+    rationale: string
+    targetPersonaCount: integer
+    priority: number
+---
+{{role "system"}}
+Return only JSON.
+
+{{role "user"}}
+{{productHeader}}Analyse gaps in audience coverage for boundary clarity.
+
+Variant {{variantId}} boundary: {{boundaryDescription}}
+
+Identify 2-4 largest under-sampled regions near the A↔B and B↔C transitions. For each: region, rationale, target persona count (3-8), priority 0..1.

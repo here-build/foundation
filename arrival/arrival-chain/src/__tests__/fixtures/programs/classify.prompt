@@ -1,0 +1,25 @@
+---
+model: qwen3.5-9b
+output:
+  acceptance: number, -1 strong reject, 0 ambivalent, 1 strong accept
+  confidence: number, 0 weak signal, 1 strong signal
+  proximityToScope: number, -1 wrong category, 0 adjacent, 1 obvious target
+  bucket(enum): [A, B, C, D]
+  reasoning: string
+---
+{{role "system"}}
+Return only JSON.
+
+{{role "user"}}
+{{productHeader}}Classify how this persona responded to this hero variant.
+
+PERSONA:
+{{personaLine}}
+
+HERO VARIANT (id={{variantId}}):
+{{lead}}
+
+REACTIONS ({{replayCount}} replays):
+{{reactionsBlock}}
+
+Each axis in [-1,1]: acceptance, confidence, proximityToScope. Bucket: A in-scope · B hesitating · C adjacent · D out-of-scope.
