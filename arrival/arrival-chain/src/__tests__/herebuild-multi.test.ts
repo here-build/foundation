@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { stringify as stringifyYaml } from "yaml";
 
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
@@ -12,10 +13,20 @@ import { runPipeline } from "../runner.js";
 import { singletonRouter } from "../registry.js";
 import { configScm } from "./fixtures/config-scm.js";
 
-const PROGRAM = readFileSync(
-  path.resolve(__dirname, "fixtures/programs/herebuild-multi.scm"),
-  "utf-8",
-);
+const fixture = (name: string) =>
+  readFileSync(path.resolve(__dirname, "fixtures/programs", name), "utf-8");
+
+const PROGRAM = fixture("herebuild-multi.scm");
+
+// herebuild-multi IS herebuild-react with one extra (variant) axis: same
+// reaction.prompt and summary-of-persona.hbs, with string-concat from the
+// _util.scm stdlib. Ship those alongside main.scm; persona/variant data is real
+// YAML under the .yaml names the .scm requires.
+const DEPS = {
+  "_util.scm":              fixture("_util.scm"),
+  "summary-of-persona.hbs": fixture("summary-of-persona.hbs"),
+  "reaction.prompt":        fixture("reaction.prompt"),
+};
 
 const profile = (id: string, name: string) => ({
   id,
@@ -38,8 +49,9 @@ describe("herebuild-multi.scm — K × N × M reactions", () => {
 
     const result = await runPipeline({
       files: {
-        "personas.json": JSON.stringify(personas),
-        "variants.json": JSON.stringify(variants),
+        ...DEPS,
+        "personas.yaml": stringifyYaml(personas),
+        "variants.yaml": stringifyYaml(variants),
         "config.scm":    configScm({ "replays": 3, "system-prompt": "test-sys" }),
         "main.scm":      PROGRAM,
       },

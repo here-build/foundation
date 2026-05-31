@@ -4,8 +4,8 @@
 ;;
 ;; Wiring (config-as-code — config.scm ships per run):
 ;;   files:
-;;     personas.json    nested-shape persona file
-;;     variants.json    [{ "id": "V0", "lead": "...", "scenario": "..." }, ...]
+;;     personas.yaml    nested-shape persona file
+;;     variants.yaml    list of { id, lead, scenario } entries
 ;;     config.scm       per-run config/<name> defines:
 ;;       config/replays          per-cell replay count
 ;;       config/system-prompt    reaction system prompt
@@ -14,53 +14,27 @@
 ;; reactions-by-persona is itself a list of (persona-id reaction*).
 
 (require "config.scm")
+(require "_util.scm")   ;; string-concat
 
 (define (state-of profile)
   (:state (last (:versions profile))))
 
-(define ReactionSchema
-  (s/object
-    (s/field/string "interpretation")
-    (s/field/string "verdict")
-    (s/field/string "concern")))
+;; ── Shared reaction prompt (with herebuild-react) ────────────────────
+;;
+;; herebuild-multi IS herebuild-react with one extra axis: same persona summary,
+;; same reaction.prompt, the lead now coming from each variant instead of a
+;; single config/hero-lead. Requiring the same .prompt makes that sameness
+;; literal — and the output schema + tier now live in the prompt, not here.
 
-(define (persona-summary p)
-  (let ((s (state-of p)))
-    (apply string-append
-      (map (lambda (entry)
-             (let ((label (car entry)) (k (car (cdr entry))))
-               (let ((v (field s k)))
-                 (if (or (null? v) (equal? v ""))
-                   ""
-                   (string-append label ": "
-                     (if (pair? v)
-                       (apply string-append (map (lambda (x) (string-append x "; ")) v))
-                       v) "\n")))))
-        (list (list "Name" "name")
-              (list "One-line" "oneLine")
-              (list "Occupation" "occupation")
-              (list "Pains" "pains")
-              (list "Goals" "goals")
-              (list "Jobs-to-be-done" "jobsToBeDone")
-              (list "Current tool stack" "currentToolStack")
-              (list "Dealbreakers" "dealbreakers"))))))
-
-(define (react-user persona variant)
-  (string-append
-    "PERSONA:\n" (persona-summary persona) "\n---\n"
-    "You just landed on the homepage of a tool called here.build. The hero text:\n\n"
-    "\"" (:lead variant) "\"\n\n"
-    "Answer in three short parts:\n"
-    "(a) What does this tell you about what the product does and what it trades?\n"
-    "(b) Would you keep reading, click, or bounce? Pick one and say why.\n"
-    "(c) First concern, suspicion, or question now in your head?"))
+(define summary-of-persona (require "summary-of-persona.hbs"))   ;; text fragment
+(define react              (require "reaction.prompt"))
 
 (define (react-cell persona variant replay-idx)
-  (car (infer/chat "high"
-         (list (infer/chat/system config/system-prompt)
-               (infer/chat/user   (react-user persona variant)))
-         ReactionSchema
-         (string-append (:id variant) "/" (:id persona) "/" (number->string replay-idx)))))
+  (react
+    (string-concat "/" (:id variant) (:id persona) (number->string replay-idx))
+    "systemPrompt" config/system-prompt
+    "summary"      (summary-of-persona (state-of persona))
+    "lead"         (:lead variant)))
 
 (define (cell-row persona variant)
   (list (:id persona)
@@ -70,7 +44,7 @@
   (list (:id variant)
         (map (lambda (p) (cell-row p variant)) personas)))
 
-(define personas (require "personas.json"))
-(define variants (require "variants.json"))
+(define personas (require "personas.yaml"))
+(define variants (require "variants.yaml"))
 
 (map (lambda (v) (variant-row v (values-of personas))) variants)
