@@ -38,8 +38,7 @@
 (define summary-of-persona (require "summary-of-persona.hbs"))   ;; text fragment
 (define react              (require "reaction.prompt"))
 
-(define (state-of persona)
-  (:state (last (:versions persona))))
+(define state-of (compose :state last :versions))
 
 ;; ── One reaction cell ────────────────────────────────────────────────
 ;;

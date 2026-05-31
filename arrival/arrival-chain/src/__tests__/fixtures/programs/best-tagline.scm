@@ -51,8 +51,7 @@
 (define (clicking? v) (or (equal? v "click") (equal? v "keep-reading")))
 (define (bouncing? v) (equal? v "bounce"))
 
-(define (state-of persona)
-  (:state (last (:versions persona))))
+(define state-of (compose :state last :versions))
 
 ;; ── prompts (.prompt = full inference unit) + the one text fragment ──
 ;;

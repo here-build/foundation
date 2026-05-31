@@ -34,8 +34,7 @@
 ;; `(:key obj)` keyword accessors and `values-of` are built into the runtime
 ;; preamble — `(:name s)` reads the "name" field of the JS object s.
 
-(define (state-of profile)
-  (:state (last (:versions profile))))
+(define state-of (compose :state last :versions))
 
 (define (persona-line p)
   (let ((s (state-of p)))

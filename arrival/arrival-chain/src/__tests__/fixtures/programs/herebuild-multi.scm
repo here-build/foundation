@@ -16,8 +16,7 @@
 (require "config.scm")
 (require "_util.scm")   ;; string-concat
 
-(define (state-of profile)
-  (:state (last (:versions profile))))
+(define state-of (compose :state last :versions))
 
 ;; ── Shared reaction prompt (with herebuild-react) ────────────────────
 ;;
