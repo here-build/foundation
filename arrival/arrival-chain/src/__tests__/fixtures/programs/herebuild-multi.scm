@@ -37,13 +37,13 @@
 
 (define (cell-row persona variant)
   (list (:id persona)
-        (map (lambda (i) (react-cell persona variant i)) (range config/replays))))
+        (map (cut react-cell persona variant <>) (range config/replays))))
 
 (define (variant-row variant personas)
   (list (:id variant)
-        (map (lambda (p) (cell-row p variant)) personas)))
+        (map (cut cell-row <> variant) personas)))
 
 (define personas (require "personas.yaml"))
 (define variants (require "variants.yaml"))
 
-(map (lambda (v) (variant-row v (values-of personas))) variants)
+(map (cut variant-row <> (values-of personas)) variants)

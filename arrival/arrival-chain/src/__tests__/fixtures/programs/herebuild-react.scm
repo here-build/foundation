@@ -54,7 +54,7 @@
 
 (define (row-of-persona persona)
   (list (:id persona)
-        (map (lambda (i) (reaction-of-persona-replay persona i)) (range config/replays))))
+        (map (cut reaction-of-persona-replay persona <>) (range config/replays))))
 
 ;; ── Pipeline ─────────────────────────────────────────────────────────
 

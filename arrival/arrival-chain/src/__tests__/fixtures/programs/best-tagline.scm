@@ -74,7 +74,7 @@
     :tagline tagline))
 
 (define (reactions-of tagline personas)
-  (map (lambda (p) (reaction-of-persona-tagline p tagline)) personas))
+  (map (cut reaction-of-persona-tagline <> tagline) personas))
 
 (define (click-rate reactions)
   (let ((n (length reactions)))

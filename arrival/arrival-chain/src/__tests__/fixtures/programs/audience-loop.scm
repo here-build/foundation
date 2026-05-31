@@ -72,7 +72,7 @@
     :lead           (:lead variant)))
 
 (define (cell-reactions persona variant)
-  (map (lambda (i) (react-cell persona variant i)) (range config/min-replays)))
+  (map (cut react-cell persona variant <>) (range config/min-replays)))
 
 ;; ── Stage 2: classification (consumes M reactions) ───────────────────
 
