@@ -15,7 +15,7 @@ describe("(require \"*.hbs\") — handlebars templates", () => {
     project.addFile("greeting.hbs", "Hello, {{name}}!");
     project.addFile("who.json", JSON.stringify({ name: "world" }));
     const program = project.addProgram("main.scm", `
-      (require "who.json")
+      (define who (require "who.json"))
       ((require "greeting.hbs") who)
     `);
     expect(await program.run()).toBe("Hello, world!");
@@ -37,7 +37,7 @@ describe("(require \"*.hbs\") — handlebars templates", () => {
       "Items:\n{{#each items}} - {{this}}\n{{/each}}");
     project.addFile("data.json", JSON.stringify({ items: ["a", "b", "c"] }));
     const program = project.addProgram("main.scm", `
-      (require "data.json")
+      (define data (require "data.json"))
       ((require "listing.hbs") data)
     `);
     expect(await program.run()).toBe("Items:\n - a\n - b\n - c\n");
@@ -61,7 +61,7 @@ describe("(require \"*.hbs\") — handlebars templates", () => {
       "Translate {{lang}}: {{phrase}}");
     project.addFile("d.json", JSON.stringify({ lang: "french", phrase: "hello" }));
     const program = project.addProgram("main.scm", `
-      (require "d.json")
+      (define d (require "d.json"))
       ((require "prompt.hbs") d)
     `);
     expect(await program.run()).toBe("Translate french: hello");

@@ -192,8 +192,8 @@
 
 ;; ── Pipeline ─────────────────────────────────────────────────────────
 
-(require "personas.json")
-(require "variants.json")
+(define personas (require "personas.json"))
+(define variants (require "variants.json"))
 
 (define persona-list (values-of personas))
 

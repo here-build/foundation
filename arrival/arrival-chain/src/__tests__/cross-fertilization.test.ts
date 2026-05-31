@@ -53,7 +53,7 @@ const PROGRAM = `
                     (others-of target personas))))
        personas))
 
-(require "personas.json")
+(define personas (require "personas.json"))
 (cross-critique personas)
 `;
 

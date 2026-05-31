@@ -31,7 +31,7 @@ describe("require — Plexus VFS preamble", () => {
     project.addFile("greeting.txt", "hello from txt");
 
     const value = await project.run(`
-      (require "greeting.txt")
+      (define greeting (require "greeting.txt"))
       greeting
     `);
 
@@ -45,7 +45,7 @@ describe("require — Plexus VFS preamble", () => {
     project.addFile("config.json", `{"answer": 42, "ok": true}`);
 
     const value = await project.run(`
-      (require "config.json")
+      (define config (require "config.json"))
       (@ config "answer")
     `);
 
@@ -141,7 +141,7 @@ describe("require — Plexus VFS preamble", () => {
       ["name: maya", "scores:", "  - 10", "  - 20", "  - 30"].join("\n"),
     );
 
-    const value = await project.run(`(require "config.yaml") (field config "name")`);
+    const value = await project.run(`(define config (require "config.yaml")) (field config "name")`);
     expect(value).toBe("maya");
   });
 
@@ -154,7 +154,7 @@ describe("require — Plexus VFS preamble", () => {
       ['name = "priya"', "scores = [1, 2, 3]"].join("\n"),
     );
 
-    const value = await project.run(`(require "config.toml") (field config "name")`);
+    const value = await project.run(`(define config (require "config.toml")) (field config "name")`);
     expect(value).toBe("priya");
   });
 
@@ -167,8 +167,20 @@ describe("require — Plexus VFS preamble", () => {
       ['{"id":1,"name":"a"}', '{"id":2,"name":"b"}', '{"id":3,"name":"c"}'].join("\n"),
     );
 
-    const value = await project.run(`(require "people.ndjson") (length people)`);
+    const value = await project.run(`(define people (require "people.ndjson")) (length people)`);
     expect(value).toBe(3);
+  });
+
+  it("a data require RETURNS its value and does NOT spill a filename-global", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile("data.json", JSON.stringify({ x: 7 }));
+
+    // Explicit binding works — require returns the value.
+    expect(await project.run(`(define d (require "data.json")) (field d "x")`)).toBe(7);
+    // But a bare require binds nothing: referencing the old filename-global throws.
+    await expect(project.run(`(require "data.json") (field data "x")`)).rejects.toThrow();
   });
 
   it("makes a define-macro from a required file available to the caller", async () => {

@@ -30,7 +30,7 @@ describe("nested-shape data access from scheme", () => {
       files: {
         "data.json": JSON.stringify(NESTED),
         "main.scm": `
-          (require "data.json")
+          (define data (require "data.json"))
           (length (values-of data))
         `,
       },
@@ -45,7 +45,7 @@ describe("nested-shape data access from scheme", () => {
       files: {
         "data.json": JSON.stringify(NESTED),
         "main.scm": `
-          (require "data.json")
+          (define data (require "data.json"))
           (define (state-of r) (field (last (field r "versions")) "state"))
           (field (state-of (car (values-of data))) "name")
         `,
@@ -61,7 +61,7 @@ describe("nested-shape data access from scheme", () => {
       files: {
         "data.json": JSON.stringify(NESTED),
         "main.scm": `
-          (require "data.json")
+          (define data (require "data.json"))
           (define (state-of r) (field (last (field r "versions")) "state"))
           (map (lambda (r) (field (state-of r) "name")) (values-of data))
         `,
@@ -77,7 +77,7 @@ describe("nested-shape data access from scheme", () => {
       files: {
         "data.json": JSON.stringify(NESTED),
         "main.scm": `
-          (require "data.json")
+          (define data (require "data.json"))
           (:id (car (values-of data)))
         `,
       },

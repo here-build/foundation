@@ -441,7 +441,7 @@
               (apply string-append (map (lambda (e) (field e "id")) entries))))))))
 
 ;; ── entry ────────────────────────────────────────────────────────────
-(require "personas.json")
+(define personas (require "personas.json"))
 
 (define initial-personas (values-of personas))
 (define results          (optimize-tagline config/initial-tagline initial-personas))

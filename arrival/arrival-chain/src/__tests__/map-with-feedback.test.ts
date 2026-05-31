@@ -26,7 +26,7 @@ import { parseChatPrompt } from "../backends/_shared.js";
 // nested-infer always force at boundaries lands separately.
 
 const PROGRAM = `
-(require "questions.json")  ;; → questions, list of strings
+(define questions (require "questions.json"))  ;; → questions, list of strings
 
 (define MomTestSchema
   (s/object (s/field/boolean "specific") (s/field/string "fix")))

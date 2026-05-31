@@ -45,11 +45,13 @@ export type SchemeForm = Awaited<ReturnType<typeof parse>>[number];
 /** What an extension resolver produces; the require rosetta executes it.
  *  - `load`  → `execExpr` each form into the run env (spill); require returns ⊥.
  *  - `eval`  → `execExpr` the forms, return the LAST value (e.g. an `.hbs` lambda).
- *  - `value` → bind `bindAs` (if set) and return the (plain, membrane-safe) value. */
+ *  - `value` → return the (plain, membrane-safe) value; the caller binds it
+ *    explicitly with `(define x (require …))`. No spill into the global env —
+ *    a data file's binding is as greppable and provenance-clear as an import. */
 export type ResolverResult =
   | { kind: "load"; forms: SchemeForm[] }
   | { kind: "eval"; forms: SchemeForm[] }
-  | { kind: "value"; value: unknown; bindAs?: string };
+  | { kind: "value"; value: unknown };
 
 export type ContentResolver = (contents: string | Uint8Array, ctx: { path: string }) => MaybePromise<ResolverResult>;
 
@@ -114,12 +116,6 @@ const DATA_PARSERS: Record<string, (text: string) => unknown> = {
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line)),
 };
-
-/** `_lib.scm` → `_lib`, `data.json` → `data`. The spilled binding name. */
-function pathToIdent(path: string): string {
-  const base = path.split("/").pop() ?? path;
-  return base.replace(/\.[^.]+$/, "");
-}
 
 /** Project a parsed value onto its JSON shape (Dates → ISO strings, drops
  *  undefined), matching the old `(json/parse "<canonical>")` contract. NOT a
@@ -246,14 +242,14 @@ function parsePromptFile(src: string): { fm: Record<string, unknown>; body: stri
 }
 
 /** The default extension registry: `.scm` loads (spill), data files parse to a
- *  bound value, `.txt` binds a string, `.hbs` evaluates to a render lambda. */
+ *  value (bound explicitly via `(define x (require …))`), `.txt` to a string,
+ *  `.hbs` evaluates to a render lambda. */
 export function defaultResolvers(): Map<string, ContentResolver> {
   const dataResolvers = Object.keys(DATA_PARSERS).map((ext): [string, ContentResolver] => [
     ext,
-    (contents, { path }) => ({
+    (contents) => ({
       kind: "value",
       value: normalizeToJson(DATA_PARSERS[ext]!(String(contents))),
-      bindAs: pathToIdent(path),
     }),
   ]);
   return new Map<string, ContentResolver>([
@@ -262,7 +258,7 @@ export function defaultResolvers(): Map<string, ContentResolver> {
     // parsed forms are a synthetic `(lambda …)`, not the file's own content.
     [".scm", async (contents, { path }) => ({ kind: "load", forms: await parse(String(contents), undefined, path) })],
     ...dataResolvers,
-    [".txt", (contents, { path }) => ({ kind: "value", value: String(contents), bindAs: pathToIdent(path) })],
+    [".txt", (contents) => ({ kind: "value", value: String(contents) })],
     // `.hbs` evaluates to a SCHEME lambda (not a raw JS fn — membrane-safe): the
     // call site does `((require "x.hbs") args)` or `(define f (require "x.hbs"))`.
     [
@@ -383,11 +379,9 @@ export function defineRequireRosetta(opts: {
         if (result.kind === "value") {
           // Wrap JS→Scheme exactly as the old `json/parse` path did: arrays
           // become scheme LISTS (so `(length …)` works), plain objects become
-          // SchemeJSObject (so `@`/`field` work). env.set passes Scheme values
-          // through unchanged — its raw fromJS would keep arrays as vectors.
-          const wrapped = jsToLips(result.value);
-          if (result.bindAs !== undefined) env.set(result.bindAs, wrapped);
-          value = wrapped;
+          // SchemeJSObject (so `@`/`field` work). Pure value — `require` RETURNS
+          // it for an explicit `(define x (require …))`; nothing is spilled.
+          value = jsToLips(result.value);
         } else {
           // load / eval: evaluate the module's forms in order into the run env,
           // with the module's own dir on the stack for its relative requires.

@@ -70,7 +70,7 @@
   (list (field variant "id")
         (map (lambda (p) (cell-row p variant)) personas)))
 
-(require "personas.json")
-(require "variants.json")
+(define personas (require "personas.json"))
+(define variants (require "variants.json"))
 
 (map (lambda (v) (variant-row v (values-of personas))) variants)

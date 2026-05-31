@@ -69,5 +69,5 @@
 
 ;; ── Pipeline ─────────────────────────────────────────────────────────
 
-(require "personas.json")
+(define personas (require "personas.json"))
 (map row-of-persona (values-of personas))

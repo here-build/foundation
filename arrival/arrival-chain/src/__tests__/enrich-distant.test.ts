@@ -37,9 +37,9 @@ const BASELINE = [
 const SYSTEM_PROMPT = "Enrich the abstract sketch into a vivid concrete persona that stands APART.";
 
 const PROGRAM = `
-(require "baseline.json")
-(require "owl-seeds.json")
-(require "enrich-system.txt")
+(define baseline (require "baseline.json"))
+(define owl-seeds (require "owl-seeds.json"))
+(define enrich-system (require "enrich-system.txt"))
 
 (define EnrichedSchema
   (s/object

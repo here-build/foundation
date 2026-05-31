@@ -57,7 +57,7 @@ describe("runPipeline — top-to-bottom entry point", () => {
       files: {
         "personas.json": JSON.stringify([{ name: "Maya" }, { name: "Priya" }]),
         "main.scm": `
-          (require "personas.json")
+          (define personas (require "personas.json"))
           (map (lambda (p)
                  (car (infer "fast" (string-append "Greet " (field p "name")))))
                personas)
