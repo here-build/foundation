@@ -101,7 +101,7 @@
   (string-concat "\n"
     (map (lambda (entry)
            (string-append (:name (state-of (car entry)))
-                          " → " (:bucket (car (cdr entry)))))
+                          " → " (:bucket (cadr entry))))
          cls)))
 
 (define (variant-boundary variant personas)

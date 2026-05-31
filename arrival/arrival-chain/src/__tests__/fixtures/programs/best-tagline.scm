@@ -80,7 +80,7 @@
 (define (click-rate reactions)
   (let ((n (length reactions)))
     (if (= n 0) 0
-        (/ (count-if (lambda (r) (clicking? (:verdict r))) reactions) n))))
+        (/ (count-if (compose clicking? :verdict) reactions) n))))
 
 ;; ── plateau detection: 3-frame rolling window ───────────────────────
 ;; Compare avg of latest 3 entries against avg of the 3 before that.
@@ -176,7 +176,7 @@
                      (let ((entry (gepa-until-plateau initial personas hints (:system pov))))
                        (dict "pov" (:name pov) "entry" entry)))
                    (active-povs))))
-    (max-by (lambda (r) (cadr (:entry r))) runs)))
+    (max-by (compose cadr :entry) runs)))
 
 ;; ── triage ───────────────────────────────────────────────────────────
 (define (triage-one persona reaction tagline)
@@ -226,7 +226,7 @@
   (dict "id"          node-id
         "parent-id"   (:parent-id task)
         "tagline"     (car best-entry)
-        "personas"    (map (lambda (p) (:id p)) (:personas task))
+        "personas"    (map :id (:personas task))
         "reactions"   (caddr best-entry)
         "bounce-rate" br
         "triaged"     triaged
@@ -235,7 +235,7 @@
 (define (child-task-of parent-task parent-best-entry parent-node-id unsatisfied)
   (let ((personas (:personas parent-task))
         (hints    (:hints parent-task)))
-    (make-task (map (lambda (t) (:persona t)) unsatisfied)
+    (make-task (map :persona unsatisfied)
                (car parent-best-entry)
                parent-node-id
                (frontier-of (list parent-best-entry) personas hints))))
@@ -287,7 +287,7 @@
     ((< (length results) 2) #f)
     (else
      (let* ((root      (car results))
-            (lastnode  (car (reverse results)))
+            (lastnode  (last results))
             (a         (:tagline root))
             (b         (:tagline lastnode))
             (forms (list
@@ -301,7 +301,7 @@
                                  "pov"     (:pov run)
                                  "entry"   (:entry run))))
                        forms))
-            (winner (max-by (lambda (r) (cadr (:entry r))) runs)))
+            (winner (max-by (compose cadr :entry) runs)))
        (dict "format"    (:format winner)
              "tagline"   (car (:entry winner))
              "score"     (cadr (:entry winner))
@@ -382,7 +382,7 @@
     (else
      (consolidate
        (string-concat "/" "consolidate" label
-         (string-concat "" (map (lambda (e) (:id e)) entries)))
+         (string-concat "" (map :id entries)))
        "label"   label
        "reasons" (reasons-for-template entries)))))
 
