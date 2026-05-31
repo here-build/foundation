@@ -96,8 +96,9 @@
 ;; hints (from a parent worklist task) are unioned in.
 (define (clickers-of personas reactions)
   (reduce (lambda (pr acc)
-            (if (clicking? (:verdict (cadr pr)))
-                (cons (:id (car pr)) acc) acc))
+            (let ((persona (car pr)) (reaction (cadr pr)))
+              (if (clicking? (:verdict reaction))
+                  (cons (:id persona) acc) acc)))
           '() (map list personas reactions)))
 
 ;; a hint: a tagline + the persona-ids it reached
@@ -115,9 +116,9 @@
 
 ;; ── reflection ───────────────────────────────────────────────────────
 (define (reactions-summary reactions personas)
-  (map (lambda (p r) (dict "persona" (:id p)
-                           "verdict" (:verdict r)
-                           "concern" (:concern r)))
+  (map (lambda (p r) (dict :persona (:id p)
+                           :verdict (:verdict r)
+                           :concern (:concern r)))
        personas reactions))
 
 (define (hints-summary hints)
@@ -176,7 +177,7 @@
 (define (multi-pov-run initial personas hints)
   (let ((runs (map (lambda (pov)
                      (let ((entry (gepa-until-plateau initial personas hints (:system pov))))
-                       (dict "pov" (:name pov) "entry" entry)))
+                       (dict :pov (:name pov) :entry entry)))
                    (active-povs))))
     (max-by (compose :score :entry) runs)))
 
@@ -188,16 +189,16 @@
              "tagline" tagline
              "verdict" (:verdict reaction)
              "concern" (:concern reaction))))
-    (dict "persona"  persona
-          "reaction" reaction
-          "mismatch" (:mismatch v)
-          "reason"   (:reason v))))
+    (dict :persona  persona
+          :reaction reaction
+          :mismatch (:mismatch v)
+          :reason   (:reason v))))
 
 (define (triage-bouncers personas reactions tagline)
   (reduce (lambda (pr acc)
-            (let ((p (car pr)) (r (cadr pr)))
-              (if (bouncing? (:verdict r))
-                  (cons (triage-one p r tagline) acc) acc)))
+            (let ((persona (car pr)) (reaction (cadr pr)))
+              (if (bouncing? (:verdict reaction))
+                  (cons (triage-one persona reaction tagline) acc) acc)))
           '() (map list personas reactions)))
 
 ;; ── worklist driver ──────────────────────────────────────────────────
@@ -222,17 +223,17 @@
 
 ;; a worklist task: the persona pool + seed tagline + parent link + reach hints
 (define (make-task personas initial parent-id hints)
-  (dict "personas" personas "initial" initial "parent-id" parent-id "hints" hints))
+  (dict :personas personas :initial initial :parent-id parent-id :hints hints))
 
 (define (make-node node-id task best-entry br triaged winning-pov)
-  (dict "id"          node-id
-        "parent-id"   (:parent-id task)
-        "tagline"     (:tagline best-entry)
-        "personas"    (map :id (:personas task))
-        "reactions"   (:reactions best-entry)
-        "bounce-rate" br
-        "triaged"     triaged
-        "pov"         winning-pov))
+  (dict :id          node-id
+        :parent-id   (:parent-id task)
+        :tagline     (:tagline best-entry)
+        :personas    (map :id (:personas task))
+        :reactions   (:reactions best-entry)
+        :bounce-rate br
+        :triaged     triaged
+        :pov         winning-pov))
 
 (define (child-task-of parent-task parent-best-entry parent-node-id unsatisfied)
   (let ((personas (:personas parent-task))
@@ -282,7 +283,7 @@
 
 ;; a candidate compound shape + the tagline that seeds its plateau loop
 (define (format-variant fmt initial)
-  (dict "format" fmt "initial" initial))
+  (dict :format fmt :initial initial))
 
 (define (compound-of-results results all-personas)
   (cond
@@ -298,18 +299,18 @@
                      (format-variant "merge"      (merge-initial a b))))
             (runs (map (lambda (f)
                          (let ((run (multi-pov-run (:initial f) all-personas '())))
-                           (dict "format"  (:format f)
-                                 "sources" (list a b)
-                                 "pov"     (:pov run)
-                                 "entry"   (:entry run))))
+                           (dict :format  (:format f)
+                                 :sources (list a b)
+                                 :pov     (:pov run)
+                                 :entry   (:entry run))))
                        forms))
             (winner (max-by (compose :score :entry) runs)))
-       (dict "format"    (:format winner)
-             "tagline"   (:tagline (:entry winner))
-             "score"     (:score (:entry winner))
-             "reactions" (:reactions (:entry winner))
-             "pov"       (:pov winner)
-             "sources"   (:sources winner))))))
+       (dict :format    (:format winner)
+             :tagline   (:tagline (:entry winner))
+             :score     (:score (:entry winner))
+             :reactions (:reactions (:entry winner))
+             :pov       (:pov winner)
+             :sources   (:sources winner))))))
 
 ;; ── bucketize: per-persona final classification ─────────────────────
 ;;
@@ -338,19 +339,19 @@
   (let walk ((rs results) (click #f) (mismatch #f) (last-bounce #f))
     (cond
       ((null? rs)
-       (cond (click           (dict "bucket" "clicking"
-                                    "tagline" (car click)
-                                    "reaction" (cadr click)))
-             (mismatch        (dict "bucket" "audience-miss" "reason" mismatch))
-             (else            (dict "bucket" "unreachable"
-                                    "reason" (if last-bounce last-bounce "no data")))))
+       (cond (click           (dict :bucket "clicking"
+                                    :tagline (:tagline click)
+                                    :reaction (:reaction click)))
+             (mismatch        (dict :bucket "audience-miss" :reason mismatch))
+             (else            (dict :bucket "unreachable"
+                                    :reason (if last-bounce last-bounce "no data")))))
       (else
        (let* ((node     (car rs))
               (reaction (reaction-of-persona-in-node pid node))
               (triage   (triage-of-persona-in-node pid node))
               (click+
                 (if (and reaction (clicking? (:verdict reaction)))
-                    (list (:tagline node) reaction)
+                    (dict :tagline (:tagline node) :reaction reaction)
                     click))
               (mismatch+
                 (if (and triage (equal? (:mismatch triage) #t))
@@ -366,21 +367,21 @@
   (map (lambda (p)
          (let* ((pid (:id p))
                 (res (persona-result pid results)))
-           (dict "id"       pid
-                 "bucket"   (:bucket res)
-                 "tagline"  (:tagline res)
-                 "reason"   (:reason res)
-                 "reaction" (:reaction res))))
+           (dict :id       pid
+                 :bucket   (:bucket res)
+                 :tagline  (:tagline res)
+                 :reason   (:reason res)
+                 :reaction (:reaction res))))
        personas))
 
 ;; ── consolidation: distil bucket reasons into a structured summary ──
 (define (reasons-for-template entries)
-  (map (lambda (e) (dict "persona" (:id e) "reason" (:reason e)))
+  (map (lambda (e) (dict :persona (:id e) :reason (:reason e)))
        entries))
 
 (define (consolidate-reasons label entries)
   (cond
-    ((null? entries) (dict "summary" "" "key-points" '()))
+    ((null? entries) (dict :summary "" :key-points '()))
     (else
      (consolidate
        (string-concat "/" "consolidate" label
@@ -396,13 +397,13 @@
 (define buckets          (bucketize results initial-personas))
 
 (dict
-  "tree"     results
-  "compound" (compound-of-results results initial-personas)
-  "buckets"  buckets
-  "summaries" (dict
-                "audience-miss" (consolidate-reasons
+  :tree     results
+  :compound (compound-of-results results initial-personas)
+  :buckets  buckets
+  :summaries (dict
+                :audience-miss (consolidate-reasons
                                   "not being in our target audience"
                                   (filter (lambda (b) (equal? (:bucket b) "audience-miss")) buckets))
-                "unreachable"   (consolidate-reasons
+                :unreachable   (consolidate-reasons
                                   "bouncing on every tagline we tried"
                                   (filter (lambda (b) (equal? (:bucket b) "unreachable")) buckets))))
