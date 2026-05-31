@@ -141,7 +141,7 @@ describe("require — Plexus VFS preamble", () => {
       ["name: maya", "scores:", "  - 10", "  - 20", "  - 30"].join("\n"),
     );
 
-    const value = await project.run(`(define config (require "config.yaml")) (field config "name")`);
+    const value = await project.run(`(define config (require "config.yaml")) (:name config)`);
     expect(value).toBe("maya");
   });
 
@@ -154,7 +154,7 @@ describe("require — Plexus VFS preamble", () => {
       ['name = "priya"', "scores = [1, 2, 3]"].join("\n"),
     );
 
-    const value = await project.run(`(define config (require "config.toml")) (field config "name")`);
+    const value = await project.run(`(define config (require "config.toml")) (:name config)`);
     expect(value).toBe("priya");
   });
 
@@ -178,9 +178,9 @@ describe("require — Plexus VFS preamble", () => {
     project.addFile("data.json", JSON.stringify({ x: 7 }));
 
     // Explicit binding works — require returns the value.
-    expect(await project.run(`(define d (require "data.json")) (field d "x")`)).toBe(7);
+    expect(await project.run(`(define d (require "data.json")) (:x d)`)).toBe(7);
     // But a bare require binds nothing: referencing the old filename-global throws.
-    await expect(project.run(`(require "data.json") (field data "x")`)).rejects.toThrow();
+    await expect(project.run(`(require "data.json") (:x data)`)).rejects.toThrow();
   });
 
   it("makes a define-macro from a required file available to the caller", async () => {

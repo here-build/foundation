@@ -5,8 +5,8 @@
  *
  *   data:           { profileId: { id, versions: [ { n, state: {...} } ] } }
  *   values-of data: list of profile records
- *   (last (field rec "versions")): latest version
- *   (field state "name"): the field
+ *   (last (:versions rec)): latest version
+ *   (:name state): the field
  *
  * `field` works on both alist and JS-object shapes; `@`/`:key` work on
  * objects only. Use whichever reads best at the call site.
@@ -46,8 +46,8 @@ describe("nested-shape data access from scheme", () => {
         "data.json": JSON.stringify(NESTED),
         "main.scm": `
           (define data (require "data.json"))
-          (define (state-of r) (field (last (field r "versions")) "state"))
-          (field (state-of (car (values-of data))) "name")
+          (define (state-of r) (:state (last (:versions r))))
+          (:name (state-of (car (values-of data))))
         `,
       },
       entry: "main.scm",
@@ -62,8 +62,8 @@ describe("nested-shape data access from scheme", () => {
         "data.json": JSON.stringify(NESTED),
         "main.scm": `
           (define data (require "data.json"))
-          (define (state-of r) (field (last (field r "versions")) "state"))
-          (map (lambda (r) (field (state-of r) "name")) (values-of data))
+          (define (state-of r) (:state (last (:versions r))))
+          (map (lambda (r) (:name (state-of r))) (values-of data))
         `,
       },
       entry: "main.scm",

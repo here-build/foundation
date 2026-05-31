@@ -54,7 +54,7 @@ const PREAMBLE = `
 (define (click-rate reactions)
   (let ((n (length reactions)))
     (if (= n 0) 0
-        (/ (count-if (lambda (r) (clicking? (field r "verdict"))) reactions) n))))
+        (/ (count-if (lambda (r) (clicking? (:verdict r))) reactions) n))))
 
 ;; entry = (tagline score reactions)
 (define (entry-score e) (cadr e))
@@ -69,7 +69,7 @@ const PREAMBLE = `
 
 (define (clickers-of personas reactions)
   (reduce (lambda (pr acc)
-            (if (clicking? (field (cadr pr) "verdict"))
+            (if (clicking? (:verdict (cadr pr)))
                 (cons (car pr) acc) acc))
           '() (map list personas reactions)))
 
@@ -84,12 +84,11 @@ const PREAMBLE = `
          hints)))
 
 (define (next-tagline current hints)
-  (field (car (infer/chat "fast"
+  (:next (car (infer/chat "fast"
                 (list (infer/chat/system "stub")
                       (infer/chat/user (string-append "REFLECT|" current "|" (hints-signature hints))))
                 NextSchema
-                (string-append "reflect/" current "/" (hints-signature hints))))
-         "next"))
+                (string-append "reflect/" current "/" (hints-signature hints))))))
 
 (define (best-of history) (max-by entry-score history))
 
@@ -112,18 +111,18 @@ const PREAMBLE = `
                   (list (infer/chat/system "stub")
                         (infer/chat/user
                           (string-append "TRIAGE|" persona "|"
-                                         (field reaction "verdict") "|" tagline)))
+                                         (:verdict reaction) "|" tagline)))
                   TriageSchema
                   (string-append "triage/" tagline "/" persona)))))
     (dict "persona"  persona
           "reaction" reaction
-          "mismatch" (field v "mismatch")
-          "reason"   (field v "reason"))))
+          "mismatch" (:mismatch v)
+          "reason"   (:reason v))))
 
 (define (triage-bouncers personas reactions tagline)
   (reduce (lambda (pr acc)
             (let ((p (car pr)) (r (cadr pr)))
-              (if (bouncing? (field r "verdict"))
+              (if (bouncing? (:verdict r))
                   (cons (triage-one p r tagline) acc) acc)))
           '() (map list personas reactions)))
 
@@ -141,9 +140,9 @@ const PREAMBLE = `
 ;; 4-list; drive destructures via (apply (lambda (…) …) (score-task task)),
 ;; the substrate-friendly substitute for R7RS let-values.
 (define (score-task task)
-  (let* ((personas   (field task "personas"))
-         (initial    (field task "initial"))
-         (hints      (field task "hints"))
+  (let* ((personas   (:personas task))
+         (initial    (:initial task))
+         (hints      (:hints task))
          (best-entry (gepa-until-plateau initial personas
                        config/max-iter config/plateau-delta hints))
          (best-tag   (car best-entry))
@@ -152,24 +151,24 @@ const PREAMBLE = `
          (triaged    (if (>= br config/bounce-threshold)
                          (triage-bouncers personas reactions best-tag)
                          '()))
-         (unsatisfied (filter (lambda (t) (equal? (field t "mismatch") #f)) triaged)))
+         (unsatisfied (filter (lambda (t) (equal? (:mismatch t) #f)) triaged)))
     (list best-entry br triaged unsatisfied)))
 
 ;; Phase 2: build the result node record.
 (define (make-node node-id task best-entry br triaged)
   (dict "id"          node-id
-        "parent-id"   (field task "parent-id")
+        "parent-id"   (:parent-id task)
         "tagline"     (car best-entry)
-        "personas"    (field task "personas")
+        "personas"    (:personas task)
         "reactions"   (caddr best-entry)
         "bounce-rate" br
         "triaged"     triaged))
 
 ;; Phase 3: build the child worklist task (only called when we recurse).
 (define (child-task-of parent-task parent-best-entry parent-node-id unsatisfied)
-  (let ((personas (field parent-task "personas"))
-        (hints    (field parent-task "hints")))
-    (dict "personas"  (map (lambda (t) (field t "persona")) unsatisfied)
+  (let ((personas (:personas parent-task))
+        (hints    (:hints parent-task)))
+    (dict "personas"  (map (lambda (t) (:persona t)) unsatisfied)
           "initial"   (car parent-best-entry)
           "parent-id" parent-node-id
           "hints"     (frontier-of (list parent-best-entry) personas hints))))

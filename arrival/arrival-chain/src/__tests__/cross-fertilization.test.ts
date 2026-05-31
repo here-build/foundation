@@ -27,7 +27,7 @@ const stub = (delayMs = 0) => {
 };
 
 const PROGRAM = `
-(define (persona-summary p) (field p "name"))
+(define (persona-summary p) (:name p))
 
 (define CritiqueSchema
   (s/object
@@ -40,15 +40,15 @@ const PROGRAM = `
          (list (infer/chat/system (string-append "you are " (persona-summary critic)))
                (infer/chat/user   (persona-summary target)))
          CritiqueSchema
-         (string-append (field critic "name") "→" (field target "name")))))
+         (string-append (:name critic) "→" (:name target)))))
 
 (define (others-of p personas)
-  (filter (lambda (q) (not (equal? (field q "name") (field p "name"))))
+  (filter (lambda (q) (not (equal? (:name q) (:name p))))
           personas))
 
 (define (cross-critique personas)
   (map (lambda (target)
-         (list (field target "name")
+         (list (:name target)
                (map (lambda (critic) (critique-of-by target critic))
                     (others-of target personas))))
        personas))

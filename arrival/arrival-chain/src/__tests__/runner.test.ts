@@ -59,7 +59,7 @@ describe("runPipeline — top-to-bottom entry point", () => {
         "main.scm": `
           (define personas (require "personas.json"))
           (map (lambda (p)
-                 (car (infer "fast" (string-append "Greet " (field p "name")))))
+                 (car (infer "fast" (string-append "Greet " (:name p)))))
                personas)
         `,
       },

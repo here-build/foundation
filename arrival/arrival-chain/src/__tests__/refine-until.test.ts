@@ -30,9 +30,9 @@ const PROGRAM = `
          q)))
 
 (define (passes? v)
-  (and (equal? (field v "specific")     #t)
-       (equal? (field v "leading")      #f)
-       (equal? (field v "hypothetical") #f)))
+  (and (equal? (:specific v)     #t)
+       (equal? (:leading v)      #f)
+       (equal? (:hypothetical v) #f)))
 
 (define (refine-until-passes q max-iter)
   (define (loop q i)
@@ -41,7 +41,7 @@ const PROGRAM = `
             (let ((v (critique-question q)))
               (if (passes? v)
                 (list q (number->string i))
-                (loop (field v "fix") (+ i 1)))))))
+                (loop (:fix v) (+ i 1)))))))
   (loop q 0))
 
 (refine-until-passes "would you use a tool like this?" 5)

@@ -43,10 +43,10 @@ const PROGRAM = `
   (let ((original (car p)) (verdict (car (cdr p))))
     (car (infer/chat "strong"
            (list (infer/chat/system "rewrite")
-                 (infer/chat/user (string-append "Original: " original " Fix: " (field verdict "fix"))))
+                 (infer/chat/user (string-append "Original: " original " Fix: " (:fix verdict))))
            QuestionSchema original))))
 
-(define (passes? p) (equal? (field (car (cdr p)) "specific") #t))
+(define (passes? p) (equal? (:specific (car (cdr p))) #t))
 
 (define pairs (map (lambda (q) (list q (critique q))) questions))
 (define passing (filter passes? pairs))
@@ -54,7 +54,7 @@ const PROGRAM = `
 (define rewritten (map rewrite failing))
 
 (list (list "passed" (map car passing))
-      (list "rewritten" (map (lambda (q) (field q "question")) rewritten)))
+      (list "rewritten" (map (lambda (q) (:question q)) rewritten)))
 `;
 
 const routedBackend = () => {

@@ -23,13 +23,12 @@ export const GEPA_PROGRAM = `
          (s/object (s/field/string "verdict"))
          (string-append "react/" tagline "/" persona-id))))
 (define (next-tagline current reactions)
-  (field (car (infer/chat "fast"
+  (:next (car (infer/chat "fast"
                 (list (infer/chat/system "stub")
                       (infer/chat/user (string-append "REFLECT|" current "|"
-                                                      (field (car reactions) "verdict"))))
+                                                      (:verdict (car reactions)))))
                 (s/object (s/field/string "next"))
-                (string-append "reflect/" current)))
-         "next"))
+                (string-append "reflect/" current)))))
 (define (loop tagline iter max-iter)
   (let ((reactions (map (lambda (p) (react-cell tagline p)) (list "p1" "p2"))))
     (if (>= iter max-iter) tagline (loop (next-tagline tagline reactions) (+ iter 1) max-iter))))

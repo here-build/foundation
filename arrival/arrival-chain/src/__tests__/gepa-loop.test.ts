@@ -50,19 +50,18 @@ const PROGRAM_PREAMBLE = `
          hints)))
 
 (define (next-tagline current hints)
-  (field (car (infer/chat "fast"
+  (:next (car (infer/chat "fast"
                 (list (infer/chat/system "stub")
                       (infer/chat/user (string-append "REFLECT|" current "|" (hints-signature hints))))
                 NextSchema
-                (string-append "reflect/" current "/" (hints-signature hints))))
-         "next"))
+                (string-append "reflect/" current "/" (hints-signature hints))))))
 
 ;; ── scoring ──────────────────────────────────────────────────────────
 (define (clicking? v) (or (equal? v "click") (equal? v "keep-reading")))
 (define (click-rate reactions)
   (let ((n (length reactions)))
     (if (= n 0) 0
-        (/ (count-if (lambda (r) (clicking? (field r "verdict"))) reactions) n))))
+        (/ (count-if (lambda (r) (clicking? (:verdict r))) reactions) n))))
 
 ;; ── plateau detection: 3-frame rolling window ────────────────────────
 ;; recent-3 vs prior-3, stop if (recent - prior) < delta.
@@ -87,7 +86,7 @@ const PROGRAM_PREAMBLE = `
 ;; ids — no '()-as-sentinel inside a string-list.
 (define (clickers-of personas reactions)
   (reduce (lambda (pr acc)
-            (if (clicking? (field (cadr pr) "verdict"))
+            (if (clicking? (:verdict (cadr pr)))
                 (cons (car pr) acc) acc))
           '() (map list personas reactions)))
 

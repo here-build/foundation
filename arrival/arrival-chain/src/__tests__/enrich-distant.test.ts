@@ -50,7 +50,7 @@ const PROGRAM = `
 (define (render-avoid personas)
   (apply string-append
     (map (lambda (p)
-           (string-append "- " (field p "name") ": " (field p "oneLine") "\n"))
+           (string-append "- " (:name p) ": " (:oneLine p) "\n"))
          personas)))
 
 (define (enrich-against avoid seed)
@@ -59,9 +59,9 @@ const PROGRAM = `
                (infer/chat/user
                  (string-append
                    "Avoid:\n" (render-avoid avoid) "\n"
-                   "Sketch: " (field seed "description"))))
+                   "Sketch: " (:description seed))))
          EnrichedSchema
-         (field seed "id"))))
+         (:id seed))))
 
 (define (enrich-all/accumulating seeds baseline)
   (define (loop remaining acc)

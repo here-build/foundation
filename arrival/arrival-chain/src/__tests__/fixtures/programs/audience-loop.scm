@@ -27,7 +27,7 @@
 ;; `field` and `values-of` are built into the runtime preamble.
 
 (define (state-of profile)
-  (field (last (field profile "versions")) "state"))
+  (:state (last (:versions profile))))
 
 (define (join-array arr sep)
   (if (or (null? arr) (not (pair? arr)))
@@ -37,7 +37,7 @@
 
 (define (persona-line p)
   (let ((s (state-of p)))
-    (string-append (field s "name") ": " (field s "oneLine"))))
+    (string-append (:name s) ": " (:oneLine s))))
 
 (define (persona-summary p)
   (let ((s (state-of p)))
@@ -103,8 +103,8 @@
   (string-append (product-header)
     "You are a synthetic respondent. React in the voice of the person below.\n\n"
     "PERSONA:\n" (persona-summary persona) "\n---\n"
-    (field variant "scenario") "\n"
-    (field variant "lead") "\n\n"
+    (:scenario variant) "\n"
+    (:lead variant) "\n\n"
     "Answer in three short parts, labelled (a) (b) (c):\n"
     "(a) What does this tell you about the product?\n"
     "(b) Would you keep reading, click, or bounce? Pick one and say why.\n"
@@ -115,7 +115,7 @@
          (list (infer/chat/system "Stay in persona. No preamble. Be terse.")
                (infer/chat/user   (react-user persona variant)))
          #f
-         (string-append (field variant "id") "/" (field persona "id") "/" (number->string replay-idx)))))
+         (string-append (:id variant) "/" (:id persona) "/" (number->string replay-idx)))))
 
 (define (cell-reactions persona variant)
   (map (lambda (i) (react-cell persona variant i)) (range config/min-replays)))
@@ -126,7 +126,7 @@
   (string-append (product-header)
     "Classify how this persona responded to this hero variant.\n\n"
     "PERSONA:\n" (persona-line persona) "\n\n"
-    "HERO VARIANT (id=" (field variant "id") "):\n" (field variant "lead") "\n\n"
+    "HERO VARIANT (id=" (:id variant) "):\n" (:lead variant) "\n\n"
     "REACTIONS (" (number->string (length reactions)) " replays):\n"
     (apply string-append
       (map (lambda (i r) (string-append "Replay " (number->string (+ i 1)) ": " r "\n\n"))
@@ -140,7 +140,7 @@
            (list (infer/chat/system "Return only JSON.")
                  (infer/chat/user   (classify-user persona variant reactions)))
            ClassificationSchema
-           (string-append (field variant "id") "/" (field persona "id"))))))
+           (string-append (:id variant) "/" (:id persona))))))
 
 ;; ── Stage 3: boundary (consumes all classifications for a variant) ───
 ;;
@@ -150,12 +150,12 @@
 (define (boundary-user variant cls)
   (string-append (product-header)
     "Map the audience boundary from classified reactions.\n\n"
-    "Hero variant (id=" (field variant "id") "):\n" (field variant "lead") "\n\n"
+    "Hero variant (id=" (:id variant) "):\n" (:lead variant) "\n\n"
     "Classified personas (" (number->string (length cls)) "):\n"
     (apply string-append
       (map (lambda (entry)
-             (string-append (field (state-of (car entry)) "name")
-                            " → " (field (car (cdr entry)) "bucket") "\n"))
+             (string-append (:name (state-of (car entry)))
+                            " → " (:bucket (car (cdr entry))) "\n"))
            cls))
     "\nIdentify 3-5 structural axes separating in-scope (A/B/C) from out-of-scope (D), "
     "and the boundary in one or two sentences."))
@@ -168,15 +168,15 @@
              (list (infer/chat/system "Return only JSON.")
                    (infer/chat/user   (boundary-user variant cls)))
              BoundarySchema
-             (string-append (field variant "id") "/boundary"))))))
+             (string-append (:id variant) "/boundary"))))))
 
 ;; ── Stage 4: gap analysis ────────────────────────────────────────────
 
 (define (gap-user variant boundary)
   (string-append (product-header)
     "Analyse gaps in audience coverage for boundary clarity.\n\n"
-    "Variant " (field variant "id") " boundary: "
-    (field boundary "boundaryDescription") "\n\n"
+    "Variant " (:id variant) " boundary: "
+    (:boundaryDescription boundary) "\n\n"
     "Identify 2-4 largest under-sampled regions near the A↔B and B↔C transitions. "
     "For each: region, rationale, target persona count (3-8), priority 0..1."))
 
@@ -188,7 +188,7 @@
              (list (infer/chat/system "Return only JSON.")
                    (infer/chat/user   (gap-user variant boundary)))
              GapSchema
-             (string-append (field variant "id") "/gap"))))))
+             (string-append (:id variant) "/gap"))))))
 
 ;; ── Pipeline ─────────────────────────────────────────────────────────
 
@@ -198,7 +198,7 @@
 (define persona-list (values-of personas))
 
 (map (lambda (v)
-       (list (field v "id")
+       (list (:id v)
              (variant-boundary v persona-list)
              (variant-gap      v persona-list)))
      variants)

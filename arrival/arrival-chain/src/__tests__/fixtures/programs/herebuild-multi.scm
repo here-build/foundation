@@ -16,7 +16,7 @@
 (require "config.scm")
 
 (define (state-of profile)
-  (field (last (field profile "versions")) "state"))
+  (:state (last (:versions profile))))
 
 (define ReactionSchema
   (s/object
@@ -49,7 +49,7 @@
   (string-append
     "PERSONA:\n" (persona-summary persona) "\n---\n"
     "You just landed on the homepage of a tool called here.build. The hero text:\n\n"
-    "\"" (field variant "lead") "\"\n\n"
+    "\"" (:lead variant) "\"\n\n"
     "Answer in three short parts:\n"
     "(a) What does this tell you about what the product does and what it trades?\n"
     "(b) Would you keep reading, click, or bounce? Pick one and say why.\n"
@@ -60,14 +60,14 @@
          (list (infer/chat/system config/system-prompt)
                (infer/chat/user   (react-user persona variant)))
          ReactionSchema
-         (string-append (field variant "id") "/" (field persona "id") "/" (number->string replay-idx)))))
+         (string-append (:id variant) "/" (:id persona) "/" (number->string replay-idx)))))
 
 (define (cell-row persona variant)
-  (list (field persona "id")
+  (list (:id persona)
         (map (lambda (i) (react-cell persona variant i)) (range config/replays))))
 
 (define (variant-row variant personas)
-  (list (field variant "id")
+  (list (:id variant)
         (map (lambda (p) (cell-row p variant)) personas)))
 
 (define personas (require "personas.json"))

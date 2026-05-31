@@ -46,7 +46,7 @@
 (define reaction-prompt-of-persona (require "reaction-prompt-of-persona.hbs"))
 
 (define (state-of persona)
-  (field (last (field persona "versions")) "state"))
+  (:state (last (:versions persona))))
 
 ;; ── One reaction cell ────────────────────────────────────────────────
 ;;
@@ -61,10 +61,10 @@
                    "summary" (summary-of-persona (state-of persona))
                    "lead"    config/hero-lead)))
          ReactionSchema
-         (string-append config/hero-id "/" (field persona "id") "/" (number->string replay-idx)))))
+         (string-append config/hero-id "/" (:id persona) "/" (number->string replay-idx)))))
 
 (define (row-of-persona persona)
-  (list (field persona "id")
+  (list (:id persona)
         (map (lambda (i) (reaction-of-persona-replay persona i)) (range config/replays))))
 
 ;; ── Pipeline ─────────────────────────────────────────────────────────

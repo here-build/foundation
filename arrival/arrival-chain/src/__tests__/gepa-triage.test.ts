@@ -30,29 +30,29 @@ const PROGRAM_PREAMBLE = `
                   (list (infer/chat/system "stub-triage-system")
                         (infer/chat/user
                           (string-append "TRIAGE|" persona "|"
-                                         (field reaction "verdict") "|"
-                                         (field reaction "concern") "|" tagline)))
+                                         (:verdict reaction) "|"
+                                         (:concern reaction) "|" tagline)))
                   TriageSchema
                   (string-append "triage/" tagline "/" persona)))))
     (dict "persona"  persona
           "reaction" reaction
-          "mismatch" (field v "mismatch")
-          "reason"   (field v "reason"))))
+          "mismatch" (:mismatch v)
+          "reason"   (:reason v))))
 
 ;; Triage runs only over bouncers — clickers are kept as-is, not analysed.
 ;; Fold-with-conditional-cons: no '()-as-sentinel inside the result list.
 (define (triage-bouncers personas reactions tagline)
   (reduce (lambda (pr acc)
             (let ((p (car pr)) (r (cadr pr)))
-              (if (bouncing? (field r "verdict"))
+              (if (bouncing? (:verdict r))
                   (cons (triage-one p r tagline) acc) acc)))
           '() (map list personas reactions)))
 
 (define (mismatched-of triaged)
-  (filter (lambda (t) (equal? (field t "mismatch") #t)) triaged))
+  (filter (lambda (t) (equal? (:mismatch t) #t)) triaged))
 
 (define (unsatisfied-of triaged)
-  (filter (lambda (t) (equal? (field t "mismatch") #f)) triaged))
+  (filter (lambda (t) (equal? (:mismatch t) #f)) triaged))
 `;
 
 /** Stub: triage verdicts keyed by persona-id (proxy for LM judgement). */

@@ -37,7 +37,7 @@
 ;; ── Prompt construction ──────────────────────────────────────────────
 
 (define (summary-line p)
-  (string-append "- " (field p "name") " (" (field p "id") "): " (field p "oneLine")))
+  (string-append "- " (:name p) " (" (:id p) "): " (:oneLine p)))
 
 (define (existing-block prior)
   (apply string-append
@@ -66,7 +66,7 @@
                              (infer/chat/user   (batch-user-prompt start count prior)))
                        BatchSchema
                        (number->string start)))))   ;; cache-key by start index
-    (field result "personas")))
+    (:personas result)))
 
 ;; ── The accumulating loop ────────────────────────────────────────────
 ;;

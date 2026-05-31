@@ -65,7 +65,7 @@
 (define (bouncing? v) (equal? v "bounce"))
 
 (define (state-of persona)
-  (field (last (field persona "versions")) "state"))
+  (:state (last (:versions persona))))
 
 ;; ── schemas ──────────────────────────────────────────────────────────
 (define ReactionSchema
@@ -105,7 +105,7 @@
                    "summary" (summary-of-persona (state-of persona))
                    "tagline" tagline)))
          ReactionSchema
-         (string-append tagline "/" (field persona "id")))))
+         (string-append tagline "/" (:id persona)))))
 
 (define (reactions-of tagline personas)
   (map (lambda (p) (reaction-of-persona-tagline p tagline)) personas))
@@ -113,7 +113,7 @@
 (define (click-rate reactions)
   (let ((n (length reactions)))
     (if (= n 0) 0
-        (/ (count-if (lambda (r) (clicking? (field r "verdict"))) reactions) n))))
+        (/ (count-if (lambda (r) (clicking? (:verdict r))) reactions) n))))
 
 ;; ── plateau detection: 3-frame rolling window ───────────────────────
 ;; Compare avg of latest 3 entries against avg of the 3 before that.
@@ -130,8 +130,8 @@
 ;; hints (from a parent worklist task) are unioned in.
 (define (clickers-of personas reactions)
   (reduce (lambda (pr acc)
-            (if (clicking? (field (cadr pr) "verdict"))
-                (cons (field (car pr) "id") acc) acc))
+            (if (clicking? (:verdict (cadr pr)))
+                (cons (:id (car pr)) acc) acc))
           '() (map list personas reactions)))
 
 (define (frontier-of history personas inherited)
@@ -146,9 +146,9 @@
 
 ;; ── reflection ───────────────────────────────────────────────────────
 (define (reactions-summary reactions personas)
-  (map (lambda (p r) (dict "persona" (field p "id")
-                           "verdict" (field r "verdict")
-                           "concern" (field r "concern")))
+  (map (lambda (p r) (dict "persona" (:id p)
+                           "verdict" (:verdict r)
+                           "concern" (:concern r)))
        personas reactions))
 
 (define (hints-summary hints)
@@ -156,7 +156,7 @@
        hints))
 
 (define (next-tagline current reactions personas hints sys)
-  (field (car (infer/chat "high"
+  (:next (car (infer/chat "high"
                 (list (infer/chat/system sys)
                       (infer/chat/user
                         (reflection-prompt
@@ -164,8 +164,7 @@
                           "reactions" (reactions-summary reactions personas)
                           "hints"     (hints-summary hints))))
                 ProposalSchema
-                (string-append "reflect/" sys "/" current "/" (hints-signature hints))))
-         "next"))
+                (string-append "reflect/" sys "/" current "/" (hints-signature hints))))))
 
 ;; ── inner GEPA loop ──────────────────────────────────────────────────
 (define (best-of history) (max-by entry-score history))
@@ -216,10 +215,10 @@
 
 (define (multi-pov-run initial personas hints)
   (let ((runs (map (lambda (pov)
-                     (let ((entry (gepa-until-plateau initial personas hints (field pov "system"))))
-                       (dict "pov" (field pov "name") "entry" entry)))
+                     (let ((entry (gepa-until-plateau initial personas hints (:system pov))))
+                       (dict "pov" (:name pov) "entry" entry)))
                    (active-povs))))
-    (max-by (lambda (r) (cadr (field r "entry"))) runs)))
+    (max-by (lambda (r) (cadr (:entry r))) runs)))
 
 ;; ── triage ───────────────────────────────────────────────────────────
 (define (triage-one persona reaction tagline)
@@ -229,19 +228,19 @@
                           (triage-prompt
                             "summary" (summary-of-persona (state-of persona))
                             "tagline" tagline
-                            "verdict" (field reaction "verdict")
-                            "concern" (field reaction "concern"))))
+                            "verdict" (:verdict reaction)
+                            "concern" (:concern reaction))))
                   TriageSchema
-                  (string-append "triage/" tagline "/" (field persona "id"))))))
+                  (string-append "triage/" tagline "/" (:id persona))))))
     (dict "persona"  persona
           "reaction" reaction
-          "mismatch" (field v "mismatch")
-          "reason"   (field v "reason"))))
+          "mismatch" (:mismatch v)
+          "reason"   (:reason v))))
 
 (define (triage-bouncers personas reactions tagline)
   (reduce (lambda (pr acc)
             (let ((p (car pr)) (r (cadr pr)))
-              (if (bouncing? (field r "verdict"))
+              (if (bouncing? (:verdict r))
                   (cons (triage-one p r tagline) acc) acc)))
           '() (map list personas reactions)))
 
@@ -250,35 +249,35 @@
 ;; record, and (only if recursing) construct the child task. drive then
 ;; reads as: score → build → route.
 (define (score-task task)
-  (let* ((personas    (field task "personas"))
-         (initial     (field task "initial"))
-         (hints       (field task "hints"))
+  (let* ((personas    (:personas task))
+         (initial     (:initial task))
+         (hints       (:hints task))
          (run         (multi-pov-run initial personas hints))
-         (winning-pov (field run "pov"))
-         (best-entry  (field run "entry"))
+         (winning-pov (:pov run))
+         (best-entry  (:entry run))
          (best-tag    (car best-entry))
          (reactions   (caddr best-entry))
          (br          (- 1 (cadr best-entry)))
          (triaged     (if (>= br config/bounce-threshold)
                           (triage-bouncers personas reactions best-tag)
                           '()))
-         (unsatisfied (filter (lambda (t) (equal? (field t "mismatch") #f)) triaged)))
+         (unsatisfied (filter (lambda (t) (equal? (:mismatch t) #f)) triaged)))
     (list best-entry br triaged unsatisfied winning-pov)))
 
 (define (make-node node-id task best-entry br triaged winning-pov)
   (dict "id"          node-id
-        "parent-id"   (field task "parent-id")
+        "parent-id"   (:parent-id task)
         "tagline"     (car best-entry)
-        "personas"    (map (lambda (p) (field p "id")) (field task "personas"))
+        "personas"    (map (lambda (p) (:id p)) (:personas task))
         "reactions"   (caddr best-entry)
         "bounce-rate" br
         "triaged"     triaged
         "pov"         winning-pov))
 
 (define (child-task-of parent-task parent-best-entry parent-node-id unsatisfied)
-  (let ((personas (field parent-task "personas"))
-        (hints    (field parent-task "hints")))
-    (dict "personas"  (map (lambda (t) (field t "persona")) unsatisfied)
+  (let ((personas (:personas parent-task))
+        (hints    (:hints parent-task)))
+    (dict "personas"  (map (lambda (t) (:persona t)) unsatisfied)
           "initial"   (car parent-best-entry)
           "parent-id" parent-node-id
           "hints"     (frontier-of (list parent-best-entry) personas hints))))
@@ -322,12 +321,11 @@
 ;; Each compound run reuses multi-pov-run, so multi-POV diversity layers
 ;; on for free.
 (define (merge-initial a b)
-  (field (car (infer/chat "high"
+  (:next (car (infer/chat "high"
                 (list (infer/chat/system REFLECTION-SYSTEM-FOR-MERGE)
                       (infer/chat/user (merge-prompt "a" a "b" b)))
                 ProposalSchema
-                (string-append "merge-init/" a "|" b)))
-         "next"))
+                (string-append "merge-init/" a "|" b)))))
 
 (define (compound-of-results results all-personas)
   (cond
@@ -335,8 +333,8 @@
     (else
      (let* ((root      (car results))
             (lastnode  (car (reverse results)))
-            (a         (field root "tagline"))
-            (b         (field lastnode "tagline"))
+            (a         (:tagline root))
+            (b         (:tagline lastnode))
             (forms (list
                      (dict "format" "concat"
                            "initial" (string-append a ". " b "."))
@@ -345,19 +343,19 @@
                      (dict "format" "merge"
                            "initial" (merge-initial a b))))
             (runs (map (lambda (f)
-                         (let ((run (multi-pov-run (field f "initial") all-personas '())))
-                           (dict "format"  (field f "format")
+                         (let ((run (multi-pov-run (:initial f) all-personas '())))
+                           (dict "format"  (:format f)
                                  "sources" (list a b)
-                                 "pov"     (field run "pov")
-                                 "entry"   (field run "entry"))))
+                                 "pov"     (:pov run)
+                                 "entry"   (:entry run))))
                        forms))
-            (winner (max-by (lambda (r) (cadr (field r "entry"))) runs)))
-       (dict "format"    (field winner "format")
-             "tagline"   (car (field winner "entry"))
-             "score"     (cadr (field winner "entry"))
-             "reactions" (caddr (field winner "entry"))
-             "pov"       (field winner "pov")
-             "sources"   (field winner "sources"))))))
+            (winner (max-by (lambda (r) (cadr (:entry r))) runs)))
+       (dict "format"    (:format winner)
+             "tagline"   (car (:entry winner))
+             "score"     (cadr (:entry winner))
+             "reactions" (caddr (:entry winner))
+             "pov"       (:pov winner)
+             "sources"   (:sources winner))))))
 
 ;; ── bucketize: per-persona final classification ─────────────────────
 ;;
@@ -371,15 +369,15 @@
 ;; in a child branch, treat them as clicking — the click is positive
 ;; evidence that overrides an earlier categorical-rejection guess.
 (define (reaction-of-persona-in-node pid node)
-  (let loop ((ps (field node "personas")) (rs (field node "reactions")))
+  (let loop ((ps (:personas node)) (rs (:reactions node)))
     (cond ((null? ps) #f)
           ((equal? (car ps) pid) (car rs))
           (else (loop (cdr ps) (cdr rs))))))
 
 (define (triage-of-persona-in-node pid node)
-  (let loop ((ts (field node "triaged")))
+  (let loop ((ts (:triaged node)))
     (cond ((null? ts) #f)
-          ((equal? (field (field (car ts) "persona") "id") pid) (car ts))
+          ((equal? (:id (:persona (car ts))) pid) (car ts))
           (else (loop (cdr ts))))))
 
 (define (persona-result pid results)
@@ -397,33 +395,33 @@
               (reaction (reaction-of-persona-in-node pid node))
               (triage   (triage-of-persona-in-node pid node))
               (click+
-                (if (and reaction (clicking? (field reaction "verdict")))
-                    (list (field node "tagline") reaction)
+                (if (and reaction (clicking? (:verdict reaction)))
+                    (list (:tagline node) reaction)
                     click))
               (mismatch+
-                (if (and triage (equal? (field triage "mismatch") #t))
-                    (field triage "reason")
+                (if (and triage (equal? (:mismatch triage) #t))
+                    (:reason triage)
                     mismatch))
               (last-bounce+
-                (if (and reaction (bouncing? (field reaction "verdict")))
-                    (field reaction "concern")
+                (if (and reaction (bouncing? (:verdict reaction)))
+                    (:concern reaction)
                     last-bounce)))
          (walk (cdr rs) click+ mismatch+ last-bounce+))))))
 
 (define (bucketize results personas)
   (map (lambda (p)
-         (let* ((pid (field p "id"))
+         (let* ((pid (:id p))
                 (res (persona-result pid results)))
            (dict "id"       pid
-                 "bucket"   (field res "bucket")
-                 "tagline"  (field res "tagline")
-                 "reason"   (field res "reason")
-                 "reaction" (field res "reaction"))))
+                 "bucket"   (:bucket res)
+                 "tagline"  (:tagline res)
+                 "reason"   (:reason res)
+                 "reaction" (:reaction res))))
        personas))
 
 ;; ── consolidation: distil bucket reasons into a structured summary ──
 (define (reasons-for-template entries)
-  (map (lambda (e) (dict "persona" (field e "id") "reason" (field e "reason")))
+  (map (lambda (e) (dict "persona" (:id e) "reason" (:reason e)))
        entries))
 
 (define (consolidate-reasons label entries)
@@ -438,7 +436,7 @@
                       "reasons" (reasons-for-template entries))))
             SummarySchema
             (string-append "consolidate/" label "/"
-              (apply string-append (map (lambda (e) (field e "id")) entries))))))))
+              (apply string-append (map (lambda (e) (:id e)) entries))))))))
 
 ;; ── entry ────────────────────────────────────────────────────────────
 (define personas (require "personas.json"))
@@ -449,9 +447,9 @@
 (define buckets          (bucketize results initial-personas))
 
 (define audience-miss-entries
-  (filter (lambda (b) (equal? (field b "bucket") "audience-miss")) buckets))
+  (filter (lambda (b) (equal? (:bucket b) "audience-miss")) buckets))
 (define unreachable-entries
-  (filter (lambda (b) (equal? (field b "bucket") "unreachable")) buckets))
+  (filter (lambda (b) (equal? (:bucket b) "unreachable")) buckets))
 
 (dict
   "tree"     results
