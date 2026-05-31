@@ -30,6 +30,15 @@ import type { QuotedPromise } from "./QuotedPromise.js";
 import invariant from "tiny-invariant";
 import { fromJS, isSchemeValue, NOT_FOUND, SandboxViolationError, sandboxedAccess, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
 
+/**
+ * Brand on a keyword-accessor pluck function carrying its bare field name
+ * (`:tagline` → "tagline"). Lets consumers detect a keyword key EXPLICITLY via
+ * this symbol instead of sniffing valueOf/string shape. Registered (Symbol.for)
+ * so it matches across the package boundary — arrival-chain's `dict` reads the
+ * same key (project.ts).
+ */
+export const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
+
 // -------------------------------------------------------------------------
 // :: Runtime dependencies - deferred loading to break circular dependency
 // :: These functions are only called at runtime, never during module init.
@@ -449,6 +458,9 @@ export class Environment {
         },
         {
           valueOf: () => symbol.__name__,
+          // Explicit brand: the bare field name, for consumers like `dict` that
+          // need to use a keyword as a key (not just call it as an accessor).
+          [KEYWORD_ACCESSOR_FIELD]: key,
         },
       );
       return keyPluck as EnvironmentValue;

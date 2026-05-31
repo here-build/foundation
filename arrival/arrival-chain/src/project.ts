@@ -25,17 +25,21 @@ import {
 import { analyzeTemplate, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "./trace.js";
 
+// The brand arrival-scheme tags keyword-accessor pluck functions with (see
+// Environment.ts). Read via the same registered symbol so it matches across the
+// package boundary — an explicit check, not a valueOf/string-shape heuristic.
+const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
+
 /**
- * Resolve a `dict` key. A keyword accessor (e.g. `:tagline`) evaluates to a
- * pluck function whose `valueOf()` is the keyword name (":tagline"); recover the
- * bare field name so `(dict :tagline v)` is symmetric with `(:tagline obj)`
- * access (and templates `{{tagline}}` still find it). Plain string keys pass
- * through unchanged.
+ * Resolve a `dict` key. A keyword key (e.g. `:tagline`) evaluates to a branded
+ * pluck function carrying its bare field name; use that so `(dict :tagline v)`
+ * is symmetric with `(:tagline obj)` access (and templates `{{tagline}}` still
+ * resolve). Plain string keys pass through unchanged.
  */
 function dictKey(k: unknown): string {
   if (typeof k === "function") {
-    const name = String((k as { valueOf(): unknown }).valueOf());
-    if (name.startsWith(":")) return name.slice(1);
+    const field = (k as Record<symbol, unknown>)[KEYWORD_ACCESSOR_FIELD];
+    if (typeof field === "string") return field;
   }
   return String(k);
 }
