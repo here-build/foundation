@@ -13,10 +13,18 @@ import { runPipeline } from "../runner.js";
 import { singletonRouter } from "../registry.js";
 import { configScm } from "./fixtures/config-scm.js";
 
-const PROGRAM = readFileSync(
-  path.resolve(__dirname, "fixtures/programs/generate-personas.scm"),
-  "utf-8",
-);
+const fixture = (name: string) =>
+  readFileSync(path.resolve(__dirname, "fixtures/programs", name), "utf-8");
+
+const PROGRAM = fixture("generate-personas.scm");
+
+// generate-personas.scm is the latest spec: the batch stage is a .prompt (model +
+// Picoschema output + the inlined generation system prompt) and string-concat
+// comes from the _util.scm stdlib. Ship both alongside main.scm.
+const DEPS = {
+  "_util.scm": fixture("_util.scm"),
+  "generate-personas.prompt": fixture("generate-personas.prompt"),
+};
 
 /**
  * Stub that returns `count` synthetic personas per batch, named so we
@@ -54,10 +62,11 @@ describe("generate-personas.scm — accumulating batch generation", () => {
     const backend = batchStub();
     const result = await runPipeline({
       files: {
+        ...DEPS,
         "config.scm": configScm({
           "total-count": 6,
           "batch-size":  2,
-          "system-prompt": "test-sys",
+          "product-context": "test product",
         }),
         "main.scm": PROGRAM,
       },
@@ -93,7 +102,8 @@ describe("generate-personas.scm — accumulating batch generation", () => {
     const b1 = batchStub();
     await runPipeline({
       files: {
-        "config.scm": configScm({ "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" }),
+        ...DEPS,
+        "config.scm": configScm({ "total-count": 4, "batch-size": 2, "product-context": "test product" }),
         "main.scm": PROGRAM,
       },
       entry: "main.scm",
@@ -108,7 +118,8 @@ describe("generate-personas.scm — accumulating batch generation", () => {
     const b2 = batchStub();
     await runPipeline({
       files: {
-        "config.scm": configScm({ "total-count": 4, "batch-size": 2, "system-prompt": "test-sys" }),
+        ...DEPS,
+        "config.scm": configScm({ "total-count": 4, "batch-size": 2, "product-context": "test product" }),
         "main.scm": PROGRAM,
       },
       entry: "main.scm",

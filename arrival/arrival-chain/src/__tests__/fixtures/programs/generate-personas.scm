@@ -10,71 +10,44 @@
 ;;   config.scm:
 ;;     config/total-count     N personas total (e.g. 100)
 ;;     config/batch-size      per batch (e.g. 20)
-;;     config/product-context prose used in the system prompt
-;;     config/system-prompt   the full system prompt text (lives in config
-;;                            so it can be tuned without editing the .scm)
+;;     config/product-context prose threaded into the prompt as {{productContext}}
+;;
+;; The generation system prompt is inlined in generate-personas.prompt — it's
+;; stage-specific (the distinct-niche coverage axes), not a tunable shared knob.
 
 (require "config.scm")
+(require "_util.scm")   ;; string-concat + suite helpers
 
-;; ── Schema ───────────────────────────────────────────────────────────
-
-(define PersonaSchema
-  (s/object
-    (s/field/string "id"          "p<N> identifier")
-    (s/field/string "name"        "first name only")
-    (s/field/string "oneLine"     "one-sentence summary: 'X at Y, bottlenecked on Z'")
-    (s/field/string "occupation")
-    (s/field/array  "pains"             (s/array "string"))
-    (s/field/array  "goals"             (s/array "string"))
-    (s/field/array  "jobsToBeDone"      (s/array "string"))
-    (s/field/array  "currentToolStack"  (s/array "string"))
-    (s/field/array  "dealbreakers"      (s/array "string"))))
-
-(define BatchSchema (s/object (s/field/array "personas" (s/array PersonaSchema))))
-
-;; ── Field accessor ───────────────────────────────────────────────────
-
-;; ── Prompt construction ──────────────────────────────────────────────
+;; ── Prompt (.prompt = full inference unit) ───────────────────────────
+;;
+;; generate-personas.prompt carries the tier, the batch output schema
+;; (Picoschema), and the system + user body. The generation system prompt is
+;; inlined there; product context flows in as {{productContext}}. summary-line
+;; stays here — it builds the prior-personas block ({{priorBlock}}) the prompt
+;; embeds; the {{#if priorBlock}} branch picks first-batch vs subsequent-batch
+;; wording.
 
 (define (summary-line p)
   (string-append "- " (:name p) " (" (:id p) "): " (:oneLine p)))
 
-(define (existing-block prior)
-  (apply string-append
-    (map (lambda (p) (string-append (summary-line p) "\n")) prior)))
-
-(define (batch-user-prompt start count prior)
-  (if (null? prior)
-    (string-append
-      "Produce " (number->string count) " personas with ids p"
-      (number->string start) "..p"
-      (number->string (+ start (- count 1))) ". Output the JSON object.")
-    (string-append
-      "Already generated (" (number->string (length prior))
-      " personas, do NOT duplicate their niches):\n"
-      (existing-block prior)
-      "\nProduce " (number->string count) " NEW personas with ids p"
-      (number->string start) "..p"
-      (number->string (+ start (- count 1)))
-      ", occupying niches not yet covered. Output the JSON object.")))
+(define generate (require "generate-personas.prompt"))
 
 ;; ── One batch ────────────────────────────────────────────────────────
 
 (define (generate-batch start count prior)
-  (let ((result (car (infer/chat "high"
-                       (list (infer/chat/system config/system-prompt)
-                             (infer/chat/user   (batch-user-prompt start count prior)))
-                       BatchSchema
-                       (number->string start)))))   ;; cache-key by start index
-    (:personas result)))
+  (:personas (generate (number->string start)            ;; cache-key by start index
+      "productContext" config/product-context
+      "priorBlock"   (string-concat "\n" (map summary-line prior))
+      "priorCount"   (number->string (length prior))
+      "count"        (number->string count)
+      "start"        (number->string start)
+      "end"          (number->string (+ start (- count 1))))))
 
 ;; ── The accumulating loop ────────────────────────────────────────────
 ;;
 ;; K batches; each new batch sees ALL prior personas in its prompt.
 ;; The reverse-then-cons trick keeps the accumulator forward-ordered
 ;; without ever building it twice.
-
-(define (min-int a b) (if (< a b) a b))
 
 (define (batch-counts)
   ;; Build [config/batch-size, config/batch-size, ..., remainder].

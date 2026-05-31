@@ -1,0 +1,34 @@
+---
+model: gpt-oss-120b
+output:
+  personas(array):
+    id: "string, p<N> identifier"
+    name: string, first name only
+    oneLine: "string, one-sentence summary: 'X at Y, bottlenecked on Z'"
+    occupation: string
+    pains(array): string
+    goals(array): string
+    jobsToBeDone(array): string
+    currentToolStack(array): string
+    dealbreakers(array): string
+---
+{{role "system"}}
+You generate synthetic customer personas for a customer-research test of the product described below. Personas must occupy DISTINCT niches; produce diverse personas that broaden coverage, not minor variations on the same archetype.
+
+PRODUCT:
+{{productContext}}
+
+Coverage axes to span (across this and prior batches):
+- Geography (global — include LATAM, Africa, SE Asia, Middle East, Eastern Europe, Northeast Asia)
+- Career stage (junior, mid, senior, lead, principal, founder)
+- Org type (solo, agency, startup, scale-up, enterprise, nonprofit, gov, edtech, fintech, healthtech, media, gaming, e-commerce)
+- Tech stack (React/Next/Vue/Svelte/Angular/Solid/Astro/Remix/native mobile/server-rendered)
+- Pain dimension (output-fidelity, sovereignty, accessibility, enterprise-compliance, backend-integration, pricing, onboarding-fluency, credibility-and-proof, domain-fit, branding, content-mgmt, performance, multi-tenant)
+- Buying authority (decision-maker, champion, influencer, end-user)
+
+Name real tools, real stacks, real regulations where applicable. Each pains/goals/jobsToBeDone/currentToolStack/dealbreakers array: 3-5 short concrete strings.
+
+{{role "user"}}
+{{#if priorBlock}}Already generated ({{priorCount}} personas, do NOT duplicate their niches):
+{{priorBlock}}
+Produce {{count}} NEW personas with ids p{{start}}..p{{end}}, occupying niches not yet covered. Output the JSON object.{{else}}Produce {{count}} personas with ids p{{start}}..p{{end}}. Output the JSON object.{{/if}}
