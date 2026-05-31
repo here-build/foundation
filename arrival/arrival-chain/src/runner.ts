@@ -22,6 +22,9 @@ export interface RunPipelineOptions {
   router: ModelRouter;
   /** Optional abort signal to stop running workers + program. */
   signal?: AbortSignal;
+  /** Optional wall-clock budget (ms) for program evaluation. Composes with
+   *  `signal` (first to fire wins); cut at the evaluator's TICK boundary. */
+  budgetMs?: number;
   /** If set, also publish both Project and InferenceCache docs over y-websocket. */
   publish?: PublishOptions;
 }
@@ -83,7 +86,7 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<unknown> {
   const entryFile = project.files.get(opts.entry);
   if (!entryFile) throw new Error(`runPipeline: entry "${opts.entry}" is not in files`);
   try {
-    return await entryFile.run();
+    return await entryFile.run({ signal, budgetMs: opts.budgetMs });
   } finally {
     if (ownAc) ownAc.abort();
     await draining;

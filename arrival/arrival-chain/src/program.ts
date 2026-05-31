@@ -3,7 +3,7 @@ import { PlexusModel, syncing } from "@here.build/plexus";
 import invariant from "tiny-invariant";
 
 import { Draft } from "./draft.js";
-import type { Project } from "./project.js";
+import type { ExecBudget, Project } from "./project.js";
 import type { Run } from "./run.js";
 
 /**
@@ -16,12 +16,12 @@ export class ProgramVersion extends PlexusModel<Program> {
   @syncing
   accessor source: string = "";
 
-  async run(): Promise<unknown> {
+  async run(opts: ExecBudget = {}): Promise<unknown> {
     const program = this.parent;
     invariant(program, "ProgramVersion: not attached to a Program");
     const project = program.parent;
     invariant(project, "Program: not attached to a Project");
-    return project.run(this.source);
+    return project.run(this.source, opts);
   }
 }
 
@@ -50,9 +50,9 @@ export class Program extends PlexusModel<Project> {
     return version;
   }
 
-  async run(): Promise<unknown> {
+  async run(opts: ExecBudget = {}): Promise<unknown> {
     const latest = this.versions.at(-1);
     invariant(latest, "Program has no versions");
-    return latest.run();
+    return latest.run(opts);
   }
 }

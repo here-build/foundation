@@ -38,10 +38,38 @@ const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-ac
  */
 function dictKey(k: unknown): string {
   if (typeof k === "function") {
-    const field = (k as Record<symbol, unknown>)[KEYWORD_ACCESSOR_FIELD];
+    const field = (k as unknown as Record<symbol, unknown>)[KEYWORD_ACCESSOR_FIELD];
     if (typeof field === "string") return field;
   }
   return String(k);
+}
+
+/**
+ * Execution circuit-breaker, threaded into `exec`/`execExpr` and checked at the
+ * evaluator's TICK boundary (≈ every 1000 iterations or 5ms). It bounds runaway
+ * recursion AND runaway macro expansion alike (the expander rides the same TICK)
+ * — which is what makes enabling user `syntax-rules` safe: a macro adds no new
+ * threat class beyond the infinite recursion any program could already write,
+ * and the same breaker caps both.
+ *
+ * The two fields are NOT interchangeable:
+ *   budgetMs — a SYNCHRONOUS wall-clock deadline (`performance.now() > deadline`)
+ *              checked at the TICK. Because it needs no event loop, it cuts even a
+ *              pure-CPU runaway (tight loop, expansion bomb) when the loop never
+ *              breathes. THIS is the breaker for runaway CPU. Opt-in: the deadline
+ *              counts IO too, and an LLM-bound program spends most of its
+ *              wall-clock awaiting inference, so there's no sane global default —
+ *              the caller who knows the workload sets it.
+ *   signal   — cooperative cancellation, observed at the TICK abort-check. Lands
+ *              at IO/await boundaries (e.g. between infer calls) and as a
+ *              pre-aborted fast-fail. It does NOT preempt a pure-CPU spin: the
+ *              TICK yield is a microtask (`await Promise.resolve()`), which starves
+ *              the macrotask timer queue, so a timer-based abort can't fire
+ *              mid-spin. For runaway CPU, reach for budgetMs.
+ */
+export interface ExecBudget {
+  signal?: AbortSignal;
+  budgetMs?: number;
 }
 
 // Cache compiled+analyzed templates by source string. Templates are pure
@@ -267,7 +295,7 @@ export class Project extends PlexusModel<null> {
        * tweaks here so chosen tuples short-circuit without hitting the LLM.
        */
       tweaks?: Map<string, string>;
-    } = {},
+    } & ExecBudget = {},
   ): Promise<unknown> {
     const env = sandboxedEnv.inherit("arrival-chain");
 
@@ -406,7 +434,12 @@ export class Project extends PlexusModel<null> {
     if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
     defineImportRosetta({ env, loader });
     defineRequireRosetta({ env, loader, tap: opts.trace, baseDir: opts.dirname ?? "" });
-    const results = await exec(BUILTIN_PREAMBLE + source, { env, tap: opts.trace });
+    const results = await exec(BUILTIN_PREAMBLE + source, {
+      env,
+      tap: opts.trace,
+      signal: opts.signal,
+      budgetMs: opts.budgetMs,
+    });
     let last: unknown = results.at(-1);
     if (isThenable(last)) last = await last;
     return lipsToJs(last, {});
@@ -738,7 +771,7 @@ export class Project extends PlexusModel<null> {
       onInfer?: (tupleKey: string) => void;
       /** Hypothesis-style infer-result overrides keyed by canonical tuple JSON. */
       tweaks?: Map<string, string>;
-    },
+    } & ExecBudget,
   ): Promise<{ userForms: unknown[]; finished: Promise<unknown> }> {
     // Reuse the same rosetta wiring as run() by going through run() for the
     // preamble half, then parsing and tap-evaluating the user body ourselves.
@@ -824,7 +857,7 @@ export class Project extends PlexusModel<null> {
     // explode the live trace — the (require …) call itself still appears as a
     // top-level user form. Provenance for library infers rides the plain run().
     defineRequireRosetta({ env, loader, tap: undefined, baseDir: opts.dirname ?? "" });
-    await exec(BUILTIN_PREAMBLE, { env });
+    await exec(BUILTIN_PREAMBLE, { env, signal: opts.signal, budgetMs: opts.budgetMs });
     // Parse the whole user source — these are the Pair identities the UI renders
     // AND the ones the evaluator taps. A `(require …)` resolves when its form runs.
     const userForms = await parse(source, env);
@@ -834,7 +867,7 @@ export class Project extends PlexusModel<null> {
     const finished = (async () => {
       let last: unknown = undefined;
       for (const form of userForms) {
-        last = await execExpr(form, { env, tap: opts.trace });
+        last = await execExpr(form, { env, tap: opts.trace, signal: opts.signal, budgetMs: opts.budgetMs });
         if (isThenable(last)) last = await last;
       }
       return lipsToJs(last, {});
