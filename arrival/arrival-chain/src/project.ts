@@ -25,6 +25,21 @@ import {
 import { analyzeTemplate, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "./trace.js";
 
+/**
+ * Resolve a `dict` key. A keyword accessor (e.g. `:tagline`) evaluates to a
+ * pluck function whose `valueOf()` is the keyword name (":tagline"); recover the
+ * bare field name so `(dict :tagline v)` is symmetric with `(:tagline obj)`
+ * access (and templates `{{tagline}}` still find it). Plain string keys pass
+ * through unchanged.
+ */
+function dictKey(k: unknown): string {
+  if (typeof k === "function") {
+    const name = String((k as { valueOf(): unknown }).valueOf());
+    if (name.startsWith(":")) return name.slice(1);
+  }
+  return String(k);
+}
+
 // Cache compiled+analyzed templates by source string. Templates are pure
 // functions of their source; safe to share across runs and projects.
 interface CompiledTemplate {
@@ -336,7 +351,7 @@ export class Project extends PlexusModel<null> {
         invariant(args.length % 2 === 0, "dict: needs an even number of args (alternating keys/values)");
         const out: Record<string, unknown> = {};
         for (let i = 0; i < args.length; i += 2) {
-          out[String(args[i])] = args[i + 1];
+          out[dictKey(args[i])] = args[i + 1];
         }
         return out;
       },
@@ -771,7 +786,7 @@ export class Project extends PlexusModel<null> {
       fn: (...args: unknown[]) => {
         invariant(args.length % 2 === 0, "dict: needs an even number of args");
         const out: Record<string, unknown> = {};
-        for (let i = 0; i < args.length; i += 2) out[String(args[i])] = args[i + 1];
+        for (let i = 0; i < args.length; i += 2) out[dictKey(args[i])] = args[i + 1];
         return out;
       },
     });
