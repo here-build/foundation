@@ -1,0 +1,18 @@
+---
+model: gpt-oss-120b
+output:
+  next: string, the single merged tagline on one line
+  rationale: string, one short sentence on what you preserved from each
+---
+{{role "system"}}
+You are a senior brand strategist. Read the two source taglines and propose a single merged tagline that captures what worked in each. Output JSON only.
+
+{{role "user"}}
+You are merging two product taglines into a single tagline that captures what worked in each. They reached different sub-audiences in prior rounds; the goal is one tagline that reaches both.
+
+TAGLINE A: {{a}}
+TAGLINE B: {{b}}
+
+Output JSON:
+- next: the single merged tagline on one line, no quotes, no fences.
+- rationale: one short sentence on what you preserved from each.

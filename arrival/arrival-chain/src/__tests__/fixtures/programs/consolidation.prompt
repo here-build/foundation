@@ -1,0 +1,20 @@
+---
+model: gpt-oss-120b
+output:
+  summary: string, 2-3 sentences naming the core pattern
+  key-points(array): string
+---
+{{role "system"}}
+You distil persona reasoning into a single structured finding. Name the pattern, don't restate the inputs. Be specific. Output JSON only.
+
+{{role "user"}}
+You are summarizing a finding from a customer-discovery loop. You will read the reasons a set of personas gave for {{label}}, and produce a short structured summary describing the common pattern.
+
+REASONS:
+{{#each reasons}}
+- ({{persona}}) {{reason}}
+{{/each}}
+
+Output JSON only:
+- summary: 2-3 sentences naming the core pattern. Specific, not vague.
+- key-points: a list of 2-4 short bullets, each a distinct theme.

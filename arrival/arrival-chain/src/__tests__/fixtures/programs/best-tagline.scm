@@ -16,7 +16,7 @@
 ;;
 ;; Wiring (config-as-code — config.scm ships per run):
 ;;   files:
-;;     personas.json                  baseline personas
+;;     personas.yaml                  baseline personas
 ;;     summary-of-persona.hbs         per-persona prompt fragment
 ;;     tagline-reaction.hbs           per-(persona, tagline) reaction
 ;;     reflection-prompt.hbs          propose next tagline from current + hints
@@ -32,28 +32,15 @@
 ;;     config/pov-count          how many of the typed reflection POVs to run per branch (1..4)
 
 (require "config.scm")
+(require "_util.scm")   ;; string-concat + suite helpers
 
-;; ── system prompts (algorithm-level, not experimental) ──────────────
+;; ── System prompts now live in the .prompt files ────────────────────
 ;;
-;; These define WHAT each LM role does in the pipeline. They're part of
-;; the program, not per-run config — if you change them, you're changing
-;; the algorithm, not running the same algorithm with a different knob.
-;; (Per-run knobs live in env; see header.)
-(define REACTION-SYSTEM
-  "You are a synthetic respondent in a customer-research test. Stay strictly in character — react in the voice of the person described, with their priors, pains, and dealbreakers. Do not soften. Be terse. Output JSON only.")
-
-(define TRIAGE-SYSTEM
-  "You evaluate whether a persona's bounce reflects AUDIENCE MISMATCH (category-level rejection) or LATENT FIT (could be reached with different wording). Your DEFAULT verdict is latent fit. Only set mismatch=true with explicit evidence of category-level rejection — the product class, the underlying tech, or the methodology. Wording complaints are NOT mismatch. Output JSON only.")
-
-(define CONSOLIDATION-SYSTEM
-  "You distil persona reasoning into a single structured finding. Name the pattern, don't restate the inputs. Be specific. Output JSON only.")
-
-;; The reflection LM is invoked PER POV (see POVS below) — each call gets
-;; the POV-typed system prompt, not a single shared one. The only
-;; non-POV reflection call is the one-shot merge in compound-of-results;
-;; it uses Brand Guardian's system as the safe default.
-(define REFLECTION-SYSTEM-FOR-MERGE
-  "You are a senior brand strategist. Read the two source taglines and propose a single merged tagline that captures what worked in each. Output JSON only.")
+;; reaction / triage / merge / consolidation each carry their (constant) system
+;; prompt in their .prompt {{role "system"}} section. Reflection's system is
+;; PER-POV, so reflection.prompt takes it as {{sys}} — and the POV systems are
+;; per-run experiment DATA, so they live in povs.yaml (below), not inline here
+;; and not in a .prompt (they're neither a fixed algorithm role nor code).
 
 ;; ── helpers ──────────────────────────────────────────────────────────
 ;; entry = (tagline score reactions). cadr/caddr live in BUILTIN_PREAMBLE.
@@ -67,45 +54,26 @@
 (define (state-of persona)
   (:state (last (:versions persona))))
 
-;; ── schemas ──────────────────────────────────────────────────────────
-(define ReactionSchema
-  (s/object
-    (s/field/string "verdict" "click | keep-reading | bounce")
-    (s/field/string "concern" "one-sentence note on what drove the verdict")))
-
-(define ProposalSchema
-  (s/object
-    (s/field/string "next"      "the next tagline, single line")
-    (s/field/string "rationale" "one-line why")))
-
-(define TriageSchema
-  (s/object
-    (s/field/boolean "mismatch" "true only with explicit category-rejection evidence")
-    (s/field/string  "reason")))
-
-(define SummarySchema
-  (s/object
-    (s/field/string "summary"    "2-3 sentences naming the core pattern, specific not vague")
-    (s/field/array  "key-points" (s/array "string"))))
-
-;; ── templates as inline-callable lambdas ─────────────────────────────
-(define summary-of-persona     (require "summary-of-persona.hbs"))
-(define reaction-prompt        (require "tagline-reaction.hbs"))
-(define reflection-prompt      (require "reflection-prompt.hbs"))
-(define triage-prompt          (require "triage-prompt.hbs"))
-(define consolidation-prompt   (require "consolidation-prompt.hbs"))
-(define merge-prompt           (require "merge-prompt.hbs"))
+;; ── prompts (.prompt = full inference unit) + the one text fragment ──
+;;
+;; Each .prompt carries its tier + output schema (Picoschema) + system/user
+;; body, so the four s/object schemas and four system constants that used to
+;; sit here are gone. Each binding is a callable: (reflect cache-key "k" v …)
+;; runs the inference and returns the parsed result. summary-of-persona stays
+;; a text fragment, rendered into the user turns.
+(define summary-of-persona (require "summary-of-persona.hbs"))   ;; text fragment
+(define react-to-tagline   (require "tagline-reaction.prompt"))
+(define reflect            (require "reflection.prompt"))
+(define triage             (require "triage.prompt"))
+(define merge-tagline      (require "merge.prompt"))
+(define consolidate        (require "consolidation.prompt"))
 
 ;; ── reactions ────────────────────────────────────────────────────────
 (define (reaction-of-persona-tagline persona tagline)
-  (car (infer/chat "fast"
-         (list (infer/chat/system REACTION-SYSTEM)
-               (infer/chat/user
-                 (reaction-prompt
-                   "summary" (summary-of-persona (state-of persona))
-                   "tagline" tagline)))
-         ReactionSchema
-         (string-append tagline "/" (:id persona)))))
+  (react-to-tagline
+    (string-concat "/" tagline (:id persona))
+    "summary" (summary-of-persona (state-of persona))
+    "tagline" tagline))
 
 (define (reactions-of tagline personas)
   (map (lambda (p) (reaction-of-persona-tagline p tagline)) personas))
@@ -140,8 +108,8 @@
          history)))
 
 (define (hints-signature hints)
-  (apply string-append
-    (map (lambda (h) (string-append (car h) ":" (join "," (cadr h)) ";"))
+  (string-concat ";"
+    (map (lambda (h) (string-append (car h) ":" (join "," (cadr h))))
          hints)))
 
 ;; ── reflection ───────────────────────────────────────────────────────
@@ -156,15 +124,12 @@
        hints))
 
 (define (next-tagline current reactions personas hints sys)
-  (:next (car (infer/chat "high"
-                (list (infer/chat/system sys)
-                      (infer/chat/user
-                        (reflection-prompt
-                          "current"   current
-                          "reactions" (reactions-summary reactions personas)
-                          "hints"     (hints-summary hints))))
-                ProposalSchema
-                (string-append "reflect/" sys "/" current "/" (hints-signature hints))))))
+  (:next (reflect
+      (string-concat "/" "reflect" sys current (hints-signature hints))
+      "sys"       sys
+      "current"   current
+      "reactions" (reactions-summary reactions personas)
+      "hints"     (hints-summary hints))))
 
 ;; ── inner GEPA loop ──────────────────────────────────────────────────
 (define (best-of history) (max-by entry-score history))
@@ -197,21 +162,15 @@
 ;; frontier. Each POV explores a different region of tagline-space; the
 ;; winner reflects which framing landed best for *this* persona pool,
 ;; useful signal beyond just the final tagline.
-(define POVS
-  (list
-    (dict "name"   "Brand Guardian"
-          "system" "You are Brand Guardian — your job is to protect the brand's positioning and voice consistency. Propose taglines that stay true to what the product fundamentally IS. Reject phrasing that drifts toward category-generic or buzzwordy. Output JSON only.")
-    (dict "name"   "Growth Hacker"
-          "system" "You are Growth Hacker — your job is to maximize click-through. Propose taglines that hook fast: specific, concrete, slightly provocative. Vagueness loses. Output JSON only.")
-    (dict "name"   "Product Manager"
-          "system" "You are Product Manager — pain-first framing. Propose taglines that name the specific pain the product solves, not the solution category. Concrete > clever. Output JSON only.")
-    (dict "name"   "Whimsy Injector"
-          "system" "You are Whimsy Injector — anti-bland personality. Propose taglines with a real voice and stance, not corporate default. Output JSON only.")))
+;; The POVs are per-run experiment DATA (a list of { name, system }), not a
+;; fixed algorithm role — so they live in povs.yaml, edited without touching
+;; this file, like personas.yaml. (require) spills `povs`.
+(define povs (require "povs.yaml"))
 
 ;; pov-count selects how many POVs to actually run (1..K). Test rigs
 ;; pin it to 1 to keep call counts predictable; live runs use all K.
 (define (active-povs)
-  (take config/pov-count POVS))
+  (take config/pov-count povs))
 
 (define (multi-pov-run initial personas hints)
   (let ((runs (map (lambda (pov)
@@ -222,16 +181,12 @@
 
 ;; ── triage ───────────────────────────────────────────────────────────
 (define (triage-one persona reaction tagline)
-  (let ((v (car (infer/chat "high"
-                  (list (infer/chat/system TRIAGE-SYSTEM)
-                        (infer/chat/user
-                          (triage-prompt
-                            "summary" (summary-of-persona (state-of persona))
-                            "tagline" tagline
-                            "verdict" (:verdict reaction)
-                            "concern" (:concern reaction))))
-                  TriageSchema
-                  (string-append "triage/" tagline "/" (:id persona))))))
+  (let ((v (triage
+             (string-concat "/" "triage" tagline (:id persona))
+             "summary" (summary-of-persona (state-of persona))
+             "tagline" tagline
+             "verdict" (:verdict reaction)
+             "concern" (:concern reaction))))
     (dict "persona"  persona
           "reaction" reaction
           "mismatch" (:mismatch v)
@@ -321,11 +276,7 @@
 ;; Each compound run reuses multi-pov-run, so multi-POV diversity layers
 ;; on for free.
 (define (merge-initial a b)
-  (:next (car (infer/chat "high"
-                (list (infer/chat/system REFLECTION-SYSTEM-FOR-MERGE)
-                      (infer/chat/user (merge-prompt "a" a "b" b)))
-                ProposalSchema
-                (string-append "merge-init/" a "|" b)))))
+  (:next (merge-tagline (string-append "merge-init/" a "|" b) "a" a "b" b)))
 
 (define (compound-of-results results all-personas)
   (cond
@@ -428,18 +379,14 @@
   (cond
     ((null? entries) (dict "summary" "" "key-points" '()))
     (else
-     (car (infer/chat "high"
-            (list (infer/chat/system CONSOLIDATION-SYSTEM)
-                  (infer/chat/user
-                    (consolidation-prompt
-                      "label"   label
-                      "reasons" (reasons-for-template entries))))
-            SummarySchema
-            (string-append "consolidate/" label "/"
-              (apply string-append (map (lambda (e) (:id e)) entries))))))))
+     (consolidate
+       (string-concat "/" "consolidate" label
+         (string-concat "" (map (lambda (e) (:id e)) entries)))
+       "label"   label
+       "reasons" (reasons-for-template entries)))))
 
 ;; ── entry ────────────────────────────────────────────────────────────
-(define personas (require "personas.json"))
+(define personas (require "personas.yaml"))
 
 (define initial-personas (values-of personas))
 (define results          (optimize-tagline config/initial-tagline initial-personas))

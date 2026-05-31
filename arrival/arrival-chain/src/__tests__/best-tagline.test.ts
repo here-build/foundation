@@ -1,7 +1,7 @@
 /**
  * Integration smoke test for scripts/arrival-chain/programs/best-tagline.scm.
  *
- * Loads the .scm + the four .hbs templates from disk, runs the full
+ * Loads the .scm + its five stage .prompt files and summary .hbs from disk, runs the full
  * optimize-tagline pipeline against a small synthetic persona pool, and
  * verifies the end-to-end shape: a non-empty result tree with parent-id
  * links and per-branch bouncer triage.
@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { stringify as stringifyYaml } from "yaml";
 
 import { ArrivalChain } from "../arrival-chain.js";
 import { ArrivalCache, InferenceCache } from "../cache.js";
@@ -28,14 +29,16 @@ const PROGRAMS_DIR = path.resolve(__dirname, "fixtures/programs");
 const read = (name: string) => readFileSync(path.join(PROGRAMS_DIR, name), "utf-8");
 
 const FILES = {
-  "personas.json": "", // filled per-test
+  "personas.yaml": "", // filled per-test
   "main.scm": read("best-tagline.scm"),
+  "_util.scm": read("_util.scm"),
   "summary-of-persona.hbs": read("summary-of-persona.hbs"),
-  "tagline-reaction.hbs": read("tagline-reaction.hbs"),
-  "reflection-prompt.hbs": read("reflection-prompt.hbs"),
-  "triage-prompt.hbs": read("triage-prompt.hbs"),
-  "consolidation-prompt.hbs": read("consolidation-prompt.hbs"),
-  "merge-prompt.hbs": read("merge-prompt.hbs"),
+  "tagline-reaction.prompt": read("tagline-reaction.prompt"),
+  "reflection.prompt": read("reflection.prompt"),
+  "triage.prompt": read("triage.prompt"),
+  "consolidation.prompt": read("consolidation.prompt"),
+  "merge.prompt": read("merge.prompt"),
+  "povs.yaml": read("povs.yaml"),
 };
 
 const profile = (id: string, name: string) => ({
@@ -102,9 +105,9 @@ describe("best-tagline.scm — integration smoke", () => {
       p2: profile("p2", "Sam"),
       p3: profile("p3", "Ada"),
     };
-    project.addFile("personas.json", JSON.stringify(PERSONAS));
+    project.addFile("personas.yaml", stringifyYaml(PERSONAS));
     for (const [path, content] of Object.entries(FILES)) {
-      if (path !== "personas.json") project.addFile(path, content);
+      if (path !== "personas.yaml") project.addFile(path, content);
     }
 
     // System prompts live in the .scm as constants. Per-run knobs ship as a
@@ -156,9 +159,9 @@ describe("best-tagline.scm — integration smoke", () => {
       p2: profile("p2", "Sam"), // bounces, mismatch
       p3: profile("p3", "Ada"), // bounces, latent fit; clicks on t2
     };
-    project.addFile("personas.json", JSON.stringify(PERSONAS));
+    project.addFile("personas.yaml", stringifyYaml(PERSONAS));
     for (const [path, content] of Object.entries(FILES)) {
-      if (path !== "personas.json") project.addFile(path, content);
+      if (path !== "personas.yaml") project.addFile(path, content);
     }
 
     // System prompts live in the .scm as constants. Per-run knobs ship as a
