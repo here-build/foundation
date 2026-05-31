@@ -101,14 +101,17 @@
                 (cons (:id (car pr)) acc) acc))
           '() (map list personas reactions)))
 
+;; a hint: a tagline + the persona-ids it reached
+(define (make-hint tagline reached) (dict :tagline tagline :reached reached))
+
 (define (frontier-of history personas inherited)
   (append inherited
-    (map (lambda (e) (list (car e) (clickers-of personas (entry-reactions e))))
+    (map (lambda (e) (make-hint (car e) (clickers-of personas (entry-reactions e))))
          history)))
 
 (define (hints-signature hints)
   (string-concat ";"
-    (map (lambda (h) (string-append (car h) ":" (join "," (cadr h))))
+    (map (lambda (h) (string-append (:tagline h) ":" (join "," (:reached h))))
          hints)))
 
 ;; ── reflection ───────────────────────────────────────────────────────
@@ -119,7 +122,7 @@
        personas reactions))
 
 (define (hints-summary hints)
-  (map (lambda (h) (dict "tagline" (car h) "reached" (join ", " (cadr h))))
+  (map (lambda (h) (dict :tagline (:tagline h) :reached (join ", " (:reached h))))
        hints))
 
 (define (next-tagline current reactions personas hints sys)
