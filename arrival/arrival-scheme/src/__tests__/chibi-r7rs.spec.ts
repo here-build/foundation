@@ -509,7 +509,13 @@ function preprocessTestFile(content: string): string {
 
 describe("Chibi R7RS Official Tests", () => {
   beforeAll(async () => {
-    initBridge();
+    // AWAIT initBridge: it returns the bootstrap promise whose `.then` lazily
+    // `import()`s sandbox-env.js (→ ramda). Left un-awaited, that import can
+    // resolve AFTER vitest tears the environment down, surfacing as a flaky
+    // "EnvironmentTeardownError: Cannot load …/ramda … after the environment was
+    // torn down" — an unhandled rejection that taints the exit code (1 error)
+    // without failing any test. Awaiting it settles the import before the suite runs.
+    await initBridge();
     await setupTestFramework();
   });
 
@@ -529,18 +535,29 @@ describe("Chibi R7RS Official Tests", () => {
     let testContent = fs.readFileSync(CHIBI_TESTS_PATH, "utf-8");
     testContent = preprocessTestFile(testContent);
 
-    // Run tests - split into sections and run each separately to continue on errors
+    // Run tests - split into sections and run each separately to continue on errors.
+    //
+    // Per-section progress on stderr (unbuffered, written synchronously so it
+    // survives a hang): an infinite macro expansion inside `await exec` is NOT a
+    // throw, so the try/catch below never fires — the run just wedges. When that
+    // happens the last "→ <section>" with no matching "✓ <section>" pinpoints the
+    // offending section instead of leaving the whole suite an opaque hang. Set
+    // CHIBI_TRACE= to silence once green. (Found the syntax-rules dispatch hang
+    // this way, 2026-05-31.)
+    const trace = process.env.CHIBI_TRACE !== "0";
     const sections = testContent.split(/(?=\(test-begin\s+")/);
     for (const section of sections) {
       if (!section.trim()) continue;
+      const sectionMatch = section.match(/\(test-begin\s+"([^"]+)"\)/);
+      const sectionName = sectionMatch?.[1] ?? "(preamble)";
+      if (trace) process.stderr.write(`[chibi] → ${sectionName}\n`);
       try {
         await exec(section, { env });
       } catch (e) {
         // Record error and continue
-        const sectionMatch = section.match(/\(test-begin\s+"([^"]+)"\)/);
-        const sectionName = sectionMatch?.[1] ?? "unknown";
         console.error(`Error in section "${sectionName}":`, (e as Error).message?.slice(0, 100));
       }
+      if (trace) process.stderr.write(`[chibi] ✓ ${sectionName}\n`);
     }
 
     // Filter results
