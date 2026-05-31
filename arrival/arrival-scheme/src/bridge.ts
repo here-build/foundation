@@ -14,7 +14,7 @@ import { AValue, unionProvenance } from "./AValue.js";
 import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
 import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./LBool.js";
-import { global_env as lipsGlobalEnv, evaluate, exec } from "./lips.js";
+import { global_env as lipsGlobalEnv, env as userEnv, evaluate, exec } from "./lips.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import type { Operator, Codec } from "./membrane.js";
@@ -1688,7 +1688,18 @@ export function initBridge(): Promise<void> {
   // Apply TypeScript bindings synchronously
   applyToEnvironment(lipsGlobalEnv);
 
-  // Evaluate bootstrap Scheme code asynchronously
-  bootstrapPromise = exec(BOOTSTRAP_SCHEME).then(() => {});
+  // Evaluate bootstrap Scheme code asynchronously, then expose the trusted
+  // threading macros in the sandbox. They're defined in user_env by the
+  // bootstrap; copy the Macro values into sandboxedEnv so sandboxed/showcase
+  // code can use ->/->>/~>/~>>. These are pure code-rewrites — their expansion
+  // still evaluates under the sandbox allowlist, so they add no capability.
+  // (Dynamic import avoids a static bridge<->sandbox-env import cycle.)
+  bootstrapPromise = exec(BOOTSTRAP_SCHEME).then(async () => {
+    const { sandboxedEnv } = await import("./sandbox-env.js");
+    for (const name of ["->", "->>", "~>", "~>>"]) {
+      const macro = userEnv.get(name, { throwError: false });
+      if (macro) sandboxedEnv.set(name, macro);
+    }
+  });
   return bootstrapPromise;
 }
