@@ -392,22 +392,16 @@
 
 (define initial-personas (values-of personas))
 (define results          (optimize-tagline config/initial-tagline initial-personas))
-(define compound         (compound-of-results results initial-personas))
 (define buckets          (bucketize results initial-personas))
-
-(define audience-miss-entries
-  (filter (lambda (b) (equal? (:bucket b) "audience-miss")) buckets))
-(define unreachable-entries
-  (filter (lambda (b) (equal? (:bucket b) "unreachable")) buckets))
 
 (dict
   "tree"     results
-  "compound" compound
+  "compound" (compound-of-results results initial-personas)
   "buckets"  buckets
   "summaries" (dict
                 "audience-miss" (consolidate-reasons
                                   "not being in our target audience"
-                                  audience-miss-entries)
+                                  (filter (lambda (b) (equal? (:bucket b) "audience-miss")) buckets))
                 "unreachable"   (consolidate-reasons
                                   "bouncing on every tagline we tried"
-                                  unreachable-entries)))
+                                  (filter (lambda (b) (equal? (:bucket b) "unreachable")) buckets))))
