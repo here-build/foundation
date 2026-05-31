@@ -219,6 +219,10 @@
          (unsatisfied (filter (lambda (t) (equal? (:mismatch t) #f)) triaged)))
     (list best-entry br triaged unsatisfied winning-pov)))
 
+;; a worklist task: the persona pool + seed tagline + parent link + reach hints
+(define (make-task personas initial parent-id hints)
+  (dict "personas" personas "initial" initial "parent-id" parent-id "hints" hints))
+
 (define (make-node node-id task best-entry br triaged winning-pov)
   (dict "id"          node-id
         "parent-id"   (:parent-id task)
@@ -232,10 +236,10 @@
 (define (child-task-of parent-task parent-best-entry parent-node-id unsatisfied)
   (let ((personas (:personas parent-task))
         (hints    (:hints parent-task)))
-    (dict "personas"  (map (lambda (t) (:persona t)) unsatisfied)
-          "initial"   (car parent-best-entry)
-          "parent-id" parent-node-id
-          "hints"     (frontier-of (list parent-best-entry) personas hints))))
+    (make-task (map (lambda (t) (:persona t)) unsatisfied)
+               (car parent-best-entry)
+               parent-node-id
+               (frontier-of (list parent-best-entry) personas hints))))
 
 (define (optimize-tagline initial-tagline initial-personas)
   (define (drive worklist results total-iter)
@@ -256,10 +260,7 @@
                          (cons node results)
                          (+ total-iter 1))))))
            (score-task task))))))
-  (drive (list (dict "personas" initial-personas
-                     "initial" initial-tagline
-                     "parent-id" -1
-                     "hints" '()))
+  (drive (list (make-task initial-personas initial-tagline -1 '()))
          '() 0))
 
 ;; ── format variants ─────────────────────────────────────────────────
@@ -278,6 +279,10 @@
 (define (merge-initial a b)
   (:next (merge-tagline (string-append "merge-init/" a "|" b) "a" a "b" b)))
 
+;; a candidate compound shape + the tagline that seeds its plateau loop
+(define (format-variant fmt initial)
+  (dict "format" fmt "initial" initial))
+
 (define (compound-of-results results all-personas)
   (cond
     ((< (length results) 2) #f)
@@ -287,12 +292,9 @@
             (a         (:tagline root))
             (b         (:tagline lastnode))
             (forms (list
-                     (dict "format" "concat"
-                           "initial" (string-append a ". " b "."))
-                     (dict "format" "two-screen"
-                           "initial" (string-append a ". On second screen: " b "."))
-                     (dict "format" "merge"
-                           "initial" (merge-initial a b))))
+                     (format-variant "concat"     (string-append a ". " b "."))
+                     (format-variant "two-screen" (string-append a ". On second screen: " b "."))
+                     (format-variant "merge"      (merge-initial a b))))
             (runs (map (lambda (f)
                          (let ((run (multi-pov-run (:initial f) all-personas '())))
                            (dict "format"  (:format f)
