@@ -1688,25 +1688,30 @@ export function initBridge(): Promise<void> {
   // Apply TypeScript bindings synchronously
   applyToEnvironment(lipsGlobalEnv);
 
-  // Evaluate bootstrap Scheme code asynchronously, then expose the trusted
-  // threading macros in the sandbox. They're defined in user_env by the
-  // bootstrap; copy the Macro values into sandboxedEnv so sandboxed/showcase
-  // code can use ->/->>/~>/~>>. These are pure code-rewrites — their expansion
-  // still evaluates under the sandbox allowlist, so they add no capability.
-  // (Dynamic import avoids a static bridge<->sandbox-env import cycle.)
+  // Evaluate bootstrap Scheme code asynchronously, then expose a curated set of
+  // bootstrap-defined bindings in the sandbox. They live in user_env; copy the
+  // values into sandboxedEnv so sandboxed/showcase code can reach them:
+  //   • threading macros ->/->>/~>/~>>  — pure code-rewrites.
+  //   • SRFI-26 cut/cute               — partial application; expand to a lambda.
+  //   • gensym                          — cut/cute call it at expansion time for
+  //                                       capture-safe slot names, so it has to be
+  //                                       reachable from a sandboxed (cut …) site.
+  // All pure: a macro's expansion still evaluates under the sandbox allowlist, so
+  // none adds a capability. (Dynamic import avoids a static bridge<->sandbox-env
+  // import cycle.)
   //
   // NOT copied: the hygienic syntax family (define-syntax / let-syntax /
   // letrec-syntax + syntax-rules). They evaluate fine in the FULL env (the chibi
   // R7RS suite drives them), but the LIPS pattern matcher misbehaves under the
   // sandbox env — a `(double 50)` use of a sandbox-defined syntax-rules macro
-  // fails "no matching syntax in macro (50)". That's an env-specific matcher
-  // issue, tracked separately; `define-macro` (an evaluator special form) is the
-  // working path for user macros in the sandbox today.
+  // fails "no matching syntax in macro (50)". Env-specific matcher issue, tracked
+  // separately; define-macro (an evaluator special form) is the working path for
+  // user macros in the sandbox today.
   bootstrapPromise = exec(BOOTSTRAP_SCHEME).then(async () => {
     const { sandboxedEnv } = await import("./sandbox-env.js");
-    for (const name of ["->", "->>", "~>", "~>>"]) {
-      const macro = userEnv.get(name, { throwError: false });
-      if (macro) sandboxedEnv.set(name, macro);
+    for (const name of ["->", "->>", "~>", "~>>", "cut", "cute", "gensym"]) {
+      const value = userEnv.get(name, { throwError: false });
+      if (value) sandboxedEnv.set(name, value);
     }
   });
   return bootstrapPromise;
