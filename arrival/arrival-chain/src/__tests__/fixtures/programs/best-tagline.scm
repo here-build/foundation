@@ -43,9 +43,8 @@
 ;; and not in a .prompt (they're neither a fixed algorithm role nor code).
 
 ;; ── helpers ──────────────────────────────────────────────────────────
-;; entry = (tagline score reactions). cadr/caddr live in BUILTIN_PREAMBLE.
-(define (entry-score e) (cadr e))
-(define (entry-reactions e) (caddr e))
+;; entry: one round's tagline + its click-rate score + the reactions it drew
+(define (make-entry tagline score reactions) (dict :tagline tagline :score score :reactions reactions))
 (define (avg xs) (if (null? xs) 0 (/ (apply + xs) (length xs))))
 
 (define (clicking? v) (or (equal? v "click") (equal? v "keep-reading")))
@@ -88,8 +87,8 @@
 (define (degrading? history delta)
   (cond ((< (length history) 6) #f)
         (else
-         (< (- (->> history (take 3) (map entry-score) avg)
-               (->> history (drop 3) (take 3) (map entry-score) avg))
+         (< (- (->> history (take 3) (map :score) avg)
+               (->> history (drop 3) (take 3) (map :score) avg))
             delta))))
 
 ;; ── frontier: per-tagline reach map ─────────────────────────────────
@@ -106,7 +105,7 @@
 
 (define (frontier-of history personas inherited)
   (append inherited
-    (map (lambda (e) (make-hint (car e) (clickers-of personas (entry-reactions e))))
+    (map (lambda (e) (make-hint (:tagline e) (clickers-of personas (:reactions e))))
          history)))
 
 (define (hints-signature hints)
@@ -134,7 +133,7 @@
       "hints"     (hints-summary hints))))
 
 ;; ── inner GEPA loop ──────────────────────────────────────────────────
-(define (best-of history) (max-by entry-score history))
+(define (best-of history) (max-by :score history))
 
 ;; reflection-system passed in so multi-POV can run K loops in parallel
 ;; with different reflection prompts on the same (initial, personas, hints).
@@ -142,7 +141,7 @@
   (define (loop tagline iter history)
     (let* ((reactions (reactions-of tagline personas))
            (score     (click-rate reactions))
-           (entry     (list tagline score reactions))
+           (entry     (make-entry tagline score reactions))
            (history+  (cons entry history))
            (fr        (frontier-of history+ personas hints)))
       (cond
@@ -179,7 +178,7 @@
                      (let ((entry (gepa-until-plateau initial personas hints (:system pov))))
                        (dict "pov" (:name pov) "entry" entry)))
                    (active-povs))))
-    (max-by (compose cadr :entry) runs)))
+    (max-by (compose :score :entry) runs)))
 
 ;; ── triage ───────────────────────────────────────────────────────────
 (define (triage-one persona reaction tagline)
@@ -212,9 +211,9 @@
          (run         (multi-pov-run initial personas hints))
          (winning-pov (:pov run))
          (best-entry  (:entry run))
-         (best-tag    (car best-entry))
-         (reactions   (caddr best-entry))
-         (br          (- 1 (cadr best-entry)))
+         (best-tag    (:tagline best-entry))
+         (reactions   (:reactions best-entry))
+         (br          (- 1 (:score best-entry)))
          (triaged     (if (>= br config/bounce-threshold)
                           (triage-bouncers personas reactions best-tag)
                           '()))
@@ -228,9 +227,9 @@
 (define (make-node node-id task best-entry br triaged winning-pov)
   (dict "id"          node-id
         "parent-id"   (:parent-id task)
-        "tagline"     (car best-entry)
+        "tagline"     (:tagline best-entry)
         "personas"    (map :id (:personas task))
-        "reactions"   (caddr best-entry)
+        "reactions"   (:reactions best-entry)
         "bounce-rate" br
         "triaged"     triaged
         "pov"         winning-pov))
@@ -239,7 +238,7 @@
   (let ((personas (:personas parent-task))
         (hints    (:hints parent-task)))
     (make-task (map :persona unsatisfied)
-               (car parent-best-entry)
+               (:tagline parent-best-entry)
                parent-node-id
                (frontier-of (list parent-best-entry) personas hints))))
 
@@ -304,11 +303,11 @@
                                  "pov"     (:pov run)
                                  "entry"   (:entry run))))
                        forms))
-            (winner (max-by (compose cadr :entry) runs)))
+            (winner (max-by (compose :score :entry) runs)))
        (dict "format"    (:format winner)
-             "tagline"   (car (:entry winner))
-             "score"     (cadr (:entry winner))
-             "reactions" (caddr (:entry winner))
+             "tagline"   (:tagline (:entry winner))
+             "score"     (:score (:entry winner))
+             "reactions" (:reactions (:entry winner))
              "pov"       (:pov winner)
              "sources"   (:sources winner))))))
 
