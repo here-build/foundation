@@ -185,6 +185,20 @@ const isFnDefine = (nd: Node): boolean =>
   !isAtom(nd) && nd.list.length >= 2 && isAtom(nd.list[0]) && !nd.list[0].str &&
   nd.list[0].atom === "define" && isFlatList(nd.list[1]);
 
+/** Break a too-long curly-infix `{a op b op …}` operator-led: first operand after
+ *  `{`, each subsequent on its own line prefixed with the operator. Recurses, so a
+ *  nested long curly (e.g. `{{a - b} < c}`) breaks at every level that overflows. */
+function formatInfix(items: Node[], col: number, o: SweetOpts): string {
+  const op = (items[0] as { atom: string }).atom;
+  const operands = items.slice(1);
+  let out = "{" + formatSweet(operands[0], col + 1, o);
+  const contCol = col + 2;
+  for (let k = 1; k < operands.length; k++) {
+    out += "\n" + " ".repeat(contCol) + op + " " + formatSweet(operands[k], contCol + op.length + 1, o);
+  }
+  return out + "}";
+}
+
 /** Render a node starting at column `col`; breaks to indented sweet form when it
  *  exceeds the width budget. First line is unindented (caller positions it). */
 export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
@@ -198,7 +212,7 @@ export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
     const pre = QUOTE_PREFIX[(items[0] as { atom: string }).atom];
     return pre + formatSweet(items[1], col + pre.length, o);
   }
-  if (isInfix(items, o)) return flat; // never break an operator chain — reads worse than a long line
+  if (isInfix(items, o)) return formatInfix(items, col, o); // operator-led break when over width
 
   // kwarg-head break: render `:key value` runs as `:key => value` pair lines.
   // The pair is a synthetic (=> k v) view-node; it stays atomic (never split
@@ -240,11 +254,16 @@ export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
   }
 
   // sweet break: head on its own line (+ first arg if it still fits), rest indented.
-  let line = inlineSweet(items[0], o);
+  // If the head is itself a long compound (e.g. a `let` binding `(v (triage …))`),
+  // BREAK it rather than inlining — inlining a compound head is what produced
+  // 190-char lines for binding lists. A short/atom head keeps the first-arg pull.
+  const headFlat = inlineSweet(items[0], o);
+  const headFits = col + headFlat.length <= o.width;
+  let line = headFits ? headFlat : formatSweet(items[0], col, o);
   let idx = 1;
-  if (items.length > 1) {
+  if (headFits && items.length > 1) {
     const a1 = inlineSweet(items[1], o);
-    if (col + line.length + 1 + a1.length <= o.width) { line += " " + a1; idx = 2; }
+    if (col + headFlat.length + 1 + a1.length <= o.width) { line += " " + a1; idx = 2; }
   }
   const pad = " ".repeat(col + 2);
   const out = [line];
