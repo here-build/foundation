@@ -88,8 +88,8 @@
 (define (degrading? history delta)
   (cond ((< (length history) 6) #f)
         (else
-         (< (- (avg (map entry-score (take 3 history)))
-               (avg (map entry-score (take 3 (drop 3 history)))))
+         (< (- (->> history (take 3) (map entry-score) avg)
+               (->> history (drop 3) (take 3) (map entry-score) avg))
             delta))))
 
 ;; ── frontier: per-tagline reach map ─────────────────────────────────

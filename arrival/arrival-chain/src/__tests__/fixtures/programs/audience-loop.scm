@@ -100,8 +100,8 @@
 (define (cls-block cls)
   (string-concat "\n"
     (map (lambda (entry)
-           (string-append (:name (state-of (car entry)))
-                          " → " (:bucket (cadr entry))))
+           (string-append (->> entry car state-of :name)
+                          " → " (->> entry cadr :bucket)))
          cls)))
 
 (define (variant-boundary variant personas)
