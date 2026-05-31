@@ -31,9 +31,9 @@
 (define (react-cell persona variant replay-idx)
   (react
     (string-concat "/" (:id variant) (:id persona) (number->string replay-idx))
-    "systemPrompt" config/system-prompt
-    "summary"      (summary-of-persona (state-of persona))
-    "lead"         (:lead variant)))
+    :systemPrompt  config/system-prompt
+    :summary       (summary-of-persona (state-of persona))
+    :lead          (:lead variant)))
 
 (define (cell-row persona variant)
   (list (:id persona)

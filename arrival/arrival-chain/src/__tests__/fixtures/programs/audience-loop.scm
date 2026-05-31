@@ -66,10 +66,10 @@
 (define (react-cell persona variant replay-idx)
   (react
     (string-concat "/" (:id variant) (:id persona) (number->string replay-idx))
-    "productHeader" (product-header)
-    "summary"       (summary-of-persona (state-of persona))
-    "scenario"      (:scenario variant)
-    "lead"          (:lead variant)))
+    :productHeader  (product-header)
+    :summary        (summary-of-persona (state-of persona))
+    :scenario       (:scenario variant)
+    :lead           (:lead variant)))
 
 (define (cell-reactions persona variant)
   (map (lambda (i) (react-cell persona variant i)) (range config/min-replays)))
@@ -85,12 +85,12 @@
   (let ((reactions (cell-reactions persona variant)))
     (classify
       (string-concat "/" (:id variant) (:id persona))
-      "productHeader"  (product-header)
-      "personaLine"    (persona-line persona)
-      "variantId"      (:id variant)
-      "lead"           (:lead variant)
-      "replayCount"    (number->string (length reactions))
-      "reactionsBlock" (reactions-block reactions))))
+      :productHeader   (product-header)
+      :personaLine     (persona-line persona)
+      :variantId       (:id variant)
+      :lead            (:lead variant)
+      :replayCount     (number->string (length reactions))
+      :reactionsBlock  (reactions-block reactions))))
 
 ;; ── Stage 3: boundary (consumes all classifications for a variant) ───
 ;;
@@ -110,11 +110,11 @@
       #f
       (map-boundary
         (string-concat "/" (:id variant) "boundary")
-        "productHeader" (product-header)
-        "variantId"     (:id variant)
-        "lead"          (:lead variant)
-        "clsCount"      (number->string (length cls))
-        "clsBlock"      (cls-block cls)))))
+        :productHeader  (product-header)
+        :variantId      (:id variant)
+        :lead           (:lead variant)
+        :clsCount       (number->string (length cls))
+        :clsBlock       (cls-block cls)))))
 
 ;; ── Stage 4: gap analysis ────────────────────────────────────────────
 
@@ -124,9 +124,9 @@
       #f
       (find-gaps
         (string-concat "/" (:id variant) "gap")
-        "productHeader"       (product-header)
-        "variantId"           (:id variant)
-        "boundaryDescription" (:boundaryDescription boundary)))))
+        :productHeader        (product-header)
+        :variantId            (:id variant)
+        :boundaryDescription  (:boundaryDescription boundary)))))
 
 ;; ── Pipeline ─────────────────────────────────────────────────────────
 

@@ -48,9 +48,9 @@
 (define (reaction-of-persona-replay persona replay-idx)
   (react
     (string-concat "/" config/hero-id (:id persona) (number->string replay-idx))
-    "systemPrompt" config/system-prompt
-    "summary"      (summary-of-persona (state-of persona))
-    "lead"         config/hero-lead))
+    :systemPrompt  config/system-prompt
+    :summary       (summary-of-persona (state-of persona))
+    :lead          config/hero-lead))
 
 (define (row-of-persona persona)
   (list (:id persona)

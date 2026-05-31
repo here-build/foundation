@@ -70,8 +70,8 @@
 (define (reaction-of-persona-tagline persona tagline)
   (react-to-tagline
     (string-concat "/" tagline (:id persona))
-    "summary" (summary-of-persona (state-of persona))
-    "tagline" tagline))
+    :summary (summary-of-persona (state-of persona))
+    :tagline tagline))
 
 (define (reactions-of tagline personas)
   (map (lambda (p) (reaction-of-persona-tagline p tagline)) personas))
@@ -128,10 +128,10 @@
 (define (next-tagline current reactions personas hints sys)
   (:next (reflect
       (string-concat "/" "reflect" sys current (hints-signature hints))
-      "sys"       sys
-      "current"   current
-      "reactions" (reactions-summary reactions personas)
-      "hints"     (hints-summary hints))))
+      :sys       sys
+      :current   current
+      :reactions (reactions-summary reactions personas)
+      :hints     (hints-summary hints))))
 
 ;; ── inner GEPA loop ──────────────────────────────────────────────────
 (define (best-of history) (max-by :score history))
@@ -185,10 +185,10 @@
 (define (triage-one persona reaction tagline)
   (let ((v (triage
              (string-concat "/" "triage" tagline (:id persona))
-             "summary" (summary-of-persona (state-of persona))
-             "tagline" tagline
-             "verdict" (:verdict reaction)
-             "concern" (:concern reaction))))
+             :summary (summary-of-persona (state-of persona))
+             :tagline tagline
+             :verdict (:verdict reaction)
+             :concern (:concern reaction))))
     (dict :persona  persona
           :reaction reaction
           :mismatch (:mismatch v)
@@ -279,7 +279,7 @@
 ;; Each compound run reuses multi-pov-run, so multi-POV diversity layers
 ;; on for free.
 (define (merge-initial a b)
-  (:next (merge-tagline (string-append "merge-init/" a "|" b) "a" a "b" b)))
+  (:next (merge-tagline (string-append "merge-init/" a "|" b) :a a :b b)))
 
 ;; a candidate compound shape + the tagline that seeds its plateau loop
 (define (format-variant fmt initial)
@@ -386,8 +386,8 @@
      (consolidate
        (string-concat "/" "consolidate" label
          (string-concat "" (map :id entries)))
-       "label"   label
-       "reasons" (reasons-for-template entries)))))
+       :label   label
+       :reasons (reasons-for-template entries)))))
 
 ;; ── entry ────────────────────────────────────────────────────────────
 (define personas (require "personas.yaml"))
