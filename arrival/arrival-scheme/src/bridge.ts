@@ -1694,6 +1694,14 @@ export function initBridge(): Promise<void> {
   // code can use ->/->>/~>/~>>. These are pure code-rewrites — their expansion
   // still evaluates under the sandbox allowlist, so they add no capability.
   // (Dynamic import avoids a static bridge<->sandbox-env import cycle.)
+  //
+  // NOT copied: the hygienic syntax family (define-syntax / let-syntax /
+  // letrec-syntax + syntax-rules). They evaluate fine in the FULL env (the chibi
+  // R7RS suite drives them), but the LIPS pattern matcher misbehaves under the
+  // sandbox env — a `(double 50)` use of a sandbox-defined syntax-rules macro
+  // fails "no matching syntax in macro (50)". That's an env-specific matcher
+  // issue, tracked separately; `define-macro` (an evaluator special form) is the
+  // working path for user macros in the sandbox today.
   bootstrapPromise = exec(BOOTSTRAP_SCHEME).then(async () => {
     const { sandboxedEnv } = await import("./sandbox-env.js");
     for (const name of ["->", "->>", "~>", "~>>"]) {
