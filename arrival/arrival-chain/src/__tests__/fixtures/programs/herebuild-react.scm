@@ -13,7 +13,7 @@
 ;;
 ;; Wiring (config-as-code — config.scm ships per run):
 ;;   files:
-;;     personas.json                       baseline personas in V's nested-shape
+;;     personas.yaml                       baseline personas in V's nested-shape
 ;;     summary-of-persona.hbs              per-persona prompt fragment
 ;;     reaction-prompt-of-persona.hbs      full reaction user-prompt
 ;;     config.scm                          per-run config/<name> defines:
@@ -22,28 +22,21 @@
 ;;       config/replays        per-persona replay count (e.g. 10)
 ;;       config/system-prompt  reaction system prompt
 
-;; `field` and `values-of` are built into the runtime preamble.
+;; `(:key obj)` keyword accessors and `values-of` are built into the runtime preamble.
 
 (require "config.scm")
+(require "_util.scm")   ;; string-concat
 
-;; ── Schema ───────────────────────────────────────────────────────────
-
-(define ReactionSchema
-  (s/object
-    (s/field/string "interpretation" "what (a) said: what the product does and what it trades")
-    (s/field/string "verdict"        "what (b) said: keep-reading | click | bounce + reason")
-    (s/field/string "concern"        "what (c) said: first concern or question")))
-
-;; ── Config ───────────────────────────────────────────────────────────
+;; ── Reaction prompt (shared with herebuild-multi) ────────────────────
 ;;
-;; `config/<key>` IS the config value at that key — an ordinary binding
-;; spilled by `(require "config.scm")`. Renaming a config key shows up as
-;; a moved symbol, not a moved literal.
+;; reaction.prompt carries the tier + output schema (Picoschema) + the
+;; system/user body — so ReactionSchema and the (system)(user) ceremony are
+;; gone from here. The system prompt is config-driven ({{systemPrompt}}); the
+;; hero text flows in as {{lead}}. summary-of-persona.hbs stays a text fragment.
+;; `config/<key>` IS the config value — an ordinary binding spilled by require.
 
-;; ── Templates as inline-callable lambdas ─────────────────────────────
-
-(define summary-of-persona         (require "summary-of-persona.hbs"))
-(define reaction-prompt-of-persona (require "reaction-prompt-of-persona.hbs"))
+(define summary-of-persona (require "summary-of-persona.hbs"))   ;; text fragment
+(define react              (require "reaction.prompt"))
 
 (define (state-of persona)
   (:state (last (:versions persona))))
@@ -54,14 +47,11 @@
 ;; any of those produces a distinct task.
 
 (define (reaction-of-persona-replay persona replay-idx)
-  (car (infer/chat "high"
-         (list (infer/chat/system config/system-prompt)
-               (infer/chat/user
-                 (reaction-prompt-of-persona
-                   "summary" (summary-of-persona (state-of persona))
-                   "lead"    config/hero-lead)))
-         ReactionSchema
-         (string-append config/hero-id "/" (:id persona) "/" (number->string replay-idx)))))
+  (react
+    (string-concat "/" config/hero-id (:id persona) (number->string replay-idx))
+    "systemPrompt" config/system-prompt
+    "summary"      (summary-of-persona (state-of persona))
+    "lead"         config/hero-lead))
 
 (define (row-of-persona persona)
   (list (:id persona)
@@ -69,5 +59,5 @@
 
 ;; ── Pipeline ─────────────────────────────────────────────────────────
 
-(define personas (require "personas.json"))
+(define personas (require "personas.yaml"))
 (map row-of-persona (values-of personas))

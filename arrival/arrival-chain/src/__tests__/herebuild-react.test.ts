@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { stringify as stringifyYaml } from "yaml";
 
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
@@ -16,8 +17,16 @@ const PROGRAMS_DIR = path.resolve(__dirname, "fixtures/programs");
 const readProgramFile = (name: string) => readFileSync(path.join(PROGRAMS_DIR, name), "utf-8");
 
 const PROGRAM = readProgramFile("herebuild-react.scm");
-const SUMMARY_HBS = readProgramFile("summary-of-persona.hbs");
-const REACTION_HBS = readProgramFile("reaction-prompt-of-persona.hbs");
+
+// herebuild-react.scm is the latest spec: the reaction stage is a .prompt
+// (model + Picoschema output + system/user body) shared with herebuild-multi,
+// and string-concat comes from the _util.scm stdlib. Ship those alongside
+// main.scm; the persona data is real YAML under the .yaml name the .scm requires.
+const DEPS = {
+  "_util.scm":              readProgramFile("_util.scm"),
+  "summary-of-persona.hbs": readProgramFile("summary-of-persona.hbs"),
+  "reaction.prompt":        readProgramFile("reaction.prompt"),
+};
 
 const profile = (id: string, name: string) => ({
   id,
@@ -46,11 +55,10 @@ describe("herebuild-react.scm — N × M parallel reactions", () => {
     const backend = stub();
     const result = await runPipeline({
       files: {
-        "personas.json":                    JSON.stringify(PERSONAS),
-        "main.scm":                         PROGRAM,
-        "summary-of-persona.hbs":           SUMMARY_HBS,
-        "reaction-prompt-of-persona.hbs":   REACTION_HBS,
-        "config.scm":                       configScm({
+        ...DEPS,
+        "personas.yaml": stringifyYaml(PERSONAS),
+        "main.scm":      PROGRAM,
+        "config.scm":    configScm({
           "hero-id":       "V_TEST",
           "hero-lead":     "test hero",
           "replays":       4,
@@ -82,11 +90,10 @@ describe("herebuild-react.scm — N × M parallel reactions", () => {
     const t0 = Date.now();
     await runPipeline({
       files: {
-        "personas.json":                    JSON.stringify(PERSONAS),
-        "main.scm":                         PROGRAM,
-        "summary-of-persona.hbs":           SUMMARY_HBS,
-        "reaction-prompt-of-persona.hbs":   REACTION_HBS,
-        "config.scm":                       configScm({
+        ...DEPS,
+        "personas.yaml": stringifyYaml(PERSONAS),
+        "main.scm":      PROGRAM,
+        "config.scm":    configScm({
           "hero-id":       "V_TEST",
           "hero-lead":     "t",
           "replays":       4,
