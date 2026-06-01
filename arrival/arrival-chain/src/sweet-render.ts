@@ -12,32 +12,57 @@
  *   • curly-infix     (- n 1)            → {n - 1}        ; arithmetic/comparison only
  *   • neoteric        (f x y)            → f(x y)         ; optional (reads odd for data/pairs)
  *   • indentation     big forms          → head on a line, children indented
+ *   • comments        ;; a line-comment on its OWN line(s) before a datum is that
+ *                     datum's `lead`; one on the SAME line just after is its `trail`.
+ *                     Both are captured by the parser and re-emitted — comments are
+ *                     trivia to the reader, so carrying them stays round-trip-safe.
  *
  * KNOWN v0 LIMITATIONS (deliberate, for the spike):
- *   • COMMENTS ARE DROPPED. Our files lean on them for readability — a real tool
- *     must attach leading/trailing comments to nodes. This shows code shape only.
  *   • head-line rule is fixed ("pull first arg if it fits"), not optimized.
+ *   • dangling comments before a `)` (own line, no datum after) are dropped, and
+ *     comments on inline-rendered operands aren't shown (only at formatSweet seams).
  *   • no $ / \\ group markers, no vectors / #\char.
  */
 
-export type Node = { atom: string; str?: boolean } | { list: Node[] };
+export type Node =
+  | { atom: string; str?: boolean; lead?: string[]; trail?: string[] }
+  | { list: Node[]; lead?: string[]; trail?: string[] };
 
 // null-safe: items[0] of an empty list `()` is undefined; isAtom(undefined) must
 // be false, not throw ('in' on undefined). Empty lists come from `'()` folds.
 const isAtom = (n: Node | undefined): n is { atom: string; str?: boolean } => n != null && "atom" in n;
 
-// ── parser: source text → plain tree (comments stripped) ──────────────────────
+// ── parser: source text → plain tree, capturing comments ──────────────────────
+//
+// A `;`-line-comment on its OWN line(s) before a datum becomes that datum's
+// `lead`; one on the SAME line just after a datum is its `trail`. (A dangling
+// comment before a `)` with no following datum is dropped.) Comments are trivia
+// to the sweet READER, and `nodeEq` ignores lead/trail, so carrying them in the
+// render keeps `sweetToScheme` form-matching — hence the round-trip — intact.
 export function parseSexprs(src: string): Node[] {
   let i = 0;
   const n = src.length;
   const isDelim = (c: string | undefined) =>
     c === undefined || /\s/.test(c) || c === "(" || c === ")" || c === "[" || c === "]" || c === '"' || c === ";";
 
+  let pendingLead: string[] = [];
+  let lastNode: Node | null = null;
+  let sawNewlineSinceNode = false;
+
   const skipWs = () => {
     while (i < n) {
       const c = src[i];
+      if (c === "\n") { sawNewlineSinceNode = true; i++; continue; }
       if (/\s/.test(c)) { i++; continue; }
-      if (c === ";") { while (i < n && src[i] !== "\n") i++; continue; }
+      if (c === ";") {
+        const start = i;
+        while (i < n && src[i] !== "\n") i++;
+        const text = src.slice(start, i).replace(/\s+$/, "");
+        // same line as the just-read datum → its trailing comment; else leading.
+        if (!sawNewlineSinceNode && lastNode) (lastNode.trail ??= []).push(text);
+        else pendingLead.push(text);
+        continue;
+      }
       break;
     }
   };
@@ -56,21 +81,29 @@ export function parseSexprs(src: string): Node[] {
 
   const readDatum = (): Node => {
     skipWs();
+    const lead = pendingLead;
+    pendingLead = [];
     const c = src[i];
     if (c === undefined) throw new Error("unexpected EOF");
-    if (c === "(" || c === "[") return readList(c === "(" ? ")" : "]");
-    if (c === ")" || c === "]") throw new Error(`unexpected ${c} at ${i}`);
-    if (c === '"') return readString();
-    if (c === "'") { i++; return { list: [{ atom: "quote" }, readDatum()] }; }
-    if (c === "`") { i++; return { list: [{ atom: "quasiquote" }, readDatum()] }; }
-    if (c === ",") {
+    let node: Node;
+    if (c === "(" || c === "[") node = readList(c === "(" ? ")" : "]");
+    else if (c === ")" || c === "]") throw new Error(`unexpected ${c} at ${i}`);
+    else if (c === '"') node = readString();
+    else if (c === "'") { i++; node = { list: [{ atom: "quote" }, readDatum()] }; }
+    else if (c === "`") { i++; node = { list: [{ atom: "quasiquote" }, readDatum()] }; }
+    else if (c === ",") {
       i++;
-      if (src[i] === "@") { i++; return { list: [{ atom: "unquote-splicing" }, readDatum()] }; }
-      return { list: [{ atom: "unquote" }, readDatum()] };
+      if (src[i] === "@") { i++; node = { list: [{ atom: "unquote-splicing" }, readDatum()] }; }
+      else node = { list: [{ atom: "unquote" }, readDatum()] };
+    } else {
+      const start = i;
+      while (i < n && !isDelim(src[i])) i++;
+      node = { atom: src.slice(start, i) };
     }
-    const start = i;
-    while (i < n && !isDelim(src[i])) i++;
-    return { atom: src.slice(start, i) };
+    if (lead.length) node.lead = lead;
+    lastNode = node;
+    sawNewlineSinceNode = false;
+    return node;
   };
 
   function readList(close: ")" | "]"): Node {
@@ -296,9 +329,25 @@ function formatInfix(items: Node[], col: number, o: SweetOpts): string {
   return out + "}";
 }
 
+/** Emit a node's captured comments around its rendered `body`: each `lead` line
+ *  before it (at column `col`), the same-line `trail` after. Applied at every
+ *  formatSweet seam, so top-level forms and broken-list children show comments. */
+function withComments(nd: Node, body: string, col: number): string {
+  const pad = " ".repeat(col);
+  let out = body;
+  if (nd.lead && nd.lead.length) out = nd.lead.join("\n" + pad) + "\n" + pad + out;
+  if (nd.trail && nd.trail.length) out = out + "  " + nd.trail.join(" ");
+  return out;
+}
+
 /** Render a node starting at column `col`; breaks to indented sweet form when it
- *  exceeds the width budget. First line is unindented (caller positions it). */
+ *  exceeds the width budget. First line is unindented (caller positions it). The
+ *  exported entry wraps the core renderer to re-emit the node's lead/trail comments
+ *  (recursive calls hit this wrapper too, so nested comments render). */
 export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
+  return withComments(nd, formatSweetCore(nd, col, o), col);
+}
+function formatSweetCore(nd: Node, col: number, o: SweetOpts): string {
   const flat = inlineSweet(nd, o);
   // Function defines, cond, and elidable let-family always break (uniform shape,
   // even if they'd fit); everything else stays inline when it fits.

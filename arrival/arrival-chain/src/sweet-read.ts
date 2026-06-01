@@ -176,7 +176,7 @@ function parseElements(toks: Tok[]): Node[] {
 /** Single fully-delimited expression — phase-1 entry (used by the curly/arrow
  *  round-trip tests). For multi-element input it returns the first element. */
 export function readSweetExpr(src: string): Node {
-  const elems = parseElements(tokenize(src));
+  const elems = parseElements(tokenize(stripComments(src)));
   if (elems.length !== 1) throw new Error(`expected one expression, got ${elems.length}`);
   return elems[0];
 }
@@ -250,11 +250,37 @@ function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number
   return { elems: [regroupLetFamily({ list: [...head, ...childElems] })], next: j };
 }
 
+/** Strip `;`-line-comments (to end of line), string-aware — they're trivia in the
+ *  sweet view (sweet-render re-emits them from the classic AST's lead/trail).
+ *  Newlines are kept, so indentation and blank-line form separation survive. */
+function stripComments(text: string): string {
+  let out = "";
+  let inStr = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      out += c;
+      if (c === "\\") { out += text[i + 1] ?? ""; i++; } else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; out += c; continue; }
+    if (c === ";") { while (i + 1 < text.length && text[i + 1] !== "\n") i++; continue; }
+    out += c;
+  }
+  return out;
+}
+
 /** Full reader: sweet text → classic forms. */
 export function readSweet(text: string): Node[] {
+  // Split into top-level forms by blank line FIRST: in the render, blank lines
+  // appear ONLY between top-level forms (a comment is contiguous with its node),
+  // so this is the true boundary. THEN strip comments within each form — a
+  // stripped whole-line comment leaves a blank line that the per-form physical
+  // filter (below) drops. Stripping BEFORE the split would instead let an inner
+  // comment's blank line split one form into two (form-count drift → reprint).
   return text
     .split(/\n[ \t]*\n+/)
-    .map((f) => f.replace(/\n+$/, ""))
+    .map((f) => stripComments(f).replace(/\n+$/, ""))
     .filter((f) => f.trim().length > 0)
     .map((formText) => {
       const physical = formText.split("\n").filter((l) => l.trim().length > 0);
