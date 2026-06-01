@@ -144,8 +144,13 @@ export interface SweetOpts {
   pairGlyph: "=>" | ":";
 }
 export const DEFAULT_OPTS: SweetOpts = {
-  width: 64, neoteric: false, curly: true, kwargHeads: new Set(["dict"]), pairGlyph: ":",
+  width: 120, neoteric: false, curly: true, kwargHeads: new Set(["dict"]), pairGlyph: ":",
 };
+
+/** A `(string-append …)` tolerates a wider line than the general budget before it
+ *  breaks. Breaking text assembly staircases the fragments down the page and reads
+ *  worse than one long line, so we keep it inline up to this many chars. */
+const STRING_APPEND_WIDTH = 160;
 
 const QUOTE_PREFIX: Record<string, string> = {
   quote: "'", quasiquote: "`", unquote: ",", "unquote-splicing": ",@",
@@ -224,6 +229,22 @@ const isInfix = (items: Node[], o: SweetOpts): boolean =>
 
 const isKeyword = (nd: Node): boolean => isAtom(nd) && !nd.str && nd.atom.startsWith(":") && nd.atom.length > 1;
 
+/** Linear pair-accessor → subscript sugar (a single coherent "list indexing"
+ *  surface for the car/cdr family): positional `(ca d* r)` → `[n]` —
+ *  (car x)→x[0], (cadr x)→x[1], (caddr x)→x[2], (cadddr x)→x[3]; rest `(c d+ r)`
+ *  → `[n:]` — (cdr x)→x[1:], (cddr x)→x[2:]. ONLY these two chains: mixed combos
+ *  (caar, cdar…) descend into sublists and have no single-index meaning, so they
+ *  stay classic. The sugar lives in punctuation-space (`[]`), so unlike a bare
+ *  `head`/`tail` rename it can NEVER collide with a user identifier — the same
+ *  faithfulness property that lets `equal?`→`==`. Inverse: sweet-read.ts. */
+function accessorSubscript(head: string): string | null {
+  const el = /^ca(d*)r$/.exec(head);
+  if (el) return `[${el[1].length}]`;
+  const rest = /^c(d+)r$/.exec(head);
+  if (rest) return `[${rest[1].length}:]`;
+  return null;
+}
+
 /** A literal `(require "….prompt")` — the inline-require call style used in the
  *  examples (vs. the bound-name style `(define react (require …))` in fixtures).
  *  Both are kwarg-takers; only `.prompt` (not `.hbs`, which takes positionals). */
@@ -267,6 +288,12 @@ export function inlineSweet(nd: Node, o: SweetOpts): string {
   if (isCoalesce(nd)) {
     return "{" + infixOperand(items[1], 1, o) + " ?? " + infixOperand(items[3], 1, o) + "}";
   }
+  // subscript accessor: (car X)→X[0], (cdr X)→X[1:], etc. Single-arg call form
+  // only; a bare `car` passed as a value (e.g. `(map car xs)`) is left untouched.
+  if (items.length === 2 && isAtom(items[0]) && !items[0].str) {
+    const sub = accessorSubscript(items[0].atom);
+    if (sub) return inlineSweet(items[1], o) + sub;
+  }
   if (o.neoteric && !hasDot(items) && isAtom(items[0]) && !items[0].str && QUOTE_PREFIX[items[0].atom] === undefined) {
     return `${items[0].atom}(` + items.slice(1).map((it) => inlineSweet(it, o)).join(" ") + ")";
   }
@@ -289,6 +316,10 @@ const isFnDefine = (nd: Node): boolean =>
  *  I-expressions: a `test` line + consequence child reads back as (test cons). */
 const isCondForm = (nd: Node): boolean =>
   !isAtom(nd) && nd.list.length >= 1 && isAtom(nd.list[0]) && !nd.list[0].str && nd.list[0].atom === "cond";
+
+/** `(string-append …)` — see STRING_APPEND_WIDTH. Granted the wider inline budget. */
+const isStringAppend = (nd: Node): boolean =>
+  !isAtom(nd) && nd.list.length >= 1 && isAtom(nd.list[0]) && !nd.list[0].str && nd.list[0].atom === "string-append";
 
 /** `(if X X Y)` (cond ≡ then) — the null-coalescing pattern, rendered `{X ?? Y}`.
  *  Pure sweet sugar over the if-pattern (no stored macro); reads back to (if X X Y),
@@ -350,8 +381,10 @@ export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
 function formatSweetCore(nd: Node, col: number, o: SweetOpts): string {
   const flat = inlineSweet(nd, o);
   // Function defines, cond, and elidable let-family always break (uniform shape,
-  // even if they'd fit); everything else stays inline when it fits.
-  if (col + flat.length <= o.width && !isFnDefine(nd) && !isCondForm(nd) && !isLetElidable(nd)) return flat;
+  // even if they'd fit); everything else stays inline when it fits. string-append
+  // gets a wider budget — text assembly reads worse broken than as one long line.
+  const budget = isStringAppend(nd) ? Math.max(o.width, STRING_APPEND_WIDTH) : o.width;
+  if (col + flat.length <= budget && !isFnDefine(nd) && !isCondForm(nd) && !isLetElidable(nd)) return flat;
   if (isAtom(nd)) return flat;
   const items = nd.list;
   if (items.length === 0) return "()";

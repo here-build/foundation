@@ -25,6 +25,7 @@ import {
   schemeToSweet, parseSexprs, collectKwargHeads, inflateKwargs, flattenKwargs,
   type Node,
 } from "../sweet-render.js";
+import { readSweet } from "../sweet-read.js";
 
 const FIX = path.resolve(import.meta.dirname, "fixtures/programs");
 const EX = path.resolve(import.meta.dirname, "../../../../../examples/host-custdev");
@@ -56,6 +57,7 @@ describe("sweet-render", () => {
 
   describe("units", () => {
     const sweet = (s: string, opts = {}) => schemeToSweet(s, opts);
+    const read = (s: string): string => show(readSweet(s)[0]);
 
     it("curly-infix display glyphs are injective (equal?→==, and/or→&&/||; = stays =)", () => {
       expect(sweet("(- n 1)")).toBe("{n - 1}");
@@ -123,10 +125,54 @@ describe("sweet-render", () => {
 
     it("leading positional (cache-key) before kwargs stays unpaired", () => {
       const src = `(define gen (require "x.prompt"))
-        (gen the-cache-key :alpha first-value :beta second-value :gamma third-value)`;
+        (gen the-cache-key :alpha first-value-that-is-quite-long-indeed :beta second-value-also-rather-long :gamma third-value-likewise-long)`;
       const out = sweet(src);
       expect(out).toContain("the-cache-key");
-      expect(out).toContain("alpha: first-value");
+      expect(out).toContain("alpha: first-value-that-is-quite-long-indeed");
+    });
+
+    it("string-append stays inline past the general width (up to 160 chars)", () => {
+      // ~130 chars: over the 120 general budget but under string-append's 160 — one line.
+      const src = `(string-append "the quick brown fox " greeting " jumps over the lazy dog and then " trailer " keeps going for a while longer")`;
+      const out = sweet(src).trim();
+      expect(out.split("\n")).toHaveLength(1);
+      expect(out.startsWith("(string-append")).toBe(true);
+    });
+
+    it("string-append still breaks once past 160 chars", () => {
+      const long = '"' + "x".repeat(170) + '"';
+      const out = sweet(`(string-append ${long} ${long})`);
+      expect(out.split("\n").length).toBeGreaterThan(1);
+    });
+
+    it("pair accessors render as subscripts / slices", () => {
+      expect(sweet("(car xs)").trim()).toBe("xs[0]");
+      expect(sweet("(cadr xs)").trim()).toBe("xs[1]");
+      expect(sweet("(caddr xs)").trim()).toBe("xs[2]");
+      expect(sweet("(cadddr xs)").trim()).toBe("xs[3]");
+      expect(sweet("(cdr xs)").trim()).toBe("xs[1:]");
+      expect(sweet("(cddr xs)").trim()).toBe("xs[2:]");
+    });
+
+    it("subscript binds the whole operand (lists, chains)", () => {
+      expect(sweet("(car (filter p xs))").trim()).toBe("(filter p xs)[0]");
+      expect(sweet("(cadr (car xs))").trim()).toBe("xs[0][1]");
+    });
+
+    it("mixed accessors (caar, cdar) stay classic — no single-index meaning", () => {
+      expect(sweet("(caar xs)").trim()).toBe("(caar xs)");
+      expect(sweet("(cdar xs)").trim()).toBe("(cdar xs)");
+    });
+
+    it("a bare accessor passed as a value is NOT sugared", () => {
+      expect(sweet("(map car xs)").trim()).toBe("(map car xs)");
+    });
+
+    it("subscript round-trips back to the canonical accessor", () => {
+      for (const src of ["(car xs)", "(cadr xs)", "(caddr xs)", "(cdr xs)", "(cddr xs)",
+                         "(car (filter p xs))", "(cadr (car xs))", "(map car xs)"]) {
+        expect(read(sweet(src))).toBe(src);
+      }
     });
   });
 

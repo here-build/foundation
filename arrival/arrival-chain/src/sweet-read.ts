@@ -64,9 +64,18 @@ function regroupLetFamily(node: Node): Node {
 }
 
 type Tok =
-  | { t: "(" | ")" | "{" | "}" }
+  | { t: "(" | ")" | "{" | "}" | "[" | "]" }
   | { t: "quote"; v: "'" | "`" | "," | ",@" }
   | { t: "word"; v: string; str?: boolean };
+
+/** `[k]` → k-th element accessor `ca d^k r`; `[k:]` → drop-first-k `c d^k r`.
+ *  Inverse of sweet-render's accessorSubscript. [0]=car, [1]=cadr…; [1:]=cdr… */
+function subscriptToAccessor(idx: string): string {
+  const slice = idx.endsWith(":");
+  const k = Number(slice ? idx.slice(0, -1) : idx);
+  if (!Number.isInteger(k) || k < (slice ? 1 : 0)) throw new Error(`bad subscript '[${idx}]'`);
+  return slice ? "c" + "d".repeat(k) + "r" : "ca" + "d".repeat(k) + "r";
+}
 
 // reader-macro prefix → the symbol it expands to (mirrors parseSexprs).
 const QUOTE_WRAP: Record<string, string> = { "'": "quote", "`": "quasiquote", ",": "unquote", ",@": "unquote-splicing" };
@@ -77,7 +86,7 @@ function tokenize(src: string): Tok[] {
   while (i < src.length) {
     const c = src[i];
     if (/\s/.test(c)) { i++; continue; }
-    if (c === "(" || c === ")" || c === "{" || c === "}") { toks.push({ t: c }); i++; continue; }
+    if (c === "(" || c === ")" || c === "{" || c === "}" || c === "[" || c === "]") { toks.push({ t: c }); i++; continue; }
     if (c === "'" || c === "`") { toks.push({ t: "quote", v: c }); i++; continue; }
     if (c === ",") { const v = src[i + 1] === "@" ? ",@" : ","; toks.push({ t: "quote", v }); i += v.length; continue; }
     if (c === '"') {
@@ -91,7 +100,7 @@ function tokenize(src: string): Tok[] {
       continue;
     }
     let j = i;
-    while (j < src.length && !/\s/.test(src[j]) && !"(){}\"".includes(src[j])) j++;
+    while (j < src.length && !/\s/.test(src[j]) && !"(){}[]\"".includes(src[j])) j++;
     toks.push({ t: "word", v: src.slice(i, j) });
     i = j;
   }
@@ -109,6 +118,23 @@ function parseElements(toks: Tok[]): Node[] {
   const peek = (): Tok | undefined => toks[pos];
   const next = (): Tok => toks[pos++];
 
+  // Postfix subscripts: consume any `[k]` / `[k:]` following an operand and wrap it
+  // in the accessor it sugars (`xs[0]`→(car xs), `xs[1:]`→(cdr xs)). Chains, so
+  // `xs[0][1]`→(cadr (car xs)). Binds tighter than infix, so it's applied to each
+  // fully-read datum/operand before the infix climber sees it.
+  function withSubscripts(node: Node): Node {
+    let n = node;
+    while (peek() && peek()!.t === "[") {
+      next(); // [
+      const t = next();
+      if (!t || t.t !== "word") throw new Error("expected index inside '[ ]'");
+      const close = next();
+      if (!close || close.t !== "]") throw new Error("unbalanced '['");
+      n = { list: [atom(subscriptToAccessor(t.v)), n] };
+    }
+    return n;
+  }
+
   // `'`/`` ` ``/`,`/`,@` prefix → (quote datum) etc. Recurses (`''x` → nested).
   function quoted(parseDatum: () => Node): Node {
     const t = peek();
@@ -118,7 +144,7 @@ function parseElements(toks: Tok[]): Node[] {
 
   function classicList(): Node {
     const items: Node[] = [];
-    while (peek() && peek()!.t !== ")") items.push(quoted(classicDatum));
+    while (peek() && peek()!.t !== ")") items.push(withSubscripts(quoted(classicDatum)));
     if (!peek()) throw new Error("unbalanced (");
     next();
     return { list: items };
@@ -132,14 +158,14 @@ function parseElements(toks: Tok[]): Node[] {
   }
 
   function curlyOperand(): Node {
-    return quoted((): Node => {
+    return withSubscripts(quoted((): Node => {
       const t = peek();
       if (!t) throw new Error("unexpected end in curly");
       if (t.t === "(") { next(); return classicList(); }
       if (t.t === "{") { next(); return curly(); }
       if (t.t === "word" && !isOp(t.v)) { next(); return atom(t.v, t.str); }
       throw new Error(`expected operand in curly, got '${t.t === "word" ? t.v : t.t}'`);
-    });
+    }));
   }
   function infix(minPrec: number): Node {
     let left = curlyOperand();
@@ -169,7 +195,7 @@ function parseElements(toks: Tok[]): Node[] {
   }
 
   const elems: Node[] = [];
-  while (pos < toks.length) elems.push(quoted(classicDatum));
+  while (pos < toks.length) elems.push(withSubscripts(quoted(classicDatum)));
   return elems;
 }
 
@@ -192,8 +218,8 @@ function bracketDepth(s: string): number {
     const c = s[i];
     if (inStr) { if (c === "\\") i++; else if (c === '"') inStr = false; continue; }
     if (c === '"') inStr = true;
-    else if (c === "(" || c === "{") d++;
-    else if (c === ")" || c === "}") d--;
+    else if (c === "(" || c === "{" || c === "[") d++;
+    else if (c === ")" || c === "}" || c === "]") d--;
   }
   return d;
 }
