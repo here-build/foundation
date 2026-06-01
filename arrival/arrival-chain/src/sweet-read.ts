@@ -24,14 +24,44 @@ import type { Node } from "./sweet-render.js";
 const GLYPH_OP: Record<string, string> = { "==": "equal?", "&&": "and", "||": "or" };
 const opOf = (glyph: string): string => GLYPH_OP[glyph] ?? glyph;
 
-// glyph → precedence — must mirror sweet-render's INFIX_PREC. `=>` loosest.
+// glyph → precedence — must mirror sweet-render's INFIX_PREC. `=>` loosest;
+// `??` (null-coalescing) ≈ `||`.
 const GLYPH_PREC: Record<string, number> = {
-  "=>": 0, "||": 1, "&&": 2,
+  "=>": 0, "??": 1, "||": 1, "&&": 2,
   "==": 3, "=": 3, "eq?": 3, "eqv?": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
   "+": 4, "-": 4,
   "*": 5, "/": 5,
 };
 const isOp = (w: string): boolean => w in GLYPH_PREC;
+
+const atom2 = (w: string): Node => ({ atom: w });
+/** `{a ?? b}` → (if a a b); right-folds a chain `{a ?? b ?? c}` → (if a a (if b b c)). */
+function coalesceNode(ops: Node[]): Node {
+  let acc = ops[ops.length - 1];
+  for (let i = ops.length - 2; i >= 0; i--) acc = { list: [atom2("if"), ops[i], ops[i], acc] };
+  return acc;
+}
+
+const LET_FAMILY = new Set(["let", "let*", "letrec", "letrec*"]);
+const isAtomNode = (n: Node): n is { atom: string; str?: boolean } => "atom" in n;
+const bindingShaped = (n: Node): boolean => !isAtomNode(n) && n.list.length === 2 && isAtomNode(n.list[0]);
+/** Re-introduce the elided bindings `(( ))` for a let-family form. The render drops
+ *  it (each binding shown `name`⏎`value`); here we collect the leading binding-shaped
+ *  children back into a bindings list. Non-elided forms (items[1] already a bindings
+ *  list — first elem a list, or empty) are left untouched. */
+function regroupLetFamily(node: Node): Node {
+  if (isAtomNode(node) || node.list.length < 2) return node;
+  const h = node.list[0];
+  if (!isAtomNode(h) || !LET_FAMILY.has(h.atom)) return node;
+  const x = node.list[1];
+  const alreadyBindingsList = !isAtomNode(x) && (x.list.length === 0 || !isAtomNode(x.list[0]));
+  if (alreadyBindingsList) return node;
+  const bindings: Node[] = [];
+  let i = 1;
+  while (i < node.list.length && bindingShaped(node.list[i])) bindings.push(node.list[i++]);
+  if (bindings.length === 0) return node;
+  return { list: [h, { list: bindings }, ...node.list.slice(i)] };
+}
 
 type Tok =
   | { t: "(" | ")" | "{" | "}" }
@@ -125,6 +155,8 @@ function parseElements(toks: Tok[]): Node[] {
       }
       left = glyph === "=>"
         ? { list: [atom("lambda"), operands[0], operands[1]] }
+        : glyph === "??"
+        ? coalesceNode(operands)
         : { list: [atom(opOf(glyph)), ...operands] };
     }
     return left;
@@ -213,8 +245,9 @@ function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number
 
   const head = parseElements(toks);
   if (childElems.length === 0) return { elems: head, next: j };
-  // head tokens + children form one list (e.g. `define (f x)` ⏎ body, `(else …)`)
-  return { elems: [{ list: [...head, ...childElems] }], next: j };
+  // head tokens + children form one list (e.g. `define (f x)` ⏎ body, `(else …)`).
+  // regroupLetFamily re-wraps elided let/let* bindings into their `(( ))`.
+  return { elems: [regroupLetFamily({ list: [...head, ...childElems] })], next: j };
 }
 
 /** Full reader: sweet text → classic forms. */

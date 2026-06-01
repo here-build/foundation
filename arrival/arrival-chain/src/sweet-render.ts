@@ -231,6 +231,9 @@ export function inlineSweet(nd: Node, o: SweetOpts): string {
   if (isArrowLambda(items)) {
     return "{" + inlineSweet(items[1], o) + " => " + inlineArrowBody(items[2], o) + "}";
   }
+  if (isCoalesce(nd)) {
+    return "{" + infixOperand(items[1], 1, o) + " ?? " + infixOperand(items[3], 1, o) + "}";
+  }
   if (o.neoteric && !hasDot(items) && isAtom(items[0]) && !items[0].str && QUOTE_PREFIX[items[0].atom] === undefined) {
     return `${items[0].atom}(` + items.slice(1).map((it) => inlineSweet(it, o)).join(" ") + ")";
   }
@@ -254,6 +257,30 @@ const isFnDefine = (nd: Node): boolean =>
 const isCondForm = (nd: Node): boolean =>
   !isAtom(nd) && nd.list.length >= 1 && isAtom(nd.list[0]) && !nd.list[0].str && nd.list[0].atom === "cond";
 
+/** `(if X X Y)` (cond ≡ then) — the null-coalescing pattern, rendered `{X ?? Y}`.
+ *  Pure sweet sugar over the if-pattern (no stored macro); reads back to (if X X Y),
+ *  preserving its eval-twice semantics. `??` precedence ≈ `||`. */
+const isCoalesce = (nd: Node): boolean =>
+  !isAtom(nd) && nd.list.length === 4 && isAtom(nd.list[0]) && !nd.list[0].str &&
+  nd.list[0].atom === "if" && nodeEq(nd.list[1], nd.list[2]);
+
+const LET_FAMILY = new Set(["let", "let*", "letrec", "letrec*"]);
+const isBindingShaped = (nd: Node): boolean => !isAtom(nd) && nd.list.length === 2 && isAtom(nd.list[0]);
+/** A `let`/`let*`/`letrec`/`letrec*` whose bindings can be ELIDED in the view
+ *  (each binding shown as `name` ⏎ `value`, dropping the `(( ))`). Safe only when
+ *  every binding is `(sym val)` AND the body's first expr is NOT itself binding-
+ *  shaped (else the reader couldn't tell where bindings end). Named `let` excluded
+ *  (items[1] would be a symbol, not a bindings list). Unsafe → generic render
+ *  (bindings stay a `(( ))` paren group), which is still faithful. */
+const isLetElidable = (nd: Node): boolean => {
+  if (isAtom(nd) || nd.list.length < 2) return false;
+  const [h, binds] = nd.list;
+  if (!isAtom(h) || h.str || !LET_FAMILY.has(h.atom)) return false;
+  if (isAtom(binds) || binds.list.length === 0 || !binds.list.every(isBindingShaped)) return false;
+  const body = nd.list.slice(2);
+  return body.length > 0 && !isBindingShaped(body[0]);
+};
+
 /** Break a too-long curly-infix `{a op b op …}` operator-led: first operand after
  *  `{`, each subsequent on its own line prefixed with the operator. Recurses, so a
  *  nested long curly (e.g. `{{a - b} < c}`) breaks at every level that overflows. */
@@ -273,8 +300,9 @@ function formatInfix(items: Node[], col: number, o: SweetOpts): string {
  *  exceeds the width budget. First line is unindented (caller positions it). */
 export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
   const flat = inlineSweet(nd, o);
-  // Function defines and cond always break (uniform shape); else stay inline if it fits.
-  if (col + flat.length <= o.width && !isFnDefine(nd) && !isCondForm(nd)) return flat;
+  // Function defines, cond, and elidable let-family always break (uniform shape,
+  // even if they'd fit); everything else stays inline when it fits.
+  if (col + flat.length <= o.width && !isFnDefine(nd) && !isCondForm(nd) && !isLetElidable(nd)) return flat;
   if (isAtom(nd)) return flat;
   const items = nd.list;
   if (items.length === 0) return "()";
@@ -282,6 +310,23 @@ export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
   // reads back as X, not (X) — so keep it inline even past the width budget
   // (e.g. a single long `let` binding `((cls (map …)))`). Round-trip > width here.
   if (items.length === 1) return flat;
+
+  if (isCoalesce(nd)) return inlineSweet(nd, o); // keep `{X ?? Y}`, never break as an `if`
+
+  // let-family with elidable bindings: `let*` ⏎ each binding `name` ⏎ `value` ⏎ body.
+  // The `(( ))` is dropped in the view; the reader re-groups leading binding-shaped
+  // children. (Unsafe lets never reach here — isLetElidable already excluded them.)
+  if (isLetElidable(nd)) {
+    const pad2 = " ".repeat(col + 2);
+    const pad4 = " ".repeat(col + 4);
+    const out = [(items[0] as { atom: string }).atom];
+    for (const b of items[1].list) {
+      out.push(pad2 + formatSweet(b.list[0], col + 2, o));      // binding name
+      out.push(pad4 + formatSweet(b.list[1], col + 4, o));      // binding value
+    }
+    for (const bodyExpr of items.slice(2)) out.push(pad2 + formatSweet(bodyExpr, col + 2, o));
+    return out.join("\n");
+  }
 
   // cond: `cond` ⏎ each clause as `test` ⏎ consequence(s). A 1-element clause
   // `(test)` stays a paren group (can't break losslessly). Reconstructed by plain

@@ -38,6 +38,12 @@ describe("sweet-read: read(render(x)) ≡ x", () => {
     "(= n 0)",                                     // numeric = round-trips faithfully now
     "(eq? a b)",                                   // eq?/eqv? render & read as themselves
     "(eqv? x y)",
+    '(if last-bounce last-bounce "no data")',      // ?? sugar ⟷ (if X X Y)
+    "(if a b c)",                                  // ordinary if (not coalesce)
+    "(let* ((a 1) (b 2)) (list a b))",             // let* elide (body ≥3-elem → elidable)
+    "(let ((s (f p))) (g s s))",                   // single-binding let elide
+    "(let ((x 1)) (f y))",                         // unsafe (2-elem body) → paren-binding fallback
+    "(cond ((< n 6) #f) (else 0))",                // cond vertical
   ])("%s", (src) => {
     const r = roundTrips(src);
     expect(r.ok, `${src}\n  render→ ${r.sweet}\n  read→   ${r.got}`).toBe(true);

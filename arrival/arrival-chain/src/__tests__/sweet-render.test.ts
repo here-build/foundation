@@ -78,6 +78,15 @@ describe("sweet-render", () => {
       );
     });
 
+    it("?? sugar for the (if X X Y) coalesce pattern", () => {
+      expect(sweet('(if last-bounce last-bounce "no data")')).toBe('{last-bounce ?? "no data"}');
+      expect(sweet("(if x y z)")).toBe("(if x y z)"); // cond ≠ then → ordinary if
+    });
+
+    it("let* elides bindings: keyword ⏎ name ⏎ value (even when it would fit)", () => {
+      expect(sweet("(let* ((a 1) (b 2)) (+ a b))")).toBe("let*\n  a\n    1\n  b\n    2\n  {a + b}");
+    });
+
     it("precedence ladder: tighter children drop braces, looser keep them", () => {
       expect(sweet('(or (equal? v "a") (equal? v "b"))')).toBe('{v == "a" || v == "b"}');
       expect(sweet("(* (+ a b) c)")).toBe("{{a + b} * c}");      // + (looser) braced under *
