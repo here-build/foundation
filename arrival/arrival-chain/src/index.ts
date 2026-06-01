@@ -40,7 +40,7 @@ export {
 // without taking a direct dep on arrival-scheme.
 export { lipsToJs } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
-export { Project } from "./project.js";
+export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
 export { InferenceCache, ArrivalCache } from "./cache.js";
 export { ArrivalChain } from "./arrival-chain.js";
 export { runPipeline, type RunPipelineOptions, type PublishOptions } from "./runner.js";

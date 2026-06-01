@@ -175,6 +175,95 @@ function renderTemplateCall(source: string, args: unknown[]): string {
 const isThenable = (v: unknown): v is PromiseLike<unknown> =>
   v != null && typeof (v as { then?: unknown }).then === "function";
 
+/** Coerce a scheme value to a nullable scalar string (false/null/undefined → null). */
+const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
+
+/** Canonicalise a schema arg (string marker | tagged-list DSL | nothing) to the
+ *  single string used as the schema slot of a task's content key. */
+const schemaSlot = (v: unknown): string | null => {
+  if (v === undefined || v === false || v === null) return null;
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return JSON.stringify(v);
+  return String(v);
+};
+
+/**
+ * The infer-resolution seam: resolve ONE `(infer …)` call site to its value. The
+ * caller decides where the task lives (the project's content-addressed cache, or
+ * host's per-File tasks) and how it resolves. Returns the RAW value;
+ * `buildArrivalEnv` wraps it to a list for scheme. Args arrive already coerced
+ * (tier/prompt stringified, schema via schemaSlot, cacheKey via nullable).
+ */
+export type InferFn = (
+  ctx: { currentInvocation?: unknown } | undefined,
+  tier: string,
+  prompt: string,
+  schema: string | null,
+  cacheKey: string | null,
+) => Promise<unknown>;
+
+/**
+ * Build a sandboxed arrival-chain environment with the standard rosettas —
+ * `infer`, `infer/chat`, `json/parse`, `dict`, `template/handlebars`, plus
+ * `require`/`import` — EXCEPT inference resolution, which is injected via `infer`.
+ *
+ * This is the seam that lets a host route `(infer …)` into its own task store
+ * without arrival-chain hardcoding where tasks live: `Project.run` passes a
+ * cache-backed resolver; host passes a per-File one. The caller execs
+ * `BUILTIN_PREAMBLE` (+ its source) against the returned env.
+ */
+export function buildArrivalEnv(opts: {
+  name: string;
+  infer: InferFn;
+  loader: Loader;
+  /** Tap for `require`d module internals — `run` passes the trace; `runTraced`
+   *  omits it so library internals don't explode the live trace. */
+  tap?: EvalTrace;
+  /** Base dir for resolving relative `(require …)`. */
+  dirname?: string;
+}): ReturnType<typeof sandboxedEnv.inherit> {
+  const env = sandboxedEnv.inherit(opts.name);
+  // Every (infer …) yields a list to scheme; the resolver returns the raw value.
+  const list = (v: unknown): unknown => (Array.isArray(v) ? v : [v]);
+
+  env.defineRosetta("infer", {
+    withContext: true,
+    options: { provenancePoint: true },
+    fn: async (ctx, tier, prompt, schema, cacheKey) =>
+      list(await opts.infer(ctx, String(tier), String(prompt), schemaSlot(schema), nullable(cacheKey))),
+  });
+  env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)) });
+  env.defineRosetta("dict", {
+    fn: (...args: unknown[]) => {
+      invariant(args.length % 2 === 0, "dict: needs an even number of args (alternating keys/values)");
+      const out: Record<string, unknown> = {};
+      for (let i = 0; i < args.length; i += 2) out[dictKey(args[i])] = args[i + 1];
+      return out;
+    },
+  });
+  env.defineRosetta("template/handlebars", {
+    fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
+  });
+  env.defineRosetta("infer/chat", {
+    withContext: true,
+    options: { provenancePoint: true },
+    fn: async (ctx, tier, messages, schema, cacheKey) => {
+      const msgs = messages as unknown[];
+      invariant(Array.isArray(msgs), "infer/chat: messages must be a list");
+      const canonical = JSON.stringify(
+        msgs.map((m) => {
+          invariant(Array.isArray(m) && m.length === 2, "infer/chat: each message must be (role content)");
+          return { role: String(m[0]), content: String(m[1]) };
+        }),
+      );
+      return list(await opts.infer(ctx, String(tier), canonical, schemaSlot(schema), nullable(cacheKey)));
+    },
+  });
+  defineImportRosetta({ env, loader: opts.loader });
+  defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "" });
+  return env;
+}
+
 /**
  * Doc root.
  *   `files`    — owns Programs by path (the filesystem of this project)
@@ -297,143 +386,35 @@ export class Project extends PlexusModel<null> {
       tweaks?: Map<string, string>;
     } & ExecBudget = {},
   ): Promise<unknown> {
-    const env = sandboxedEnv.inherit("arrival-chain");
-
-    const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
-
-    /**
-     * Schema may arrive as a string (legacy marker) or a nested list
-     * (the tagged-list DSL: `'("object" ("name" "string") ...)`). Both
-     * canonicalise to a single string used as the schema slot in the
-     * cache tuple. Backend impls parse the JSON form to render JSON
-     * schema / drive JSON mode.
-     */
-    const schemaSlot = (v: unknown): string | null => {
-      if (v === undefined || v === false || v === null) return null;
-      if (typeof v === "string") return v;
-      if (Array.isArray(v)) return JSON.stringify(v);
-      return String(v);
-    };
-
-    const inferAndWait = async (
-      ctx: { currentInvocation?: unknown } | undefined,
-      tier: string,
-      prompt: string,
-      schema: string | null,
-      cacheKey: string | null,
-    ): Promise<unknown> => {
+    // The cache-backed infer resolver: find-or-create a task in this project's
+    // content-addressed cache, bind the trace, await its result. The rosetta
+    // wiring + list-wrapping live in buildArrivalEnv (shared with runTraced +
+    // host); this closure is the project-specific seam.
+    const inferAndWait: InferFn = async (ctx, tier, prompt, schema, cacheKey) => {
       // Hypothesis tweaks short-circuit before any cache lookup — the whole
       // point is to NOT consult the LLM for these tuples.
       const tweakKey = JSON.stringify([tier, prompt, schema, cacheKey]);
       const tweak = opts.tweaks?.get(tweakKey);
-      if (tweak !== undefined) {
-        const v = JSON.parse(tweak);
-        return Array.isArray(v) ? v : [v];
-      }
+      if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
       const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
       opts.onInfer?.(tweakKey);
       const inv = ctx?.currentInvocation;
       if (inv && opts.trace) {
         opts.trace.bindTask(task, inv as never);
-        // Colour the trace bar: a task that ALREADY holds a result at bind
-        // time means an earlier run/invocation paid for it — this one is a
-        // cache hit (blue). Read now, before the await resolves every task.
+        // A task already holding a result at bind time was paid for by an earlier
+        // run — colour this invocation a cache hit. Read before the await resolves.
         opts.trace.markInferCached(inv as never, task.isResolved);
-        // Mark this invocation as a provenance point — every (infer …) call
-        // is a new singleton {self.id} regardless of input provenances.
+        // Every (infer …) is a fresh provenance singleton {self.id}.
         opts.trace.markProvenancePoint(inv as never);
       }
-      const value = await task.waitFor();
-      return Array.isArray(value) ? value : [value];
+      return task.waitFor();
     };
 
-    // `provenancePoint: true` here AND the explicit `markProvenancePoint` call
-    // inside `inferAndWait` are intentionally redundant during the L2 transition.
-    // The rosetta wrapper marks the invocation via the option (so result stamping
-    // happens through the algebra), and the inferAndWait path covers the case
-    // where ctx.currentInvocation isn't where the wrapper expects (e.g., async
-    // re-entry). Both write `inv.isProvenancePoint = true` — idempotent.
-    env.defineRosetta("infer", {
-      withContext: true,
-      options: { provenancePoint: true },
-      fn: (ctx, tier, prompt, schema, cacheKey) =>
-        inferAndWait(ctx, String(tier), String(prompt), schemaSlot(schema), nullable(cacheKey)),
-    });
-
-    // ── json/parse — cross-boundary JSON loader ───────────────────────
-    //
-    // Returns plain JS values. The rosetta wrapper auto-routes:
-    //   - JS arrays → scheme lists (jsToLips wraps as Pair chain)
-    //   - JS objects → SchemeJSObject, access via `@`
-    //   - primitives → pass through
-    //
-    // Used by `(require "x.json")` so JSON objects are dict-shaped on
-    // arrival (no alist hand-rolling needed).
-    env.defineRosetta("json/parse", {
-      fn: (s: unknown) => JSON.parse(String(s)),
-    });
-
-    // ── dict — build a plain JS object from alternating key/value args ─
-    //
-    // `(dict "name" name "lang" "french")` returns `{name, lang: "french"}`.
-    // Useful for constructing template input on the call site, e.g.
-    // `(my-template (dict "phrase" phrase))`.
-    env.defineRosetta("dict", {
-      fn: (...args: unknown[]) => {
-        invariant(args.length % 2 === 0, "dict: needs an even number of args (alternating keys/values)");
-        const out: Record<string, unknown> = {};
-        for (let i = 0; i < args.length; i += 2) {
-          out[dictKey(args[i])] = args[i + 1];
-        }
-        return out;
-      },
-    });
-
-    // ── template/handlebars — string template rendering with dispatch ───
-    //
-    // `(template/handlebars "<src>" args-list)` renders the Handlebars
-    // template against args, which the dispatcher (see `renderTemplateCall`)
-    // converts to a dict via one of three call modes. The compiled template
-    // is cached by source, and the inferred input shape is validated before
-    // rendering — mismatches throw with a path-oriented error.
-    env.defineRosetta("template/handlebars", {
-      fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
-    });
-
-    // ── infer/chat — role-tagged message list ─────────────────────────
-    //
-    // Constructors (defined in the scheme preamble below) return
-    // pairs `(role content)`. infer/chat canonicalises the list to
-    // a JSON-stringified [{role, content}, ...] and uses that as the
-    // cache prompt — the cache key still rides on a single string,
-    // so caching, dedup and replay all work identically to `infer`.
-    env.defineRosetta("infer/chat", {
-      withContext: true,
-      options: { provenancePoint: true },
-      fn: (ctx, tier, messages, schema, cacheKey) => {
-        const msgs = messages as unknown[];
-        invariant(Array.isArray(msgs), "infer/chat: messages must be a list");
-        const canonical = JSON.stringify(
-          msgs.map((m) => {
-            invariant(Array.isArray(m) && m.length === 2, "infer/chat: each message must be (role content)");
-            return { role: String(m[0]), content: String(m[1]) };
-          }),
-        );
-        return inferAndWait(ctx, String(tier), canonical, schemaSlot(schema), nullable(cacheKey));
-      },
-    });
-
-    // `require` is a runtime rosetta now (not a textual splice): it resolves a
-    // specifier against the loader, reads the file, and spills its defines into
-    // `env` when the form runs. Eager-sequential + statement-position, so a
-    // required file's defines/macros are installed before the next form. The
-    // module internals share this run's tap, so library infers carry provenance.
     const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
     // `import` is the curated host-capability registry (FS-free). Merge the
-    // per-run set onto the loader's defaults; define the rosetta before exec.
+    // per-run set onto the loader's defaults; the require rosetta taps this run.
     if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
-    defineImportRosetta({ env, loader });
-    defineRequireRosetta({ env, loader, tap: opts.trace, baseDir: opts.dirname ?? "" });
+    const env = buildArrivalEnv({ name: "arrival-chain", infer: inferAndWait, loader, tap: opts.trace, dirname: opts.dirname });
     const results = await exec(BUILTIN_PREAMBLE + source, {
       env,
       tap: opts.trace,
@@ -776,28 +757,10 @@ export class Project extends PlexusModel<null> {
     // Reuse the same rosetta wiring as run() by going through run() for the
     // preamble half, then parsing and tap-evaluating the user body ourselves.
     // To avoid duplicating the env-setup, we set up the env inline here.
-    const env = sandboxedEnv.inherit("arrival-chain-traced");
-
-    const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
-    const schemaSlot = (v: unknown): string | null => {
-      if (v === undefined || v === false || v === null) return null;
-      if (typeof v === "string") return v;
-      if (Array.isArray(v)) return JSON.stringify(v);
-      return String(v);
-    };
-    const inferAndWait = async (
-      ctx: { currentInvocation?: unknown } | undefined,
-      tier: string,
-      prompt: string,
-      schema: string | null,
-      cacheKey: string | null,
-    ): Promise<unknown> => {
+    const inferAndWait: InferFn = async (ctx, tier, prompt, schema, cacheKey) => {
       const tupleKey = JSON.stringify([tier, prompt, schema, cacheKey]);
       const tweak = opts.tweaks?.get(tupleKey);
-      if (tweak !== undefined) {
-        const v = JSON.parse(tweak);
-        return Array.isArray(v) ? v : [v];
-      }
+      if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
       const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
       opts.onInfer?.(tupleKey);
       const inv = ctx?.currentInvocation;
@@ -806,57 +769,17 @@ export class Project extends PlexusModel<null> {
         opts.trace.markInferCached(inv as never, task.isResolved);
         opts.trace.markProvenancePoint(inv as never);
       }
-      const value = await task.waitFor();
-      return Array.isArray(value) ? value : [value];
+      return task.waitFor();
     };
-    // See the matching comment in `run()` — provenancePoint via options +
-    // explicit markProvenancePoint in inferAndWait are intentionally redundant
-    // during the L2 transition; both write the same idempotent flag.
-    env.defineRosetta("infer", {
-      withContext: true,
-      options: { provenancePoint: true },
-      fn: (ctx, tier, prompt, schema, cacheKey) =>
-        inferAndWait(ctx, String(tier), String(prompt), schemaSlot(schema), nullable(cacheKey)),
-    });
-    env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)) });
-    env.defineRosetta("dict", {
-      fn: (...args: unknown[]) => {
-        invariant(args.length % 2 === 0, "dict: needs an even number of args");
-        const out: Record<string, unknown> = {};
-        for (let i = 0; i < args.length; i += 2) out[dictKey(args[i])] = args[i + 1];
-        return out;
-      },
-    });
-    env.defineRosetta("template/handlebars", {
-      fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
-    });
-    env.defineRosetta("infer/chat", {
-      withContext: true,
-      options: { provenancePoint: true },
-      fn: (ctx, tier, messages, schema, cacheKey) => {
-        const msgs = messages as unknown[];
-        invariant(Array.isArray(msgs), "infer/chat: messages must be a list");
-        const canonical = JSON.stringify(
-          msgs.map((m) => {
-            invariant(Array.isArray(m) && m.length === 2, "infer/chat: each message must be (role content)");
-            return { role: String(m[0]), content: String(m[1]) };
-          }),
-        );
-        return inferAndWait(ctx, String(tier), canonical, schemaSlot(schema), nullable(cacheKey));
-      },
-    });
 
     const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
-    // `import` is the curated host-capability registry (FS-free). Merge the
-    // per-run set onto the loader's defaults; define the rosetta before exec.
     if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
-    defineImportRosetta({ env, loader });
+    // `require` internals are NOT tapped (tap omitted) so a required library
+    // doesn't explode the live trace — the (require …) call still appears as a
+    // top-level user form; provenance for library infers rides the plain run().
+    const env = buildArrivalEnv({ name: "arrival-chain-traced", infer: inferAndWait, loader, tap: undefined, dirname: opts.dirname });
     // Evaluate the builtin preamble first, tap-free, so the records map starts
-    // with only user-program forms. `require` is a runtime form now: its module
-    // internals are NOT tapped here (tap omitted) so a required library doesn't
-    // explode the live trace — the (require …) call itself still appears as a
-    // top-level user form. Provenance for library infers rides the plain run().
-    defineRequireRosetta({ env, loader, tap: undefined, baseDir: opts.dirname ?? "" });
+    // with only user-program forms.
     await exec(BUILTIN_PREAMBLE, { env, signal: opts.signal, budgetMs: opts.budgetMs });
     // Parse the whole user source — these are the Pair identities the UI renders
     // AND the ones the evaluator taps. A `(require …)` resolves when its form runs.
@@ -884,7 +807,7 @@ export class Project extends PlexusModel<null> {
  * runtime (instead of forcing every program to `(require "_lib.scm")`)
  * keeps short programs short and makes the DSL feel native.
  */
-const BUILTIN_PREAMBLE = `
+export const BUILTIN_PREAMBLE =`
 ;; ── numeric helpers ────────────────────────────────────────────────
 ;; (range 3) → (0 1 2)
 (define (range n)
