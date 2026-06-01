@@ -128,6 +128,18 @@ export class Invocation {
     makeAutoObservable(this, { id: false, node: false, parent: false, children: false });
   }
 
+  /**
+   * Flip {@link isProvenancePoint} as a MobX action (`makeAutoObservable` wraps
+   * prototype methods as actions). The arrival-scheme rosetta wrapper is MobX-free
+   * and duck-types this object as `{ id, isProvenancePoint? }`; it calls this
+   * method to mark a `provenance: true` rosetta's invocation rather than writing
+   * the observable directly — a raw write trips MobX strict-mode, which the studio
+   * enables (node tests don't, which is why this only surfaced in-app).
+   */
+  markProvenancePoint(): void {
+    this.isProvenancePoint = true;
+  }
+
   /** Walk the dynamic call chain back to the program-root invocation. */
   ancestors(): Invocation[] {
     const out: Invocation[] = [];

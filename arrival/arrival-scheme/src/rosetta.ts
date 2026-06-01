@@ -24,12 +24,14 @@ interface RosettaOptions {
    * read the id, and explicit opt-out is rejected via invariant so the failure
    * mode is loud (vs silently losing provenance-point marking).
    *
-   * Marked via `inv.isProvenancePoint = true` on the currentInvocation — the
+   * Marked by flipping `isProvenancePoint` on the currentInvocation — the
    * trace-side exit-tap reads this flag in computeProvenance (see
-   * arrival-chain/trace.ts). The flag is the contract; we don't go through a
-   * tap method since the tap interface here (`EvalTap`) doesn't expose one
-   * and `Invocation` is opaque from this side. Structural duck-typing on
-   * `{ id: number; isProvenancePoint?: boolean }` keeps the cycle one-way.
+   * arrival-chain/trace.ts). The flag is the contract. We prefer the
+   * invocation's own `markProvenancePoint()` method when present (the real
+   * Invocation is a MobX observable; the method is an action, so the write is
+   * legal under strict-mode), falling back to a direct set for plain POJOs.
+   * Structural duck-typing on `{ id; isProvenancePoint?; markProvenancePoint?() }`
+   * keeps the cycle one-way — no import of arrival-chain or MobX from here.
    */
   provenancePoint?: boolean;
 }
@@ -57,6 +59,12 @@ export interface RosettaFunction {
 interface InvocationLike {
   id: number;
   isProvenancePoint?: boolean;
+  /**
+   * arrival-chain's Invocation provides this as a MobX action; a plain test POJO
+   * doesn't. Preferred over a raw `isProvenancePoint` write so the flag flips
+   * inside an action — MobX strict-mode (on in the studio) forbids the bare write.
+   */
+  markProvenancePoint?(): void;
 }
 
 interface CtxWithInvocation {
@@ -287,7 +295,11 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
       if (options.provenancePoint === true) {
         const inv = (ctx as CtxWithInvocation | undefined)?.currentInvocation;
         if (inv && typeof inv.id === "number") {
-          inv.isProvenancePoint = true;
+          // The real Invocation is a MobX observable — flip the flag through its
+          // own action so this is safe under strict-mode (the studio enables it).
+          // A plain POJO (direct-JS tests) has no method → set it directly.
+          if (typeof inv.markProvenancePoint === "function") inv.markProvenancePoint();
+          else inv.isProvenancePoint = true;
           resultProvenance = pointProvenance(inv.id);
         }
         // No invocation in ctx: silent. The rosetta is being called from a
