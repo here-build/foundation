@@ -88,6 +88,16 @@ export {
 } from "./trace-to-flow-graph.js";
 export { inferTasksByScope } from "./infer-content.js";
 
+// ── Sweet-expression lens ─────────────────────────────────────────────
+//
+// classic↔sweet view over .scm source. `schemeToSweet` renders the stored
+// canonical scheme as a readable "sweet" form (curly-infix, `=>` lambda, colon
+// kwargs, `??` coalesce); stored entities stay raw scheme — sweet is a derived
+// view. Studio's [scheme]/[sweet] editor toggle renders the open program
+// through it. (The inverse reader lives in sweet-read.ts; it's wired in once
+// the editable-sweet save-back path lands.)
+export { schemeToSweet, type SweetOpts } from "./sweet-render.js";
+
 // ── Backend authoring helpers ────────────────────────────────────────
 //
 // Concrete backends live as individual subpath modules:
