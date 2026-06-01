@@ -7,8 +7,10 @@
  * the curly path, then reads back and compares trees.
  */
 import { describe, it, expect } from "vitest";
-import { parseSexprs, inlineSweet, DEFAULT_OPTS, nodeEq, type Node } from "../sweet-render.js";
-import { readSweetExpr } from "../sweet-read.js";
+import fs from "node:fs";
+import path from "node:path";
+import { parseSexprs, schemeToSweet, inlineSweet, DEFAULT_OPTS, nodeEq, type Node } from "../sweet-render.js";
+import { readSweetExpr, readSweet } from "../sweet-read.js";
 
 const classic = (src: string): Node => parseSexprs(src)[0];
 const show = (n: Node): string => ("atom" in n ? (n.str ? JSON.stringify(n.atom) : n.atom) : "(" + n.list.map(show).join(" ") + ")");
@@ -46,5 +48,27 @@ describe("sweet-read: read(render(x)) ≡ x", () => {
     expect(roundTrips("(= n 0)").got).toBe("(= n 0)");          // numeric, NOT equal?
     expect(roundTrips("(equal? a b)").got).toBe("(equal? a b)"); // structural
     expect(roundTrips("(eq? a b)").got).toBe("(eq? a b)");       // identity
+  });
+});
+
+describe("full reader: classic → schemeToSweet → readSweet ≡ classic", () => {
+  const FIX = path.resolve(import.meta.dirname, "fixtures/programs");
+  const EX = path.resolve(import.meta.dirname, "../../../../../examples/host-custdev");
+  const files = [FIX, EX].flatMap((dir) =>
+    fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".scm")).map((f) => path.join(dir, f)) : [],
+  );
+
+  it.each(files.map((f) => [f.split("/").slice(-2).join("/"), f] as const))("%s", (_label, file) => {
+    const src = fs.readFileSync(file, "utf-8");
+    const classicForms = parseSexprs(src);
+    const sweet = schemeToSweet(src);
+    const back = readSweet(sweet);
+    expect(back.length, "form count").toBe(classicForms.length);
+    for (let i = 0; i < classicForms.length; i++) {
+      expect(
+        nodeEq(back[i], classicForms[i]),
+        `form ${i} (${file.split("/").pop()})\n  classic: ${show(classicForms[i])}\n  sweet:\n${sweet.split("\n\n")[i]}\n  read:    ${show(back[i])}`,
+      ).toBe(true);
+    }
   });
 });

@@ -272,6 +272,10 @@ export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
   if (isAtom(nd)) return flat;
   const items = nd.list;
   if (items.length === 0) return "()";
+  // A 1-element list `(X)` can't break via indentation — a lone indented child
+  // reads back as X, not (X) — so keep it inline even past the width budget
+  // (e.g. a single long `let` binding `((cls (map …)))`). Round-trip > width here.
+  if (items.length === 1) return flat;
   if (isQuoteForm(items)) {
     const pre = QUOTE_PREFIX[(items[0] as { atom: string }).atom];
     return pre + formatSweet(items[1], col + pre.length, o);
@@ -325,7 +329,12 @@ export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
   const headFits = col + headFlat.length <= o.width;
   let line = headFits ? headFlat : formatSweet(items[0], col, o);
   let idx = 1;
-  if (headFits && items.length > 1) {
+  // Pull the first arg onto the head line ONLY if ≥1 element still remains as a
+  // child (`items.length > 2`). A broken list is recovered by the reader as
+  // "head line + indented children" — if pulling left ZERO children, the line
+  // would read back as a flat token sequence, silently dropping the list's parens
+  // (`((c …) (b …))` → `(c …) (b …)`). Keeping a child preserves the list.
+  if (headFits && items.length > 2) {
     const a1 = inlineSweet(items[1], o);
     if (col + headFlat.length + 1 + a1.length <= o.width) { line += " " + a1; idx = 2; }
   }
