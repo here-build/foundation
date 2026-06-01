@@ -65,7 +65,7 @@
 
 (define (react-cell persona variant replay-idx)
   (react
-    (string-concat "/" (:id variant) (:id persona) (number->string replay-idx))
+    (string-concat "/" (:id variant) (:id persona) replay-idx)
     :productHeader  (product-header)
     :summary        (summary-of-persona (state-of persona))
     :scenario       (:scenario variant)
@@ -78,7 +78,7 @@
 
 (define (reactions-block reactions)
   (string-concat "\n\n"
-    (map (lambda (i r) (string-append "Replay " (number->string (+ i 1)) ": " r))
+    (map (lambda (i r) (string-append "Replay " (+ i 1) ": " r))
          (range (length reactions)) reactions)))
 
 (define (cell-classify persona variant)
@@ -89,7 +89,7 @@
       :personaLine     (persona-line persona)
       :variantId       (:id variant)
       :lead            (:lead variant)
-      :replayCount     (number->string (length reactions))
+      :replayCount     (length reactions)
       :reactionsBlock  (reactions-block reactions))))
 
 ;; ── Stage 3: boundary (consumes all classifications for a variant) ───
@@ -113,7 +113,7 @@
         :productHeader  (product-header)
         :variantId      (:id variant)
         :lead           (:lead variant)
-        :clsCount       (number->string (length cls))
+        :clsCount       (length cls)
         :clsBlock       (cls-block cls)))))
 
 ;; ── Stage 4: gap analysis ────────────────────────────────────────────

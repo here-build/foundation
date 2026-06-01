@@ -35,13 +35,13 @@
 ;; ── One batch ────────────────────────────────────────────────────────
 
 (define (generate-batch start count prior)
-  (:personas (generate (number->string start)            ;; cache-key by start index
+  (:personas (generate start            ;; cache-key by start index
       :productContext  config/product-context
       :priorBlock    (string-concat "\n" (map summary-line prior))
-      :priorCount    (number->string (length prior))
-      :count         (number->string count)
-      :start         (number->string start)
-      :end           (number->string (+ start (- count 1))))))
+      :priorCount    (length prior)
+      :count         count
+      :start         start
+      :end           (+ start (- count 1)))))
 
 ;; ── The accumulating loop ────────────────────────────────────────────
 ;;
