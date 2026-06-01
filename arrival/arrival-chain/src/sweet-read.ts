@@ -16,7 +16,7 @@
  * SRFI-105 space-significance: inside `{}` an operator is a whitespace-isolated
  * token equal to an operator string (so `config/min-for-boundary` is one atom).
  */
-import type { Node } from "./sweet-render.js";
+import { parseSexprs, nodeEq, printScheme, type Node } from "./sweet-render.js";
 
 // glyph → canonical op (inverse of INFIX_GLYPH). INJECTIVE: only ==←equal?, &&←and,
 // ||←or are remapped; everything else (=, eq?, eqv?, arithmetic, comparison) is its
@@ -262,4 +262,79 @@ export function readSweet(text: string): Node[] {
       const { elems } = parseNode(lines, 0);
       return elems.length === 1 ? elems[0] : { list: elems };
     });
+}
+
+// ── save-back: sweet → classic, preserving unchanged forms ──────────────────────
+
+/** Byte spans of the top-level forms in classic source, in order. Inter-form
+ *  whitespace and `;` line-comments are NOT part of any span (preserved verbatim
+ *  on splice). String- and comment-aware so brackets inside them don't miscount. */
+export function topFormSpans(src: string): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = [];
+  const n = src.length;
+  let i = 0;
+  while (i < n) {
+    // Skip inter-form whitespace + line comments.
+    while (i < n) {
+      if (/\s/.test(src[i])) { i++; continue; }
+      if (src[i] === ";") { while (i < n && src[i] !== "\n") i++; continue; }
+      break;
+    }
+    if (i >= n) break;
+    const start = i;
+    // A form may carry leading quote/quasiquote/unquote prefixes (they bind tight).
+    while (i < n && (src[i] === "'" || src[i] === "`" || src[i] === ",")) i += src[i] === "," && src[i + 1] === "@" ? 2 : 1;
+    if (i < n && (src[i] === "(" || src[i] === "[")) {
+      // Balanced bracket group, string- & comment-aware.
+      let depth = 0;
+      let inStr = false;
+      for (; i < n; i++) {
+        const c = src[i];
+        if (inStr) { if (c === "\\") i++; else if (c === '"') inStr = false; continue; }
+        if (c === '"') inStr = true;
+        else if (c === ";") { while (i + 1 < n && src[i + 1] !== "\n") i++; }
+        else if (c === "(" || c === "[") depth++;
+        else if (c === ")" || c === "]") { if (--depth === 0) { i++; break; } }
+      }
+    } else if (i < n && src[i] === '"') {
+      i++;
+      while (i < n && src[i] !== '"') i += src[i] === "\\" ? 2 : 1;
+      i++;
+    } else {
+      // Bare atom (symbol / number).
+      while (i < n && !/\s/.test(src[i]) && !"()[];\"".includes(src[i])) i++;
+    }
+    spans.push({ start, end: i });
+  }
+  return spans;
+}
+
+/**
+ * Fold an edited sweet view back into canonical classic. Every UNCHANGED top-level
+ * form is preserved byte-for-byte (its comments + hand-formatting intact); only
+ * forms whose AST changed are reprinted (canonical, via printScheme). Falls back to
+ * a whole-file canonical reprint when the form correspondence is uncertain — the
+ * form count differs (a form added/removed in sweet) or a span doesn't parse to
+ * exactly one form. Throws if the sweet text is malformed (the caller keeps its
+ * buffer and skips the save). The law: `sweetToScheme(schemeToSweet(c), c) === c`
+ * byte-for-byte — viewing-then-saving an UNEDITED sweet view never touches storage.
+ */
+export function sweetToScheme(sweetText: string, prevClassic: string): string {
+  const sweetForms = readSweet(sweetText); // throws on malformed sweet → caller handles
+  const reprintAll = (): string => sweetForms.map((f) => printScheme(f)).join("\n\n") + "\n";
+
+  const spans = topFormSpans(prevClassic);
+  if (spans.length !== sweetForms.length) return reprintAll(); // form added/removed → uncertain
+
+  const prevParsed = spans.map((s) => parseSexprs(prevClassic.slice(s.start, s.end)));
+  if (prevParsed.some((forms) => forms.length !== 1)) return reprintAll(); // ambiguous split → uncertain
+
+  // Certain: 1:1 correspondence. Splice changed forms in from the end so earlier
+  // spans' offsets stay valid; unchanged forms (and all inter-form bytes) survive.
+  let out = prevClassic;
+  for (let i = spans.length - 1; i >= 0; i--) {
+    if (nodeEq(sweetForms[i], prevParsed[i][0])) continue; // unchanged → keep original bytes
+    out = out.slice(0, spans[i].start) + printScheme(sweetForms[i]) + out.slice(spans[i].end);
+  }
+  return out;
 }

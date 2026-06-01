@@ -92,11 +92,13 @@ export { inferTasksByScope } from "./infer-content.js";
 //
 // classic↔sweet view over .scm source. `schemeToSweet` renders the stored
 // canonical scheme as a readable "sweet" form (curly-infix, `=>` lambda, colon
-// kwargs, `??` coalesce); stored entities stay raw scheme — sweet is a derived
-// view. Studio's [scheme]/[sweet] editor toggle renders the open program
-// through it. (The inverse reader lives in sweet-read.ts; it's wired in once
-// the editable-sweet save-back path lands.)
+// kwargs, `??` coalesce); `sweetToScheme` folds an edited sweet view back to
+// canonical scheme, preserving every UNCHANGED top-level form byte-for-byte and
+// reprinting only what changed (canonical reprint when the form correspondence is
+// uncertain). Stored entities stay raw scheme — sweet is a derived editing lens.
+// Studio's [scheme]/[sweet] editor toggle renders + saves the program through them.
 export { schemeToSweet, type SweetOpts } from "./sweet-render.js";
+export { sweetToScheme } from "./sweet-read.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //

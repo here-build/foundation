@@ -460,6 +460,36 @@ export function nodeEq(a: Node, b: Node): boolean {
   return false;
 }
 
+/** Single-line classic serialization of a Node — the trivial inverse of
+ *  parseSexprs at the atom level. String atoms wrap RAW (`"${atom}"`), exactly
+ *  as inlineSweet does and as parseSexprs decodes them, so the AST round-trips. */
+export function inlineScheme(nd: Node): string {
+  if (isAtom(nd)) return nd.str ? `"${nd.atom}"` : nd.atom;
+  return "(" + nd.list.map(inlineScheme).join(" ") + ")";
+}
+
+/** Pretty classic (prefix-only) serialization of a Node: inline when it fits the
+ *  width, else break — the head (and, when the head is a bare symbol and the pair
+ *  still fits, the first operand) stay on the open-paren line; the rest indent at
+ *  col+2. Pure s-expressions, NO sweet transforms — this is the canonical-classic
+ *  writer the sweet save-back emits for a CHANGED form. It only adds whitespace
+ *  over inlineScheme, so parseSexprs(printScheme(f)) ≡ f. */
+export function printScheme(nd: Node, col = 0, width = DEFAULT_OPTS.width): string {
+  const flat = inlineScheme(nd);
+  if (isAtom(nd) || col + flat.length <= width) return flat;
+  const items = nd.list;
+  if (items.length <= 1) return flat; // () / (X): nothing to gain by breaking
+  // Keep the head on the open line; pull the first operand up too when the head
+  // is a bare symbol and the pair still fits — so `(define (f x)` / `(if test`
+  // read naturally instead of head-alone.
+  const pair = `${inlineScheme(items[0])} ${inlineScheme(items[1])}`;
+  const pull = isAtom(items[0]) && items.length > 2 && col + 1 + pair.length <= width;
+  const lead = pull ? pair : inlineScheme(items[0]);
+  const pad = " ".repeat(col + 2);
+  const rest = items.slice(pull ? 2 : 1).map((it) => pad + printScheme(it, col + 2, width));
+  return `(${lead}\n${rest.join("\n")})`;
+}
+
 /** Render a whole source file's top-level forms as sweet, blank-line separated. */
 export function schemeToSweet(src: string, opts: Partial<SweetOpts> = {}): string {
   const forms = parseSexprs(src);
