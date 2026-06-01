@@ -57,10 +57,18 @@ describe("sweet-render", () => {
   describe("units", () => {
     const sweet = (s: string, opts = {}) => schemeToSweet(s, opts);
 
-    it("curly-infix for arithmetic/comparison", () => {
+    it("curly-infix with display glyphs (= → ==, and/or → &&/||)", () => {
       expect(sweet("(- n 1)")).toBe("{n - 1}");
-      expect(sweet("(= n 0)")).toBe("{n = 0}");
+      expect(sweet("(= n 0)")).toBe("{n == 0}"); // = renders == (avoids assignment read)
+      expect(sweet("(equal? a b)")).toBe("{a == b}");
       expect(sweet("(+ a b c)")).toBe("{a + b + c}"); // n-ary same op
+      expect(sweet("(and p q)")).toBe("{p && q}");
+      expect(sweet("(or p q)")).toBe("{p || q}");
+    });
+
+    it("arrow lambda renders curly-wrapped", () => {
+      expect(sweet("(lambda (x) (* x 2))")).toBe("{(x) => x * 2}");
+      expect(sweet("(lambda (a b) (+ a b))")).toBe("{(a b) => a + b}");
     });
 
     it("non-infix heads stay prefix", () => {

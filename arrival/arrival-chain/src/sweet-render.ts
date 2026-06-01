@@ -117,8 +117,37 @@ export const DEFAULT_OPTS: SweetOpts = {
 const QUOTE_PREFIX: Record<string, string> = {
   quote: "'", quasiquote: "`", unquote: ",", "unquote-splicing": ",@",
 };
-// Only symbols that READ as infix get curly-sugar — not every binary head.
-const INFIX = new Set(["+", "-", "*", "/", "<", ">", "<=", ">=", "=", "modulo", "quotient", "remainder"]);
+// Symbols that READ as infix get curly-sugar — not every binary head.
+const INFIX = new Set([
+  "+", "-", "*", "/", "<", ">", "<=", ">=", "modulo", "quotient", "remainder",
+  "=", "equal?", "eq?", "eqv?", // equality
+  "and", "or",                  // logical
+]);
+// Canonical op → display glyph. The STORED op is unchanged (round-trips); only the
+// sweet view swaps in the familiar symbol. `=`→`==` avoids the assignment read; the
+// equality family collapses to `==`, `and`/`or` to `&&`/`||`.
+const INFIX_GLYPH: Record<string, string> = {
+  "=": "==", "equal?": "==", "eq?": "==", "eqv?": "==",
+  and: "&&", or: "||",
+};
+const glyphOf = (op: string): string => INFIX_GLYPH[op] ?? op;
+
+/** `(lambda (params…) single-body)` — rendered as an arrow `{(params) => body}`.
+ *  Curly-wrapped so it's self-delimiting (drops in anywhere) AND shares the infix
+ *  zone (the body composes: `{(x) => x * 2}`). Only single-body, list-param
+ *  lambdas; multi-body or rest-param lambdas stay classic `lambda` form. */
+const isArrowLambda = (items: Node[]): boolean =>
+  items.length === 3 && isAtom(items[0]) && !items[0].str && items[0].atom === "lambda" && !isAtom(items[1]);
+
+/** Render an arrow body: a top-level infix op drops its braces (it shares the
+ *  arrow's `{}` — `=>` already opened the zone); anything else renders normally. */
+function inlineArrowBody(nd: Node, o: SweetOpts): string {
+  if (!isAtom(nd) && nd.list.length >= 3 && isInfix(nd.list, o)) {
+    const op = (nd.list[0] as { atom: string }).atom;
+    return nd.list.slice(1).map((x) => inlineSweet(x, o)).join(` ${glyphOf(op)} `);
+  }
+  return inlineSweet(nd, o);
+}
 
 const isQuoteForm = (items: Node[]): boolean =>
   items.length === 2 && isAtom(items[0]) && !items[0].str && QUOTE_PREFIX[items[0].atom] !== undefined;
@@ -166,7 +195,10 @@ export function inlineSweet(nd: Node, o: SweetOpts): string {
   if (isQuoteForm(items)) return QUOTE_PREFIX[(items[0] as { atom: string }).atom] + inlineSweet(items[1], o);
   if (isInfix(items, o)) {
     const op = (items[0] as { atom: string }).atom;
-    return "{" + items.slice(1).map((it) => inlineSweet(it, o)).join(` ${op} `) + "}";
+    return "{" + items.slice(1).map((it) => inlineSweet(it, o)).join(` ${glyphOf(op)} `) + "}";
+  }
+  if (isArrowLambda(items)) {
+    return "{" + inlineSweet(items[1], o) + " => " + inlineArrowBody(items[2], o) + "}";
   }
   if (o.neoteric && !hasDot(items) && isAtom(items[0]) && !items[0].str && QUOTE_PREFIX[items[0].atom] === undefined) {
     return `${items[0].atom}(` + items.slice(1).map((it) => inlineSweet(it, o)).join(" ") + ")";
@@ -194,7 +226,8 @@ function formatInfix(items: Node[], col: number, o: SweetOpts): string {
   let out = "{" + formatSweet(operands[0], col + 1, o);
   const contCol = col + 2;
   for (let k = 1; k < operands.length; k++) {
-    out += "\n" + " ".repeat(contCol) + op + " " + formatSweet(operands[k], contCol + op.length + 1, o);
+    const g = glyphOf(op);
+    out += "\n" + " ".repeat(contCol) + g + " " + formatSweet(operands[k], contCol + g.length + 1, o);
   }
   return out + "}";
 }
