@@ -248,6 +248,12 @@ const isFnDefine = (nd: Node): boolean =>
   !isAtom(nd) && nd.list.length >= 2 && isAtom(nd.list[0]) && !nd.list[0].str &&
   nd.list[0].atom === "define" && isFlatList(nd.list[1]);
 
+/** `(cond …)` — always rendered vertical: `cond` ⏎ each clause as `test` ⏎
+ *  consequence (never inline, never starting from `(`). Reconstructed by plain
+ *  I-expressions: a `test` line + consequence child reads back as (test cons). */
+const isCondForm = (nd: Node): boolean =>
+  !isAtom(nd) && nd.list.length >= 1 && isAtom(nd.list[0]) && !nd.list[0].str && nd.list[0].atom === "cond";
+
 /** Break a too-long curly-infix `{a op b op …}` operator-led: first operand after
  *  `{`, each subsequent on its own line prefixed with the operator. Recurses, so a
  *  nested long curly (e.g. `{{a - b} < c}`) breaks at every level that overflows. */
@@ -267,8 +273,8 @@ function formatInfix(items: Node[], col: number, o: SweetOpts): string {
  *  exceeds the width budget. First line is unindented (caller positions it). */
 export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
   const flat = inlineSweet(nd, o);
-  // Function defines always break (uniform shape); everything else stays inline if it fits.
-  if (col + flat.length <= o.width && !isFnDefine(nd)) return flat;
+  // Function defines and cond always break (uniform shape); else stay inline if it fits.
+  if (col + flat.length <= o.width && !isFnDefine(nd) && !isCondForm(nd)) return flat;
   if (isAtom(nd)) return flat;
   const items = nd.list;
   if (items.length === 0) return "()";
@@ -276,6 +282,22 @@ export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
   // reads back as X, not (X) — so keep it inline even past the width budget
   // (e.g. a single long `let` binding `((cls (map …)))`). Round-trip > width here.
   if (items.length === 1) return flat;
+
+  // cond: `cond` ⏎ each clause as `test` ⏎ consequence(s). A 1-element clause
+  // `(test)` stays a paren group (can't break losslessly). Reconstructed by plain
+  // I-expressions (a `test` line + consequence child → (test cons)).
+  if (isCondForm(nd)) {
+    const pad2 = " ".repeat(col + 2);
+    const pad4 = " ".repeat(col + 4);
+    const out = ["cond"];
+    for (const clause of items.slice(1)) {
+      if (isAtom(clause) || clause.list.length < 2) { out.push(pad2 + inlineSweet(clause, o)); continue; }
+      out.push(pad2 + formatSweet(clause.list[0], col + 2, o)); // test (curly if infix)
+      for (const cons of clause.list.slice(1)) out.push(pad4 + formatSweet(cons, col + 4, o));
+    }
+    return out.join("\n");
+  }
+
   if (isQuoteForm(items)) {
     const pre = QUOTE_PREFIX[(items[0] as { atom: string }).atom];
     return pre + formatSweet(items[1], col + pre.length, o);

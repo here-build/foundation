@@ -72,6 +72,12 @@ describe("sweet-render", () => {
       expect(sweet("(lambda (a b) (+ a b))")).toBe("{(a b) => a + b}");
     });
 
+    it("cond always breaks vertical: cond ⏎ test ⏎ consequence", () => {
+      expect(sweet("(cond ((< n 6) #f) (else 0))")).toBe(
+        "cond\n  {n < 6}\n    #f\n  else\n    0",
+      );
+    });
+
     it("precedence ladder: tighter children drop braces, looser keep them", () => {
       expect(sweet('(or (equal? v "a") (equal? v "b"))')).toBe('{v == "a" || v == "b"}');
       expect(sweet("(* (+ a b) c)")).toBe("{{a + b} * c}");      // + (looser) braced under *
