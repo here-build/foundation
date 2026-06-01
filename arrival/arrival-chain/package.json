@@ -45,6 +45,10 @@
       "types": "./dist/sweet.d.ts",
       "import": "./dist/sweet.js"
     },
+    "./flow": {
+      "types": "./dist/flow.d.ts",
+      "import": "./dist/flow.js"
+    },
     "./backends/openai": {
       "types": "./dist/backends/openai.d.ts",
       "import": "./dist/backends/openai.js"

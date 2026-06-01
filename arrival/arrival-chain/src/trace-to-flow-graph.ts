@@ -37,68 +37,22 @@
  * affects only visual CONTAINMENT here. The causal edges are independent of
  * nesting, so the graph stays causally correct; only the loop region won't wrap
  * its body until the `tailPosition`-anchored fix lands.
+ *
+ * ── where the pure model lives ───────────────────────────────────────────────
+ * The render-ready value types (`FlowGraph*`) and the causal cones moved to
+ * `flow-graph.ts` — an engine-free leaf the `@here.build/arrival-chain/flow`
+ * subpath exposes (a UI renders the graph without the interpreter). They're
+ * re-exported here so the barrel + existing importers keep the same surface;
+ * `traceToFlowGraph` (the EvalTrace producer) stays here, where the engine is.
  */
-import {
-  collapseMDL,
-  type BoxType,
-  type CandidateBox,
-  type CollapseParams,
-} from "./mdl-collapse.js";
-import { traceToStatechart, type EdgeKind } from "./statechart.js";
+import { collapseMDL, type CandidateBox, type CollapseParams } from "./mdl-collapse.js";
+import { traceToStatechart } from "./statechart.js";
 import { scopeId, traceToForest, type ForestOptions } from "./trace-to-forest.js";
 import type { EvalTrace, Invocation } from "./trace.js";
+import type { FlowGraph, FlowGraphEdge, FlowGraphNode, FlowNodeKind } from "./flow-graph.js";
 
-export type FlowNodeKind = "region" | "leaf";
-
-export interface FlowGraphNode {
-  /** Single id space — the forest's structural scope id (`head@line:col`),
-   *  stable across runs. */
-  id: string;
-  /** `region` = has nested boxes (a compound/parent node); `leaf` = a terminal
-   *  box (typically an infer/query provenance point, or an empty scope). */
-  kind: FlowNodeKind;
-  /** unfold (map fan-out) | loop (recursion) | dnf (branch) | fold | leaf. */
-  boxType: BoxType;
-  /** Parent region id, or null for a root. */
-  parentId: string | null;
-  /** Display label — the form's leading symbol (e.g. `map`, `infer/chat`). */
-  label: string;
-  /** Local multiplicity for the ×N stack badge: occurrences-per-parent-occurrence
-   *  (the per-level number the mockup shows — ×3 inside ×K, not the flat 3K). 1 ⇒
-   *  ran once ⇒ no stack (renderer hides the badge). */
-  count: number;
-  /** Lamport causal depth (longest upstream infer chain) for causal nodes; null
-   *  for regions/leaves with no provenance counterpart. Drives left→right lanes. */
-  layer: number | null;
-  /** The optimizer's INITIAL fold decision: a region folds its children to a ×N
-   *  card; a multi-instance leaf folds to a ×N stack (the mockup's stacked
-   *  fan-out). n=1 scopes never fold. The human can expand/collapse from here. */
-  collapsedByDefault: boolean;
-  /** A human-forced collapse override (a promoted "forced" user-define). */
-  forced: boolean;
-}
-
-export interface FlowGraphEdge {
-  /** Upstream leaf scope id. */
-  from: string;
-  /** Downstream leaf scope id. */
-  to: string;
-  /** `forward` = within-iteration dataflow (solid arrow); `loopback` = the `↺`
-   *  back-edge (iter-k → iter-k+1 collapsed onto the same cells). */
-  kind: EdgeKind;
-}
-
-export interface FlowGraph {
-  nodes: FlowGraphNode[];
-  edges: FlowGraphEdge[];
-  /** MDL bit-budget of the chosen grouping (caption / debug). */
-  totalBits: number;
-  /** Fully-expanded raw bits — the compression anchor (`totalBits <= rawBits`). */
-  rawBits: number;
-  /** Non-fatal correlation issues (scope-id collisions). Empty in the common
-   *  case; surfaced rather than hidden. */
-  warnings: string[];
-}
+export type { FlowGraph, FlowGraphEdge, FlowGraphNode, FlowNodeKind } from "./flow-graph.js";
+export { flowForwardCone, flowBackwardCone } from "./flow-graph.js";
 
 export interface FlowGraphOptions extends ForestOptions, CollapseParams {}
 
@@ -167,32 +121,3 @@ export function traceToFlowGraph(trace: EvalTrace, opts: FlowGraphOptions = {}):
 
   return { nodes, edges, totalBits, rawBits, warnings };
 }
-
-/** Causal cone over the flow-graph's directed edges (ignoring `kind` — a
- *  loopback is a real causal edge). `forward` = blast radius; `backward` = why.
- *  Self is never included; cycles terminate via the visited set. Mirrors
- *  statechart's `cone`, in the flow-graph's string id space (what the renderer
- *  selects on). */
-function flowCone(graph: FlowGraph, startId: string, direction: "forward" | "backward"): Set<string> {
-  const adj = new Map<string, string[]>();
-  for (const e of graph.edges) {
-    const [from, to] = direction === "forward" ? [e.from, e.to] : [e.to, e.from];
-    (adj.get(from) ?? adj.set(from, []).get(from)!).push(to);
-  }
-  const out = new Set<string>();
-  const queue = [startId];
-  while (queue.length) {
-    for (const next of adj.get(queue.shift()!) ?? []) {
-      if (next === startId || out.has(next)) continue;
-      out.add(next);
-      queue.push(next);
-    }
-  }
-  return out;
-}
-
-/** Blast radius: every node that re-fires if the given node changes. */
-export const flowForwardCone = (graph: FlowGraph, id: string): Set<string> => flowCone(graph, id, "forward");
-
-/** Causal why: every node whose output flowed into the given node. */
-export const flowBackwardCone = (graph: FlowGraph, id: string): Set<string> => flowCone(graph, id, "backward");
