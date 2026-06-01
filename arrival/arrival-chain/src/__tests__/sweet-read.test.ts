@@ -33,17 +33,18 @@ describe("sweet-read: read(render(x)) ≡ x", () => {
     "(lambda (a b) (+ a b))",
     "(lambda (r) (or (< (key r) 5) (equal? (key r) v)))",
     "(map (lambda (p) (list p (cell p))) xs)",    // classic call wrapping an arrow operand
+    "(= n 0)",                                     // numeric = round-trips faithfully now
+    "(eq? a b)",                                   // eq?/eqv? render & read as themselves
+    "(eqv? x y)",
   ])("%s", (src) => {
     const r = roundTrips(src);
     expect(r.ok, `${src}\n  render→ ${r.sweet}\n  read→   ${r.got}`).toBe(true);
   });
 
-  // KNOWN non-injectivity: `=`/`eq?`/`eqv?` render `==`, which reads back `equal?`.
-  // Behaviour-identical for exact integers (the showcase's only `=` use), but NOT
-  // syntactically faithful — a decision for V (accept canonicalization vs un-collapse).
-  it("numeric = canonicalizes to equal? on round-trip (documented)", () => {
-    const r = roundTrips("(= n 0)");
-    expect(r.sweet).toBe("{n == 0}");
-    expect(r.got).toBe("(equal? n 0)"); // NOT (= n 0)
+  // The glyph map is injective now, so equality round-trips by KIND, not collapsed.
+  it("equality kinds stay distinct through the round-trip", () => {
+    expect(roundTrips("(= n 0)").got).toBe("(= n 0)");          // numeric, NOT equal?
+    expect(roundTrips("(equal? a b)").got).toBe("(equal? a b)"); // structural
+    expect(roundTrips("(eq? a b)").got).toBe("(eq? a b)");       // identity
   });
 });

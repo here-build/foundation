@@ -123,12 +123,14 @@ const INFIX = new Set([
   "=", "equal?", "eq?", "eqv?", // equality
   "and", "or",                  // logical
 ]);
-// Canonical op → display glyph. The STORED op is unchanged (round-trips); only the
-// sweet view swaps in the familiar symbol. `=`→`==` avoids the assignment read; the
-// equality family collapses to `==`, `and`/`or` to `&&`/`||`.
+// Canonical op → display glyph. STORED op unchanged; the view swaps in the familiar
+// symbol. The map is INJECTIVE for a faithful round-trip: only `equal?`→`==` (the
+// structural-equality common case), `and`/`or`→`&&`/`||`. `=` (numeric), `eq?`,
+// `eqv?` render AS THEMSELVES — they're different ops, and collapsing them to `==`
+// would make view+save rewrite `(= n 0)` → `(equal? n 0)`. `{n = 0}` reads fine as a
+// comparison; the assignment association is weak inside a visibly-expression curly.
 const INFIX_GLYPH: Record<string, string> = {
-  "=": "==", "equal?": "==", "eq?": "==", "eqv?": "==",
-  and: "&&", or: "||",
+  "equal?": "==", and: "&&", or: "||",
 };
 const glyphOf = (op: string): string => INFIX_GLYPH[op] ?? op;
 

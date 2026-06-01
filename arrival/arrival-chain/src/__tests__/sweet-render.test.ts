@@ -57,11 +57,12 @@ describe("sweet-render", () => {
   describe("units", () => {
     const sweet = (s: string, opts = {}) => schemeToSweet(s, opts);
 
-    it("curly-infix with display glyphs (= → ==, and/or → &&/||)", () => {
+    it("curly-infix display glyphs are injective (equal?→==, and/or→&&/||; = stays =)", () => {
       expect(sweet("(- n 1)")).toBe("{n - 1}");
-      expect(sweet("(= n 0)")).toBe("{n == 0}"); // = renders == (avoids assignment read)
-      expect(sweet("(equal? a b)")).toBe("{a == b}");
-      expect(sweet("(+ a b c)")).toBe("{a + b + c}"); // n-ary same op
+      expect(sweet("(equal? a b)")).toBe("{a == b}");   // structural equality → ==
+      expect(sweet("(= n 0)")).toBe("{n = 0}");         // numeric = stays = (round-trips)
+      expect(sweet("(eq? a b)")).toBe("{a eq? b}");     // eq?/eqv? render as themselves
+      expect(sweet("(+ a b c)")).toBe("{a + b + c}");   // n-ary same op
       expect(sweet("(and p q)")).toBe("{p && q}");
       expect(sweet("(or p q)")).toBe("{p || q}");
     });

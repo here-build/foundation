@@ -18,19 +18,17 @@
  */
 import type { Node } from "./sweet-render.js";
 
-// glyph → canonical op (inverse of INFIX_GLYPH in sweet-render). NOTE the `==`
-// collapse is NOT injective on render (=, equal?, eq?, eqv? all render `==`); we
-// canonicalize to `equal?`. So `=`/`eq?`/`eqv?` written in classic do NOT survive
-// read∘render unchanged — they come back as `equal?` (behaviour-identical for the
-// exact-integer comparisons in the showcase; differs only on inexact). Flagged for
-// a decision: either accept this canonicalization or un-collapse the glyph.
+// glyph → canonical op (inverse of INFIX_GLYPH). INJECTIVE: only `==` (← equal?),
+// `&&` (← and), `||` (← or) are remapped; `=`/`eq?`/`eqv?`/arithmetic/comparison
+// glyphs are already their own canonical op. So read∘render = id for every equality
+// — `{n = 0}` reads back `(= n 0)`, `{a == b}` reads back `(equal? a b)`.
 const GLYPH_OP: Record<string, string> = { "==": "equal?", "&&": "and", "||": "or" };
 const opOf = (glyph: string): string => GLYPH_OP[glyph] ?? glyph;
 
 // glyph → precedence (must mirror sweet-render's INFIX_PREC ladder). `=>` loosest.
 const GLYPH_PREC: Record<string, number> = {
   "=>": 0, "||": 1, "&&": 2,
-  "==": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
+  "==": 3, "=": 3, "eq?": 3, "eqv?": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
   "+": 4, "-": 4,
   "*": 5, "/": 5,
 };
