@@ -71,6 +71,16 @@ describe("sweet-render", () => {
       expect(sweet("(lambda (a b) (+ a b))")).toBe("{(a b) => a + b}");
     });
 
+    it("precedence ladder: tighter children drop braces, looser keep them", () => {
+      expect(sweet('(or (equal? v "a") (equal? v "b"))')).toBe('{v == "a" || v == "b"}');
+      expect(sweet("(* (+ a b) c)")).toBe("{{a + b} * c}");      // + (looser) braced under *
+      expect(sweet("(< (- a b) c)")).toBe("{a - b < c}");        // - (tighter) shares under <
+      expect(sweet("(and (or a b) c)")).toBe("{{a || b} && c}"); // || (looser) braced under &&
+      expect(sweet("(- a (- b c))")).toBe("{a - {b - c}}");      // non-assoc grouping preserved
+      expect(sweet("(lambda (r) (or (< (key r) 5) (equal? (key r) v)))"))
+        .toBe("{(r) => (key r) < 5 || (key r) == v}");           // arrow + nested precedence
+    });
+
     it("non-infix heads stay prefix", () => {
       expect(sweet("(cons a b)")).toBe("(cons a b)");
     });

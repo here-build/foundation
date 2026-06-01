@@ -132,6 +132,40 @@ const INFIX_GLYPH: Record<string, string> = {
 };
 const glyphOf = (op: string): string => INFIX_GLYPH[op] ?? op;
 
+// Precedence ladder (higher binds tighter), keyed on the CANONICAL op. This is a
+// deliberate departure from SRFI-105 (which is precedence-free): it lets a child
+// that binds tighter than its parent drop its braces, so compound expressions read
+// like C/JS — {v == "click" || v == "keep-reading"} instead of {{…} || {…}}.
+//   `||` ⟨ `&&` ⟨ comparison ⟨ additive ⟨ multiplicative
+const INFIX_PREC: Record<string, number> = {
+  or: 1, and: 2,
+  "=": 3, "equal?": 3, "eq?": 3, "eqv?": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
+  "+": 4, "-": 4,
+  "*": 5, "/": 5, modulo: 5, quotient: 5, remainder: 5,
+};
+const precOf = (op: string): number => INFIX_PREC[op] ?? 3;
+
+/** Render the INSIDE of an infix node (no outer braces): `a glyph b glyph …`,
+ *  recursing through operands at this op's precedence. */
+function infixContent(items: Node[], o: SweetOpts): string {
+  const op = (items[0] as { atom: string }).atom;
+  const myPrec = precOf(op);
+  return items.slice(1).map((x) => infixOperand(x, myPrec, o)).join(` ${glyphOf(op)} `);
+}
+
+/** Render an operand inside an infix at `parentPrec`. An infix operand keeps its
+ *  braces only when it binds the same or looser than the parent (so grouping is
+ *  preserved, incl. non-associative `-`/`/`); a tighter operand drops them and
+ *  shares the zone. Non-infix operands render normally. */
+function infixOperand(nd: Node, parentPrec: number, o: SweetOpts): string {
+  if (!isAtom(nd) && nd.list.length >= 3 && isInfix(nd.list, o)) {
+    const opPrec = precOf((nd.list[0] as { atom: string }).atom);
+    const content = infixContent(nd.list, o);
+    return opPrec <= parentPrec ? `{${content}}` : content;
+  }
+  return inlineSweet(nd, o);
+}
+
 /** `(lambda (params…) single-body)` — rendered as an arrow `{(params) => body}`.
  *  Curly-wrapped so it's self-delimiting (drops in anywhere) AND shares the infix
  *  zone (the body composes: `{(x) => x * 2}`). Only single-body, list-param
@@ -139,14 +173,10 @@ const glyphOf = (op: string): string => INFIX_GLYPH[op] ?? op;
 const isArrowLambda = (items: Node[]): boolean =>
   items.length === 3 && isAtom(items[0]) && !items[0].str && items[0].atom === "lambda" && !isAtom(items[1]);
 
-/** Render an arrow body: a top-level infix op drops its braces (it shares the
- *  arrow's `{}` — `=>` already opened the zone); anything else renders normally. */
+/** Render an arrow body. `=>` is the loosest operator (precedence 0), so the body
+ *  shares the arrow's `{}` — any infix body (prec ≥ 1) drops its braces. */
 function inlineArrowBody(nd: Node, o: SweetOpts): string {
-  if (!isAtom(nd) && nd.list.length >= 3 && isInfix(nd.list, o)) {
-    const op = (nd.list[0] as { atom: string }).atom;
-    return nd.list.slice(1).map((x) => inlineSweet(x, o)).join(` ${glyphOf(op)} `);
-  }
-  return inlineSweet(nd, o);
+  return infixOperand(nd, 0, o);
 }
 
 const isQuoteForm = (items: Node[]): boolean =>
@@ -194,8 +224,7 @@ export function inlineSweet(nd: Node, o: SweetOpts): string {
   if (items.length === 0) return "()";
   if (isQuoteForm(items)) return QUOTE_PREFIX[(items[0] as { atom: string }).atom] + inlineSweet(items[1], o);
   if (isInfix(items, o)) {
-    const op = (items[0] as { atom: string }).atom;
-    return "{" + items.slice(1).map((it) => inlineSweet(it, o)).join(` ${glyphOf(op)} `) + "}";
+    return "{" + infixContent(items, o) + "}";
   }
   if (isArrowLambda(items)) {
     return "{" + inlineSweet(items[1], o) + " => " + inlineArrowBody(items[2], o) + "}";
