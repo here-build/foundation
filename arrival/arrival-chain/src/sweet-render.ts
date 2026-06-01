@@ -320,9 +320,13 @@ export function formatSweet(nd: Node, col: number, o: SweetOpts): string {
     const pad2 = " ".repeat(col + 2);
     const pad4 = " ".repeat(col + 4);
     const out = [(items[0] as { atom: string }).atom];
-    for (const b of items[1].list) {
-      out.push(pad2 + formatSweet(b.list[0], col + 2, o));      // binding name
-      out.push(pad4 + formatSweet(b.list[1], col + 4, o));      // binding value
+    // isLetElidable guarantees items[1] is a non-empty list of binding-shaped
+    // `(name value)` 2-lists (see its `binds.list.every(isBindingShaped)` gate),
+    // so these narrowing casts are sound — same idiom as items[0] above.
+    for (const b of (items[1] as { list: Node[] }).list) {
+      const bind = (b as { list: Node[] }).list;
+      out.push(pad2 + formatSweet(bind[0], col + 2, o));      // binding name
+      out.push(pad4 + formatSweet(bind[1], col + 4, o));      // binding value
     }
     for (const bodyExpr of items.slice(2)) out.push(pad2 + formatSweet(bodyExpr, col + 2, o));
     return out.join("\n");
