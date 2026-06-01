@@ -8,14 +8,21 @@
  * the module's defines into the run env (`.scm` — `load` semantics) or returns a
  * value (data / template). See docs/working-proposals/todo/require-import-loader.md.
  *
- * Design (audit-hardened 2026-05-30):
- *   - `require` is STATEMENT-POSITION + EAGER-SEQUENTIAL: a `.scm` file's forms
- *     are `execExpr`'d in order, to completion, before `require` returns. This is
- *     why the simple loaded/loading guard is race-free (no concurrent requires),
- *     the dir stack is push/pop-sequential, and a required file's `define-macro`
+ * Design (audit-hardened 2026-05-30; single-flight 2026-06-01):
+ *   - `require` is STATEMENT-POSITION within a `.scm`: that file's forms are
+ *     `execExpr`'d in order, to completion, so a required file's `define-macro`
  *     is installed before the caller's next form expands (R5RS `load`).
+ *   - But requires are NOT globally sequential. `(map …)` evaluates its body in
+ *     PARALLEL (`promise_all`), so the same path can be `(require)`d concurrently
+ *     by N iterations. The loader is therefore SINGLE-FLIGHT: a path loads exactly
+ *     once and every later require — sequential repeat OR concurrent sibling —
+ *     shares that one promise. (The old flat in-flight Set read siblings #2…N as
+ *     a cycle; that was the spurious `react.prompt → react.prompt` on any fan-out
+ *     `(map (lambda (p) ((require "react.prompt") …)) …)`.)
  *   - Cycles THROW (R7RS forbids module cycles; no exports object to return
- *     "partial" in a spill model).
+ *     "partial" in a spill model). Only `.scm` (`load`) can `require` during its
+ *     OWN evaluation, so the cycle guard is scoped to it — value/eval modules
+ *     (`.json`, `.prompt`, `.hbs`) are require-graph leaves and cannot cycle.
  *   - The reader is the security boundary: `resolve` normalizes posix paths
  *     relative to the importing module's dir and REJECTS escapes above the root;
  *     `read` only serves keys inside the root. (Trivial for the flat project VFS
@@ -354,22 +361,40 @@ export function defineRequireRosetta(opts: {
   baseDir?: string;
 }): void {
   const { env, loader, tap, baseDir = "" } = opts;
-  const loaded = new Map<string, { value: unknown }>(); // resolved-once cache (path → value)
-  const loading = new Set<string>();
-  const loadingStack: string[] = []; // ordered, for the cycle-chain message
-  const dirStack: string[] = [baseDir]; // current module's dir, for relative resolves
+  // Single-flight module cache: each resolved path loads EXACTLY ONCE; every later
+  // require — sequential repeat OR concurrent sibling — awaits that one promise.
+  const inflight = new Map<string, Promise<{ value: unknown }>>();
+  // Paths whose MODULE FORMS are mid-evaluation (`.scm` `load` kind only). A
+  // re-entrant require of an evaluating path is a genuine R7RS cycle (a→b→a):
+  // awaiting its in-flight promise would deadlock, so we throw the chain instead.
+  // value/eval modules are leaves (can't require during load) → never here, so
+  // their concurrent requires always take the safe dedup path. (A concurrent
+  // require of the SAME `.scm` via `map` would also trip this, but spilling one
+  // file's defines N times concurrently is ill-defined anyway — rejecting is fine.)
+  const evaluating = new Set<string>();
+  const loadingStack: string[] = []; // the `.scm` require chain, for the cycle / requireChain message
+  // Current module's dir, for relative resolves. A shared stack assumes the
+  // resolve dir is stable across concurrent requires — true for same-dir fan-out
+  // (the common case: top-level `(map (require "x.prompt") …)`). Concurrent
+  // requires of modules in DIFFERENT dirs doing relative nested requires could
+  // mis-resolve; threading the dir per-chain needs evaluator context — deferred.
+  const dirStack: string[] = [baseDir];
 
   env.defineRosetta("require", {
     fn: async (specifierArg: unknown) => {
       const path = await loader.resolve(String(specifierArg), dirStack.at(-1)!);
-      const cached = loaded.get(path);
-      if (cached) return cached.value;
-      if (loading.has(path)) {
-        throw new Error(`require: cyclic dependency: ${[...loadingStack, path].join(" → ")}`);
+
+      const pending = inflight.get(path);
+      if (pending) {
+        // In-flight as our own ancestor → real cycle (awaiting would deadlock).
+        // Otherwise a settled cache hit or a concurrent sibling — share the load.
+        if (evaluating.has(path)) {
+          throw new Error(`require: cyclic dependency: ${[...loadingStack, path].join(" → ")}`);
+        }
+        return (await pending).value;
       }
-      loading.add(path);
-      loadingStack.push(path);
-      try {
+
+      const load = (async (): Promise<{ value: unknown }> => {
         const contents = await loader.read(path);
         const resolver = pickResolver(path, loader.resolvers);
         invariant(resolver, `require: no resolver for ${path}`);
@@ -385,34 +410,49 @@ export function defineRequireRosetta(opts: {
         } else {
           // load / eval: evaluate the module's forms in order into the run env,
           // with the module's own dir on the stack for its relative requires.
+          // Only `load` (`.scm`) can require during this eval, so only it enters
+          // the cycle domain (`evaluating` / `loadingStack`).
+          const isLoad = result.kind === "load";
           dirStack.push(dirOf(path));
+          if (isLoad) {
+            evaluating.add(path);
+            loadingStack.push(path);
+          }
           try {
             for (const form of result.forms) value = await execExpr(form, { env, tap });
           } finally {
+            if (isLoad) {
+              loadingStack.pop();
+              evaluating.delete(path);
+            }
             dirStack.pop();
           }
-          if (result.kind === "load") value = undefined; // `load` returns unspecified
+          if (isLoad) value = undefined; // `load` returns unspecified
         }
-        loaded.set(path, { value });
-        return value;
+        return { value };
+      })();
+
+      inflight.set(path, load);
+      try {
+        return (await load).value;
       } catch (error) {
-        // Annotate a throw from inside a required module with the require chain
-        // (which `require` led here: a → b → c). The DEEPEST require wins —
-        // outer levels see it already set and leave it, so the chain reads
-        // entry→failing-module. Survives evaluator propagation: an
-        // already-SchemeError is re-thrown unchanged (evaluator.ts:615), and a
-        // plain assignment to an Error object sticks. Best-effort (frozen → skip).
+        // A failed load must not poison the cache — drop it so the path can be
+        // retried (a transient read error isn't permanent; a real cycle / parse
+        // error simply recurs). Then annotate the throw with the require chain
+        // (which `require` led here: a → b → c). The DEEPEST require wins — outer
+        // levels see it already set and leave it, so the chain reads
+        // entry→failing-module. Survives evaluator propagation: an already-
+        // SchemeError is re-thrown unchanged (evaluator.ts:615), and a plain
+        // assignment to an Error object sticks. Best-effort (frozen → skip).
+        inflight.delete(path);
         if (error !== null && typeof error === "object" && !("requireChain" in error)) {
           try {
-            (error as { requireChain?: string[] }).requireChain = [...loadingStack];
+            (error as { requireChain?: string[] }).requireChain = [...loadingStack, path];
           } catch {
             /* frozen/sealed error — annotation is best-effort */
           }
         }
         throw error;
-      } finally {
-        loading.delete(path);
-        loadingStack.pop();
       }
     },
   });

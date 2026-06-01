@@ -125,6 +125,30 @@ describe("require — Plexus VFS preamble", () => {
     await expect(project.run(`(require "a.scm")`)).rejects.toThrow(/cyclic/);
   });
 
+  it("a parallel (map (require …)) over the same VALUE leaf dedups, not a false cycle", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile("d.json", `{"n": 7}`);
+    // `map` evaluates its body in parallel (promise_all), so the three requires of
+    // d.json fire concurrently. The old flat in-flight Set read siblings #2 and #3
+    // as `d.json → d.json` cycles; single-flight dedups them onto one load.
+    const value = await project.run(`(apply + (map (lambda (x) (:n (require "d.json"))) (list 1 2 3)))`);
+    expect(value).toBe(21); // 7 × 3 — all three siblings resolved, none threw
+  });
+
+  it("a parallel (map (require …)) over the same EVAL leaf dedups (the react.prompt shape)", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile("t.hbs", `hi {{who}}`);
+    // `.hbs`/`.prompt` are eval-kind leaves — exactly the class that fanned out as
+    // `(map (require "react.prompt") …)` and spuriously cycled. Loading is what
+    // races (not calling), so concurrently requiring the render lambda is enough.
+    const value = await project.run(`(length (map (lambda (x) (require "t.hbs")) (list 1 2 3)))`);
+    expect(value).toBe(3);
+  });
+
   it("throws when the file isn't in the project", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
