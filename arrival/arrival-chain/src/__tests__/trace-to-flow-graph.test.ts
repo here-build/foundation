@@ -160,4 +160,21 @@ describe("traceToFlowGraph — unified model over the real gepa trace", () => {
     // Self never appears in its own cone.
     expect(flowForwardCone(graph, react.id).has(react.id)).toBe(false);
   });
+
+  it("attaches each region's boundary — map entrance (loop-back reflect) + exit (react)", async () => {
+    const graph = traceToFlowGraph(await gepaTrace());
+    const map = graph.nodes.find((n) => n.id.startsWith("map@"))!;
+    const react = inferLeaves(graph).find((n) => n.parentId === map.id)!;
+    const reflect = inferLeaves(graph).find((n) => n.id !== react.id)!;
+
+    // The region-model boundary, derived over the SAME forest + lifted edges (no
+    // interpreter change, no extra trace): react (inside the map) feeds reflect
+    // (outside) → react EXITS; the loopback reflect→react (outside→inside) ENTERS.
+    // This is what the render draws as the collapsed map's ports.
+    expect(map.exit ?? []).toContain(react.id);
+    expect(map.entrance ?? []).toContain(reflect.id);
+    // A leaf carries no boundary — ports are what mark a node as a container.
+    expect(react.entrance).toBeUndefined();
+    expect(react.exit).toBeUndefined();
+  });
 });

@@ -46,6 +46,7 @@
  * `traceToFlowGraph` (the EvalTrace producer) stays here, where the engine is.
  */
 import { collapseMDL, type CandidateBox, type CollapseParams } from "./mdl-collapse.js";
+import { regionBoundariesFromEdges } from "./region-boundaries.js";
 import { traceToStatechart } from "./statechart.js";
 import { scopeId, traceToForest, type ForestOptions } from "./trace-to-forest.js";
 import type { EvalTrace, Invocation } from "./trace.js";
@@ -117,6 +118,20 @@ export function traceToFlowGraph(trace: EvalTrace, opts: FlowGraphOptions = {}):
     const to = scopeIdOfChart.get(e.to);
     if (from === undefined || to === undefined || from.includes("#") || to.includes("#")) continue;
     edges.push(e.fields ? { from, to, kind: e.kind, fields: e.fields } : { from, to, kind: e.kind });
+  }
+
+  // Region boundaries (region-model): attach each region's entrance/exit — the
+  // producers crossing its scope. Same pure derivation the naive builder runs,
+  // over the SAME forest + lifted edges (no recompute): the render draws these as
+  // ports when the region is collapsed. Computed over the full forest hierarchy,
+  // so a region carries its boundary whether or not the MDL pass folded it.
+  const boundaries = new Map(regionBoundariesFromEdges(forest, edges).map((b) => [b.id, b] as const));
+  for (const node of nodes) {
+    const b = boundaries.get(node.id);
+    if (b && (b.entrance.length > 0 || b.exit.length > 0)) {
+      node.entrance = b.entrance;
+      node.exit = b.exit;
+    }
   }
 
   return { nodes, edges, totalBits, rawBits, warnings };
