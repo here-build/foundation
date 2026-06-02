@@ -25,6 +25,7 @@
  */
 import type { BoxType, CandidateBox } from "./mdl-collapse.js";
 import type { FlowGraph, FlowGraphEdge, FlowGraphNode } from "./flow-graph.js";
+import { regionBoundariesFromEdges } from "./region-boundaries.js";
 import { traceToStatechart } from "./statechart.js";
 import { scopeId, traceToForest, type ForestOptions } from "./trace-to-forest.js";
 import type { EvalTrace, Invocation } from "./trace.js";
@@ -107,6 +108,18 @@ export function traceToFlowGraphNaive(trace: EvalTrace, opts: ForestOptions = {}
     const to = sidOfChart.get(e.to);
     if (from === undefined || to === undefined || from.includes("#") || to.includes("#")) continue;
     edges.push(e.fields ? { from, to, kind: e.kind, fields: e.fields } : { from, to, kind: e.kind });
+  }
+
+  // Region boundaries: attach each region node's entrance/exit (the producers
+  // crossing its boundary) for the render to draw as ports. Reuses this build's
+  // forest + already-lifted edges — no recompute.
+  const boundaries = new Map(regionBoundariesFromEdges(forest, edges).map((b) => [b.id, b] as const));
+  for (const node of nodes) {
+    const b = boundaries.get(node.id);
+    if (b && (b.entrance.length > 0 || b.exit.length > 0)) {
+      node.entrance = b.entrance;
+      node.exit = b.exit;
+    }
   }
 
   // No compression: the chosen description IS the raw one (ratio 1).

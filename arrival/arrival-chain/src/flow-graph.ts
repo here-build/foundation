@@ -39,6 +39,13 @@ export interface FlowGraphNode {
   collapsedByDefault: boolean;
   /** A human-forced collapse override (a promoted "forced" user-define). */
   forced: boolean;
+  /** Region boundary (region-model): for a region node, the producer node-ids
+   *  whose values cross IN (entrance) and the internal producers whose values
+   *  cross OUT (exit), from regionBoundaries. Absent on leaves and on regions with
+   *  no boundary crossing. The render draws these as the region's entrance/exit
+   *  ports when collapsed (replacing the elk-layout edge-lift heuristic). */
+  entrance?: string[];
+  exit?: string[];
 }
 
 export interface FlowGraphEdge {

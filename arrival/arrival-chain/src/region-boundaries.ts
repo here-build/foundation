@@ -1,5 +1,5 @@
 /**
- * Region boundaries — Stage 1 of the provenance region-model
+ * Region boundaries — the region-model's first-class boundary
  * (docs/working-proposals/provenance-region-model-plan-2026-06-02.md).
  *
  * Derives, for each control-operator REGION, the producers that cross its
@@ -7,7 +7,7 @@
  * and `exit` (internal producers feeding outside). This is what turns a region
  * from a transparent passthrough into a first-class boundary, and it's a PURE
  * derivation over what we already compute — the forest (region tree) + the
- * statechart (point→point causal edges). No interpreter change, no new trace data.
+ * statechart's point→point causal edges. No interpreter change, no new trace data.
  *
  * The rule is just edge-vs-membership: an edge `P→C` is an ENTRANCE of every
  * region that contains the consumer `C` but not the producer `P`, and an EXIT of
@@ -36,19 +36,14 @@ export interface RegionBoundary {
 
 const headOf = (sid: string): string => sid.split("@")[0] ?? sid;
 
-export function regionBoundaries(trace: EvalTrace): RegionBoundary[] {
-  const forest = traceToForest(trace);
-  const chart = traceToStatechart(trace);
-  const snap = snapshotTrace(trace);
-
-  // chart numeric node id → scope id (the same bridge traceToFlowGraph uses).
-  const invById = new Map<number, PlainInv>();
-  for (const inv of snap.invocations) invById.set(inv.id, inv);
-  const sidOf = (chartNodeId: number): string | undefined => {
-    const inv = invById.get(chartNodeId);
-    return inv ? scopeId(inv.node) : undefined;
-  };
-
+/**
+ * Core derivation, over the forest + scope-id edges. Builders that already hold a
+ * forest + their lifted (scope-id) edges call this directly — no recompute.
+ */
+export function regionBoundariesFromEdges(
+  forest: readonly CandidateBox[],
+  edges: ReadonlyArray<{ from: string; to: string }>,
+): RegionBoundary[] {
   // Forest tree → ancestorsOf[sid] = the container regions enclosing that scope,
   // outermost-first. A region is any box that nests other boxes.
   const ancestorsOf = new Map<string, string[]>();
@@ -62,16 +57,12 @@ export function regionBoundaries(trace: EvalTrace): RegionBoundary[] {
   };
   for (const root of forest) walk(root, []);
 
-  // Classify each causal edge against region membership.
   const entrance = new Map<string, Set<string>>();
   const exit = new Map<string, Set<string>>();
   const add = (m: Map<string, Set<string>>, region: string, producer: string): void => {
     (m.get(region) ?? m.set(region, new Set<string>()).get(region)!).add(producer);
   };
-  for (const e of chart.edges) {
-    const from = sidOf(e.from);
-    const to = sidOf(e.to);
-    if (from === undefined || to === undefined) continue;
+  for (const { from, to } of edges) {
     const fromAncestors = ancestorsOf.get(from) ?? [];
     const toAncestors = ancestorsOf.get(to) ?? [];
     const fromSet = new Set(fromAncestors);
@@ -86,4 +77,22 @@ export function regionBoundaries(trace: EvalTrace): RegionBoundary[] {
     entrance: [...(entrance.get(id) ?? [])].sort(),
     exit: [...(exit.get(id) ?? [])].sort(),
   }));
+}
+
+/** Standalone: derive every region's boundary directly from a trace. */
+export function regionBoundaries(trace: EvalTrace): RegionBoundary[] {
+  const forest = traceToForest(trace);
+  const chart = traceToStatechart(trace);
+  const snap = snapshotTrace(trace);
+
+  const invById = new Map<number, PlainInv>();
+  for (const inv of snap.invocations) invById.set(inv.id, inv);
+
+  const edges: { from: string; to: string }[] = [];
+  for (const e of chart.edges) {
+    const from = invById.get(e.from);
+    const to = invById.get(e.to);
+    if (from && to) edges.push({ from: scopeId(from.node), to: scopeId(to.node) });
+  }
+  return regionBoundariesFromEdges(forest, edges);
 }

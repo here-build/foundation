@@ -94,6 +94,11 @@ describe("traceToFlowGraphNaive", () => {
     expect(naive.nodes.some((n) => n.boxType === "loop")).toBe(true);
     expect(naive.nodes.some((n) => n.label === "map")).toBe(true);
 
+    // The map region carries its boundary: entrance (loop-back reflect) + exit (react).
+    const mapNode = naive.nodes.find((n) => n.label === "map");
+    expect(mapNode?.entrance?.length ?? 0).toBeGreaterThan(0);
+    expect(mapNode?.exit?.length ?? 0).toBeGreaterThan(0);
+
     // Provenance wired: the two infer points produce causal edges.
     expect(naive.edges.length).toBeGreaterThan(0);
   });
