@@ -88,11 +88,32 @@ function time(label: string, fn: () => void, runs = 7): string {
   return `  ${label.padEnd(30)} mean ${mean.toFixed(1).padStart(9)} ms    min ${Math.min(...samples).toFixed(1).padStart(9)} ms`;
 }
 
+/** Nodes that would be VISIBLE under a collapse predicate — i.e. NOT inside any
+ *  collapsed region (collapse UNMOUNTS descendants). This is the metric that
+ *  drives elk-layout + canvas cost (both melt past ~200 nodes) — separate from the
+ *  build time above. Because the forest groups by AST scope (a map run 10k times
+ *  is ONE node, n=10000), the totals are tiny regardless of iteration count;
+ *  collapsing a region hides its BODY SUBTREE, not the repeated runs. */
+type CountNode = { id: string; parentId: string | null; boxType: string; collapsedByDefault: boolean };
+function visibleUnder(nodes: CountNode[], collapsed: (n: CountNode) => boolean): number {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const hidden = (n: CountNode): boolean => {
+    let p = n.parentId ? byId.get(n.parentId) : undefined;
+    while (p) {
+      if (collapsed(p)) return true;
+      p = p.parentId ? byId.get(p.parentId) : undefined;
+    }
+    return false;
+  };
+  return nodes.filter((n) => !hidden(n)).length;
+}
+
 describe("flow-graph build — benchmark", () => {
   // Scale here to stress the O(n) / O(n²) terms. Trace-build (setup) grows too.
   const SIZES: Array<[rounds: number, personas: number]> = [
     [12, 6],
     [40, 16],
+    [80, 24],
   ];
 
   for (const [rounds, personas] of SIZES) {
@@ -100,6 +121,10 @@ describe("flow-graph build — benchmark", () => {
       const trace = await buildBenchTrace(rounds, personas);
       const snap = snapshotTrace(trace);
       const infers = snap.invocations.filter((i) => i.isProvenancePoint).length;
+
+      const mdl = traceToFlowGraph(trace);
+      const naive = traceToFlowGraphNaive(trace);
+      const repeating = (n: CountNode) => n.boxType === "loop" || n.boxType === "unfold";
 
       console.log(
         [
@@ -109,6 +134,15 @@ describe("flow-graph build — benchmark", () => {
           time("traceToStatechart", () => traceToStatechart(trace)),
           time("traceToFlowGraph (MDL)", () => traceToFlowGraph(trace)),
           time("traceToFlowGraphNaive", () => traceToFlowGraphNaive(trace)),
+          // The render-cost metric: VISIBLE nodes (elk + canvas melt past ~200).
+          // Totals are tiny because the forest groups by AST scope — the iteration
+          // count never inflates node count; collapsing hides a region's body.
+          `  --- nodes (grouped by AST scope, NOT per run) ---`,
+          `  total nodes (MDL build)            ${mdl.nodes.length}`,
+          `  repeating regions (loop+unfold)    ${mdl.nodes.filter(repeating).length}`,
+          `  visible · MDL bit-budget fold      ${visibleUnder(mdl.nodes, (n) => n.collapsedByDefault)}`,
+          `  visible · ONLY loop+unfold folded  ${visibleUnder(mdl.nodes, repeating)}`,
+          `  visible · ALL expanded (no fold)   ${mdl.nodes.length}`,
         ].join("\n"),
       );
 
