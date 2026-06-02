@@ -9,6 +9,7 @@
  * shared `_gepa-trace.ts` helper would DRY all three — left for a focused
  * follow-up so this commit stays scoped to the new builder.)
  */
+import { autorun, untracked } from "mobx";
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
@@ -176,5 +177,54 @@ describe("traceToFlowGraph — unified model over the real gepa trace", () => {
     // A leaf carries no boundary — ports are what mark a node as a container.
     expect(react.entrance).toBeUndefined();
     expect(react.exit).toBeUndefined();
+  });
+
+  it("rebuilds O(scopes), not O(invocations): the structure-version trigger fires per new scope", async () => {
+    // Mirrors TraceGraph's render trigger: read `records.size` (TRACKED) + build
+    // UNTRACKED. `records` is keyed by Pair identity, so re-entering a known scope
+    // grows that record's bindings WITHOUT changing the map size — so it does not
+    // re-fire. Only a NEW scope (a new record) does. This is the O(n²)→O(n) fix:
+    // re-running the O(invocations) build on every trace-tick was the "minutes".
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({
+        complete: async (spec: ModelSpec) => {
+          const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
+          const user = parsed.find((m) => m.role === "user")?.content ?? "";
+          if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
+          const [, current] = user.split("|");
+          return { value: { next: current === "t0" ? "t1" : "t2" } };
+        },
+      }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+
+    let builds = 0;
+    const dispose = autorun(() => {
+      void trace.records.size; // STRUCTURE trigger (tracked) — bumps only on a new scope
+      untracked(() => traceToFlowGraph(trace)); // build (untracked → binding growth is invisible)
+      builds += 1;
+    });
+
+    await project.run(PROGRAM, { trace });
+    ac.abort();
+    await draining;
+    dispose();
+
+    const scopes = trace.records.size;
+    const invocations = [...trace.records.values()].reduce((n, r) => n + r.bindings.size, 0);
+
+    // Meaningful only if scopes are heavily re-entered (else the test is vacuous).
+    expect(invocations).toBeGreaterThan(scopes * 3);
+    // The build ran ~once per distinct scope as the structure filled in — NOT once
+    // per invocation. (+1 for the autorun's initial pass; MobX batches, so usually
+    // fewer.) Were the build TRACKED, this would be ≈ invocations.
+    expect(builds).toBeLessThanOrEqual(scopes + 1);
+    expect(builds).toBeLessThan(invocations);
   });
 });
