@@ -86,6 +86,7 @@ export {
   type FlowNodeKind,
   type FlowGraphOptions,
 } from "./trace-to-flow-graph.js";
+export { traceToFlowGraphNaive } from "./trace-to-flow-graph-naive.js";
 export { inferTasksByScope } from "./infer-content.js";
 
 // ── Sweet-expression lens ─────────────────────────────────────────────
