@@ -107,6 +107,16 @@ describe("traceToStatechart — gepa-loop causal DAG", () => {
     const back = chart.edges.find((e) => e.from === reflect!.id && e.to === react!.id);
     expect(fwd?.kind).toBe("forward");
     expect(back?.kind).toBe("loopback");
+
+    // Field-qualified provenance: reflect read `(:verdict (car reactions))`, so
+    // the react→reflect wire carries exactly the `verdict` pin. The loop-back
+    // carries `next` — next-tagline returns `(:next (car (infer …)))`, and that
+    // plucked field flows THROUGH the loop binding into the next iteration's
+    // react. That binding-indirection edge is the payoff of intrinsic per-value
+    // provenance (the field rides on the value as a synthetic point, not
+    // reconstructed from lexical nesting — the v0 pass could not see it).
+    expect(fwd?.fields).toEqual(["verdict"]);
+    expect(back?.fields).toEqual(["next"]);
   });
 });
 

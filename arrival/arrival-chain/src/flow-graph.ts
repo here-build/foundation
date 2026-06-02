@@ -49,6 +49,12 @@ export interface FlowGraphEdge {
   /** `forward` = within-iteration dataflow (solid arrow); `loopback` = the `↺`
    *  back-edge (iter-k → iter-k+1 collapsed onto the same cells). */
   kind: EdgeKind;
+  /** Field-qualified provenance: the producer output fields actually plucked
+   *  across this edge (`["verdict"]` where the consumer read `(:verdict …)`).
+   *  Absent when the whole value flowed unprojected. The blueprint per-property
+   *  "pin" of the wire; carried verbatim from the statechart. See
+   *  `ChartEdge.fields` for the spec-derived rule and the v0 capture bound. */
+  fields?: string[];
 }
 
 export interface FlowGraph {

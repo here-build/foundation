@@ -116,7 +116,7 @@ export function traceToFlowGraph(trace: EvalTrace, opts: FlowGraphOptions = {}):
     const from = scopeIdOfChart.get(e.from);
     const to = scopeIdOfChart.get(e.to);
     if (from === undefined || to === undefined || from.includes("#") || to.includes("#")) continue;
-    edges.push({ from, to, kind: e.kind });
+    edges.push(e.fields ? { from, to, kind: e.kind, fields: e.fields } : { from, to, kind: e.kind });
   }
 
   return { nodes, edges, totalBits, rawBits, warnings };

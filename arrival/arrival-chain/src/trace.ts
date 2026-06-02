@@ -25,6 +25,28 @@ import { action, makeAutoObservable, observable } from "mobx";
 export type InvocationState = "running" | "resolved" | "rejected";
 
 /**
+ * A field-point's origin: which producer point it projects from, and the field
+ * key plucked. The `origin` may itself be a field-point id (nested `(:a (:b x))`)
+ * — resolve transitively to the real producer point; the pin is the key closest
+ * to that real point (the producer's actual output field). See
+ * `EvalTrace.fieldPointMeta`.
+ */
+export interface FieldPointMeta {
+  origin: number;
+  key: string;
+}
+
+/** If a form is a keyword-accessor application `(:field x)`, the bare field name
+ *  (`"verdict"`), else null. The head is the keyword SchemeSymbol whose
+ *  `__name__` is `":verdict"`; a head of exactly `":"` (no field) is not one. */
+function accessorField(node: Pair): string | null {
+  const head = (node as { car: unknown }).car;
+  if (head === null || typeof head !== "object" || !("__name__" in head)) return null;
+  const name = (head as { __name__: unknown }).__name__;
+  return typeof name === "string" && name.length > 1 && name.startsWith(":") ? name.slice(1) : null;
+}
+
+/**
  * Provenance computation per `docs/spec/arrival-chain.md` §5.
  *
  * Provenance-marked invocations emit `{ self.id }`. Otherwise the rule
@@ -40,7 +62,7 @@ export type InvocationState = "running" | "resolved" | "rejected";
  * chosen-arm result) is enforced by the rosetta wrappers for those
  * forms — not here. This function applies the general rule.
  */
-function computeProvenance(inv: Invocation): ReadonlySet<number> {
+function computeProvenance(inv: Invocation, trace: EvalTrace): ReadonlySet<number> {
   if (inv.isProvenancePoint) return new Set<number>([inv.id]);
   const distinct = new Set<ReadonlySet<number>>();
   // Pair-children — sub-expressions evaluated within this invocation.
@@ -59,6 +81,24 @@ function computeProvenance(inv: Invocation): ReadonlySet<number> {
     }
   }
   if (distinct.size === 0) return EMPTY_PROVENANCE;
+
+  // Field-qualified projection (§5.3 sibling): a keyword-accessor `(:verdict x)`
+  // crosses the structured-output membrane — it doesn't merely forward the
+  // producer's provenance, it REFINES each upstream point P into a field-point
+  // (P, "verdict"). The field-point is a plain synthetic id (minted lazily,
+  // singleton per (origin, field) via the trace registry), so it rides through
+  // `string-append`/binding as an ordinary `Set<number>` member and survives
+  // absorb. The statechart resolves it back to (producer cell, pin) for the
+  // per-property flow wire / go-to-source edge. Element-only provenance from
+  // `car`/`cdr` (§5.3) already attributes to the right fan-out producer, so a
+  // chained `(:verdict (car reactions))` qualifies react[0]'s point specifically.
+  const field = accessorField(inv.node);
+  if (field !== null) {
+    const refined = new Set<number>();
+    for (const s of distinct) for (const p of s) refined.add(trace.fieldPoint(p, field));
+    return refined;
+  }
+
   if (distinct.size === 1) return distinct.values().next().value!;
   const merged = new Set<number>();
   for (const s of distinct) for (const x of s) merged.add(x);
@@ -189,6 +229,34 @@ export class EvalTrace implements EvalTap {
   readonly symbolValues = new WeakMap<Invocation, Map<string, unknown>>();
   #nextId = 0;
 
+  /**
+   * Field-point registry: synthetic provenance-point id → its origin + plucked
+   * field. A field-point is minted by `computeProvenance` when a keyword
+   * accessor `(:field x)` projects across the structured-output membrane (§5.3
+   * sibling). It is a first-class member of `provenance: Set<number>` — so it
+   * flows through `string-append`/binding/absorb like any point — but it is NOT
+   * an invocation, so the statechart resolves it back through here to the real
+   * producer cell + pin. `origin` may itself be a field-point id (nested
+   * `(:a (:b x))`); resolve transitively, the pin being the key closest to the
+   * real producer point (its actual output field). See `FieldPointMeta`.
+   */
+  readonly fieldPointMeta = new Map<number, FieldPointMeta>();
+  /** (origin,key) → field-point id, so the same pluck mints a stable singleton
+   *  id across every fire (matching how Pair-identity collapses invocations). */
+  readonly #fieldPointIds = new Map<string, number>();
+
+  /** Mint (or reuse) the synthetic field-point id for plucking `key` off a value
+   *  whose provenance carries `origin`. Lazy + singleton per (origin, key). */
+  fieldPoint(origin: number, key: string): number {
+    const memo = `${origin}:${key}`;
+    const existing = this.#fieldPointIds.get(memo);
+    if (existing !== undefined) return existing;
+    const id = this.#nextId++;
+    this.#fieldPointIds.set(memo, id);
+    this.fieldPointMeta.set(id, { origin, key });
+    return id;
+  }
+
   /** Associate a task with an invocation that created it. Idempotent —
    *  re-binding the same invocation does not duplicate. Multiple distinct
    *  invocations for the same task accumulate. */
@@ -249,7 +317,7 @@ export class EvalTrace implements EvalTap {
       if (!("value" in result)) {
         inv.state = "rejected";
         inv.error = result.error;
-        inv.provenance = computeProvenance(inv);
+        inv.provenance = computeProvenance(inv, this);
         const rec = this.records.get(inv.node);
         if (rec) rec.exited += 1;
         return;
@@ -257,7 +325,7 @@ export class EvalTrace implements EvalTap {
 
       inv.state = "resolved";
       inv.value = result.value;
-      inv.provenance = computeProvenance(inv);
+      inv.provenance = computeProvenance(inv, this);
 
       // Stamp the computed provenance back onto the value itself, so it rides
       // through env bindings and emerges intact at the next symbol resolution.

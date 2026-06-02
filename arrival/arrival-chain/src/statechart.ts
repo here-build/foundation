@@ -54,6 +54,24 @@ export interface ChartEdge {
   to: number;
   /** `forward` = within-iteration dataflow; `loopback` = the `↺` back-edge. */
   kind: EdgeKind;
+  /**
+   * Field-qualified provenance: the producer's output fields the consumer
+   * actually plucked off this edge — `["verdict"]` for an edge whose consumer
+   * read `(:verdict producer-result)`. Absent when the whole value flowed
+   * unprojected (no keyword accessor between producer and consumer). This is
+   * the per-property "pin" of the blueprint wire — read FORWARD it is which
+   * output of the producer feeds the consumer; read BACKWARD it is the field
+   * whose declaration a go-to-source jump should land on.
+   *
+   * Spec-derived, not editorial: a field appears here ONLY where it was
+   * genuinely projected (a pluck site exists), so the graph can never claim a
+   * property was used that the source never touched. v0 captures accessors
+   * LEXICALLY NESTED in the consumer's argument subtree (the dominant pattern,
+   * incl. `(infer … (:verdict (other-infer)))`); projection routed through an
+   * intermediate `define`/`let` binding is not yet attributed (needs the field
+   * to ride on the value, parallel to provenance — the v1 follow-up).
+   */
+  fields?: string[];
 }
 
 export interface Statechart {
@@ -85,6 +103,28 @@ function inputProvenance(inv: Invocation): Set<number> {
 }
 
 /**
+ * Resolve a provenance id to its real producer point + (if it arrived via a
+ * keyword pluck) the field that was projected. A field-point's id isn't a real
+ * point — it lives in `trace.fieldPointMeta`, possibly chained (nested
+ * `(:a (:b x))`). Walk the chain to the real producer point; the pin is the key
+ * closest to that point (its actual output field — the OUTER key of a chain is
+ * a projection of an already-projected field, so the inner one names the
+ * producer's port). Returns null if the chain bottoms out at a non-point.
+ */
+function resolvePoint(
+  trace: EvalTrace,
+  points: Map<number, Invocation>,
+  u: number,
+): { origin: number; field?: string } | null {
+  if (points.has(u)) return { origin: u };
+  const meta = trace.fieldPointMeta.get(u);
+  if (!meta) return null;
+  const inner = resolvePoint(trace, points, meta.origin);
+  if (!inner) return null;
+  return { origin: inner.origin, field: inner.field ?? meta.key };
+}
+
+/**
  * Extract the causal statechart from a finished (or in-flight) trace. Reads only
  * provenance-point invocations (the `(infer …)` calls — the "meaningful events"
  * the meta-plane cares about); intermediate plumbing invocations are folded into
@@ -100,13 +140,24 @@ export function traceToStatechart(trace: EvalTrace): Statechart {
   }
   if (points.size === 0) return { nodes: [], edges: [], layerCount: 0 };
 
-  // 2. Uncollapsed causal edges (upstream infer id → this infer id), keeping
-  //    only ids that are themselves provenance points (defensive: a non-point
-  //    id can't legally appear, but the trace may be mid-flight).
+  // 2. Uncollapsed causal edges (upstream infer id → this infer id). Each input
+  //    provenance id resolves to a real producer point; a field-point resolves
+  //    through `fieldPointMeta` to its producer AND the pin it plucked, recorded
+  //    per producer→consumer point-edge. (A non-point that resolves to nothing
+  //    — only possible mid-flight — is dropped.)
   const upstream = new Map<number, Set<number>>();
+  const fieldsByPointEdge = new Map<string, Set<string>>(); // `${producer}>${consumer}` → fields
   for (const [id, inv] of points) {
     const ups = new Set<number>();
-    for (const u of inputProvenance(inv)) if (points.has(u) && u !== id) ups.add(u);
+    for (const u of inputProvenance(inv)) {
+      const r = resolvePoint(trace, points, u);
+      if (!r || r.origin === id) continue;
+      ups.add(r.origin);
+      if (r.field !== undefined) {
+        const key = `${r.origin}>${id}`;
+        (fieldsByPointEdge.get(key) ?? fieldsByPointEdge.set(key, new Set()).get(key)!).add(r.field);
+      }
+    }
     upstream.set(id, ups);
   }
 
@@ -145,7 +196,18 @@ export function traceToStatechart(trace: EvalTrace): Statechart {
   }));
   const layerByCell = new Map(nodes.map((n) => [n.id, n.layer]));
 
-  // 5. Lift edges to cells, dedupe, and classify by layer: a non-increasing edge
+  // 5. Lift the per-point pins (step 2) onto cell-edges: many point-edges
+  //    collapse onto one cell-edge (a fan-out producer, a tail-recursive loop),
+  //    so the field set unions across them.
+  const fieldsByCellEdge = new Map<string, Set<string>>();
+  for (const [pointEdge, fields] of fieldsByPointEdge) {
+    const [producer, consumer] = pointEdge.split(">").map(Number) as [number, number];
+    const cellKey = `${cellIdOf.get(producer)!}>${cellIdOf.get(consumer)!}`;
+    const set = fieldsByCellEdge.get(cellKey) ?? fieldsByCellEdge.set(cellKey, new Set()).get(cellKey)!;
+    for (const f of fields) set.add(f);
+  }
+
+  // 6. Lift edges to cells, dedupe, and classify by layer: a non-increasing edge
   //    is the loop-back (iter k → iter k+1 collapsed onto the same cells).
   const seen = new Set<string>();
   const edges: ChartEdge[] = [];
@@ -158,7 +220,8 @@ export function traceToStatechart(trace: EvalTrace): Statechart {
       if (seen.has(key)) continue;
       seen.add(key);
       const kind: EdgeKind = layerByCell.get(from)! < layerByCell.get(to)! ? "forward" : "loopback";
-      edges.push({ from, to, kind });
+      const fields = fieldsByCellEdge.get(key);
+      edges.push(fields ? { from, to, kind, fields: [...fields].sort() } : { from, to, kind });
     }
   }
 

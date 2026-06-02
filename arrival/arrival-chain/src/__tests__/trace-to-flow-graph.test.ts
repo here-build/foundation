@@ -114,8 +114,10 @@ describe("traceToFlowGraph — unified model over the real gepa trace", () => {
     const react = inferLeaves(graph).find((n) => n.parentId === map.id)!;
     const reflect = inferLeaves(graph).find((n) => n.id !== react.id)!;
 
-    // react is upstream of reflect → a forward edge between their scopes.
-    expect(graph.edges).toContainEqual({ from: react.id, to: reflect.id, kind: "forward" });
+    // react is upstream of reflect → a forward edge between their scopes,
+    // field-qualified with the `verdict` pin (reflect read `(:verdict …)`) —
+    // the statechart's per-property wire carried through into scope-id space.
+    expect(graph.edges).toContainEqual({ from: react.id, to: reflect.id, kind: "forward", fields: ["verdict"] });
     // The tail-recursion shows up as at least one loopback (reflect seeds the
     // next iteration's react, collapsed onto the same cells).
     expect(graph.edges.some((e) => e.kind === "loopback")).toBe(true);
