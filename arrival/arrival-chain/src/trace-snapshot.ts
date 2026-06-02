@@ -26,6 +26,12 @@ export interface PlainInv {
   node: Pair;
   parent: PlainInv | null;
   children: PlainInv[];
+  /** Upstream producer ids — materialized ONLY for direct children of provenance
+   *  points, the sole place the build reads provenance (statechart step 2). Empty
+   *  elsewhere: loop/plumbing invocations accumulate O(n) provenance up the
+   *  recursion, so copying all of it made the snapshot O(n²); copying only the
+   *  consumed sets keeps it O(n). If a consumer ever needs provenance off a
+   *  non-point-child, widen this predicate. */
   provenance: ReadonlySet<number>;
   isProvenancePoint: boolean;
 }
@@ -36,6 +42,9 @@ export interface PlainTrace {
   /** Field-point id → producer origin + plucked key (the field-provenance map). */
   fieldPointMeta: EvalTrace["fieldPointMeta"];
 }
+
+/** Shared empty set for invocations whose provenance the build never reads. */
+const NO_PROVENANCE: ReadonlySet<number> = new Set();
 
 export function snapshotTrace(trace: EvalTrace): PlainTrace {
   const byId = new Map<number, PlainInv>();
@@ -48,7 +57,9 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
         node: inv.node,
         parent: null,
         children: [],
-        provenance: new Set(inv.provenance),
+        // Only children of provenance points have their provenance read downstream;
+        // everything else accumulates O(n) provenance we'd never look at.
+        provenance: inv.parent?.isProvenancePoint ? new Set(inv.provenance) : NO_PROVENANCE,
         isProvenancePoint: inv.isProvenancePoint,
       };
       byId.set(inv.id, plain);
