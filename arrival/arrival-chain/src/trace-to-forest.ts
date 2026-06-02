@@ -37,7 +37,8 @@
  *     sees as a dnf box (minor noise; refine by skipping macro-internal forms).
  */
 import type { BoxType, CandidateBox } from "./mdl-collapse.js";
-import type { EvalTrace, Invocation } from "./trace.js";
+import { snapshotTrace, type PlainInv } from "./trace-snapshot.js";
+import type { EvalTrace } from "./trace.js";
 
 const CONTROL_TYPE: Record<string, BoxType> = {
   map: "unfold",
@@ -108,8 +109,9 @@ export interface ForestOptions {
 export function traceToForest(trace: EvalTrace, opts: ForestOptions = {}): CandidateBox[] {
   const promoted = opts.promoted ?? new Map<string, "suggested" | "forced">();
 
-  const all: Invocation[] = [];
-  for (const rec of trace.records.values()) for (const inv of rec.bindings) all.push(inv);
+  // De-proxy the observable trace once; the classification passes below then walk
+  // plain parent/children/node refs (no MobX per-read cost). Signature unchanged.
+  const all: PlainInv[] = snapshotTrace(trace).invocations;
 
   // A loop = a self-recursive function. We box its BODY (the lambda-body scope,
   // entered once per iteration — INCLUDING the first, top-level call), NOT the
@@ -127,7 +129,7 @@ export function traceToForest(trace: EvalTrace, opts: ForestOptions = {}): Candi
   //     top-level body entry isn't itself re-entrant but shares the body Pair, so
   //     it joins the same box via grouping. Works for tail- AND stack-recursion
   //     (the body Pair is entered K times either way; multiplicity collapses it).
-  const hasSelfAncestor = (inv: Invocation): boolean => {
+  const hasSelfAncestor = (inv: PlainInv): boolean => {
     for (let p = inv.parent; p; p = p.parent) if (p.node === inv.node) return true;
     return false;
   };
@@ -143,7 +145,7 @@ export function traceToForest(trace: EvalTrace, opts: ForestOptions = {}): Candi
     }
   }
 
-  const meaningful = (inv: Invocation): boolean =>
+  const meaningful = (inv: PlainInv): boolean =>
     inv.isProvenancePoint ||
     headOf(inv.node) in CONTROL_TYPE ||
     promoted.has(headOf(inv.node)) ||
@@ -151,7 +153,7 @@ export function traceToForest(trace: EvalTrace, opts: ForestOptions = {}): Candi
 
   // Box-parent: nearest ancestor that is meaningful AND a DIFFERENT scope —
   // skipping same-scope ancestors collapses self-recursion into one loop box.
-  const boxParent = (inv: Invocation): object | null => {
+  const boxParent = (inv: PlainInv): object | null => {
     for (let p = inv.parent; p; p = p.parent) {
       if (meaningful(p) && p.node !== inv.node) return p.node as object;
     }
@@ -159,7 +161,7 @@ export function traceToForest(trace: EvalTrace, opts: ForestOptions = {}): Candi
   };
 
   // Group meaningful invocations by scope (Pair identity).
-  const groups = new Map<object, Invocation[]>();
+  const groups = new Map<object, PlainInv[]>();
   for (const inv of all) {
     if (!meaningful(inv)) continue;
     const g = groups.get(inv.node as object);

@@ -7,6 +7,11 @@
  * here"). This renders `Invocation.provenance` — the CAUSALITY ("what caused
  * this"). Different graph entirely.
  *
+ * Operates on a plain `PlainTrace` snapshot (see trace-snapshot.ts), not the live
+ * observable trace — the O(n²) traversal below reads children/provenance far too
+ * many times to pay MobX proxy + tracking on each. `traceToStatechart` keeps its
+ * `EvalTrace` signature and snapshots internally, so callers are unaffected.
+ *
  * ── why the edge rule looks indirect ────────────────────────────────────────
  * Every `(infer …)` invocation is a provenance point, so its OWN `.provenance`
  * is the singleton `{self.id}` (the §5.1 override) — that tells you nothing
@@ -34,7 +39,8 @@
  * hierarchy and is the v1 follow-up; this v0 is the flat collapsed causal DAG.
  */
 import type { Pair, SchemeSymbol } from "@here.build/arrival-scheme";
-import type { EvalTrace, Invocation } from "./trace.js";
+import { snapshotTrace, type PlainInv, type PlainTrace } from "./trace-snapshot.js";
+import type { EvalTrace } from "./trace.js";
 
 export type EdgeKind = "forward" | "loopback";
 
@@ -94,26 +100,18 @@ function leadingSymbol(node: Pair): string {
   return "?";
 }
 
-/** Union of a provenance-point invocation's direct children's provenance — the
- *  set of upstream infer ids that flowed into its arguments. */
-function inputProvenance(inv: Invocation): Set<number> {
-  const out = new Set<number>();
-  for (const child of inv.children) for (const id of child.provenance) out.add(id);
-  return out;
-}
-
 /**
  * Resolve a provenance id to its real producer point + (if it arrived via a
  * keyword pluck) the field that was projected. A field-point's id isn't a real
- * point — it lives in `trace.fieldPointMeta`, possibly chained (nested
- * `(:a (:b x))`). Walk the chain to the real producer point; the pin is the key
- * closest to that point (its actual output field — the OUTER key of a chain is
- * a projection of an already-projected field, so the inner one names the
- * producer's port). Returns null if the chain bottoms out at a non-point.
+ * point — it lives in `fieldPointMeta`, possibly chained (nested `(:a (:b x))`).
+ * Walk the chain to the real producer point; the pin is the key closest to that
+ * point (its actual output field — the OUTER key of a chain is a projection of an
+ * already-projected field, so the inner one names the producer's port). Returns
+ * null if the chain bottoms out at a non-point.
  */
 function resolvePoint(
-  trace: EvalTrace,
-  points: Map<number, Invocation>,
+  fieldPointMeta: PlainTrace["fieldPointMeta"],
+  points: Map<number, PlainInv>,
   u: number,
   memo: Map<number, { origin: number; field?: string } | null>,
 ): { origin: number; field?: string } | null {
@@ -127,11 +125,11 @@ function resolvePoint(
   if (points.has(u)) {
     result = { origin: u };
   } else {
-    const meta = trace.fieldPointMeta.get(u);
+    const meta = fieldPointMeta.get(u);
     if (!meta) {
       result = null;
     } else {
-      const inner = resolvePoint(trace, points, meta.origin, memo);
+      const inner = resolvePoint(fieldPointMeta, points, meta.origin, memo);
       result = inner ? { origin: inner.origin, field: inner.field ?? meta.key } : null;
     }
   }
@@ -146,12 +144,15 @@ function resolvePoint(
  * the edge computation but never become nodes.
  */
 export function traceToStatechart(trace: EvalTrace): Statechart {
+  // De-proxy the observable trace into plain data once; everything below runs on
+  // plain Sets/arrays (no MobX per-read cost). The single read pass inside
+  // snapshotTrace is the reactive boundary the React observer tracks for live-fill.
+  const snap = snapshotTrace(trace);
+
   // 1. Gather every provenance-point invocation, indexed by id.
-  const points = new Map<number, Invocation>();
-  for (const rec of trace.records.values()) {
-    for (const inv of rec.bindings) {
-      if (inv.isProvenancePoint) points.set(inv.id, inv);
-    }
+  const points = new Map<number, PlainInv>();
+  for (const inv of snap.invocations) {
+    if (inv.isProvenancePoint) points.set(inv.id, inv);
   }
   if (points.size === 0) return { nodes: [], edges: [], layerCount: 0 };
 
@@ -165,13 +166,18 @@ export function traceToStatechart(trace: EvalTrace): Statechart {
   const resolveMemo = new Map<number, { origin: number; field?: string } | null>();
   for (const [id, inv] of points) {
     const ups = new Set<number>();
-    for (const u of inputProvenance(inv)) {
-      const r = resolvePoint(trace, points, u, resolveMemo);
-      if (!r || r.origin === id) continue;
-      ups.add(r.origin);
-      if (r.field !== undefined) {
-        const key = `${r.origin}>${id}`;
-        (fieldsByPointEdge.get(key) ?? fieldsByPointEdge.set(key, new Set()).get(key)!).add(r.field);
+    // The upstream infers feeding this point are ⋃ child.provenance over its
+    // direct children — iterate that straight through (ups + the memo dedupe),
+    // no intermediate union set.
+    for (const child of inv.children) {
+      for (const u of child.provenance) {
+        const r = resolvePoint(snap.fieldPointMeta, points, u, resolveMemo);
+        if (!r || r.origin === id) continue;
+        ups.add(r.origin);
+        if (r.field !== undefined) {
+          const key = `${r.origin}>${id}`;
+          (fieldsByPointEdge.get(key) ?? fieldsByPointEdge.set(key, new Set()).get(key)!).add(r.field);
+        }
       }
     }
     upstream.set(id, ups);
