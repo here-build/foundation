@@ -79,6 +79,29 @@ describe("call modes", () => {
   });
 });
 
+// The cross-language membrane: a NON-empty scheme list crosses as a JS array, but
+// an EMPTY list crosses as nil (empty-list and nil are one entity in scheme), so
+// coerceShape turns a nil-arrived array field into [] before validation. The
+// surgical boundary: nil → [], but a genuinely wrong type (string) still errors
+// (see "each block requires array, dict input rejected" in error messages).
+describe("nil→[] membrane failsafe", () => {
+  it("empty list for an each-field renders nothing, not a type error", async () => {
+    const r = await run(
+      { "ls.hbs": "[{{#each items}}{{this}};{{/each}}]" },
+      `((require "ls.hbs") (dict "items" (list)))`,
+    );
+    expect(r).toBe("[]");
+  });
+
+  it("recurses: an empty each-field nested under an object is coerced too", async () => {
+    const r = await run(
+      { "rep.hbs": "{{title}}:[{{#each data.rows}}{{this}};{{/each}}]" },
+      `((require "rep.hbs") (dict "title" "T" "data" (dict "rows" (list))))`,
+    );
+    expect(r).toBe("T:[]");
+  });
+});
+
 describe("error messages", () => {
   it("single primitive to multi-var template throws with field names", async () => {
     await expect(

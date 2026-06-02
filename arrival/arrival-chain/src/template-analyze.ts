@@ -266,6 +266,33 @@ export function validateShape(shape: Shape, value: unknown, path = ""): Validati
   return { ok: true };
 }
 
+/**
+ * Failsafe coercion, applied before validation/render: a field whose template
+ * shape is `array` but whose value is nil-like (per `isNilLike`) becomes `[]`.
+ *
+ * The gap it closes is cross-language: a NON-empty scheme list crosses the rosetta
+ * membrane as a JS array, but an EMPTY one crosses as `nil` (in scheme, the empty
+ * list and nil are the same entity), so `lipsToJs` can't know to make it `[]`.
+ * Without this, `{{#each xs}}` over a legitimately-empty collection fails the
+ * array check instead of rendering nothing. Recurses into object fields and array
+ * elements; a non-nil wrong-typed value is left untouched for `validateShape` to
+ * report (so real mistakes still surface).
+ */
+export function coerceShape(shape: Shape, value: unknown, isNilLike: (v: unknown) => boolean): unknown {
+  if (shape.kind === "array") {
+    if (isNilLike(value)) return [];
+    if (Array.isArray(value)) return value.map((el) => coerceShape(shape.element, el, isNilLike));
+    return value;
+  }
+  if (shape.kind === "object") {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+    const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+    for (const [key, sub] of shape.fields) out[key] = coerceShape(sub, out[key], isNilLike);
+    return out;
+  }
+  return value;
+}
+
 function typeName(v: unknown): string {
   if (v === null) return "null";
   if (Array.isArray(v)) return "array";

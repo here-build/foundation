@@ -5,6 +5,7 @@ import {
   parseGenerator as parse,
   sandboxedEnv,
   lipsToJs,
+  Nil,
 } from "@here.build/arrival-scheme";
 import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
 import Handlebars from "handlebars";
@@ -22,7 +23,7 @@ import {
   type Loader,
   type RequireResolver,
 } from "./loader.js";
-import { analyzeTemplate, type TemplateInfo, validateShape } from "./template-analyze.js";
+import { analyzeTemplate, coerceShape, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "./trace.js";
 
 // The brand arrival-scheme tags keyword-accessor pluck functions with (see
@@ -162,9 +163,18 @@ function typeName(v: unknown): string {
  * source and the rest-list of call-site args, dispatches to one of the three
  * call modes, validates, and renders.
  */
+/** Nil-like for the array→`[]` failsafe: a scheme empty-list crosses the rosetta
+ *  membrane as `nil` (`instanceof Nil` also catches provenance-bearing clones),
+ *  plus JS null/undefined for an absent field. */
+const isNilLike = (v: unknown): boolean => v == null || v instanceof Nil;
+
 function renderTemplateCall(source: string, args: unknown[]): string {
   const tm = compileTemplate(source);
-  const data = resolveTemplateInput(args, tm.info);
+  // Coerce array-shaped fields that arrived nil (empty scheme list) to `[]` before
+  // validating, so `{{#each}}` over an empty collection renders nothing rather than
+  // tripping the array check — the cross-lang membrane can't make an empty list a
+  // JS array on its own (see coerceShape).
+  const data = coerceShape(tm.info.shape, resolveTemplateInput(args, tm.info), isNilLike);
   const ok = validateShape(tm.info.shape, data);
   if (!ok.ok) {
     throw new Error(`template input mismatch: ${ok.message}`);
