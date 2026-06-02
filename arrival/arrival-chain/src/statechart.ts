@@ -115,13 +115,28 @@ function resolvePoint(
   trace: EvalTrace,
   points: Map<number, Invocation>,
   u: number,
+  memo: Map<number, { origin: number; field?: string } | null>,
 ): { origin: number; field?: string } | null {
-  if (points.has(u)) return { origin: u };
-  const meta = trace.fieldPointMeta.get(u);
-  if (!meta) return null;
-  const inner = resolvePoint(trace, points, meta.origin);
-  if (!inner) return null;
-  return { origin: inner.origin, field: inner.field ?? meta.key };
+  // Resolution is a pure function of `u` within one build, and the same upstream
+  // id recurs across many points' input-provenance sets (a popular producer; a
+  // repeatedly-plucked field). Without this memo, re-resolving every occurrence —
+  // walking the field-point chain and allocating a fresh record each time —
+  // dominated a large render (~50% self-time in profiling). Cache per `u`.
+  if (memo.has(u)) return memo.get(u)!;
+  let result: { origin: number; field?: string } | null;
+  if (points.has(u)) {
+    result = { origin: u };
+  } else {
+    const meta = trace.fieldPointMeta.get(u);
+    if (!meta) {
+      result = null;
+    } else {
+      const inner = resolvePoint(trace, points, meta.origin, memo);
+      result = inner ? { origin: inner.origin, field: inner.field ?? meta.key } : null;
+    }
+  }
+  memo.set(u, result);
+  return result;
 }
 
 /**
@@ -147,10 +162,11 @@ export function traceToStatechart(trace: EvalTrace): Statechart {
   //    — only possible mid-flight — is dropped.)
   const upstream = new Map<number, Set<number>>();
   const fieldsByPointEdge = new Map<string, Set<string>>(); // `${producer}>${consumer}` → fields
+  const resolveMemo = new Map<number, { origin: number; field?: string } | null>();
   for (const [id, inv] of points) {
     const ups = new Set<number>();
     for (const u of inputProvenance(inv)) {
-      const r = resolvePoint(trace, points, u);
+      const r = resolvePoint(trace, points, u, resolveMemo);
       if (!r || r.origin === id) continue;
       ups.add(r.origin);
       if (r.field !== undefined) {
