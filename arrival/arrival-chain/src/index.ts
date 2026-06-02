@@ -87,6 +87,7 @@ export {
   type FlowGraphOptions,
 } from "./trace-to-flow-graph.js";
 export { traceToFlowGraphNaive } from "./trace-to-flow-graph-naive.js";
+export { regionBoundaries, type RegionBoundary } from "./region-boundaries.js";
 export { inferTasksByScope } from "./infer-content.js";
 
 // ── Sweet-expression lens ─────────────────────────────────────────────
