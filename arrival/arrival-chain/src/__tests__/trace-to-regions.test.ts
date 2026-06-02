@@ -1,0 +1,90 @@
+/**
+ * traceToRegions — the region tree behind the blueprint render. On the gepa-loop
+ * trace (a ×2 react fan-out inside a TCO loop) it must surface the `map` as a
+ * CONTAINER with its iterations kept distinct (each a body with an infer leaf),
+ * plus the provenance wires. (TCO flattens for now — asserted not to explode.)
+ */
+import { describe, expect, it } from "vitest";
+
+import { ArrivalChain } from "../arrival-chain.js";
+import { ArrivalCache, InferenceCache } from "../cache.js";
+import type { ModelSpec } from "../model.js";
+import { Project } from "../project.js";
+import { singletonRouter } from "../registry.js";
+import { traceToRegions, type Region } from "../trace-to-regions.js";
+import { EvalTrace } from "../trace.js";
+import { startOrchestrator } from "../worker.js";
+
+const PROGRAM = `
+(define (react-cell tagline persona-id)
+  (car (infer/chat "fast"
+         (list (infer/chat/system "stub")
+               (infer/chat/user (string-append "REACT|" tagline "|" persona-id)))
+         (s/object (s/field/string "verdict"))
+         (string-append "react/" tagline "/" persona-id))))
+(define (next-tagline current reactions)
+  (:next (car (infer/chat "fast"
+                (list (infer/chat/system "stub")
+                      (infer/chat/user (string-append "REFLECT|" current "|"
+                                                      (:verdict (car reactions)))))
+                (s/object (s/field/string "next"))
+                (string-append "reflect/" current)))))
+(define (loop tagline iter max-iter)
+  (let ((reactions (map (lambda (p) (react-cell tagline p)) (list "p1" "p2"))))
+    (if (>= iter max-iter) tagline (loop (next-tagline tagline reactions) (+ iter 1) max-iter))))
+(loop "t0" 0 2)
+`;
+
+async function gepaTrace(): Promise<EvalTrace> {
+  const project = ArrivalChain.bootstrap(new Project()).root;
+  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+  project.bindCache(cache);
+  const ac = new AbortController();
+  const draining = startOrchestrator({
+    cache,
+    router: singletonRouter({
+      complete: async (spec: ModelSpec) => {
+        const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
+        const user = msgs.find((m) => m.role === "user")?.content ?? "";
+        if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
+        const current = user.split("|")[1] ?? "";
+        return { value: { next: current === "t0" ? "t1" : "t2" } };
+      },
+    }),
+    signal: ac.signal,
+  }).done;
+  const trace = new EvalTrace();
+  await project.run(PROGRAM, { trace });
+  ac.abort();
+  await draining;
+  return trace;
+}
+
+const fanouts = (rs: Region[]): Extract<Region, { kind: "fanout" }>[] =>
+  rs.flatMap((r) => (r.kind === "fanout" ? [r, ...r.iterations.flatMap(fanouts)] : []));
+const leaves = (rs: Region[]): Extract<Region, { kind: "leaf" }>[] =>
+  rs.flatMap((r) => (r.kind === "leaf" ? [r] : r.iterations.flatMap(leaves)));
+
+describe("traceToRegions", () => {
+  it("surfaces the map as a fan-out container with distinct iterations", async () => {
+    const { roots, edges } = traceToRegions(await gepaTrace());
+
+    const maps = fanouts(roots).filter((f) => f.label === "map");
+    expect(maps.length).toBeGreaterThan(0);
+    // The ×2 react fan-out: two distinct iterations (the tabs), each a body that
+    // contains an infer leaf — NOT collapsed to one shape.
+    const map = maps[0]!;
+    expect(map.iterations.length).toBe(2);
+    for (const iter of map.iterations) expect(leaves(iter).length).toBeGreaterThan(0);
+
+    // Provenance wires are present (react → reflect at least).
+    expect(edges.length).toBeGreaterThan(0);
+  });
+
+  it("does not explode on the TCO loop (recursion flattens, bounded)", async () => {
+    const { roots } = traceToRegions(await gepaTrace());
+    // 3 loop iters × (2 react + 1 reflect-ish) — a handful, not hundreds.
+    expect(leaves(roots).length).toBeGreaterThan(0);
+    expect(leaves(roots).length).toBeLessThan(40);
+  });
+});

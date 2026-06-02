@@ -88,6 +88,7 @@ export {
 } from "./trace-to-flow-graph.js";
 export { traceToFlowGraphNaive } from "./trace-to-flow-graph-naive.js";
 export { traceToChain, type ProvenanceChain, type ChainNode, type ChainEdge } from "./trace-to-chain.js";
+export { traceToRegions, type Region, type RegionGraph } from "./trace-to-regions.js";
 export { regionBoundaries, type RegionBoundary } from "./region-boundaries.js";
 export { inferTasksByScope } from "./infer-content.js";
 
