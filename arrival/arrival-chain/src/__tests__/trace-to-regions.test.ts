@@ -128,6 +128,9 @@ describe("traceToRegions", () => {
       inputs: { instruction: "ia", message: "m" },
     });
     expect(analyzeLeaf.state).toBe("resolved");
+    // The result is unwrapped to plain JS — NOT the raw AValue envelope scheme sees
+    // (`{ provenance, kind, __string__ }`), which would otherwise leak into the card.
+    expect(analyzeLeaf.value).not.toMatchObject({ __string__: expect.anything() });
     // A direct `(infer …)` has no structured node metadata.
     expect(ls.find((l) => l.label === "infer/chat")!.meta).toBeUndefined();
   });

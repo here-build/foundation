@@ -15,7 +15,7 @@
  * touches only plain structures and pays zero MobX cost. Reactivity at the edge,
  * computation in the core.
  */
-import type { Pair } from "@here.build/arrival-scheme";
+import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
 import type { EvalTrace, InvocationState } from "./trace.js";
 
 /** Exactly the Invocation fields the flow-graph build reads. The AST `node` is a
@@ -73,7 +73,12 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
         // value + metadata are read by the render only for the leaves it draws
         // (provenance points); copying them for every invocation would make the
         // snapshot track every intermediate value's resolution.
-        value: isPoint ? inv.value : undefined,
+        //
+        // `inv.value` is the rosetta result AS SCHEME SEES IT — a provenance-stamped
+        // AValue (the wrapper `jsToLips`'d it on the way back). `lipsToJs` peels that
+        // envelope to plain JS so the render shows the string, not
+        // `{ provenance, kind, __string__ }`.
+        value: isPoint ? lipsToJs(inv.value) : undefined,
         metadata: isPoint ? inv.metadata : undefined,
         state: inv.state,
       };
