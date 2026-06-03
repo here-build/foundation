@@ -25,8 +25,8 @@
  */
 
 export type Node =
-  | { atom: string; str?: boolean; lead?: string[]; trail?: string[] }
-  | { list: Node[]; lead?: string[]; trail?: string[] };
+  | { atom: string; str?: boolean; lead?: string[]; trail?: string[]; span?: readonly [start: number, end: number] }
+  | { list: Node[]; lead?: string[]; trail?: string[]; span?: readonly [start: number, end: number] };
 
 // null-safe: items[0] of an empty list `()` is undefined; isAtom(undefined) must
 // be false, not throw ('in' on undefined). Empty lists come from `'()` folds.
@@ -83,6 +83,7 @@ export function parseSexprs(src: string): Node[] {
     skipWs();
     const lead = pendingLead;
     pendingLead = [];
+    const start = i; // datum's first char (after lead-comment/whitespace skip)
     const c = src[i];
     if (c === undefined) throw new Error("unexpected EOF");
     let node: Node;
@@ -101,6 +102,9 @@ export function parseSexprs(src: string): Node[] {
       node = { atom: src.slice(start, i) };
     }
     if (lead.length) node.lead = lead;
+    // Source span [start, end) in `src` — inert metadata (like lead/trail, ignored
+    // by nodeEq), consumed by the editor's parameter-hint placement.
+    node.span = [start, i];
     lastNode = node;
     sawNewlineSinceNode = false;
     return node;

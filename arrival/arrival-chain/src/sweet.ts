@@ -9,3 +9,6 @@
 // inference substrate; this one is the few-KB syntax pair on its own.
 export { schemeToSweet, type SweetOpts } from "./sweet-render.js";
 export { sweetToScheme } from "./sweet-read.js";
+// Parameter inlay hints — pure analysis over the classic parse (imports only
+// `sweet-render`, so it stays inside this runtime-free lens closure).
+export { paramHints, type ParamHint } from "./param-hints.js";
