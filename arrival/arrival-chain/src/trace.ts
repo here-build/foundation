@@ -152,8 +152,10 @@ export class Invocation {
   /**
    * True when this Pair was evaluated in tail position (R7RS §3.5) — set from
    * the evaluator's own tail flag at enter (NOT inferred from trace shape). A
-   * call in tail position is a tail call; `traceToForest` reads this to identify
-   * tail-recursive loops (the clean ×K stack) vs. stack-growing recursion.
+   * call in tail position is a tail call. Loop detection (in `traceToForest` and
+   * `traceToRegions`) is STRUCTURAL — `hasSelfAncestor`, which covers tail- and
+   * stack-recursion alike — so nothing reads this yet; it's the ground truth kept
+   * for when we want to LABEL proper-TCO vs stack-growing recursion.
    */
   tailPosition = false;
   /**
@@ -246,6 +248,20 @@ export class EvalTrace implements EvalTap {
   #nextId = 0;
 
   /**
+   * Monotonic enter-count — a CHEAP structural signal for renderers. Every
+   * `enter` ticks it (including loop re-entry of an already-seen Pair, which
+   * `records.size` does NOT reflect), so an observer can subscribe to JUST this
+   * number to know "the trace grew" without reading every invocation's fields.
+   * The blueprint uses it to throttle the O(points²) region rebuild to once per
+   * animation frame instead of once per streamed value — the difference between a
+   * frozen tab and a responsive one on a long run.
+   */
+  readonly #entries = observable.box(0);
+  get entries(): number {
+    return this.#entries.get();
+  }
+
+  /**
    * Field-point registry: synthetic provenance-point id → its origin + plucked
    * field. A field-point is minted by `computeProvenance` when a keyword
    * accessor `(:field x)` projects across the structured-output membrane (§5.3
@@ -321,6 +337,7 @@ export class EvalTrace implements EvalTap {
     }
     rec.bindings.add(inv);
     rec.entered += 1;
+    this.#entries.set(this.#entries.get() + 1);
     return inv;
   });
 

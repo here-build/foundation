@@ -2,7 +2,8 @@
  * traceToRegions — the region tree behind the blueprint render. On the gepa-loop
  * trace (a ×2 react fan-out inside a TCO loop) it must surface the `map` as a
  * CONTAINER with its iterations kept distinct (each a body with an infer leaf),
- * plus the provenance wires. (TCO flattens for now — asserted not to explode.)
+ * plus the provenance wires. The enclosing TCO `loop` is itself a container — its
+ * K body entries peeled into distinct iterations (the recursion no longer flattens).
  */
 import { describe, expect, it } from "vitest";
 
@@ -69,12 +70,15 @@ describe("traceToRegions", () => {
   it("surfaces the map as a fan-out container with distinct iterations", async () => {
     const { roots, edges } = traceToRegions(await gepaTrace());
 
-    const maps = fanouts(roots).filter((f) => f.label === "map");
+    const maps = fanouts(roots).filter((f) => f.stages.some((s) => s.label === "map"));
     expect(maps.length).toBeGreaterThan(0);
     // The ×2 react fan-out: two distinct iterations (the tabs), each a body that
     // contains an infer leaf — NOT collapsed to one shape.
     const map = maps[0]!;
     expect(map.iterations.length).toBe(2);
+    // `(list "p1" "p2")` → 2 invocations incoming, both meaningful (each infers).
+    expect(map.incoming).toBe(2);
+    expect(map.stages).toEqual([{ label: "map", id: map.id }]);
     for (const iter of map.iterations) expect(leaves(iter).length).toBeGreaterThan(0);
     // gepa-loop calls `(infer/chat …)` directly → direct-infer leaves.
     expect(leaves(map.iterations[0]!).every((l) => l.nodeKind === "direct")).toBe(true);
@@ -135,10 +139,49 @@ describe("traceToRegions", () => {
     expect(ls.find((l) => l.label === "infer/chat")!.meta).toBeUndefined();
   });
 
-  it("does not explode on the TCO loop (recursion flattens, bounded)", async () => {
+  it("wraps the TCO loop in one container with its body entries as distinct iterations", async () => {
     const { roots } = traceToRegions(await gepaTrace());
-    // 3 loop iters × (2 react + 1 reflect-ish) — a handful, not hundreds.
+
+    // The self-recursive `loop` (3 body entries via TCO) is ONE container, not a
+    // flattened spine — the recursion no longer escapes detection.
+    const loops = fanouts(roots).filter((f) => f.stages.some((s) => s.label === "loop"));
+    expect(loops.length).toBe(1);
+    const loop = loops[0]!;
+    // `(loop "t0" 0 2)` → iters 0,1,2; the last terminates (no `reflect` seeding a
+    // 4th), but each entry still ran its ×2 react fan-out.
+    expect(loop.iterations.length).toBe(3);
+    for (const iter of loop.iterations) expect(leaves(iter).length).toBeGreaterThan(0);
+
+    // Bounded: 3 iters × (2 react + reflect) — a handful, not hundreds.
     expect(leaves(roots).length).toBeGreaterThan(0);
     expect(leaves(roots).length).toBeLessThan(40);
+  });
+
+  it("boxes a loop that ran ONE body entry and never recursed (the midway case)", async () => {
+    // `(loop "t0" 0 0)` terminates on the first iteration: `(>= 0 0)` is true, so
+    // the recursive `(loop …)` call NEVER fires. Dynamic `hasSelfAncestor` therefore
+    // sees no recursion and would leave it unboxed — exactly the stall V hit, where
+    // a streaming loop shows no container until its successor enters. The STATIC
+    // reader knows `loop` tail-recurses from its `(define …)`, so the single body
+    // entry is a loop container from the start.
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({ complete: async (_s: ModelSpec) => ({ value: { verdict: "click" } }) }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+    await project.run(PROGRAM.replace('(loop "t0" 0 2)', '(loop "t0" 0 0)'), { trace });
+    ac.abort();
+    await draining;
+
+    const { roots } = traceToRegions(trace);
+    const loops = fanouts(roots).filter((f) => f.stages.some((s) => s.label === "loop"));
+    expect(loops.length).toBe(1);
+    expect(loops[0]!.iterations.length).toBe(1); // the one body entry, boxed
+    expect(leaves(loops[0]!.iterations.flat()).length).toBeGreaterThan(0);
   });
 });
