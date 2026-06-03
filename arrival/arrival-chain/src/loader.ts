@@ -98,8 +98,9 @@ export interface Loader {
   imports: Map<string, unknown>;
 }
 
-/** Legacy single-function resolver (CLI `--file` mode): `path → source`. */
-export type RequireResolver = (path: string) => string;
+/** Single-function resolver (`path → source`). May be async — `Loader.read` awaits
+ *  it — so a resolver can fetch a not-yet-loaded module on demand (e.g. over a fs). */
+export type RequireResolver = (path: string) => MaybePromise<string>;
 
 // ── path helpers (posix, no node:path dep — runs in browser + worker + node) ──
 
