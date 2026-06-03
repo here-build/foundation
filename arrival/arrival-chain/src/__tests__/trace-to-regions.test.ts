@@ -139,6 +139,49 @@ describe("traceToRegions", () => {
     expect(ls.find((l) => l.label === "infer/chat")!.meta).toBeUndefined();
   });
 
+  it("attributes a value PACKED INTO A LIST to its field — per-element provenance survives the array", async () => {
+    // V's bug: two react producers feed a reflect `.prompt` whose `:failures`
+    // input is `(list a b)`. A whole-value compare can't match — the slot holds
+    // `[va, vb]`, not `va` — so both edges land on the reflect block unfielded.
+    // The SOUND path threads each element's origin through the rosetta membrane:
+    // `inputsProvenance.failures = [pointA, pointB]`, so both edges attribute to
+    // `failures` instead of the block in general.
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile("react.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nREACT {{tagline}}\n`);
+    project.addFile("reflect.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nREFLECT {{failures}}\n`);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+    await project.run(
+      `
+(define run-react   (require "react.prompt"))
+(define run-reflect (require "reflect.prompt"))
+(let* ((a (run-react "ka" :tagline "p1"))
+       (b (run-react "kb" :tagline "p2")))
+  (run-reflect "kr" :failures (list a b)))
+`,
+      { trace },
+    );
+    ac.abort();
+    await draining;
+
+    const { roots, edges } = traceToRegions(trace);
+    const ls = leaves(roots);
+    const reflect = ls.find((l) => l.label === "run-reflect")!;
+    const reacts = ls.filter((l) => l.label === "run-react").map((l) => l.id);
+    expect(reacts.length).toBe(2);
+    // Both react→reflect edges exist AND both name the `failures` field.
+    const intoReflect = edges.filter((e) => e.to === reflect.id && reacts.includes(e.from));
+    expect(intoReflect.length).toBe(2);
+    expect(intoReflect.every((e) => e.field === "failures")).toBe(true);
+  });
+
   it("wraps the TCO loop in one container with its body entries as distinct iterations", async () => {
     const { roots } = traceToRegions(await gepaTrace());
 

@@ -290,12 +290,21 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   };
 
   // Consumer-field attribution (DERIVED, render-only-grade — never stored). For a
-  // `.prompt` consumer, find which named input the producer's value flowed into by
-  // matching the producer's resolved value against the consumer's `inputs` dict.
-  // Sound because the value is literally present in that slot; declines (leaves
-  // `field` unset) when the slot holds a PROJECTION of the value rather than the
-  // value itself — which is the honest signal "this input is a transform, not the
-  // source". A structural compare (stable JSON) handles object/string values alike.
+  // `.prompt` consumer, find which named input the producer flowed into.
+  //
+  // SOUND path (`inputsProvenance`): the rosetta membrane threaded each input's
+  // DEEP provenance (per-element origins, not the value itself) through to the
+  // node's metadata. The producer `e.from` flowed into field `k` iff k's
+  // origin-resolved provenance closure contains it. This survives packing into a
+  // list — `(list react.verdict …)` keeps each element's origin — where a
+  // whole-value compare would only ever see the array, not its sources. Precise
+  // because the edges are Hasse-reduced (immediate producers only), so a transitive
+  // ancestor in the same closure can't steal the attribution.
+  //
+  // FALLBACK (structural value match): older traces with no `inputsProvenance`.
+  // Match the producer's resolved value against the consumer's `inputs` dict by
+  // stable JSON. Declines (leaves `field` unset) when the slot holds a PROJECTION
+  // rather than the value — the honest "this input is a transform, not the source".
   const pointById = new Map(points.map((p) => [p.id, p]));
   const asJson = (v: unknown): string | undefined => {
     try {
@@ -306,8 +315,23 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   };
   for (const e of edges) {
     const consumer = pointById.get(e.to);
-    const meta = consumer?.metadata as { kind?: string; inputs?: Record<string, unknown> } | undefined;
+    const meta = consumer?.metadata as
+      | { kind?: string; inputs?: Record<string, unknown>; inputsProvenance?: Record<string, number[]> }
+      | undefined;
     if (!meta || meta.kind !== "prompt" || !meta.inputs) continue;
+
+    if (meta.inputsProvenance) {
+      let matched = false;
+      for (const [k, ids] of Object.entries(meta.inputsProvenance)) {
+        if (ids.some((id) => resolveOrigin(id) === e.from)) {
+          e.field = k;
+          matched = true;
+          break;
+        }
+      }
+      if (matched) continue;
+    }
+
     const producer = pointById.get(e.from);
     if (!producer || producer.value === undefined) continue;
     const pv = asJson(producer.value);

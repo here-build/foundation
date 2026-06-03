@@ -57,6 +57,18 @@ function buildDict(args: unknown[]): Record<string, unknown> {
   return out;
 }
 
+/** Field → producing-point ids, folded in lockstep with `buildDict` over the same
+ *  `:k v …` kv list. `kvProv` is the rosetta's `ctx.argProvenance` aligned to `kv`
+ *  (the per-arg DEEP provenance — element origins, not the empty list spine), so
+ *  `inputsProvenance[field]` is the set of points whose value landed in that slot.
+ *  This is what lets a value PACKED INTO A LIST keep its per-field attribution:
+ *  the field carries the union of its elements' origins, not one collapsed value. */
+function buildInputsProvenance(kv: unknown[], kvProv: readonly ReadonlySet<number>[]): Record<string, number[]> {
+  const out: Record<string, number[]> = {};
+  for (let i = 0; i < kv.length; i += 2) out[dictKey(kv[i])] = [...(kvProv[i + 1] ?? [])];
+  return out;
+}
+
 /** Canonicalise a `(role content)` message list to the single prompt string used
  *  as a task's content key (the cache/dedup identity). Shared by `infer/chat` and
  *  the `.prompt` proc, so both mint IDENTICAL task keys for the same messages —
@@ -296,9 +308,13 @@ export function buildArrivalEnv(opts: {
     }
     return createRosettaWrapper({
       withContext: true,
-      options: { provenancePoint: true },
+      options: { provenancePoint: true, argProvenance: true },
       fn: async (ctx, key, ...kv: unknown[]) => {
         const inputs = buildDict(kv);
+        // ctx.argProvenance aligns to the scheme args [key, ...kv]; drop the
+        // leading `key` slot so it lines up with `kv` for buildInputsProvenance.
+        const argProv = (ctx as { argProvenance?: ReadonlySet<number>[] } | undefined)?.argProvenance;
+        const inputsProvenance = argProv ? buildInputsProvenance(kv, argProv.slice(1)) : undefined;
         // Bind the node's story (file, model, the structured inputs) to its
         // provenance node NOW, before the inference runs. It's all known at call
         // time, so the card renders its header + init fields WHILE the answer is
@@ -309,7 +325,7 @@ export function buildArrivalEnv(opts: {
         const inv = (ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined)
           ?.currentInvocation;
         if (inv) {
-          const meta = { kind: "prompt", path: unit.path, model: unit.tier, inputs };
+          const meta = { kind: "prompt", path: unit.path, model: unit.tier, inputs, inputsProvenance };
           if (typeof inv.setMetadata === "function") inv.setMetadata(meta);
           else inv.metadata = meta;
         }
