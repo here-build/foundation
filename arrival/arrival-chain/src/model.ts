@@ -22,10 +22,21 @@ export interface Completion {
   usage?: TokenUsage;
 }
 
+/** Receives each streamed text chunk as it arrives. */
+export type DeltaSink = (delta: string) => void;
+
 /**
  * The actual inference backend. The kernel never calls this directly —
  * a worker does, exactly once per content tuple, on a cache miss.
  */
 export interface ModelBackend {
   complete(spec: ModelSpec): Promise<Completion>;
+  /**
+   * Stream the completion: call `onDelta` per text chunk, resolve with the
+   * final `Completion` (parsed value + usage). `signal` aborts the underlying
+   * request (the consumer aborts when its last subscriber drops). Optional —
+   * callers that need streaming fall back to a one-shot `complete` (a single
+   * synthetic delta of the whole value) when a backend doesn't implement it.
+   */
+  stream?(spec: ModelSpec, onDelta: DeltaSink, signal?: AbortSignal): Promise<Completion>;
 }

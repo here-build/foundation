@@ -1,10 +1,10 @@
 import invariant from "tiny-invariant";
 
-import type { Completion, ModelBackend, ModelSpec } from "../model.js";
+import type { Completion, DeltaSink, ModelBackend, ModelSpec } from "../model.js";
 
 /**
  * Wrap a backend behind a lazy loader. The provider SDK is imported on
- * first `complete()` call and cached for the rest of the process.
+ * first `complete()`/`stream()` call and cached for the rest of the process.
  */
 export function lazyBackend(loader: () => Promise<ModelBackend>): ModelBackend {
   let cached: Promise<ModelBackend> | null = null;
@@ -12,6 +12,17 @@ export function lazyBackend(loader: () => Promise<ModelBackend>): ModelBackend {
     async complete(spec: ModelSpec): Promise<Completion> {
       cached ??= loader();
       return (await cached).complete(spec);
+    },
+    async stream(spec: ModelSpec, onDelta: DeltaSink, signal?: AbortSignal): Promise<Completion> {
+      cached ??= loader();
+      const backend = await cached;
+      if (backend.stream) return backend.stream(spec, onDelta, signal);
+      // Backend doesn't stream (a stub): emit the whole value as one delta so
+      // streaming consumers still get text + the final completion.
+      const completion = await backend.complete(spec);
+      const text = typeof completion.value === "string" ? completion.value : JSON.stringify(completion.value);
+      onDelta(text);
+      return completion;
     },
   };
 }

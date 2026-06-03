@@ -1,5 +1,5 @@
 // ── Core ─────────────────────────────────────────────────────────────
-export { type ModelBackend, type ModelSpec, type Completion, type TokenUsage } from "./model.js";
+export { type ModelBackend, type ModelSpec, type Completion, type TokenUsage, type DeltaSink } from "./model.js";
 export { type ModelPrice, PRICE_MAP, priceFor, referenceCost } from "./pricing.js";
 export {
   type InferCost,
