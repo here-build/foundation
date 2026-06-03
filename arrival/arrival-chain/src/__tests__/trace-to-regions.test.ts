@@ -76,9 +76,46 @@ describe("traceToRegions", () => {
     const map = maps[0]!;
     expect(map.iterations.length).toBe(2);
     for (const iter of map.iterations) expect(leaves(iter).length).toBeGreaterThan(0);
+    // gepa-loop calls `(infer/chat …)` directly → direct-infer leaves.
+    expect(leaves(map.iterations[0]!).every((l) => l.nodeKind === "direct")).toBe(true);
 
     // Provenance wires are present (react → reflect at least).
     expect(edges.length).toBeGreaterThan(0);
+  });
+
+  it("labels .prompt invocations by their run-X binding, direct infers by infer/chat", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile("analyze.prompt", `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}} {{message}}\n`);
+    project.addFile("decide.prompt", `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}} {{message}} {{analysis}}\n`);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({ complete: async (_s: ModelSpec) => ({ value: "v" }) }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+    await project.run(
+      `
+(define run-analyze (require "analyze.prompt"))
+(define run-decide  (require "decide.prompt"))
+(define (direct m) (car (infer/chat "fast" (list (infer/chat/user m)) #f (string-append "d/" m))))
+(let* ((a (run-analyze (list "ia" "m") :instruction "ia" :message "m"))
+       (d (run-decide  (list "id" "m" a) :instruction "id" :message "m" :analysis a)))
+  (direct "x"))
+`,
+      { trace },
+    );
+    ac.abort();
+    await draining;
+
+    const ls = leaves(traceToRegions(trace).roots);
+    const labels = new Map(ls.map((l) => [l.label, l.nodeKind]));
+    // The two .prompt calls read by their binding, the direct infer by its head.
+    expect(labels.get("run-analyze")).toBe("prompt");
+    expect(labels.get("run-decide")).toBe("prompt");
+    expect(labels.get("infer/chat")).toBe("direct");
   });
 
   it("does not explode on the TCO loop (recursion flattens, bounded)", async () => {

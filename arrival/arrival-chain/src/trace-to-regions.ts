@@ -26,7 +26,7 @@ import { scopeId } from "./trace-to-forest.js";
 import type { EvalTrace } from "./trace.js";
 
 export type Region =
-  | { kind: "leaf"; id: number; label: string }
+  | { kind: "leaf"; id: number; label: string; nodeKind: "direct" | "prompt" }
   | { kind: "fanout"; id: number; label: string; iterations: Region[][] };
 
 export interface RegionGraph {
@@ -42,6 +42,32 @@ const FANOUT: ReadonlySet<string> = new Set(["map", "filter", "fold", "fold-left
 
 const headOf = (inv: PlainInv): string => scopeId(inv.node).split("@")[0] ?? "?";
 
+/** The `__location__` line of a node, if stamped. The dotprompt rosetta compiles
+ *  its lambda from a single-LINE string, so a `.prompt` infer's node is ALWAYS at
+ *  line 1 — the marker that separates it from a direct user-written `(infer …)`,
+ *  whose node sits at its real .scm line. */
+const lineOf = (node: unknown): number | undefined => {
+  if (!node || typeof node !== "object") return undefined;
+  for (const s of Object.getOwnPropertySymbols(node)) {
+    if (s.description === "__location__") return ((node as Record<symbol, unknown>)[s] as { line?: number } | undefined)?.line;
+  }
+  return undefined;
+};
+const PROMPT_LAMBDA_LINE = 1;
+
+/** Classify an infer point. `.prompt` invocation: its node is in the generated
+ *  line-1 lambda, so the user-visible call is the nearest ancestor OFF line 1 —
+ *  the `run-analyze`/`run-decide` binding; label it that. Direct `(infer …)`: its
+ *  node is at a real line → label it by its own head (`infer/chat`). */
+function leafFor(inv: PlainInv): Extract<Region, { kind: "leaf" }> {
+  if (lineOf(inv.node) === PROMPT_LAMBDA_LINE) {
+    let cur = inv.parent;
+    while (cur && lineOf(cur.node) === PROMPT_LAMBDA_LINE) cur = cur.parent;
+    return { kind: "leaf", id: inv.id, label: cur ? headOf(cur) : headOf(inv), nodeKind: "prompt" };
+  }
+  return { kind: "leaf", id: inv.id, label: headOf(inv), nodeKind: "direct" };
+}
+
 export function traceToRegions(trace: EvalTrace): RegionGraph {
   const snap = snapshotTrace(trace);
   const points = snap.invocations.filter((i) => i.isProvenancePoint);
@@ -56,7 +82,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   }
 
   const regionsAt = (inv: PlainInv): Region[] => {
-    if (inv.isProvenancePoint) return [{ kind: "leaf", id: inv.id, label: headOf(inv) }];
+    if (inv.isProvenancePoint) return [leafFor(inv)];
     if (FANOUT.has(headOf(inv))) {
       // Iterations = the application children (those carrying a body). The
       // eval'd-once args (lambda, collection) have no children → excluded. An
