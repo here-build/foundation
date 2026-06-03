@@ -302,11 +302,10 @@ export function buildArrivalEnv(opts: {
         // Bind the node's story (file, model, the structured inputs) to its
         // provenance node NOW, before the inference runs. It's all known at call
         // time, so the card renders its header + init fields WHILE the answer is
-        // still streaming — not only once it resolves. (`resultWithProvenance`
-        // binds at return, which is too late for a streamed result.) `result`
-        // flows on as the ordinary value. Same setMetadata-vs-POJO story as the
-        // rosetta wrapper: a real Invocation is a MobX observable (action), a plain
-        // test ctx is a bare object.
+        // still streaming — not only once it resolves. `result` flows on as the
+        // ordinary value. Same setMetadata-vs-POJO story as `markProvenancePoint`:
+        // a real Invocation is a MobX observable (action), a plain test ctx is a
+        // bare object.
         const inv = (ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined)
           ?.currentInvocation;
         if (inv) {

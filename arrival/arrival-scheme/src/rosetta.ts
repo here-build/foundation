@@ -66,9 +66,10 @@ interface InvocationLike {
    */
   markProvenancePoint?(): void;
   /**
-   * Bind arbitrary metadata to this node, supplied via `resultWithProvenance`.
-   * Same action-vs-POJO story as `markProvenancePoint`. The metadata is trace-side
-   * only (read by the render) — it never crosses back into scheme.
+   * Bind arbitrary node metadata (e.g. a `.prompt`'s file / model / inputs — the
+   * card's display story), called directly by the rosetta fn at call time. Same
+   * action-vs-POJO story as `markProvenancePoint`. The metadata is trace-side only
+   * (read by the render) — it never crosses back into scheme.
    */
   setMetadata?(meta: unknown): void;
 }
@@ -259,30 +260,6 @@ export function jsToLips(
   return value;
 }
 
-// A rosetta fn can return `resultWithProvenance(value, meta)` to hand `value` to
-// the interpreter as the call's result AND bind `meta` to the call's provenance
-// NODE (its Invocation) — the trace render reads structured node metadata (e.g. a
-// `.prompt`'s file, model, inputs) without it ever crossing back into scheme. The
-// brand is a registered Symbol so it survives duplicate-module-instance boundaries.
-const PROVENANCE_META = Symbol.for("@here.build/arrival-scheme/provenance-meta");
-
-export interface ProvenanceResult<T = unknown> {
-  [PROVENANCE_META]: true;
-  value: T;
-  meta: unknown;
-}
-
-/** Wrap a rosetta's return so its provenance node carries `meta`. The wrapper
- *  peels it: `value` flows on as the result, `meta` is bound to the Invocation. */
-export const resultWithProvenance = <T>(value: T, meta: unknown): ProvenanceResult<T> => ({
-  [PROVENANCE_META]: true,
-  value,
-  meta,
-});
-
-const isProvenanceResult = (v: unknown): v is ProvenanceResult =>
-  v != null && typeof v === "object" && (v as Record<symbol, unknown>)[PROVENANCE_META] === true;
-
 export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: RosettaFunction) => {
   // provenancePoint can't reach ctx.currentInvocation without withContext —
   // throw rather than silently degrade. The doc on RosettaOptions explains why.
@@ -314,16 +291,7 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
     const callArgs = effectiveWithContext ? [ctx, ...jsArgs] : jsArgs;
 
     try {
-      let rawResult = await fn(...callArgs);
-
-      // `resultWithProvenance(value, meta)`: peel the node metadata off the result.
-      // `meta` rides the Invocation (trace-side, read by the render); `value`
-      // continues as the ordinary result. See the helper's docstring above.
-      let nodeMeta: unknown;
-      if (isProvenanceResult(rawResult)) {
-        nodeMeta = rawResult.meta;
-        rawResult = rawResult.value;
-      }
+      const rawResult = await fn(...callArgs);
 
       const inv = (ctx as CtxWithInvocation | undefined)?.currentInvocation;
 
@@ -335,7 +303,11 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
       //
       // No invocation in ctx: silent. The rosetta is being called from a path the
       // tap doesn't reach (e.g., direct JS invocation in tests); there's no node to
-      // mark or annotate, fall back to input provenance.
+      // mark, fall back to input provenance.
+      //
+      // Node metadata (the card's display story) is bound separately and directly
+      // by the rosetta fn via `ctx.currentInvocation.setMetadata(…)` at call time —
+      // it's known up front, so it doesn't ride the result back through here.
       let resultProvenance = inputProvenance;
       if (options.provenancePoint === true && inv && typeof inv.id === "number") {
         // The real Invocation is a MobX observable — flip the flag through its
@@ -344,12 +316,6 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
         if (typeof inv.markProvenancePoint === "function") inv.markProvenancePoint();
         else inv.isProvenancePoint = true;
         resultProvenance = pointProvenance(inv.id);
-      }
-      // Bind node metadata if supplied — independent of provenancePoint, since the
-      // metadata describes THIS call's node either way.
-      if (nodeMeta !== undefined && inv) {
-        if (typeof inv.setMetadata === "function") inv.setMetadata(nodeMeta);
-        else (inv as { metadata?: unknown }).metadata = nodeMeta;
       }
 
       const result = jsToLips(rawResult, options, resultProvenance);

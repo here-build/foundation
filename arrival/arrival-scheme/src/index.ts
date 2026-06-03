@@ -9,9 +9,7 @@ export {
   lipsToJs as lipsToJs,
   jsToLips as jsToLips,
   createRosettaWrapper,
-  resultWithProvenance,
   type RosettaFunction,
-  type ProvenanceResult,
 } from "./rosetta.js";
 
 // Runtime value hierarchy. Provenance algebra: docs/spec/arrival-chain.md §5.

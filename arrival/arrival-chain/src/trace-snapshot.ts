@@ -37,7 +37,7 @@ export interface PlainInv {
   /** Resolved value — copied for provenance points only (the render reads it for a
    *  node's result). `undefined` while running and for non-points. */
   value: unknown;
-  /** Node metadata bound via `resultWithProvenance` — points only (`undefined`
+  /** Node metadata, bound by the rosetta fn at call time — points only (`undefined`
    *  otherwise). e.g. a `.prompt` node's `{ kind, path, model, inputs }`. */
   metadata: unknown;
   /** running | resolved | rejected — the render's pending/result/error state. */
