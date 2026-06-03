@@ -12,7 +12,7 @@ import { ArrivalChain } from "../arrival-chain.js";
 import { ArrivalCache, InferenceCache } from "../cache.js";
 import { Project } from "../project.js";
 import { InferenceResult } from "../task.js";
-import { EvalTrace, type NodeRecord } from "../trace.js";
+import { EvalTrace } from "../trace.js";
 
 const result = (json: string) => new InferenceResult({ valueJson: json });
 
@@ -91,31 +91,26 @@ describe("Layer 2 — EvalTrace records map", () => {
     expect(inv.state).toBe("resolved");
   });
 
-  it("MobX reactivity: observers fire on enter/exit", async () => {
+  it("MobX reactivity: the `entries` box ticks across enter/exit", async () => {
+    // The trace's hot machinery (Invocation/NodeRecord/records) is INTENTIONALLY
+    // plain — making 46k-deep loops' invocations each a MobX observable retained
+    // ~186MB of admin and GC-froze the tab. The single reactive signal renderers
+    // subscribe to is the `entries` box (a monotonic enter-count); per-record
+    // fields are read off the PLAIN snapshot the rebuild takes, not observed.
+    // So this test now proves reactivity through `entries`, not `rec.exited`.
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
     project.bindCache(cache);
 
     const trace = new EvalTrace();
-    let snapshots: Array<{ entered: number; exited: number }> = [];
-    let interestingRec: NodeRecord | undefined;
+    const ticks: number[] = [];
 
-    // Start an autorun that, once a record appears, snapshots its counters.
+    // Autorun subscribing to ONLY the entries box — the renderer's actual signal.
     const dispose = autorun(() => {
-      if (!interestingRec) {
-        // Find the (infer …) record once it shows up.
-        for (const rec of trace.records.values()) {
-          if (rec.entered === 1 && rec.exited === 0) {
-            interestingRec = rec;
-            break;
-          }
-        }
-      }
-      if (interestingRec) {
-        snapshots.push({ entered: interestingRec.entered, exited: interestingRec.exited });
-      }
+      ticks.push(trace.entries);
     });
 
+    const before = trace.entries;
     const inflight = project.run(`(car (infer "slow" "p"))`, { trace });
     await new Promise((r) => setTimeout(r, 30));
     cache.upsertTask("slow", "p", null).result = result('"done"');
@@ -124,10 +119,13 @@ describe("Layer 2 — EvalTrace records map", () => {
     await new Promise((r) => setTimeout(r, 0));
     dispose();
 
-    // We should have at least one snapshot with exited=0 (in-flight) and one
-    // with exited=1 (resolved) — proving reactivity ran across the transition.
-    expect(snapshots.some((s) => s.exited === 0)).toBe(true);
-    expect(snapshots.some((s) => s.exited === 1)).toBe(true);
+    // The autorun fired more than once (the box ticked as the program ran) and
+    // the count strictly grew — proving the reactive boundary is live.
+    expect(ticks.length).toBeGreaterThan(1);
+    expect(trace.entries).toBeGreaterThan(before);
+    // The plain snapshot still reflects the resolved transition (read directly).
+    const inferRec = [...trace.records.values()].find((r) => r.entered === 1 && r.exited === 1 && [...r.bindings].some((inv) => inv.state === "resolved"));
+    expect(inferRec).toBeDefined();
   });
 
   it("task ↔ invocation linkage: infer rosetta stamps creating invocation", async () => {

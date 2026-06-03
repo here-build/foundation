@@ -1,43 +1,45 @@
 /**
- * Regression: marking a provenance point must go through a MobX action.
+ * Regression: the trace's hot machinery must stay PLAIN (non-observable).
  *
- * `infer`/`infer/chat` are `provenancePoint: true` rosettas (project.ts). With a
- * trace active, the arrival-scheme rosetta wrapper marks the call's invocation by
- * flipping `Invocation.isProvenancePoint`. The Invocation is a MobX observable and
- * the studio renders the graph via `mobx-react`, so the flag is OBSERVED — MobX's
- * `enforceActions: "observed"` then rejects a BARE write to it (V's in-app error:
- * "changing (observed) observable values without using an action is not allowed …
- * Invocation.isProvenancePoint"). The throw was swallowed into infer's
- * either-return, breaking the graph.
+ * History: `Invocation` was a MobX observable, so the rosetta wrapper's flip of
+ * `isProvenancePoint` was an OBSERVED write and `enforceActions: "observed"`
+ * rejected it (V's in-app error: "changing (observed) observable values without
+ * using an action is not allowed … Invocation.isProvenancePoint"). The earlier fix
+ * routed the write through a MobX action.
  *
- * The fix routes the write through `Invocation.markProvenancePoint()`. The
- * load-bearing property is that this method is a MobX ACTION — only then is the
- * write legal under strict-mode. Strict-mode enforcement only fires with a live
- * reactive observer (the studio's React renderer), which a node suite doesn't
- * have, so we assert the property that makes the studio safe directly: the method
- * is an action.
+ * That whole class of bug — and a far worse one — is now gone by making the trace's
+ * hot objects plain. A deep TCO loop mints one Invocation per recursion step (tens
+ * of thousands); a per-object MobX administration cost ~186MB of pure admin + O(n²)
+ * provenance Sets and GC-froze the tab. The sole reactive signal renderers need is
+ * the `EvalTrace.entries` box; per-invocation fields are read off the PLAIN snapshot
+ * the rebuild takes. So `isProvenancePoint` is a plain field flipped by a plain
+ * method — no observed write, no strict-mode concern, no admin overhead.
+ *
+ * This test guards the de-MobX invariant: if a future change re-introduces
+ * `makeAutoObservable` on `Invocation`, it resurrects BOTH the strict-mode throw and
+ * the memory blowup — caught here.
  */
-import { isAction } from "mobx";
+import { isObservable } from "mobx";
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
 import { Project } from "../project.js";
 import { EvalTrace, type Invocation } from "../trace.js";
 
-describe("provenance marking under MobX strict-mode", () => {
-  it("Invocation.markProvenancePoint is a MobX action (so the wrapper's write is strict-mode-safe)", async () => {
-    // A real (MobX-observable) Invocation from a trivial traced run.
+describe("trace hot machinery stays plain (non-observable)", () => {
+  it("Invocation is a plain object; marking a provenance point is a bare, safe write", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
     const trace = new EvalTrace();
     await project.run(`(+ 1 2)`, { trace });
     const inv = [...trace.records.values()].flatMap((r) => [...r.bindings])[0] as Invocation;
     expect(inv).toBeDefined();
 
-    // The guard: `makeAutoObservable` must keep this method an action. If a future
-    // change makes it a plain method (or the wrapper reverts to a bare write), the
-    // studio's observed write throws again — caught here.
-    expect(isAction(inv.markProvenancePoint)).toBe(true);
+    // The guard: the Invocation must NOT be MobX-observable. A future
+    // `makeAutoObservable` here brings back the strict-mode throw AND the 186MB
+    // deep-loop blowup.
+    expect(isObservable(inv)).toBe(false);
 
+    // The write is now plain — no action needed, no observed-write throw.
     inv.markProvenancePoint();
     expect(inv.isProvenancePoint).toBe(true);
   });

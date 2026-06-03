@@ -61,24 +61,31 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
   for (const rec of trace.records.values()) {
     for (const inv of rec.bindings) {
       const isPoint = inv.isProvenancePoint;
+      // A parentless invocation is a top-level form; the LAST one is the program's
+      // STATEMENT OUTPUT. We materialize its value + provenance too (a handful of
+      // roots, so still O(n)) so the region build can render the program's returned
+      // value as a terminal node wired from its producers.
+      const isRoot = !inv.parent;
       const plain: PlainInv = {
         id: inv.id,
         node: inv.node,
         parent: null,
         children: [],
-        // Only children of provenance points have their provenance read downstream;
-        // everything else accumulates O(n) provenance we'd never look at.
-        provenance: inv.parent?.isProvenancePoint ? new Set(inv.provenance) : NO_PROVENANCE,
+        // Only children of provenance points — plus the top-level roots — have their
+        // provenance read downstream; everything else accumulates O(n) provenance we'd
+        // never look at.
+        provenance: inv.parent?.isProvenancePoint || isRoot ? new Set(inv.provenance) : NO_PROVENANCE,
         isProvenancePoint: isPoint,
         // value + metadata are read by the render only for the leaves it draws
-        // (provenance points); copying them for every invocation would make the
-        // snapshot track every intermediate value's resolution.
+        // (provenance points) and the program-output root; copying them for every
+        // invocation would make the snapshot track every intermediate value's
+        // resolution.
         //
         // `inv.value` is the rosetta result AS SCHEME SEES IT — a provenance-stamped
         // AValue (the wrapper `jsToLips`'d it on the way back). `lipsToJs` peels that
         // envelope to plain JS so the render shows the string, not
         // `{ provenance, kind, __string__ }`.
-        value: isPoint ? lipsToJs(inv.value) : undefined,
+        value: isPoint || isRoot ? lipsToJs(inv.value) : undefined,
         metadata: isPoint ? inv.metadata : undefined,
         state: inv.state,
       };

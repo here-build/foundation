@@ -462,12 +462,21 @@ describe("provenance × bridge.ts string pipeline (multi-step)", () => {
     const concats = findInvocationsForCall(trace, "string-append");
     expect(concats.length).toBe(2);
 
-    // Both concat invocations should carry the infer's id — the inner because
-    // it consumed the (car …) directly, the outer because the inner's result
-    // carried the stamp through value-level provenance.
-    for (const inv of concats) {
-      expect([...inv.provenance]).toEqual([inferInv.id]);
-    }
+    // The OUTER concat (the top-level/root form) must carry the infer's id, and
+    // it can ONLY get there by unioning its children's provenance — i.e. only if
+    // the INNER string-append correctly threaded the infer provenance up. So
+    // asserting the outer is the end-to-end check this test guards: a refactor
+    // that forgets to thread through the inner layer leaves the outer empty.
+    //
+    // We assert the OUTER specifically (not every concat) because the inner's own
+    // `provenance` Set is intentionally PRUNED once the outer has folded it in —
+    // the O(n²)-Set-retention fix (see trace.ts `#pruneChildProvenance` and
+    // trace-snapshot.ts: an intermediate invocation's provenance is never read
+    // downstream, only roots' and provenance-points'-children's are). The outer
+    // here is the root form, which is never pruned.
+    const outer = concats.find((inv) => inv.parent === null);
+    expect(outer).toBeDefined();
+    expect([...outer!.provenance]).toEqual([inferInv.id]);
 
     stop();
     await done;
@@ -571,4 +580,39 @@ describe("provenance × spec §5.3 (car/cdr element-only)", () => {
       await done;
     },
   );
+});
+
+describe("field-point absorption (idempotent re-projection)", () => {
+  // Regression for the O(n²) field-point blow-up that froze the chart: a single
+  // invocation carried 80,807 provenance members from ~1.8k invocations because
+  // `(:a (:b x))` minted `fieldPoint(fieldPoint(P,"b"),"a")` — a fresh id over an
+  // already-synthetic origin — and an accumulating loop compounded that
+  // quadratically. Absorption makes re-projecting a field-point return it
+  // unchanged. See docs/working-proposals/trace-provenance-idempotence-fix-2026-06-04.md.
+
+  it("a field-point projected again returns itself (no second mint)", () => {
+    const trace = new EvalTrace();
+    const base = 1; // a stand-in real producer point id
+    const fp = trace.fieldPoint(base, "b");
+    expect(fp).not.toBe(base); // a real point DOES mint a field-point
+    expect(trace.fieldPointMeta.has(fp)).toBe(true);
+
+    // Re-projecting the field-point is absorbed — same id, no new registry entry.
+    const before = trace.fieldPointMeta.size;
+    const fp2 = trace.fieldPoint(fp, "a");
+    expect(fp2).toBe(fp);
+    expect(trace.fieldPointMeta.size).toBe(before);
+
+    // The pin stays the INNER key (the producer's actual port).
+    expect(trace.fieldPointMeta.get(fp)).toEqual({ origin: base, key: "b" });
+  });
+
+  it("registry stays bounded by base-points × keys under repeated re-projection", () => {
+    const trace = new EvalTrace();
+    // Simulate an accumulating loop re-projecting the same growing point set.
+    let acc = trace.fieldPoint(1, "v");
+    for (let i = 0; i < 1000; i++) acc = trace.fieldPoint(acc, "v");
+    // Without absorption this mints ~1000 ids; with it, exactly one.
+    expect(trace.fieldPointMeta.size).toBe(1);
+  });
 });

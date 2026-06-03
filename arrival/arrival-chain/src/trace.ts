@@ -20,7 +20,24 @@
  * tap-firing rules already filter them.
  */
 import { AValue, EMPTY_PROVENANCE, type EvalTap, type Pair, type SchemeSymbol } from "@here.build/arrival-scheme";
-import { action, makeAutoObservable, observable } from "mobx";
+import { action, observable } from "mobx";
+import invariant from "tiny-invariant";
+
+// ── De-MobXed hot machinery ──────────────────────────────────────────────────
+// `Invocation` and `NodeRecord` used to be `makeAutoObservable`. On a deep TCO
+// loop the trace mints one Invocation per recursion step — tens of thousands —
+// and a per-object MobX administration (`values_` / the admin symbol) is ~10× the
+// memory of a plain field bag. A 46k-invocation run retained ~186MB of pure admin
+// + O(n²) provenance Sets, GC-thrashing the tab into the "pause won't land, no JS
+// on the stack" freeze. Nothing observes these fields reactively: the chart reads
+// a PLAIN snapshot (`snapshotTrace`) and live-fill is driven solely by the
+// `#entries` observable box (TraceGraph's `reaction(() => trace.entries)`), which
+// `snapshotTrace` runs OUTSIDE of. So the OBJECTS are now plain. The ONE remaining
+// observable is the `#entries` box — its `.set` IS an observed write, so it must
+// stay inside an `action` (strict mode's `enforceActions: "observed"` throws
+// otherwise: "changing (observed) observable values without using an action"). So
+// `enter` keeps its `action` wrapper; the other tap mutators touch only plain
+// fields and stay bare.
 
 export type InvocationState = "running" | "resolved" | "rejected";
 
@@ -174,7 +191,7 @@ export class Invocation {
     this.node = node;
     this.parent = parent;
     if (parent) parent.children.push(this);
-    makeAutoObservable(this, { id: false, node: false, parent: false, children: false });
+    // Plain object — see the de-MobXed-hot-machinery note at the top of the file.
   }
 
   /**
@@ -205,6 +222,7 @@ export class Invocation {
     while (cur) {
       out.push(cur);
       cur = cur.parent;
+      invariant(cur !== this, "ancestors should not walk off the root");
     }
     return out;
   }
@@ -214,14 +232,11 @@ export class NodeRecord {
   readonly bindings = new Set<Invocation>();
   entered = 0;
   exited = 0;
-
-  constructor() {
-    makeAutoObservable(this);
-  }
+  // Plain object — see the de-MobXed-hot-machinery note at the top of the file.
 }
 
 export class EvalTrace implements EvalTap {
-  readonly records = observable.map<Pair, NodeRecord>();
+  readonly records = new Map<Pair, NodeRecord>();
   /**
    * Task-creating invocations indexed by the task they produced. Stamped at
    * upsertTask time by rosettas that have access to currentInvocation. Lets
@@ -278,8 +293,20 @@ export class EvalTrace implements EvalTap {
   readonly #fieldPointIds = new Map<string, number>();
 
   /** Mint (or reuse) the synthetic field-point id for plucking `key` off a value
-   *  whose provenance carries `origin`. Lazy + singleton per (origin, key). */
+   *  whose provenance carries `origin`. Lazy + singleton per (origin, key).
+   *
+   *  ABSORPTION: if `origin` is ITSELF a field-point, return it unchanged rather
+   *  than minting `fieldPoint(fieldPoint(P,…), key)`. A re-projection
+   *  (`(:a (:b x))`) is a deeper pluck within the SAME producer pin; `resolvePoint`
+   *  already keeps the INNER key as the producer port and walks the chain to the
+   *  base point, so the outer mint is observably a no-op. Minting it anyway is the
+   *  one non-idempotent op in the provenance semiring — and under loop
+   *  accumulation it compounds to the O(n²) field-point blow-up that froze the
+   *  chart (80k field-points from ~1.8k invocations). Absorbing it caps the
+   *  registry at base-points × keys and restores the semiring's free loop bound.
+   *  See docs/working-proposals/trace-provenance-idempotence-fix-2026-06-04.md. */
   fieldPoint(origin: number, key: string): number {
+    if (this.fieldPointMeta.has(origin)) return origin;
     const memo = `${origin}:${key}`;
     const existing = this.#fieldPointIds.get(memo);
     if (existing !== undefined) return existing;
@@ -304,9 +331,9 @@ export class EvalTrace implements EvalTap {
   /** Record whether an infer invocation was served from cache (hit) or fired a
    *  fresh call. Set at bind time, before the await — `cached` never changes
    *  after. Drives the per-node cached/fresh (blue/green) bar. */
-  markInferCached = action((invocation: Invocation, cached: boolean): void => {
+  markInferCached = (invocation: Invocation, cached: boolean): void => {
     invocation.cached = cached;
-  });
+  };
 
   /** First (canonical) invocation that produced the task; undefined if unbound. */
   invocationFor(task: object): Invocation | undefined {
@@ -323,9 +350,11 @@ export class EvalTrace implements EvalTap {
     return this.symbolValues.get(inv)?.get(name);
   }
 
-  // `enter`/`exit` mutate observable fields (records map + Invocation state),
-  // and are fired from the evaluator (i.e. outside any user-facing action),
-  // so they are themselves bound as MobX actions to satisfy strict mode.
+  // `enter` mutates plain fields (records Map + Invocation fields) AND bumps the
+  // `#entries` observable box — the lone reactive signal renderers subscribe to.
+  // Because that box write is an observed-observable mutation, `enter` MUST be an
+  // `action` (strict mode rejects a bare observed write). `exit`/`markProvenancePoint`
+  // touch only plain fields, so they stay bare.
 
   enter = action((node: Pair, parent: unknown, tailPosition?: boolean): Invocation => {
     const inv = new Invocation(this.#nextId++, node, parent as Invocation | null);
@@ -341,50 +370,76 @@ export class EvalTrace implements EvalTap {
     return inv;
   });
 
-  exit = action(
-    (
-      invocation: unknown,
-      result: { value: unknown } | { error: unknown },
-    ): { value: unknown } | { error: unknown } | void => {
-      const inv = invocation as Invocation;
-      if (!("value" in result)) {
-        inv.state = "rejected";
-        inv.error = result.error;
-        inv.provenance = computeProvenance(inv, this);
-        const rec = this.records.get(inv.node);
-        if (rec) rec.exited += 1;
-        return;
-      }
-
-      inv.state = "resolved";
-      inv.value = result.value;
+  exit = (
+    invocation: unknown,
+    result: { value: unknown } | { error: unknown },
+  ): { value: unknown } | { error: unknown } | void => {
+    const inv = invocation as Invocation;
+    if (!("value" in result)) {
+      inv.state = "rejected";
+      inv.error = result.error;
       inv.provenance = computeProvenance(inv, this);
-
-      // Stamp the computed provenance back onto the value itself, so it rides
-      // through env bindings and emerges intact at the next symbol resolution.
-      // Pre-AValue this needed a sidecar WeakMap keyed by the result object —
-      // which snapped at primitives (strings/numbers/booleans can't key a
-      // WeakMap) and lost provenance whenever an (infer …) chain produced a
-      // bare scalar. Now every scheme runtime value extends AValue and carries
-      // its own provenance field, so the same machinery works uniformly.
-      //
-      // The substitution-return is load-bearing: `withProvenance` clones the
-      // AValue (provenance is part of identity, not mutable in place), so the
-      // freshly-stamped clone lives only here. Without returning it, the
-      // evaluator would continue with the ORIGINAL un-stamped value and bind
-      // THAT to whatever `define`/`let`/arg slot this invocation feeds.
-      // See arrival-scheme `Call.onResolve` for the trampoline-side contract.
-      if (inv.provenance.size > 0 && inv.value instanceof AValue) {
-        inv.value = inv.value.withProvenance(inv.provenance);
-        const rec = this.records.get(inv.node);
-        if (rec) rec.exited += 1;
-        return { value: inv.value };
-      }
-
+      this.#pruneChildProvenance(inv);
       const rec = this.records.get(inv.node);
       if (rec) rec.exited += 1;
-    },
-  );
+      return;
+    }
+
+    inv.state = "resolved";
+    inv.value = result.value;
+    inv.provenance = computeProvenance(inv, this);
+    this.#pruneChildProvenance(inv);
+
+    // Stamp the computed provenance back onto the value itself, so it rides
+    // through env bindings and emerges intact at the next symbol resolution.
+    // Pre-AValue this needed a sidecar WeakMap keyed by the result object —
+    // which snapped at primitives (strings/numbers/booleans can't key a
+    // WeakMap) and lost provenance whenever an (infer …) chain produced a
+    // bare scalar. Now every scheme runtime value extends AValue and carries
+    // its own provenance field, so the same machinery works uniformly.
+    //
+    // The substitution-return is load-bearing: `withProvenance` clones the
+    // AValue (provenance is part of identity, not mutable in place), so the
+    // freshly-stamped clone lives only here. Without returning it, the
+    // evaluator would continue with the ORIGINAL un-stamped value and bind
+    // THAT to whatever `define`/`let`/arg slot this invocation feeds.
+    // See arrival-scheme `Call.onResolve` for the trampoline-side contract.
+    if (inv.provenance.size > 0 && inv.value instanceof AValue) {
+      inv.value = inv.value.withProvenance(inv.provenance);
+      const rec = this.records.get(inv.node);
+      if (rec) rec.exited += 1;
+      return { value: inv.value };
+    }
+
+    const rec = this.records.get(inv.node);
+    if (rec) rec.exited += 1;
+  };
+
+  /**
+   * Free a child's provenance Set the moment its parent has folded it in.
+   *
+   * Provenance flows exactly ONE level at exit: `computeProvenance(parent)` unions
+   * its direct children's sets (plus symbol contributions). The value-carried copy
+   * (`withProvenance` on the AValue) handles the symbol-resolution path independently,
+   * so once the parent's set is computed, an intermediate child's own Set is never
+   * read again — by anyone. Without this, every Invocation on a 46k-deep TCO loop
+   * retains an O(depth) provenance Set forever (`NodeRecord.bindings → Invocation.provenance`),
+   * the O(n²) blowup that GC-froze the tab.
+   *
+   * The keep-condition mirrors `snapshotTrace`'s materialization predicate EXACTLY
+   * (`inv.parent?.isProvenancePoint || isRoot || isPoint`): a provenance point's own
+   * set is `{self.id}` (tiny, and read as a point), and a point's direct children are
+   * what the snapshot reads. Everything else is never-read scaffolding — safe to drop.
+   */
+  #pruneChildProvenance(inv: Invocation): void {
+    // A point's children ARE snapshot-materialized (parent.isProvenancePoint) — keep them.
+    if (inv.isProvenancePoint) return;
+    for (const child of inv.children) {
+      // A point's own set is {self} (tiny + read as a point); never prune it.
+      if (child.isProvenancePoint) continue;
+      if (child.provenance.size > 0) child.provenance = EMPTY_PROVENANCE;
+    }
+  }
 
   /**
    * Flag an invocation as a provenance point. Called by rosetta wrappers
@@ -394,9 +449,9 @@ export class EvalTrace implements EvalTap {
    * Setting this before `exit` fires causes the exit-tap to emit
    * `{ self.id }` instead of the union-of-children rule.
    */
-  markProvenancePoint = action((invocation: Invocation): void => {
+  markProvenancePoint = (invocation: Invocation): void => {
     invocation.isProvenancePoint = true;
-  });
+  };
 
   /**
    * Set true after the first time onSymbolResolved throws and we suppress
