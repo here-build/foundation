@@ -4,6 +4,7 @@ import {
   execGeneratorFromString as exec,
   execGeneratorExpr as execExpr,
   parseGenerator as parse,
+  resultWithProvenance,
   sandboxedEnv,
   lipsToJs,
   Nil,
@@ -298,9 +299,14 @@ export function buildArrivalEnv(opts: {
       withContext: true,
       options: { provenancePoint: true },
       fn: async (ctx, key, ...kv: unknown[]) => {
-        const d = buildDict(kv);
-        const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [d])]);
-        return opts.infer(ctx, unit.tier, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
+        const inputs = buildDict(kv);
+        const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
+        const result = await opts.infer(ctx, unit.tier, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
+        // Bind the node's story to its provenance node (file, model, the structured
+        // inputs) — the render draws the card from this, losslessly, instead of
+        // reconstructing from the one-way-rendered prompt. `result` flows on as the
+        // value.
+        return resultWithProvenance(result, { kind: "prompt", path: unit.path, model: unit.tier, inputs });
       },
     });
   };

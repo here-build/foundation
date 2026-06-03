@@ -16,7 +16,7 @@
  * computation in the core.
  */
 import type { Pair } from "@here.build/arrival-scheme";
-import type { EvalTrace } from "./trace.js";
+import type { EvalTrace, InvocationState } from "./trace.js";
 
 /** Exactly the Invocation fields the flow-graph build reads. The AST `node` is a
  *  plain Pair, shared by reference — its identity is load-bearing (cells and
@@ -34,6 +34,14 @@ export interface PlainInv {
    *  non-point-child, widen this predicate. */
   provenance: ReadonlySet<number>;
   isProvenancePoint: boolean;
+  /** Resolved value — copied for provenance points only (the render reads it for a
+   *  node's result). `undefined` while running and for non-points. */
+  value: unknown;
+  /** Node metadata bound via `resultWithProvenance` — points only (`undefined`
+   *  otherwise). e.g. a `.prompt` node's `{ kind, path, model, inputs }`. */
+  metadata: unknown;
+  /** running | resolved | rejected — the render's pending/result/error state. */
+  state: InvocationState;
 }
 
 export interface PlainTrace {
@@ -52,6 +60,7 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
   // Pass 1: copy each invocation's scalar fields and de-proxy its provenance Set.
   for (const rec of trace.records.values()) {
     for (const inv of rec.bindings) {
+      const isPoint = inv.isProvenancePoint;
       const plain: PlainInv = {
         id: inv.id,
         node: inv.node,
@@ -60,7 +69,13 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
         // Only children of provenance points have their provenance read downstream;
         // everything else accumulates O(n) provenance we'd never look at.
         provenance: inv.parent?.isProvenancePoint ? new Set(inv.provenance) : NO_PROVENANCE,
-        isProvenancePoint: inv.isProvenancePoint,
+        isProvenancePoint: isPoint,
+        // value + metadata are read by the render only for the leaves it draws
+        // (provenance points); copying them for every invocation would make the
+        // snapshot track every intermediate value's resolution.
+        value: isPoint ? inv.value : undefined,
+        metadata: isPoint ? inv.metadata : undefined,
+        state: inv.state,
       };
       byId.set(inv.id, plain);
       invocations.push(plain);

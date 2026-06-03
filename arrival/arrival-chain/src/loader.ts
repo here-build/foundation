@@ -54,6 +54,9 @@ export type SchemeForm = Awaited<ReturnType<typeof parse>>[number];
  *  native proc (it needs the infer capability + the `s/…` schema rosettas, which
  *  live in `makeEnv`, not here). See the `.prompt` resolver + `compileInferUnit`. */
 export interface PromptUnit {
+  /** The `.prompt` file's resolved path — the node's stable identity for the
+   *  render (the card header shows it), and a future go-to-source anchor. */
+  path: string;
   /** Model tier from the frontmatter `model:` / `tier:`. */
   tier: string;
   /** Compiled `(s/object …)` schema SOURCE (from Picoschema `output:`), or null
@@ -307,7 +310,7 @@ export function defaultResolvers(): Map<string, ContentResolver> {
     // never forge a turn. Longest-suffix resolution routes `*.prompt` here.
     [
       ".prompt",
-      (contents) => {
+      (contents, { path }) => {
         const { fm, body } = parsePromptFile(String(contents));
         const tier = fm.model ?? fm.tier;
         if (typeof tier !== "string") {
@@ -315,7 +318,7 @@ export function defaultResolvers(): Map<string, ContentResolver> {
         }
         const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
         const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
-        return { kind: "infer-unit", unit: { tier, schemaSrc, sections } };
+        return { kind: "infer-unit", unit: { path, tier, schemaSrc, sections } };
       },
     ],
   ]);

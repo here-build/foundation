@@ -136,6 +136,13 @@ export class Invocation {
    */
   isProvenancePoint = false;
   /**
+   * Trace-side metadata bound to this node via a rosetta's
+   * `resultWithProvenance(value, meta)` — e.g. a `.prompt` node's `{ kind, path,
+   * model, inputs }`, which the render reads to draw the node's card. Never
+   * crosses back into scheme, never synced; `undefined` for almost every node.
+   */
+  metadata: unknown = undefined;
+  /**
    * For an `(infer …)` invocation: whether it bound to an already-resolved task
    * (a cache HIT — `true`, blue/saved) vs triggered a fresh call (`false`,
    * green/spent). `undefined` for non-infer invocations. Set once at bind time
@@ -178,6 +185,15 @@ export class Invocation {
    */
   markProvenancePoint(): void {
     this.isProvenancePoint = true;
+  }
+
+  /**
+   * Bind {@link metadata} as a MobX action (same strict-mode reason as
+   * {@link markProvenancePoint} — the studio enables strict-mode). Called by the
+   * arrival-scheme rosetta wrapper when a fn returns `resultWithProvenance`.
+   */
+  setMetadata(meta: unknown): void {
+    this.metadata = meta;
   }
 
   /** Walk the dynamic call chain back to the program-root invocation. */

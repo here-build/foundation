@@ -26,7 +26,20 @@ import { scopeId } from "./trace-to-forest.js";
 import type { EvalTrace } from "./trace.js";
 
 export type Region =
-  | { kind: "leaf"; id: number; label: string; nodeKind: "direct" | "prompt" }
+  | {
+      kind: "leaf";
+      id: number;
+      label: string;
+      nodeKind: "direct" | "prompt";
+      /** Node metadata bound via `resultWithProvenance` — a `.prompt` leaf carries
+       *  `{ kind:"prompt", path, model, inputs }`; a bare `(infer …)` has none. The
+       *  render draws the node's card from this. */
+      meta?: unknown;
+      /** The resolved inference result (`undefined` while still running). */
+      value?: unknown;
+      /** running | resolved | rejected — pending vs result vs error in the card. */
+      state: "running" | "resolved" | "rejected";
+    }
   | { kind: "fanout"; id: number; label: string; iterations: Region[][] };
 
 export interface RegionGraph {
@@ -54,7 +67,15 @@ const DIRECT_INFER_HEADS: ReadonlySet<string> = new Set(["infer", "infer/chat"])
  *  `prompt`, labelled by the binding `run-x` at its real source location. */
 function leafFor(inv: PlainInv): Extract<Region, { kind: "leaf" }> {
   const head = headOf(inv);
-  return { kind: "leaf", id: inv.id, label: head, nodeKind: DIRECT_INFER_HEADS.has(head) ? "direct" : "prompt" };
+  return {
+    kind: "leaf",
+    id: inv.id,
+    label: head,
+    nodeKind: DIRECT_INFER_HEADS.has(head) ? "direct" : "prompt",
+    meta: inv.metadata,
+    value: inv.value,
+    state: inv.state,
+  };
 }
 
 export function traceToRegions(trace: EvalTrace): RegionGraph {
