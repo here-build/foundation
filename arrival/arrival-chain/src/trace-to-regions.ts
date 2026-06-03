@@ -72,8 +72,15 @@ export type Region =
 export interface RegionGraph {
   /** Top-level meaningful regions, plumbing flattened away. */
   roots: Region[];
-  /** Dataflow wires between leaf invocation ids (producer → consumer). */
-  edges: { from: number; to: number }[];
+  /** Dataflow wires between leaf invocation ids (producer → consumer). `field` is
+   *  the consumer's INPUT slot the producer's value flowed into — the named kwarg of
+   *  a `.prompt` consumer (`"analysis"` for `… :analysis a`), DERIVED by matching the
+   *  producer's value against the consumer's `inputs` dict (not stored in the model:
+   *  it's recoverable from data already captured). Absent when the consumer isn't a
+   *  `.prompt`, or when the value was PROJECTED/transformed before it reached the
+   *  slot (then `inputs[k] !== producer.value` and the match honestly declines —
+   *  attributing a projected input needs provenance-on-value, the v1 follow-up). */
+  edges: { from: number; to: number; field?: string }[];
   warnings: string[];
 }
 
@@ -167,7 +174,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   // before any consumer reads it. `reach[x]` = all ancestors reachable from x.
   const EMPTY: ReadonlySet<number> = new Set();
   const reach = new Map<number, Set<number>>();
-  const edges: { from: number; to: number }[] = [];
+  const edges: { from: number; to: number; field?: string }[] = [];
   for (const x of [...pointIds].sort((a, b) => a - b)) {
     const up = upstreamOf.get(x) ?? EMPTY;
     const closure = new Set<number>();
@@ -275,6 +282,37 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
     }
     return inv.children.flatMap(regionsAt); // plumbing: flatten through
   };
+
+  // Consumer-field attribution (DERIVED, render-only-grade — never stored). For a
+  // `.prompt` consumer, find which named input the producer's value flowed into by
+  // matching the producer's resolved value against the consumer's `inputs` dict.
+  // Sound because the value is literally present in that slot; declines (leaves
+  // `field` unset) when the slot holds a PROJECTION of the value rather than the
+  // value itself — which is the honest signal "this input is a transform, not the
+  // source". A structural compare (stable JSON) handles object/string values alike.
+  const pointById = new Map(points.map((p) => [p.id, p]));
+  const asJson = (v: unknown): string | undefined => {
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return undefined;
+    }
+  };
+  for (const e of edges) {
+    const consumer = pointById.get(e.to);
+    const meta = consumer?.metadata as { kind?: string; inputs?: Record<string, unknown> } | undefined;
+    if (!meta || meta.kind !== "prompt" || !meta.inputs) continue;
+    const producer = pointById.get(e.from);
+    if (!producer || producer.value === undefined) continue;
+    const pv = asJson(producer.value);
+    if (pv === undefined) continue;
+    for (const [k, v] of Object.entries(meta.inputs)) {
+      if (asJson(v) === pv) {
+        e.field = k;
+        break;
+      }
+    }
+  }
 
   const roots = snap.invocations.filter((i) => !i.parent).flatMap(regionsAt);
   return { roots, edges, warnings: [] };
