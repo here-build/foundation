@@ -42,6 +42,11 @@ export type Region =
       kind: "leaf";
       id: number;
       label: string;
+      /** Stable STRUCTURAL identity (`head@line:col`) — the same string for every
+       *  iteration of one `(infer …)` call. The render keys a container's boundary
+       *  ports by this, so a `map`/loop body that runs N times emits ONE exit port
+       *  per structural producer (one dataflow), not N (one per value). */
+      scope: string;
       nodeKind: "direct" | "prompt";
       /** Node metadata bound via `resultWithProvenance` — a `.prompt` leaf carries
        *  `{ kind:"prompt", path, model, inputs }`; a bare `(infer …)` has none. The
@@ -105,6 +110,7 @@ function leafFor(inv: PlainInv): Extract<Region, { kind: "leaf" }> {
     kind: "leaf",
     id: inv.id,
     label: head,
+    scope: scopeId(inv.node),
     nodeKind: DIRECT_INFER_HEADS.has(head) ? "direct" : "prompt",
     meta: inv.metadata,
     value: inv.value,
