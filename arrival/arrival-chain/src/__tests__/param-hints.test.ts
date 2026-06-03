@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { paramHints, paramHintsSweet } from "../param-hints.js";
+import { sweetToScheme } from "../sweet-read.js";
 import { schemeToSweet } from "../sweet-render.js";
 
 /** The char immediately at a hint's pos — should be the first char of its arg. */
@@ -93,5 +94,21 @@ evolve (list seed) {BUDGET - (length paretoset)} SEED-RNG 0`;
 
   it("returns [] on malformed sweet", () => {
     expect(paramHintsSweet(`define (f a b`)).toEqual([]);
+  });
+
+  it("is resilient: one unparseable form doesn't zero out the rest", () => {
+    // Middle form has an unbalanced `{` the reader can't parse; the define + call
+    // around it (different top-level forms) must still resolve cross-form.
+    const sweet = `define (f a b)\n  (+ a b)\n\n{ this is broken\n\n(f 1 2)`;
+    expect(paramHintsSweet(sweet).map((h) => h.name)).toEqual(["a", "b"]);
+  });
+
+  it("resolves through modulo/quotient/remainder infix (the gepa LCG case)", () => {
+    // `(modulo (* state 16807) n)` renders to `{{state * 16807} modulo n}`; read
+    // must recognise `modulo` as infix or it throws "unbalanced {" → 0 hints.
+    const classic = `(define (rng-next state) (modulo (* state 16807) 2147483647))\n\n(define (step s) (rng-next s))`;
+    const sweet = schemeToSweet(classic);
+    expect(() => sweetToScheme(sweet, classic)).not.toThrow(); // round-trip is restored
+    expect(paramHintsSweet(sweet).map((h) => h.name)).toEqual(["state"]); // (rng-next s) → [state]
   });
 });

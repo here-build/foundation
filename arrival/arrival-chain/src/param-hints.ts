@@ -1,4 +1,4 @@
-import { readSweet } from "./sweet-read.js";
+import { readSweet, splitFormsWithBase } from "./sweet-read.js";
 import { type Node, parseSexprs } from "./sweet-render.js";
 
 /**
@@ -74,14 +74,32 @@ export function paramHints(src: string): ParamHint[] {
   }
 }
 
-/** Sweet lens: the SAME resolver over a span-bearing sweet parse. The sweet text's
- *  spans are in sweet-text coordinates (what the sweet editor buffer shows). */
+/** Recursively shift every `span` in a node tree by `delta` (a form parsed in
+ *  isolation has spans relative to its own start; this lifts them to buffer-absolute). */
+function shiftSpans(nd: Node, delta: number): void {
+  if (nd.span) nd.span = [nd.span[0] + delta, nd.span[1] + delta];
+  if ("list" in nd) for (const c of nd.list) shiftSpans(c, delta);
+}
+
+/** Sweet lens: the SAME resolver over a span-bearing sweet parse. Read top-level
+ *  forms ONE AT A TIME so a single form the sweet reader can't yet handle drops
+ *  only its own hints, not the whole file's. Defines are still collected globally
+ *  across every form that DID parse, so a call resolves against a define in another
+ *  form. Spans are in sweet-text (buffer) coordinates. */
 export function paramHintsSweet(src: string): ParamHint[] {
-  try {
-    return hintsFromForms(readSweet(src));
-  } catch {
-    return [];
+  const forms: Node[] = [];
+  for (const { text, base } of splitFormsWithBase(src)) {
+    if (!text.trim()) continue;
+    try {
+      for (const form of readSweet(text)) {
+        shiftSpans(form, base); // form parsed at 0 → lift to its place in the buffer
+        forms.push(form);
+      }
+    } catch {
+      // this form uses something the sweet reader doesn't handle yet — skip it
+    }
   }
+  return hintsFromForms(forms);
 }
 
 /** The lens-agnostic core: walk a span-bearing `Node` forest, hint every positional

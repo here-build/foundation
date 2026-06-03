@@ -30,7 +30,10 @@ const GLYPH_PREC: Record<string, number> = {
   "=>": 0, "??": 1, "||": 1, "&&": 2,
   "==": 3, "=": 3, "eq?": 3, "eqv?": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
   "+": 4, "-": 4,
-  "*": 5, "/": 5,
+  // Multiplicative tier MUST mirror sweet-render's INFIX_PREC — render emits
+  // `modulo`/`quotient`/`remainder` as infix, so read has to recognise them back
+  // or `{a modulo b}` fails as "unbalanced {" (round-trip break).
+  "*": 5, "/": 5, modulo: 5, quotient: 5, remainder: 5,
 };
 const isOp = (w: string): boolean => w in GLYPH_PREC;
 
@@ -330,8 +333,10 @@ function stripComments(text: string): string {
 }
 
 /** Split into top-level forms (blank-line separated), keeping each form's absolute
- *  start offset in `text` — so spans computed within a form map back to the buffer. */
-function splitFormsWithBase(text: string): { text: string; base: number }[] {
+ *  start offset in `text` — so spans computed within a form map back to the buffer.
+ *  Exported so a lenient consumer (param hints) can read forms one-at-a-time and
+ *  skip an unparseable one rather than lose the whole file. */
+export function splitFormsWithBase(text: string): { text: string; base: number }[] {
   const out: { text: string; base: number }[] = [];
   const sep = /\n[ \t]*\n+/g;
   let last = 0;
