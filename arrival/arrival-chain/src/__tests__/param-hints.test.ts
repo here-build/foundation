@@ -5,7 +5,8 @@
  * kwargs, rest, parse error).
  */
 import { describe, expect, it } from "vitest";
-import { paramHints } from "../param-hints.js";
+import { paramHints, paramHintsSweet } from "../param-hints.js";
+import { schemeToSweet } from "../sweet-render.js";
 
 /** The char immediately at a hint's pos — should be the first char of its arg. */
 const charAt = (src: string, pos: number): string => src[pos];
@@ -57,5 +58,40 @@ describe("paramHints", () => {
 
   it("returns [] on a parse error (mid-edit)", () => {
     expect(paramHints(`(define (f a b`)).toEqual([]);
+  });
+});
+
+describe("paramHintsSweet — the sweet lens", () => {
+  it("hints over RENDERED sweet, at sweet-text offsets pointing to each arg", () => {
+    const classic = `(define (evolve pool budget rng iter) (list pool budget rng iter))
+
+(evolve (list seed) (- BUDGET (length paretoset)) SEED-RNG 0)`;
+    const sweet = schemeToSweet(classic); // what the sweet editor buffer shows
+    const hints = paramHintsSweet(sweet);
+    expect(hints.map((h) => h.name)).toEqual(["pool", "budget", "rng", "iter"]);
+    // Each pos is in-bounds, ascending, and lands on a non-whitespace char (an arg start).
+    let prev = -1;
+    for (const h of hints) {
+      expect(h.pos).toBeGreaterThan(prev);
+      expect(/\S/.test(sweet[h.pos])).toBe(true);
+      prev = h.pos;
+    }
+  });
+
+  it("hand-written sweet (indented body + curly arg) — names resolve", () => {
+    const sweet = `define (evolve pool budget rng iter)
+  (list pool budget rng iter)
+
+evolve (list seed) {BUDGET - (length paretoset)} SEED-RNG 0`;
+    const hints = paramHintsSweet(sweet);
+    expect(hints.map((h) => h.name)).toEqual(["pool", "budget", "rng", "iter"]);
+    expect(sweet.startsWith("(list seed)", hints[0].pos)).toBe(true);
+    expect(sweet.startsWith("{BUDGET", hints[1].pos)).toBe(true);
+    expect(sweet.startsWith("SEED-RNG", hints[2].pos)).toBe(true);
+    expect(sweet[hints[3].pos]).toBe("0");
+  });
+
+  it("returns [] on malformed sweet", () => {
+    expect(paramHintsSweet(`define (f a b`)).toEqual([]);
   });
 });

@@ -63,10 +63,14 @@ function regroupLetFamily(node: Node): Node {
   return { list: [h, { list: bindings }, ...node.list.slice(i)] };
 }
 
+// `start`/`end` are absolute offsets in the ORIGINAL sweet text, present only when
+// `tokenize` is given a `base` (single-physical-line LogLines). They thread up into
+// `Node.span` for the editor's parameter hints; coalesced multi-line content passes
+// no base, so its tokens carry no offsets and produce no hints (graceful).
 type Tok =
-  | { t: "(" | ")" | "{" | "}" | "[" | "]" }
-  | { t: "quote"; v: "'" | "`" | "," | ",@" }
-  | { t: "word"; v: string; str?: boolean };
+  | { t: "(" | ")" | "{" | "}" | "[" | "]"; start?: number; end?: number }
+  | { t: "quote"; v: "'" | "`" | "," | ",@"; start?: number; end?: number }
+  | { t: "word"; v: string; str?: boolean; start?: number; end?: number };
 
 /** `[k]` → k-th element accessor `ca d^k r`; `[k:]` → drop-first-k `c d^k r`.
  *  Inverse of sweet-render's accessorSubscript. [0]=car, [1]=cadr…; [1:]=cdr… */
@@ -80,28 +84,31 @@ function subscriptToAccessor(idx: string): string {
 // reader-macro prefix → the symbol it expands to (mirrors parseSexprs).
 const QUOTE_WRAP: Record<string, string> = { "'": "quote", "`": "quasiquote", ",": "unquote", ",@": "unquote-splicing" };
 
-function tokenize(src: string): Tok[] {
+function tokenize(src: string, base?: number): Tok[] {
   const toks: Tok[] = [];
   let i = 0;
+  // Stamp absolute offsets onto a token iff a base is given (see Tok's note).
+  const at = (start: number, end: number) => (base == null ? {} : { start: base + start, end: base + end });
   while (i < src.length) {
     const c = src[i];
     if (/\s/.test(c)) { i++; continue; }
-    if (c === "(" || c === ")" || c === "{" || c === "}" || c === "[" || c === "]") { toks.push({ t: c }); i++; continue; }
-    if (c === "'" || c === "`") { toks.push({ t: "quote", v: c }); i++; continue; }
-    if (c === ",") { const v = src[i + 1] === "@" ? ",@" : ","; toks.push({ t: "quote", v }); i += v.length; continue; }
+    const s = i;
+    if (c === "(" || c === ")" || c === "{" || c === "}" || c === "[" || c === "]") { i++; toks.push({ t: c, ...at(s, i) }); continue; }
+    if (c === "'" || c === "`") { i++; toks.push({ t: "quote", v: c, ...at(s, i) }); continue; }
+    if (c === ",") { const v = src[i + 1] === "@" ? ",@" : ","; i += v.length; toks.push({ t: "quote", v, ...at(s, i) }); continue; }
     if (c === '"') {
-      let s = "";
+      let str = "";
       i++;
       while (i < src.length && src[i] !== '"') {
-        if (src[i] === "\\") { s += src[i] + (src[i + 1] ?? ""); i += 2; } else { s += src[i]; i++; }
+        if (src[i] === "\\") { str += src[i] + (src[i + 1] ?? ""); i += 2; } else { str += src[i]; i++; }
       }
       i++;
-      toks.push({ t: "word", v: s, str: true });
+      toks.push({ t: "word", v: str, str: true, ...at(s, i) });
       continue;
     }
     let j = i;
     while (j < src.length && !/\s/.test(src[j]) && !"(){}[]\"".includes(src[j])) j++;
-    toks.push({ t: "word", v: src.slice(i, j) });
+    toks.push({ t: "word", v: src.slice(i, j), ...at(s, j) });
     i = j;
   }
   return toks;
@@ -117,6 +124,18 @@ function parseElements(toks: Tok[]): Node[] {
   let pos = 0;
   const peek = (): Tok | undefined => toks[pos];
   const next = (): Tok => toks[pos++];
+
+  // Run `read`, then stamp the produced node's source span from the tokens it
+  // consumed ([first.start, last.end]) — present only when the tokens carry offsets
+  // (single-line content). Inert metadata for the editor's parameter hints.
+  const spanned = (read: () => Node): Node => {
+    const startPos = pos;
+    const node = read();
+    const s = toks[startPos]?.start;
+    const e = toks[pos - 1]?.end;
+    if (s != null && e != null && node.span == null) node.span = [s, e];
+    return node;
+  };
 
   // Postfix subscripts: consume any `[k]` / `[k:]` following an operand and wrap it
   // in the accessor it sugars (`xs[0]`→(car xs), `xs[1:]`→(cdr xs)). Chains, so
@@ -144,7 +163,7 @@ function parseElements(toks: Tok[]): Node[] {
 
   function classicList(): Node {
     const items: Node[] = [];
-    while (peek() && peek()!.t !== ")") items.push(withSubscripts(quoted(classicDatum)));
+    while (peek() && peek()!.t !== ")") items.push(spanned(() => withSubscripts(quoted(classicDatum))));
     if (!peek()) throw new Error("unbalanced (");
     next();
     return { list: items };
@@ -195,7 +214,7 @@ function parseElements(toks: Tok[]): Node[] {
   }
 
   const elems: Node[] = [];
-  while (pos < toks.length) elems.push(withSubscripts(quoted(classicDatum)));
+  while (pos < toks.length) elems.push(spanned(() => withSubscripts(quoted(classicDatum))));
   return elems;
 }
 
@@ -224,22 +243,29 @@ function bracketDepth(s: string): number {
   return d;
 }
 
-interface LogLine { indent: number; content: string }
+/** `base` = absolute offset of `content[0]` in the original sweet text, for span
+ *  attachment. Set only for a SINGLE-physical-line LogLine (offsets map directly);
+ *  a coalesced multi-line one leaves it undefined → its nodes get no spans → no
+ *  parameter hints there (rare, and the broken-`{…}` form is still readable). */
+interface LogLine { indent: number; content: string; base?: number }
 
 /** Coalesce physical lines whose brackets are unbalanced into one logical line
  *  (so a multi-line `{…}` becomes a single parseable unit; bracket mode overrides
  *  indentation). Logical-line indent = its first physical line's indent. */
-function coalesce(physical: string[]): LogLine[] {
+function coalesce(physical: { text: string; base: number }[]): LogLine[] {
   const out: LogLine[] = [];
   let i = 0;
   while (i < physical.length) {
-    const indent = leadingSpaces(physical[i]);
-    let content = physical[i].trim();
+    const indent = leadingSpaces(physical[i].text);
+    let content = physical[i].text.trim();
+    const base = physical[i].base + indent; // content[0]'s absolute offset (trim drops `indent` leading chars)
+    let joined = false;
     while (i + 1 < physical.length && bracketDepth(content) > 0) {
       i++;
-      content += " " + physical[i].trim();
+      content += " " + physical[i].text.trim();
+      joined = true;
     }
-    out.push({ indent, content });
+    out.push(joined ? { indent, content } : { indent, content, base });
     i++;
   }
   return out;
@@ -249,7 +275,7 @@ function coalesce(physical: string[]): LogLine[] {
  *  contributes to its parent's list (usually 1; 2 for an inline colon-pair). */
 function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number } {
   const line = lines[idx];
-  const toks = tokenize(line.content);
+  const toks = tokenize(line.content, line.base); // `base` absent (coalesced) → no spans
   const childElems: Node[] = [];
   let j = idx + 1;
   while (j < lines.length && lines[j].indent > line.indent) {
@@ -276,9 +302,12 @@ function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number
   return { elems: [regroupLetFamily({ list: [...head, ...childElems] })], next: j };
 }
 
-/** Strip `;`-line-comments (to end of line), string-aware — they're trivia in the
- *  sweet view (sweet-render re-emits them from the classic AST's lead/trail).
- *  Newlines are kept, so indentation and blank-line form separation survive. */
+/** Blank a `;`-line-comment (to end of line) to SPACES, string-aware — they're
+ *  trivia in the sweet view (sweet-render re-emits them from the classic AST's
+ *  lead/trail). Length-PRESERVING (comment → spaces, not removed) so every other
+ *  char keeps its offset: that's what lets sweet-text spans (for the parameter
+ *  hints) stay valid in the editor's comment-bearing buffer. tokenize skips the
+ *  spaces, so the parsed Nodes are identical to before. Newlines are kept. */
 function stripComments(text: string): string {
   let out = "";
   let inStr = false;
@@ -290,9 +319,27 @@ function stripComments(text: string): string {
       continue;
     }
     if (c === '"') { inStr = true; out += c; continue; }
-    if (c === ";") { while (i + 1 < text.length && text[i + 1] !== "\n") i++; continue; }
+    if (c === ";") {
+      while (i < text.length && text[i] !== "\n") { out += " "; i++; }
+      i--; // the for-loop's i++ re-lands on the \n (or past end), copied next iteration
+      continue;
+    }
     out += c;
   }
+  return out;
+}
+
+/** Split into top-level forms (blank-line separated), keeping each form's absolute
+ *  start offset in `text` — so spans computed within a form map back to the buffer. */
+function splitFormsWithBase(text: string): { text: string; base: number }[] {
+  const out: { text: string; base: number }[] = [];
+  const sep = /\n[ \t]*\n+/g;
+  let last = 0;
+  for (let m = sep.exec(text); m; m = sep.exec(text)) {
+    out.push({ text: text.slice(last, m.index), base: last });
+    last = m.index + m[0].length;
+  }
+  out.push({ text: text.slice(last), base: last });
   return out;
 }
 
@@ -300,16 +347,22 @@ function stripComments(text: string): string {
 export function readSweet(text: string): Node[] {
   // Split into top-level forms by blank line FIRST: in the render, blank lines
   // appear ONLY between top-level forms (a comment is contiguous with its node),
-  // so this is the true boundary. THEN strip comments within each form — a
-  // stripped whole-line comment leaves a blank line that the per-form physical
-  // filter (below) drops. Stripping BEFORE the split would instead let an inner
-  // comment's blank line split one form into two (form-count drift → reprint).
-  return text
-    .split(/\n[ \t]*\n+/)
-    .map((f) => stripComments(f).replace(/\n+$/, ""))
-    .filter((f) => f.trim().length > 0)
-    .map((formText) => {
-      const physical = formText.split("\n").filter((l) => l.trim().length > 0);
+  // so this is the true boundary. THEN blank comments within each form (length-
+  // preserving, so form/line offsets stay valid for span attachment). Stripping
+  // BEFORE the split would instead let an inner comment's blank line split one form
+  // into two (form-count drift → reprint).
+  return splitFormsWithBase(text)
+    .map(({ text: f, base }) => ({ text: stripComments(f), base }))
+    .filter(({ text: f }) => f.trim().length > 0)
+    .map(({ text: formText, base: formBase }) => {
+      // Physical lines with absolute bases — blank lines dropped, but offsets keep
+      // counting (incl. each consumed "\n") so a kept line's base is exact.
+      const physical: { text: string; base: number }[] = [];
+      let off = 0;
+      for (const lineText of formText.split("\n")) {
+        if (lineText.trim().length > 0) physical.push({ text: lineText, base: formBase + off });
+        off += lineText.length + 1;
+      }
       const lines = coalesce(physical);
       const { elems } = parseNode(lines, 0);
       return elems.length === 1 ? elems[0] : { list: elems };

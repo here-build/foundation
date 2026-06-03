@@ -1,3 +1,4 @@
+import { readSweet } from "./sweet-read.js";
 import { type Node, parseSexprs } from "./sweet-render.js";
 
 /**
@@ -64,14 +65,28 @@ function defOf(nd: Node): { name: string; params: string[] } | null {
 /** A `:keyword` arg means the call is self-labeling (a kwarg call) — skip hints. */
 const hasKwarg = (args: Node[]): boolean => args.some((a) => isAtom(a) && a.atom.startsWith(":"));
 
+/** Classic lens: hints over the classic `.scm` parse. */
 export function paramHints(src: string): ParamHint[] {
-  let forms: Node[];
   try {
-    forms = parseSexprs(src);
+    return hintsFromForms(parseSexprs(src));
+  } catch {
+    return []; // mid-edit / malformed → no hints
+  }
+}
+
+/** Sweet lens: the SAME resolver over a span-bearing sweet parse. The sweet text's
+ *  spans are in sweet-text coordinates (what the sweet editor buffer shows). */
+export function paramHintsSweet(src: string): ParamHint[] {
+  try {
+    return hintsFromForms(readSweet(src));
   } catch {
     return [];
   }
+}
 
+/** The lens-agnostic core: walk a span-bearing `Node` forest, hint every positional
+ *  arg of a call to a function-define found in the same forest. */
+function hintsFromForms(forms: Node[]): ParamHint[] {
   // 1. Collect function-defines anywhere in the tree → name → formals.
   const defs = new Map<string, string[]>();
   const scan = (nd: Node): void => {
