@@ -116,6 +116,20 @@ describe("traceToRegions", () => {
     expect(labels.get("run-analyze")).toBe("prompt");
     expect(labels.get("run-decide")).toBe("prompt");
     expect(labels.get("infer/chat")).toBe("direct");
+
+    // Each .prompt leaf carries its `resultWithProvenance` metadata — the card's
+    // structured source: file + model + the LOSSLESS folded kwargs (the whole point
+    // of binding at the node rather than reconstructing from the rendered prompt).
+    const analyzeLeaf = ls.find((l) => l.label === "run-analyze")!;
+    expect(analyzeLeaf.meta).toMatchObject({
+      kind: "prompt",
+      path: "analyze.prompt",
+      model: "fast",
+      inputs: { instruction: "ia", message: "m" },
+    });
+    expect(analyzeLeaf.state).toBe("resolved");
+    // A direct `(infer …)` has no structured node metadata.
+    expect(ls.find((l) => l.label === "infer/chat")!.meta).toBeUndefined();
   });
 
   it("does not explode on the TCO loop (recursion flattens, bounded)", async () => {
