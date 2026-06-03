@@ -4,7 +4,6 @@ import {
   execGeneratorFromString as exec,
   execGeneratorExpr as execExpr,
   parseGenerator as parse,
-  resultWithProvenance,
   sandboxedEnv,
   lipsToJs,
   Nil,
@@ -300,13 +299,23 @@ export function buildArrivalEnv(opts: {
       options: { provenancePoint: true },
       fn: async (ctx, key, ...kv: unknown[]) => {
         const inputs = buildDict(kv);
+        // Bind the node's story (file, model, the structured inputs) to its
+        // provenance node NOW, before the inference runs. It's all known at call
+        // time, so the card renders its header + init fields WHILE the answer is
+        // still streaming — not only once it resolves. (`resultWithProvenance`
+        // binds at return, which is too late for a streamed result.) `result`
+        // flows on as the ordinary value. Same setMetadata-vs-POJO story as the
+        // rosetta wrapper: a real Invocation is a MobX observable (action), a plain
+        // test ctx is a bare object.
+        const inv = (ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined)
+          ?.currentInvocation;
+        if (inv) {
+          const meta = { kind: "prompt", path: unit.path, model: unit.tier, inputs };
+          if (typeof inv.setMetadata === "function") inv.setMetadata(meta);
+          else inv.metadata = meta;
+        }
         const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
-        const result = await opts.infer(ctx, unit.tier, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
-        // Bind the node's story to its provenance node (file, model, the structured
-        // inputs) — the render draws the card from this, losslessly, instead of
-        // reconstructing from the one-way-rendered prompt. `result` flows on as the
-        // value.
-        return resultWithProvenance(result, { kind: "prompt", path: unit.path, model: unit.tier, inputs });
+        return opts.infer(ctx, unit.tier, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
       },
     });
   };
