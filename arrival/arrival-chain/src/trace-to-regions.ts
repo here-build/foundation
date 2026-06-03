@@ -58,6 +58,19 @@ export type Region =
       state: "running" | "resolved" | "rejected";
     }
   | {
+      /** A `<>` DECISION MARKER — the point a live branch (`if`/`cond`/…) decided
+       *  one way HERE. It does NOT box or fork the flow: the divergence between
+       *  arms is already absorbed by the enclosing autonomous region's iteration
+       *  picker (map/filter/TCO Z-tabs), so the marker only annotates "a decision
+       *  was made here". The taken arm's content follows it as ordinary siblings. */
+      kind: "decision";
+      id: number;
+      /** The branch head — `if` | `cond` | `case` | `when` | `unless`. */
+      label: string;
+      /** Stable source-location identity (`head@line:col`) of the branch site. */
+      scope: string;
+    }
+  | {
       kind: "fanout";
       id: number;
       /** The fused transform breadcrumb, outermost→innermost. ONE entry = a plain
@@ -72,6 +85,22 @@ export type Region =
       /** Raw incoming invocation count BEFORE pruning. `iterations.length` is how
        *  many carried inference — the banner reads "10 incoming, 5 mattered". */
       incoming: number;
+      /** True when this container is a TCO SELF-RECURSION loop (peeled from a body
+       *  that re-enters itself in tail position), as opposed to a `map`/`filter`
+       *  fan-out over a collection. The render draws a loop-back arc on the frame —
+       *  a wire leaving the contour and pointing back into it — so recursion reads
+       *  as recursion, not as an N-way fan. */
+      loop?: boolean;
+    }
+  | {
+      /** The program's final STATEMENT OUTPUT — the value the last top-level
+       *  expression returned. A single terminal node the whole graph flows into,
+       *  wired from its immediate producers (the last infer/region its value came
+       *  from). Rendered as a small terminal card, not a producer leaf. */
+      kind: "output";
+      id: number;
+      value: unknown;
+      state: PlainInv["state"];
     };
 
 export interface RegionGraph {
@@ -91,6 +120,13 @@ export interface RegionGraph {
 
 /** Heads that fan out: each applies a function across a collection. */
 const FANOUT: ReadonlySet<string> = new Set(["map", "filter", "fold", "fold-left", "fold-right", "for-each", "mapcat", "flat-map", "flatmap"]);
+
+/** DNF control forms — the branching shapes. A branch is INVISIBLE plumbing by
+ *  default (the taken arm flattens through), and becomes a rendered container
+ *  ONLY when the SAME source-location branch was exercised ≥2 distinct ways
+ *  across the whole trace (see `liveBranchScopes`). An always-one-way branch is
+ *  seamless — in THIS run it never decided anything, so it isn't a decision. */
+const BRANCH_FORMS: ReadonlySet<string> = new Set(["if", "cond", "case", "when", "unless"]);
 
 const headOf = (inv: PlainInv): string => scopeId(inv.node).split("@")[0] ?? "?";
 
@@ -229,29 +265,94 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       loopBodies.add(inv.node as object);
     }
   }
-  const hasLoopBodyAncestor = (inv: PlainInv): boolean => {
-    for (let p = inv.parent; p; p = p.parent) if (loopBodies.has(p.node as object)) return true;
+  // The spine walk is SAME-LOOP-scoped, keyed on the body AST node identity: every
+  // iteration of ONE loop re-enters the SAME body Pair (the source AST is shared
+  // across trampoline bounces), so a loop is the chain of invocations carrying that
+  // exact node. Matching "any loop body" instead breaks the moment a loop body
+  // nests ANOTHER loop (gepa's `evolve` body runs `sample-batch` and `find-merge`,
+  // both recursive): the walk would jump into the inner loop and cut `evolve`'s own
+  // per-iteration work. Node-identity keeps each loop on its own spine, and a nested
+  // DIFFERENT loop simply renders as its own container inside the iteration.
+  //
+  // Re-entry of the SAME loop (an ancestor shares this body's node) → a later
+  // iteration the entry already owns; cut it (return [] at the entry guard).
+  const hasSameBodyAncestor = (inv: PlainInv): boolean => {
+    for (let p = inv.parent; p; p = p.parent) if (p.node === inv.node) return true;
     return false;
   };
-  // The next iteration's body — shallowest body-scope invocation under inv.
-  // Early-return DFS, so summed over the spine the walk is O(N), not O(N²).
-  const nextLoopBody = (inv: PlainInv): PlainInv | undefined => {
-    for (const c of inv.children) {
-      if (loopBodies.has(c.node as object)) return c;
-      const deep = nextLoopBody(c);
-      if (deep) return deep;
-    }
+  // The SAME loop's next iteration: shallowest descendant re-entering THIS body
+  // node. Early-return DFS, so summed over the spine the walk is O(N), not O(N²).
+  const nextSameBody = (entry: PlainInv): PlainInv | undefined => {
+    const find = (n: PlainInv): PlainInv | undefined => {
+      for (const c of n.children) {
+        if (c.node === entry.node) return c;
+        const deep = find(c);
+        if (deep) return deep;
+      }
+      return undefined;
+    };
+    return find(entry);
+  };
+
+  // LIVE-BRANCH detection. A branch form `(if …)`/`(cond …)`/… earns a `<>`
+  // decision marker only when its SOURCE-LOCATION scope took ≥2 distinct routes
+  // across the whole trace — i.e. it actually decided differently at least once.
+  // The "route" a single branch invocation took is the identity of its LAST
+  // evaluated child's node: evaluation order puts the test(s) first and the chosen
+  // arm/body last, so the last child IS the taken arm (or the test itself when the
+  // arm was a bare atom with no sub-invocation — still a distinct route from an
+  // inference-bearing arm: "sometimes ran the infer arm, sometimes didn't"). One
+  // distinct route ⇒ the branch always went the same way ⇒ seamless plumbing.
+  //
+  // No loop-control exclusion: a recursive fn's tail `if` (recurse vs base-case)
+  // that IS the loop body is already claimed by the loop CONTAINER (the loopBodies
+  // case runs before branch handling), so it never reaches the marker. The OTHER
+  // control branches inside a loop body (genetic-vs-reflective, gate pass/fail) ARE
+  // the midway decisions we want to mark — a marker doesn't box, so there's nothing
+  // to double-draw even when an arm routes onward to the recursive call.
+  const BRANCH_VOID: object = Symbol("branch-route-void") as unknown as object;
+  const routeOf = (inv: PlainInv): object => (inv.children.length > 0 ? inv.children[inv.children.length - 1]!.node : BRANCH_VOID);
+  const branchRoutes = new Map<string, Set<object>>();
+  for (const inv of snap.invocations) {
+    if (!BRANCH_FORMS.has(headOf(inv))) continue;
+    const scope = scopeId(inv.node);
+    (branchRoutes.get(scope) ?? branchRoutes.set(scope, new Set()).get(scope)!).add(routeOf(inv));
+  }
+  const liveBranchScopes = new Set<string>();
+  for (const [scope, routes] of branchRoutes) {
+    if (routes.size >= 2) liveBranchScopes.add(scope);
+  }
+
+  // `<>` knot id → the chosen arm's RESULT leaf id, collected during the walk. A
+  // branch returns its taken arm's value, and `regionsAt` emits that arm's own leaf
+  // LAST (eval order: test first, chosen value last) — so the final leaf in a knot's
+  // inner regions is the producer whose value the branch yielded. We seat the knot at
+  // the head of that producer's flow once the walk is done.
+  const knotArm: { knot: number; arm: number }[] = [];
+  const lastLeafId = (rs: Region[]): number | undefined => {
+    for (let i = rs.length - 1; i >= 0; i--) if (rs[i]!.kind === "leaf") return rs[i]!.id;
     return undefined;
   };
 
   const regionsAt = (inv: PlainInv): Region[] => {
-    if (inv.isProvenancePoint) return [leafFor(inv)];
+    if (inv.isProvenancePoint) {
+      // A point is an ATOMIC card — but its ARGUMENT subtree can hold OTHER points
+      // (a nested `(infer …)`) or a live branch (`… :failures (list (pick n)))`).
+      // Those carry the very provenance that wires INTO this consumer, so if we
+      // returned the bare leaf they'd never render and their edges would dangle
+      // from nothing. HOIST them as PRECEDING siblings: the producers a card
+      // depends on draw before it, the card itself stays atomic, and every wire
+      // lands on a rendered node. (The point's OWN value still flows downstream
+      // via its leaf id, unchanged.)
+      const hoisted = inv.children.flatMap(regionsAt);
+      return [...hoisted, leafFor(inv)];
+    }
 
     if (loopBodies.has(inv.node as object)) {
       // A re-entrant body (an ancestor is the same loop's body) is the next
       // iteration; the loop ENTRY's spine walk owns it. Reached via flatten →
       // CUT, so the next iteration's body doesn't leak into this one.
-      if (hasLoopBodyAncestor(inv)) return [];
+      if (hasSameBodyAncestor(inv)) return [];
 
       // Loop ENTRY (the first body entry) → one fanout container; iterations =
       // the spine of body entries, each cut at the next. The recursive call's
@@ -260,7 +361,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       // computed it. Sequential iters reuse `fanout` (Z-tabs) per V's call.
       const iterations: Region[][] = [];
       let incoming = 0;
-      for (let body: PlainInv | undefined = inv; body; body = nextLoopBody(body)) {
+      for (let body: PlainInv | undefined = inv; body; body = nextSameBody(body)) {
         incoming += 1;
         const regions = body.children.flatMap(regionsAt);
         if (regions.length > 0) iterations.push(regions);
@@ -272,7 +373,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       // Label by the recursive fn name (the call head, e.g. `loop`), not the
       // body form (`let`).
       const label = inv.parent ? headOf(inv.parent) : headOf(inv);
-      return [{ kind: "fanout", id: inv.id, stages: [{ label, id: inv.id }], iterations, incoming }];
+      return [{ kind: "fanout", id: inv.id, stages: [{ label, id: inv.id }], iterations, incoming, loop: true }];
     }
 
     if (FANOUT.has(headOf(inv))) {
@@ -286,6 +387,24 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       if (iterations.length === 0) return [];
       return [{ kind: "fanout", id: inv.id, stages: [{ label: headOf(inv), id: inv.id }], iterations, incoming: applChildren.length }];
     }
+
+    // A LIVE branch (decided ≥2 ways trace-wide) does NOT box — boxing every `if`
+    // makes branches dominate and shatters a TCO loop whose body IS an `if` into a
+    // nested tower of boxes (the loop never peels). Instead drop a `<>` DECISION
+    // MARKER at the site and flatten through to the arm it took: the divergence is
+    // already carried by the enclosing autonomous region's iteration picker, so the
+    // marker just says "here's where the decision was made". An arm with no rendered
+    // content this time (a bare-atom route) yields nothing → no marker either.
+    // (A branch that IS a loop body was already claimed above; a seamless one-way
+    // branch isn't live and falls through to plain plumbing.)
+    if (BRANCH_FORMS.has(headOf(inv)) && liveBranchScopes.has(scopeId(inv.node))) {
+      const inner = inv.children.flatMap(regionsAt);
+      if (inner.length === 0) return [];
+      const arm = lastLeafId(inner);
+      if (arm !== undefined) knotArm.push({ knot: inv.id, arm });
+      return [{ kind: "decision", id: inv.id, label: headOf(inv), scope: scopeId(inv.node) }, ...inner];
+    }
+
     return inv.children.flatMap(regionsAt); // plumbing: flatten through
   };
 
@@ -344,6 +463,45 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
     }
   }
 
-  const roots = snap.invocations.filter((i) => !i.parent).flatMap(regionsAt);
+  const tops = snap.invocations.filter((i) => !i.parent);
+  const roots = tops.flatMap(regionsAt);
+
+  // Wire each `<>` knot to the arm it chose THIS run. A live branch is degenerate
+  // WITHIN a single tab (one arm ran), so on its own the marker has no dataflow and
+  // floats detached — but across the enclosing block's Z-tabs the SAME code point
+  // took DIFFERENT arms, which is exactly what the knot exists to say. We surface
+  // that by seating it at the HEAD of the chosen arm's flow: a single edge knot→arm
+  // to the leaf the branch yielded this run (captured during the walk). The chain
+  // then reads `<> → spark → digest` where the arm feeds downstream, and `<> → spark`
+  // where it doesn't — a junction on the spaghetti instead of an orphan box. The
+  // knot's id is the branch invocation id (never a provenance point), so it only
+  // ever appears as an edge SOURCE here; nothing upstream targets it. Branch
+  // invocations carry no materialized provenance (trace-snapshot only retains it for
+  // children-of-points and roots), so we seat the knot via the arm's own leaf, not a
+  // provenance scan.
+  for (const { knot, arm } of knotArm) edges.push({ from: knot, to: arm });
+
+  // The program's STATEMENT OUTPUT — the value the LAST top-level expression
+  // returned. Render it as a terminal node the graph flows into, but only when
+  // there's a graph to terminate (some inference happened) and the final form
+  // actually produced a value (not a trailing `define`). Wire it from its
+  // IMMEDIATE producers: the provenance origins of the returned value, Hasse-
+  // reduced against each other so only the last region(s) it came from connect —
+  // the same transitive-reduction the dataflow edges use.
+  const OUTPUT_ID = -1;
+  const final = tops[tops.length - 1];
+  if (roots.length > 0 && final && final.value !== undefined) {
+    const origins = new Set<number>();
+    for (const p of final.provenance) {
+      const o = resolveOrigin(p);
+      if (pointIds.has(o)) origins.add(o);
+    }
+    for (const o of origins) {
+      const redundant = [...origins].some((w) => w !== o && (reach.get(w) ?? EMPTY).has(o));
+      if (!redundant) edges.push({ from: o, to: OUTPUT_ID });
+    }
+    roots.push({ kind: "output", id: OUTPUT_ID, value: final.value, state: final.state });
+  }
+
   return { roots, edges, warnings: [] };
 }
