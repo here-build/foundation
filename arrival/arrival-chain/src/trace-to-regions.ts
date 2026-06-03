@@ -42,30 +42,19 @@ const FANOUT: ReadonlySet<string> = new Set(["map", "filter", "fold", "fold-left
 
 const headOf = (inv: PlainInv): string => scopeId(inv.node).split("@")[0] ?? "?";
 
-/** The `__location__` line of a node, if stamped. The dotprompt rosetta compiles
- *  its lambda from a single-LINE string, so a `.prompt` infer's node is ALWAYS at
- *  line 1 — the marker that separates it from a direct user-written `(infer …)`,
- *  whose node sits at its real .scm line. */
-const lineOf = (node: unknown): number | undefined => {
-  if (!node || typeof node !== "object") return undefined;
-  for (const s of Object.getOwnPropertySymbols(node)) {
-    if (s.description === "__location__") return ((node as Record<symbol, unknown>)[s] as { line?: number } | undefined)?.line;
-  }
-  return undefined;
-};
-const PROMPT_LAMBDA_LINE = 1;
+/** The rosetta heads of a DIRECT, user-written inference call. A provenance point
+ *  whose head is one of these is a raw `(infer …)` / `(infer/chat …)`. Any OTHER
+ *  provenance point is a `.prompt` proc — now an opaque native proc, so its
+ *  invocation IS the `(run-x …)` call at the real source location (head = the
+ *  binding `run-x`). The old line-1 lambda-unwrap heuristic is gone with it. */
+const DIRECT_INFER_HEADS: ReadonlySet<string> = new Set(["infer", "infer/chat"]);
 
-/** Classify an infer point. `.prompt` invocation: its node is in the generated
- *  line-1 lambda, so the user-visible call is the nearest ancestor OFF line 1 —
- *  the `run-analyze`/`run-decide` binding; label it that. Direct `(infer …)`: its
- *  node is at a real line → label it by its own head (`infer/chat`). */
+/** Classify an infer provenance point by its head: a direct `(infer/chat …)` →
+ *  `direct`, labelled by the rosetta head; a `.prompt` call `(run-x …)` →
+ *  `prompt`, labelled by the binding `run-x` at its real source location. */
 function leafFor(inv: PlainInv): Extract<Region, { kind: "leaf" }> {
-  if (lineOf(inv.node) === PROMPT_LAMBDA_LINE) {
-    let cur = inv.parent;
-    while (cur && lineOf(cur.node) === PROMPT_LAMBDA_LINE) cur = cur.parent;
-    return { kind: "leaf", id: inv.id, label: cur ? headOf(cur) : headOf(inv), nodeKind: "prompt" };
-  }
-  return { kind: "leaf", id: inv.id, label: headOf(inv), nodeKind: "direct" };
+  const head = headOf(inv);
+  return { kind: "leaf", id: inv.id, label: head, nodeKind: DIRECT_INFER_HEADS.has(head) ? "direct" : "prompt" };
 }
 
 export function traceToRegions(trace: EvalTrace): RegionGraph {

@@ -5,7 +5,7 @@ import { applyFantasyLandPatches } from "./fantasy-land-lips.js";
 export * from "./lips.js";
 export * from "./safe_builtins.js";
 export { sandboxedEnv as sandboxedEnv } from "./sandbox-env.js";
-export { lipsToJs as lipsToJs, jsToLips as jsToLips } from "./rosetta.js";
+export { lipsToJs as lipsToJs, jsToLips as jsToLips, createRosettaWrapper, type RosettaFunction } from "./rosetta.js";
 
 // Runtime value hierarchy. Provenance algebra: docs/spec/arrival-chain.md §5.
 export {

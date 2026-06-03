@@ -1,5 +1,6 @@
 import "@here.build/plexus/mobx/register";
 import {
+  createRosettaWrapper,
   execGeneratorFromString as exec,
   execGeneratorExpr as execExpr,
   parseGenerator as parse,
@@ -21,6 +22,7 @@ import {
   loaderFromResolver,
   makeProjectLoader,
   type Loader,
+  type PromptUnit,
   type RequireResolver,
 } from "./loader.js";
 import { analyzeTemplate, coerceShape, type TemplateInfo, validateShape } from "./template-analyze.js";
@@ -43,6 +45,30 @@ function dictKey(k: unknown): string {
     if (typeof field === "string") return field;
   }
   return String(k);
+}
+
+/** Fold alternating key/value call args into a dict — the `dict` rosetta body,
+ *  reused by the `.prompt` proc to build its `:k v …` kwargs dict at JS level
+ *  (so `(run-x key :k v)` folds exactly as the old `(apply dict kv)` did). */
+function buildDict(args: unknown[]): Record<string, unknown> {
+  invariant(args.length % 2 === 0, "dict: needs an even number of args (alternating keys/values)");
+  const out: Record<string, unknown> = {};
+  for (let i = 0; i < args.length; i += 2) out[dictKey(args[i])] = args[i + 1];
+  return out;
+}
+
+/** Canonicalise a `(role content)` message list to the single prompt string used
+ *  as a task's content key (the cache/dedup identity). Shared by `infer/chat` and
+ *  the `.prompt` proc, so both mint IDENTICAL task keys for the same messages —
+ *  the property that keeps a `.prompt` run replayable against the same cache. */
+function canonicalizeMessages(messages: unknown): string {
+  invariant(Array.isArray(messages), "infer/chat: messages must be a list");
+  return JSON.stringify(
+    messages.map((m) => {
+      invariant(Array.isArray(m) && m.length === 2, "infer/chat: each message must be (role content)");
+      return { role: String(m[0]), content: String(m[1]) };
+    }),
+  );
 }
 
 /**
@@ -243,34 +269,43 @@ export function buildArrivalEnv(opts: {
       list(await opts.infer(ctx, String(tier), String(prompt), schemaSlot(schema), nullable(cacheKey))),
   });
   env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)) });
-  env.defineRosetta("dict", {
-    fn: (...args: unknown[]) => {
-      invariant(args.length % 2 === 0, "dict: needs an even number of args (alternating keys/values)");
-      const out: Record<string, unknown> = {};
-      for (let i = 0; i < args.length; i += 2) out[dictKey(args[i])] = args[i + 1];
-      return out;
-    },
-  });
+  env.defineRosetta("dict", { fn: (...args: unknown[]) => buildDict(args) });
   env.defineRosetta("template/handlebars", {
     fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
   });
   env.defineRosetta("infer/chat", {
     withContext: true,
     options: { provenancePoint: true },
-    fn: async (ctx, tier, messages, schema, cacheKey) => {
-      const msgs = messages as unknown[];
-      invariant(Array.isArray(msgs), "infer/chat: messages must be a list");
-      const canonical = JSON.stringify(
-        msgs.map((m) => {
-          invariant(Array.isArray(m) && m.length === 2, "infer/chat: each message must be (role content)");
-          return { role: String(m[0]), content: String(m[1]) };
-        }),
-      );
-      return list(await opts.infer(ctx, String(tier), canonical, schemaSlot(schema), nullable(cacheKey)));
-    },
+    fn: async (ctx, tier, messages, schema, cacheKey) =>
+      list(await opts.infer(ctx, String(tier), canonicalizeMessages(messages), schemaSlot(schema), nullable(cacheKey))),
   });
+  // Seal a `.prompt` PromptUnit into a provenance-point native proc. The output
+  // schema is evaluated ONCE here (the `s/…` rosettas live on this env) and
+  // slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)`
+  // folds the kwargs, renders its sections, and infers AT JS LEVEL — and because
+  // it's a `provenancePoint`, ITS OWN call-site invocation becomes the provenance
+  // point. So a `.prompt` traces as ONE node at the real `(run-x …)` site with
+  // the infer sealed inside it — no unwrapped line-1 `(infer/chat …)` lambda. The
+  // task it mints is byte-identical to the equivalent `infer/chat` (shared
+  // canonicalize + schemaSlot + nullable), so cache + replay are preserved.
+  const compileInferUnit = async (unit: PromptUnit): Promise<unknown> => {
+    let schemaSlotStr: string | null = null;
+    if (unit.schemaSrc !== null) {
+      const [form] = await parse(unit.schemaSrc);
+      schemaSlotStr = schemaSlot(lipsToJs(await execExpr(form, { env })));
+    }
+    return createRosettaWrapper({
+      withContext: true,
+      options: { provenancePoint: true },
+      fn: async (ctx, key, ...kv: unknown[]) => {
+        const d = buildDict(kv);
+        const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [d])]);
+        return opts.infer(ctx, unit.tier, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
+      },
+    });
+  };
   defineImportRosetta({ env, loader: opts.loader });
-  defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "" });
+  defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "", compileInferUnit });
   return env;
 }
 

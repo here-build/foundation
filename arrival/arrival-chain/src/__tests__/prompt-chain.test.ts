@@ -2,9 +2,9 @@
  * traceToChain over a `.prompt`-require pipeline (the gepa `trace` shape):
  * run-analyze → a `let*`-bound `analysis` → run-decide reads it. Confirms
  * provenance flows through dotprompt infers AND a let binding (the edge exists —
- * the thing the chain render must show), and documents that every dotprompt infer
- * shares one scopeId (the rosetta's synthetic location), so the ungrouped chain
- * keeps calls apart by INVOCATION, not by label.
+ * the thing the chain render must show). Since the opaque `.prompt` rework each
+ * dotprompt call is ONE node at its real source location, so the two infers carry
+ * DISTINCT labels (their bindings) — no shared synthetic `infer/chat@1` scopeId.
  */
 import { describe, expect, it } from "vitest";
 
@@ -55,8 +55,11 @@ describe("traceToChain — provenance through .prompt infers", () => {
     expect(a!.layer).toBe(0);
     expect(d!.layer).toBe(1);
     expect(chain.edges).toContainEqual({ from: a!.id, to: d!.id });
-    // Every dotprompt infer shares one synthetic scopeId — so the labels COLLIDE;
-    // the ungrouped chain keeps the calls distinct by invocation id, not label.
-    expect(a!.label).toBe(d!.label);
+    // The opaque `.prompt` traces as one node at the real call site, so the two
+    // infers carry DISTINCT labels — their bindings — not a shared synthetic
+    // `infer/chat@1` scopeId (the collision the opaque rework removed).
+    expect(a!.label).not.toBe(d!.label);
+    expect(a!.label).toContain("run-analyze");
+    expect(d!.label).toContain("run-decide");
   });
 });

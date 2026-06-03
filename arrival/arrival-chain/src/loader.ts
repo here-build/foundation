@@ -49,16 +49,35 @@ export type MaybePromise<T> = T | Promise<T>;
  *  Derived from `parse` so we don't depend on the (unexported) `SchemeValue`. */
 export type SchemeForm = Awaited<ReturnType<typeof parse>>[number];
 
+/** A `.prompt` parsed into a SEALED inference unit (the dotprompt contour). Pure
+ *  data — the loader produces it; the project compiles it into a provenance-point
+ *  native proc (it needs the infer capability + the `s/…` schema rosettas, which
+ *  live in `makeEnv`, not here). See the `.prompt` resolver + `compileInferUnit`. */
+export interface PromptUnit {
+  /** Model tier from the frontmatter `model:` / `tier:`. */
+  tier: string;
+  /** Compiled `(s/object …)` schema SOURCE (from Picoschema `output:`), or null
+   *  for an unstructured prompt. Evaluated ONCE at compile time, not per call. */
+  schemaSrc: string | null;
+  /** `{{role}}`-split chat sections, in order. Each `source` is a handlebars
+   *  template rendered per-call against the kwargs dict (boundaries fixed HERE,
+   *  pre-interpolation — a rendered hole can't forge a new turn). */
+  sections: { role: string; source: string }[];
+}
+
 /** What an extension resolver produces; the require rosetta executes it.
- *  - `load`  → `execExpr` each form into the run env (spill); require returns ⊥.
- *  - `eval`  → `execExpr` the forms, return the LAST value (e.g. an `.hbs` lambda).
- *  - `value` → return the (plain, membrane-safe) value; the caller binds it
+ *  - `load`       → `execExpr` each form into the run env (spill); require returns ⊥.
+ *  - `eval`       → `execExpr` the forms, return the LAST value (e.g. an `.hbs` lambda).
+ *  - `value`      → return the (plain, membrane-safe) value; the caller binds it
  *    explicitly with `(define x (require …))`. No spill into the global env —
- *    a data file's binding is as greppable and provenance-clear as an import. */
+ *    a data file's binding is as greppable and provenance-clear as an import.
+ *  - `infer-unit` → a `.prompt`: the require rosetta hands the unit to the
+ *    project's `compileInferUnit` and returns the resulting native proc. */
 export type ResolverResult =
   | { kind: "load"; forms: SchemeForm[] }
   | { kind: "eval"; forms: SchemeForm[] }
-  | { kind: "value"; value: unknown };
+  | { kind: "value"; value: unknown }
+  | { kind: "infer-unit"; unit: PromptUnit };
 
 export type ContentResolver = (contents: string | Uint8Array, ctx: { path: string }) => MaybePromise<ResolverResult>;
 
@@ -275,34 +294,28 @@ export function defaultResolvers(): Map<string, ContentResolver> {
         forms: await parse(`(lambda args (template/handlebars ${JSON.stringify(String(contents))} args))`),
       }),
     ],
-    // `.prompt` (dotprompt) evaluates to a lambda `(key . kv)` that RUNS
-    // infer/chat: tier + output schema come from the YAML frontmatter, the
-    // message list from the {{role}}-split body, the cache-key from the call.
-    // Sections split HERE (trusted, pre-interpolation), so a rendered hole value
+    // `.prompt` (dotprompt) is a SEALED inference unit — parsed HERE into a pure
+    // `PromptUnit` descriptor (tier + Picoschema-compiled output schema + the
+    // {{role}}-split body sections), then handed to the project's
+    // `compileInferUnit`, which seals it into a provenance-point native proc.
+    // `(define run-x (require "x.prompt"))` binds run-x to that proc; calling
+    // `(run-x key :k v …)` renders + infers at JS level and traces as ONE node at
+    // the real call site — no unwrapped line-1 `(infer/chat …)` lambda.
+    //
+    // Sections split HERE (trusted, pre-interpolation): a rendered hole value
     // containing `{{role "user"}}` lands as inert text in one section and can
-    // never forge a turn. Each body renders via the ordinary template/handlebars
-    // path against ONE shared dict (`apply dict kv`); extra keys a section
-    // doesn't use are tolerated (validateShape checks only a template's own
-    // fields). Returns the unwrapped result (infer/chat yields `[value]`).
-    // Longest-suffix resolution routes `*.prompt` here.
+    // never forge a turn. Longest-suffix resolution routes `*.prompt` here.
     [
       ".prompt",
-      async (contents) => {
+      (contents) => {
         const { fm, body } = parsePromptFile(String(contents));
         const tier = fm.model ?? fm.tier;
         if (typeof tier !== "string") {
           throw new Error('.prompt: frontmatter needs a `model:` (our tier, e.g. "fast" or "high")');
         }
-        const schemaSrc = fm.output === undefined ? "#f" : compilePicoschema(fm.output);
-        const msgs = splitChatSections(body)
-          .map((s) => `(list ${JSON.stringify(s.role)} (template/handlebars ${JSON.stringify(s.body)} d))`)
-          .join(" ");
-        return {
-          kind: "eval",
-          forms: await parse(
-            `(lambda (key . kv) (let ((d (apply dict kv))) (car (infer/chat ${JSON.stringify(tier)} (list ${msgs}) ${schemaSrc} key))))`,
-          ),
-        };
+        const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
+        const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
+        return { kind: "infer-unit", unit: { tier, schemaSrc, sections } };
       },
     ],
   ]);
@@ -359,8 +372,12 @@ export function defineRequireRosetta(opts: {
   loader: Loader;
   tap?: EvalTap;
   baseDir?: string;
+  /** Seals a `.prompt` `PromptUnit` into a callable native proc. Provided by the
+   *  project (it closes over the infer capability + the `s/…` schema rosettas).
+   *  Absent on a bare loader → requiring a `.prompt` throws (no infer to bind). */
+  compileInferUnit?: (unit: PromptUnit) => MaybePromise<unknown>;
 }): void {
-  const { env, loader, tap, baseDir = "" } = opts;
+  const { env, loader, tap, baseDir = "", compileInferUnit } = opts;
   // Single-flight module cache: each resolved path loads EXACTLY ONCE; every later
   // require — sequential repeat OR concurrent sibling — awaits that one promise.
   const inflight = new Map<string, Promise<{ value: unknown }>>();
@@ -407,6 +424,16 @@ export function defineRequireRosetta(opts: {
           // SchemeJSObject (so `@`/`field` work). Pure value — `require` RETURNS
           // it for an explicit `(define x (require …))`; nothing is spilled.
           value = jsToLips(result.value);
+        } else if (result.kind === "infer-unit") {
+          // A `.prompt`: the project seals it into a provenance-point native proc.
+          // require RETURNS the proc — bound via `(define run-x (require …))`,
+          // called as one node at the real call site. A bare loader (no project)
+          // has no infer to bind, so this is a hard error, not a silent ⊥.
+          invariant(
+            compileInferUnit,
+            `require: "${path}" is a .prompt inference unit, but this loader has no infer capability — run it through a Project, not a bare loader.`,
+          );
+          value = await compileInferUnit(result.unit);
         } else {
           // load / eval: evaluate the module's forms in order into the run env,
           // with the module's own dir on the stack for its relative requires.
