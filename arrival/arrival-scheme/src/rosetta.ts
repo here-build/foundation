@@ -34,6 +34,18 @@ interface RosettaOptions {
    * keeps the cycle one-way — no import of arrival-chain or MobX from here.
    */
   provenancePoint?: boolean;
+  /**
+   * When true, the wrapper attaches a `ctx.argProvenance` array — one entry per
+   * scheme arg, in order — holding that arg's DEEP provenance set (the union of
+   * every AValue reachable inside it: itself, Pair car/cdr spines, JS arrays).
+   * A list constructed by `(list a b c)` carries NO provenance on its spine —
+   * only the elements do — so a shallow `arg.provenance` read misses per-element
+   * origins entirely; the deep walk is what makes packed-into-array values keep
+   * their per-field provenance. Computed BEFORE lipsToJs strips the AValue
+   * identity. Implies `withContext: true` (the array rides on `ctx`); rejected
+   * loudly otherwise so the failure mode isn't a silently-absent field.
+   */
+  argProvenance?: boolean;
 }
 
 type Fn = (...args: any[]) => any;
@@ -260,6 +272,34 @@ export function jsToLips(
   return value;
 }
 
+/**
+ * Deep provenance of a scheme value: the union of `.provenance` over every AValue
+ * reachable from it — itself, a Pair's car/cdr spine (recursively), and the
+ * elements of a JS array. List construction (`new Pair(value, rest)`) leaves the
+ * spine's provenance EMPTY, so the origins live only on the elements; a shallow
+ * top-level read would return ∅ for any packed list. Cycle/visited-guarded.
+ */
+function deepProvenance(value: unknown): ReadonlySet<number> {
+  const acc = new Set<number>();
+  const seen = new Set<unknown>();
+  const walk = (v: unknown): void => {
+    if (v === null || typeof v !== "object") return;
+    if (seen.has(v)) return;
+    seen.add(v);
+    if (v instanceof AValue) {
+      for (const p of v.provenance) acc.add(p);
+      if (v instanceof Pair) {
+        walk(v.car);
+        walk(v.cdr);
+      }
+    } else if (Array.isArray(v)) {
+      for (const el of v) walk(el);
+    }
+  };
+  walk(value);
+  return acc;
+}
+
 export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: RosettaFunction) => {
   // provenancePoint can't reach ctx.currentInvocation without withContext —
   // throw rather than silently degrade. The doc on RosettaOptions explains why.
@@ -267,7 +307,12 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
     !options.provenancePoint || withContext !== false,
     "createRosettaWrapper: options.provenancePoint requires withContext: true (cannot reach ctx.currentInvocation otherwise)",
   );
-  const effectiveWithContext = withContext || options.provenancePoint === true;
+  // argProvenance rides on ctx — same requirement, same loud failure.
+  invariant(
+    !options.argProvenance || withContext !== false,
+    "createRosettaWrapper: options.argProvenance requires withContext: true (the per-arg provenance array rides on ctx)",
+  );
+  const effectiveWithContext = withContext || options.provenancePoint === true || options.argProvenance === true;
 
   const rosettaWrapper = async function rosettaWrapper(...args: any[]) {
     // When withContext, the evaluator appends EvalContext as the final arg.
@@ -286,6 +331,15 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
     // along with it). The union is computed against the original schemeArgs.
     const inputAValues = schemeArgs.filter((a): a is AValue => a instanceof AValue);
     const inputProvenance = unionProvenance(inputAValues);
+
+    // Per-arg DEEP provenance (opt-in), aligned to schemeArgs, parked on ctx
+    // BEFORE lipsToJs strips the AValue identity. The consumer fn reads it to
+    // attribute each named input to its concrete producer (e.g. a `.prompt`
+    // building `inputsProvenance[field]`), recovering per-field origins that the
+    // union — and the post-strip plain-JS args — can no longer distinguish.
+    if (options.argProvenance === true && ctx && typeof ctx === "object") {
+      (ctx as { argProvenance?: ReadonlySet<number>[] }).argProvenance = schemeArgs.map(deepProvenance);
+    }
 
     const jsArgs = schemeArgs.map((arg) => lipsToJs(arg, options));
     const callArgs = effectiveWithContext ? [ctx, ...jsArgs] : jsArgs;
