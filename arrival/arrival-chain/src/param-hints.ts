@@ -31,6 +31,12 @@ type List = { list: Node[]; span?: readonly [number, number] };
 const isAtom = (n: Node | undefined): n is Atom => n != null && "atom" in n;
 const isList = (n: Node | undefined): n is List => n != null && "list" in n;
 
+/** First source offset of a node — its own span, or, for a span-LESS synthesized list (the
+ *  sweet I-expression reader wraps `a` + an indented value into a `(a v)` binding with no
+ *  span of its own), the start of its first child, recursively. So a hint lands on the
+ *  binding's visible start (`(` inline, the symbol in an I-expression) in either lens. */
+const startOf = (n: Node | undefined): number | undefined => (n == null ? undefined : n.span ? n.span[0] : isList(n) ? startOf(n.list[0]) : undefined);
+
 /** Drop a dotted-rest tail: `(a b . rest)` tokenizes as `[a, b, ., rest]`; cut at the
  *  `.` so the rest param takes no positional hint (rest hinting is a follow-up). */
 const positional = (names: string[]): string[] => {
@@ -132,8 +138,8 @@ function hintsFromForms(forms: Node[]): ParamHint[] {
     if (isAtom(head) && head.atom === "if") {
       const labels = ["cond", "then", "else"];
       for (let a = 1; a < nd.list.length && a <= 3; a++) {
-        const sp = nd.list[a].span;
-        if (sp) hints.push({ pos: sp[0], name: labels[a - 1] });
+        const pos = startOf(nd.list[a]);
+        if (pos !== undefined) hints.push({ pos, name: labels[a - 1] });
       }
       for (const c of nd.list) walk(c);
       return;
@@ -145,10 +151,14 @@ function hintsFromForms(forms: Node[]): ParamHint[] {
       let i = 1;
       if (isAtom(nd.list[i])) i++; // named let: step past the loop name
       const bindings = nd.list[i];
-      if (isList(bindings)) for (const b of bindings.list) if (b.span) hints.push({ pos: b.span[0], name: "let" });
+      if (isList(bindings))
+        for (const b of bindings.list) {
+          const pos = startOf(b);
+          if (pos !== undefined) hints.push({ pos, name: "let" });
+        }
       if (nd.list.length > i + 1) {
-        const last = nd.list[nd.list.length - 1];
-        if (last.span) hints.push({ pos: last.span[0], name: "return" });
+        const pos = startOf(nd.list[nd.list.length - 1]);
+        if (pos !== undefined) hints.push({ pos, name: "return" });
       }
       for (const c of nd.list) walk(c);
       return;

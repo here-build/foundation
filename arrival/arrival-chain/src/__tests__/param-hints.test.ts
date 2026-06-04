@@ -165,4 +165,19 @@ evolve (list seed) {BUDGET - (length paretoset)} SEED-RNG 0`;
     expect(() => sweetToScheme(sweet, classic)).not.toThrow(); // round-trip is restored
     expect(paramHintsSweet(sweet).map((h) => h.name)).toEqual(["state"]); // (rng-next s) → [state]
   });
+
+  it("if control hints render over sweet", () => {
+    const hints = paramHintsSweet(schemeToSweet(`(if (>= round 3) idea (loop idea round))`));
+    expect(hints.map((h) => h.name)).toEqual(["cond", "then", "else"]);
+  });
+
+  it("let* control hints survive the sweet I-EXPRESSION reshape (span-less synthesized bindings)", () => {
+    // A multi-line let* renders as an I-expression whose `(a v)` binding-lists carry NO span
+    // of their own — the hint must fall back to the binding's symbol start, not vanish.
+    const classic = `(let* ((a (spark "seed" :topic "a calmer morning routine")) (b (refine "sharpen" :idea (field a "idea")))) (digest a b))`;
+    const sweet = schemeToSweet(classic);
+    const hints = paramHintsSweet(sweet);
+    expect(hints.map((h) => h.name)).toEqual(["let", "let", "return"]);
+    for (const h of hints) expect(/\S/.test(sweet[h.pos])).toBe(true); // lands on a binding start, not whitespace
+  });
 });
