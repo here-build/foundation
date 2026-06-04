@@ -217,6 +217,46 @@ describe("traceToRegions", () => {
     expect(intoReflect.every((e) => e.field === "failures")).toBe(true);
   });
 
+  it("splits one producer feeding TWO slots into two field-qualified edges", async () => {
+    // V: a template `message: is ${score} fair for ${result}` reads two slots; the
+    // SAME producer can land in both. The structural Hasse edge producer→consumer is
+    // one fact, but it carries two field-to-field flows. We must emit one edge PER
+    // (producer, slot), not collapse to a single arbitrary field — so the consumer's
+    // two field-rows each get their own wire from the producer.
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile("score.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nSCORE {{seed}}\n`);
+    project.addFile("judge.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nJUDGE {{score}} AND {{also}}\n`);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+    await project.run(
+      `
+(define run-score (require "score.prompt"))
+(define run-judge (require "judge.prompt"))
+(let ((s (run-score "ks" :seed "x")))
+  (run-judge "kj" :score (list s) :also (list s)))
+`,
+      { trace },
+    );
+    ac.abort();
+    await draining;
+
+    const { roots, edges } = traceToRegions(trace);
+    const ls = leaves(roots);
+    const judge = ls.find((l) => l.label === "run-judge")!;
+    const score = ls.find((l) => l.label === "run-score")!;
+    const intoJudge = edges.filter((e) => e.to === judge.id && e.from === score.id);
+    // Two field-qualified edges — one per slot the producer flowed into.
+    expect(intoJudge.length).toBe(2);
+    expect(new Set(intoJudge.map((e) => e.field))).toEqual(new Set(["score", "also"]));
+  });
+
   it("DISSOLVES a static-test branch (no dynamic provenance) even when both arms run", async () => {
     // `pick` branches on the sign of n. Over (1 -1 2 -2) the `if` takes BOTH arms — it's
     // LIVE — but `(> n 0)` reads only `n`, a literal-list element: no inference feeds the

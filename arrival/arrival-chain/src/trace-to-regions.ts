@@ -752,36 +752,60 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       return undefined;
     }
   };
+  // A producer's value can land in MORE THAN ONE of a consumer's slots — a template
+  // `message: is ${score} fair for ${result}` reads both `score` and `result`, and
+  // the same producer can feed two distinct slots of the same `.prompt`. The Hasse
+  // edge from that producer to that consumer is ONE structural fact, but it carries
+  // SEVERAL field-to-field flows. So we don't label the edge with one field and stop
+  // (`break`) — that collapses N real flows into one arbitrary wire. Instead each
+  // (producer, slot) pair becomes its OWN field-qualified edge, and a producer that
+  // feeds two slots draws two wires landing on two consumer field-rows. An edge whose
+  // producer feeds no named slot (or a pre-`inputsProvenance` trace) stays a single
+  // unlabeled edge via the structural-value fallback.
+  const fieldEdges: typeof edges = [];
   for (const e of edges) {
     const consumer = pointById.get(e.to);
     const meta = consumer?.metadata as
       | { kind?: string; inputs?: Record<string, unknown>; inputsProvenance?: Record<string, number[]> }
       | undefined;
-    if (!meta || meta.kind !== "prompt" || !meta.inputs) continue;
+    if (!meta || meta.kind !== "prompt" || !meta.inputs) {
+      fieldEdges.push(e);
+      continue;
+    }
 
     if (meta.inputsProvenance) {
-      let matched = false;
-      for (const [k, ids] of Object.entries(meta.inputsProvenance)) {
-        if (ids.some((id) => resolveOrigin(id) === e.from)) {
-          e.field = k;
-          matched = true;
-          break;
-        }
+      // Every slot this producer flowed into → its own field-qualified edge.
+      const fields = Object.entries(meta.inputsProvenance)
+        .filter(([, ids]) => ids.some((id) => resolveOrigin(id) === e.from))
+        .map(([k]) => k);
+      if (fields.length > 0) {
+        for (const field of fields) fieldEdges.push({ ...e, field });
+        continue;
       }
-      if (matched) continue;
     }
 
     const producer = pointById.get(e.from);
-    if (!producer || producer.value === undefined) continue;
+    if (!producer || producer.value === undefined) {
+      fieldEdges.push(e);
+      continue;
+    }
     const pv = asJson(producer.value);
-    if (pv === undefined) continue;
+    if (pv === undefined) {
+      fieldEdges.push(e);
+      continue;
+    }
+    let labeled = false;
     for (const [k, v] of Object.entries(meta.inputs)) {
       if (asJson(v) === pv) {
-        e.field = k;
+        fieldEdges.push({ ...e, field: k });
+        labeled = true;
         break;
       }
     }
+    if (!labeled) fieldEdges.push(e);
   }
+  edges.length = 0;
+  edges.push(...fieldEdges);
 
   const tops = snap.invocations.filter((i) => !i.parent);
   const roots = tops.flatMap(regionsAt);
