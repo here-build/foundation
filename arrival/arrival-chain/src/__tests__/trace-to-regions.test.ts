@@ -257,6 +257,45 @@ describe("traceToRegions", () => {
     expect(new Set(intoJudge.map((e) => e.field))).toEqual(new Set(["score", "also"]));
   });
 
+  it("does NOT wire a producer that merely INFLUENCED a literal slot (Where-vs-Why)", async () => {
+    // `inputsProvenance` carries a slot's influenced-BY provenance, but field wiring
+    // wants value-flowed-FROM. Here `s`'s value gates a branch whose RESULT is a fixed
+    // literal `"Reply with a label."` — so the literal carries `s`'s provenance (it was
+    // CHOSEN because of s) yet none of s's value appears in it. The note slot must get
+    // NO field-qualified wire from the score producer (the gepa seed-instruction bug).
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    project.addFile("score.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nSCORE {{seed}}\n`);
+    project.addFile("note.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nNOTE {{note}}\n`);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+    await project.run(
+      `
+(define run-score (require "score.prompt"))
+(define run-note  (require "note.prompt"))
+(let ((s (run-score "ks" :seed "x")))
+  (run-note "kn" :note (if (eq? s s) "Reply with a label." "other")))
+`,
+      { trace },
+    );
+    ac.abort();
+    await draining;
+
+    const { roots, edges } = traceToRegions(trace);
+    const ls = leaves(roots);
+    const note = ls.find((l) => l.label === "run-note")!;
+    const score = ls.find((l) => l.label === "run-score")!;
+    // No field-qualified wire from score into the literal note slot.
+    const fielded = edges.filter((e) => e.to === note.id && e.from === score.id && e.field !== undefined);
+    expect(fielded.length).toBe(0);
+  });
+
   it("DISSOLVES a static-test branch (no dynamic provenance) even when both arms run", async () => {
     // `pick` branches on the sign of n. Over (1 -1 2 -2) the `if` takes BOTH arms — it's
     // LIVE — but `(> n 0)` reads only `n`, a literal-list element: no inference feeds the

@@ -745,12 +745,61 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   // stable JSON. Declines (leaves `field` unset) when the slot holds a PROJECTION
   // rather than the value — the honest "this input is a transform, not the source".
   const pointById = new Map(points.map((p) => [p.id, p]));
+  // Per-consumer, per-slot IMMEDIATE producers. For each slot, resolve its provenance
+  // ids to in-graph origins, then drop any origin reachable from another origin in the
+  // SAME slot (the global-edge Hasse rule applied within the slot) — what's left is the
+  // slot's direct writer(s). Memoized per consumer id; the loop below visits a consumer
+  // once per inbound edge.
+  const immediateCache = new Map<number, Record<string, Set<number>>>();
+  const immediateBySlot = (consumer: number, ip: Record<string, number[]>): Record<string, Set<number>> => {
+    const cached = immediateCache.get(consumer);
+    if (cached) return cached;
+    const out: Record<string, Set<number>> = {};
+    for (const [k, ids] of Object.entries(ip)) {
+      const origins = new Set<number>();
+      for (const id of ids) {
+        const o = resolveOrigin(id);
+        if (pointIds.has(o)) origins.add(o);
+      }
+      const immediate = new Set<number>();
+      for (const o of origins) {
+        let dominated = false;
+        for (const o2 of origins) {
+          if (o2 !== o && (reach.get(o2) ?? EMPTY).has(o)) { dominated = true; break; }
+        }
+        if (!dominated) immediate.add(o);
+      }
+      out[k] = immediate;
+    }
+    immediateCache.set(consumer, out);
+    return out;
+  };
   const asJson = (v: unknown): string | undefined => {
     try {
       return JSON.stringify(v);
     } catch {
       return undefined;
     }
+  };
+  // VALUE-PRESENCE — the Where-vs-Why gate. `inputsProvenance` carries a slot's
+  // influenced-BY provenance (the seed `instruction: "Reply with a label."` lists
+  // every analysis that swayed picking it), but field-to-field wiring wants
+  // value-flowed-FROM: a producer wires into slot k only if its value actually shows
+  // up in k's value. Whole-value, an element of a packed list, a field of a record,
+  // or a substring of a template `is ${score} fair` — all count; a literal slot whose
+  // value contains none of the producer's value gets no wire. Depth-bounded; values in
+  // this trace are small.
+  const unwrap = (v: unknown): unknown => (v != null && typeof (v as { valueOf?: () => unknown }).valueOf === "function" ? (v as { valueOf: () => unknown }).valueOf() : v);
+  const valuePresent = (needle: unknown, hay: unknown, depth = 0): boolean => {
+    if (depth > 6) return false;
+    const n = unwrap(needle);
+    const h = unwrap(hay);
+    const nj = asJson(n);
+    if (nj !== undefined && nj !== "null" && asJson(h) === nj) return true;
+    if (Array.isArray(h)) return h.some((e) => valuePresent(n, e, depth + 1));
+    if (h && typeof h === "object") return Object.values(h).some((e) => valuePresent(n, e, depth + 1));
+    if (typeof h === "string" && typeof n === "string" && n.length > 0) return h.includes(n);
+    return false;
   };
   // A producer's value can land in MORE THAN ONE of a consumer's slots — a template
   // `message: is ${score} fair for ${result}` reads both `score` and `result`, and
@@ -774,9 +823,20 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
     }
 
     if (meta.inputsProvenance) {
-      // Every slot this producer flowed into → its own field-qualified edge.
-      const fields = Object.entries(meta.inputsProvenance)
-        .filter(([, ids]) => ids.some((id) => resolveOrigin(id) === e.from))
+      // A slot's `inputsProvenance` is its value's DEEP provenance — the full
+      // transitive closure, not the immediate writer. `instruction` (a string the
+      // model evolved across rounds) lists every analysis it ever derived from, so a
+      // naive `ids.some(=== e.from)` makes EVERY upstream analysis claim the
+      // `instruction` slot on top of the `failures` slot it actually fills. Attribute
+      // a producer to slot k only when it's an IMMEDIATE producer of k: Hasse-reduce
+      // k's origins exactly as the global edge build does (drop any origin reachable
+      // from another origin in the same slot — a transitive ancestor is not the
+      // writer). 138-in-`failures` (a list element, nothing downstream of it in that
+      // slot) survives; 138-in-`instruction` (dominated by the later instr-infer)
+      // drops. A producer that genuinely fills two slots stays in both.
+      const producerValue = pointById.get(e.from)?.value;
+      const fields = Object.entries(immediateBySlot(e.to, meta.inputsProvenance))
+        .filter(([k, origins]) => origins.has(e.from) && valuePresent(producerValue, meta.inputs?.[k]))
         .map(([k]) => k);
       if (fields.length > 0) {
         for (const field of fields) fieldEdges.push({ ...e, field });
