@@ -62,6 +62,60 @@ describe("paramHints", () => {
   });
 });
 
+describe("paramHints — built-in control forms", () => {
+  it("labels `if` as cond/then/else, each at its branch start", () => {
+    const src = `(if (> x 3) (a) (b))`;
+    const hints = paramHints(src);
+    expect(hints.map((h) => h.name)).toEqual(["cond", "then", "else"]);
+    expect(src.startsWith("(> x 3)", hints[0].pos)).toBe(true);
+    expect(src.startsWith("(a)", hints[1].pos)).toBe(true);
+    expect(src.startsWith("(b)", hints[2].pos)).toBe(true);
+  });
+
+  it("`if` without an else → cond/then only", () => {
+    expect(paramHints(`(if c (a))`).map((h) => h.name)).toEqual(["cond", "then"]);
+  });
+
+  it("labels `let*` as a `let:` per binding + `return:` on the body value", () => {
+    const src = `(let* ((a 1) (b 2)) (+ a b))`;
+    const hints = paramHints(src);
+    expect(hints.map((h) => h.name)).toEqual(["let", "let", "return"]);
+    expect(src.startsWith("(a 1)", hints[0].pos)).toBe(true);
+    expect(src.startsWith("(b 2)", hints[1].pos)).toBe(true);
+    expect(src.startsWith("(+ a b)", hints[2].pos)).toBe(true);
+  });
+
+  it("plain `let` too — single binding + return", () => {
+    expect(paramHints(`(let ((a 1)) a)`).map((h) => h.name)).toEqual(["let", "return"]);
+  });
+
+  it("a NAMED let steps past the loop name to find the bindings", () => {
+    const src = `(let loop ((a 1) (b 2)) (loop a b))`;
+    const hints = paramHints(src);
+    expect(hints.map((h) => h.name)).toEqual(["let", "let", "return"]);
+    expect(src.startsWith("(a 1)", hints[0].pos)).toBe(true);
+    expect(src.startsWith("(loop a b)", hints[2].pos)).toBe(true);
+  });
+
+  it("`return:` lands on the LAST body form when there are several", () => {
+    const src = `(let ((a 1)) (side a) (final a))`;
+    const hints = paramHints(src);
+    expect(hints.map((h) => h.name)).toEqual(["let", "return"]);
+    expect(src.startsWith("(final a)", hints[1].pos)).toBe(true);
+  });
+
+  it("nests: an `if` inside a `let` body gets both layers of labels", () => {
+    const names = paramHints(`(let ((a 1)) (if a (b) (c)))`)
+      .map((h) => h.name)
+      .sort();
+    expect(names).toEqual(["cond", "else", "let", "return", "then"]);
+  });
+
+  it("control-form labels need no defines (fire on their own)", () => {
+    expect(paramHints(`(if c a b)`).map((h) => h.name)).toEqual(["cond", "then", "else"]);
+  });
+});
+
 describe("paramHintsSweet — the sweet lens", () => {
   it("hints over RENDERED sweet, at sweet-text offsets pointing to each arg", () => {
     const classic = `(define (evolve pool budget rng iter) (list pool budget rng iter))

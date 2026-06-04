@@ -114,9 +114,11 @@ function hintsFromForms(forms: Node[]): ParamHint[] {
     for (const c of nd.list) scan(c);
   };
   for (const f of forms) scan(f);
-  if (defs.size === 0) return [];
 
-  // 2. Walk; emit a hint before each positional arg of a call to a known define.
+  // 2. Walk; emit a hint before each positional arg of a call to a known define, AND a
+  //    semantic position label for the built-in control forms `if` (cond/then/else) and
+  //    `let`/`let*` (a `let:` per binding + `return:` on the body's value). The control-form
+  //    labels need no defines, so this runs even when the file declares none.
   //    A define/lambda's formals list is a BINDING site, not a call — skip it.
   const hints: ParamHint[] = [];
   const walk = (nd: Node): void => {
@@ -124,6 +126,31 @@ function hintsFromForms(forms: Node[]): ParamHint[] {
     const head = nd.list[0];
     if (isAtom(head) && (head.atom === "define" || head.atom === "lambda" || head.atom === "define-macro")) {
       for (let k = 2; k < nd.list.length; k++) walk(nd.list[k]); // body only; skip the formals
+      return;
+    }
+    // `(if cond then else)` → cond:/then:/else: before each branch (else optional).
+    if (isAtom(head) && head.atom === "if") {
+      const labels = ["cond", "then", "else"];
+      for (let a = 1; a < nd.list.length && a <= 3; a++) {
+        const sp = nd.list[a].span;
+        if (sp) hints.push({ pos: sp[0], name: labels[a - 1] });
+      }
+      for (const c of nd.list) walk(c);
+      return;
+    }
+    // `(let ((s v) …) body…)` → a `let:` before each binding + `return:` on the body's
+    // value (its last form). Also a NAMED let `(let loop ((s v) …) body…)` — skip the
+    // leading name atom to find the bindings list. `let*` is the same shape, never named.
+    if (isAtom(head) && (head.atom === "let" || head.atom === "let*")) {
+      let i = 1;
+      if (isAtom(nd.list[i])) i++; // named let: step past the loop name
+      const bindings = nd.list[i];
+      if (isList(bindings)) for (const b of bindings.list) if (b.span) hints.push({ pos: b.span[0], name: "let" });
+      if (nd.list.length > i + 1) {
+        const last = nd.list[nd.list.length - 1];
+        if (last.span) hints.push({ pos: last.span[0], name: "return" });
+      }
+      for (const c of nd.list) walk(c);
       return;
     }
     if (isAtom(head) && defs.has(head.atom)) {
