@@ -33,9 +33,25 @@
  * both. PERF: a very long loop builds an O(N)-deep `currentInvocation` chain; the
  * spine walk is O(N) total (early-return DFS), bounded by that existing depth.
  */
+import { lipsToJs } from "@here.build/arrival-scheme";
 import { snapshotTrace, type PlainInv } from "./trace-snapshot.js";
+import { schemeToSweet } from "./sweet-render.js";
 import { scopeId, staticLoopBodyScopes, staticRecursiveHeads, STRUCTURAL_FORMS } from "./trace-to-forest.js";
 import type { EvalTrace } from "./trace.js";
+
+/** A producer crossing a region's boundary — the region-model's first-class PORT
+ *  (docs/working-proposals/provenance-region-model-plan-2026-06-02.md, Stage 2).
+ *  Keyed by the producer's STRUCTURAL scope-id, NOT per-value: a `map`/loop body that
+ *  runs N times emits ONE port per structural producer (one dataflow), matching the
+ *  `leaf.scope` contract. This is what makes each container a hermetic mini-chart with
+ *  explicitly known granular inputs and outputs. */
+export interface RegionPort {
+  /** The producer's structural scope-id (`head@line:col`) crossing the boundary. */
+  producer: string;
+  /** The consumer's named input slot the value flowed into, when recoverable (a
+   *  `.prompt` kwarg) — carried straight off the crossing edge's `field`. */
+  field?: string;
+}
 
 export type Region =
   | {
@@ -69,6 +85,15 @@ export type Region =
       label: string;
       /** Stable source-location identity (`head@line:col`) of the branch site. */
       scope: string;
+      /** A HUMAN-READABLE rendering of the branch's test, recovered from the AST —
+       *  `score > 0.6`, `stage is "analyze"`, `fails is empty`. Known predicate
+       *  shapes get a tidy phrase; anything unrecognized falls back to the verbatim
+       *  s-expression (so it's never worse than showing the code). The decision node
+       *  TALKS instead of showing a bare `<>`. AST-only for now: value-substitution
+       *  (`score (0.73) > 0.6`) needs the test's runtime value, which the snapshot
+       *  doesn't carry for non-points — that's the next layer. `cond`/`case` are
+       *  multi-clause and stay unlabelled here (also next layer). */
+      condition?: string;
     }
   | {
       kind: "fanout";
@@ -91,6 +116,16 @@ export type Region =
        *  a wire leaving the contour and pointing back into it — so recursion reads
        *  as recursion, not as an N-way fan. */
       loop?: boolean;
+      /** The container's BOUNDARY ports (Stage 2 — regions ARE boxes). `inputs` =
+       *  external producers whose values flow into its internals (entrance);
+       *  `outputs` = internal producers whose values flow outside (exit). Derived by
+       *  pure edge-vs-membership over the region tree — an edge `P→C` is an input of
+       *  every container holding `C` but not `P`, an output of every container holding
+       *  `P` but not `C` — keyed by producer scope so each structural producer is ONE
+       *  port regardless of iteration count. This is what lets a collapsed region show
+       *  just its ports instead of its exploded internals. */
+      inputs: RegionPort[];
+      outputs: RegionPort[];
     }
   | {
       /** The program's final STATEMENT OUTPUT — the value the last top-level
@@ -114,7 +149,7 @@ export interface RegionGraph {
    *  `.prompt`, or when the value was PROJECTED/transformed before it reached the
    *  slot (then `inputs[k] !== producer.value` and the match honestly declines —
    *  attributing a projected input needs provenance-on-value, the v1 follow-up). */
-  edges: { from: number; to: number; field?: string }[];
+  edges: { from: number; to: number; field?: string; kind: "data" | "control" }[];
   warnings: string[];
 }
 
@@ -129,6 +164,243 @@ const FANOUT: ReadonlySet<string> = new Set(["map", "filter", "fold", "fold-left
 const BRANCH_FORMS: ReadonlySet<string> = new Set(["if", "cond", "case", "when", "unless"]);
 
 const headOf = (inv: PlainInv): string => scopeId(inv.node).split("@")[0] ?? "?";
+
+// ── readable predicate recovery (the decision node TALKS) ────────────────────
+// Recover a human phrase from a branch's test Pair. Known shapes → a tidy phrase;
+// anything else → the verbatim s-expression (never worse than the code). AST-only:
+// the static predicate, not yet the runtime value it tested.
+interface PairLike {
+  car: unknown;
+  cdr: unknown;
+}
+const asPair = (v: unknown): PairLike | null =>
+  v !== null && typeof v === "object" && "car" in v && "cdr" in v ? (v as PairLike) : null;
+const symOf = (v: unknown): string | undefined => {
+  const n = (v as { __name__?: unknown } | null)?.__name__;
+  return typeof n === "string" ? n : undefined;
+};
+const listOf = (v: unknown): unknown[] => {
+  const out: unknown[] = [];
+  for (let c = asPair(v); c; c = asPair(c.cdr)) out.push(c.car);
+  return out;
+};
+/** Annotate a symbol with its resolved runtime value — `(sym) => "(value)" | ""`.
+ *  The empty string means "no value to show" (unresolved free var / a literal). */
+type Annotate = (sym: string) => string;
+const NO_ANNOTATE: Annotate = () => "";
+
+const atomStr = (v: unknown, ann: Annotate = NO_ANNOTATE): string => {
+  const s = symOf(v);
+  if (s !== undefined) return `${s}${ann(s)}`;
+  if (v === null) return "()";
+  if (asPair(v)) return sexpr(v, ann);
+  const vo = (v as { valueOf?: () => unknown } | undefined)?.valueOf?.();
+  if (typeof vo === "string") return JSON.stringify(vo);
+  if (typeof vo === "number" || typeof vo === "bigint" || typeof vo === "boolean") return String(vo);
+  if (typeof v === "string") return JSON.stringify(v);
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return "…";
+};
+const sexpr = (v: unknown, ann: Annotate = NO_ANNOTATE): string =>
+  asPair(v) ? `(${listOf(v).map((x) => atomStr(x, ann)).join(" ")})` : atomStr(v, ann);
+
+const INFIX: Readonly<Record<string, string>> = { ">": ">", "<": "<", ">=": "≥", "<=": "≤", "=": "=", "equal?": "is", "eq?": "is", "eqv?": "is" };
+/** The negated comparison — what the operator becomes on the arm where the test was
+ *  FALSE. `a > b` failing IS `a ≤ b`, so the realized condition reads as the negation,
+ *  not `a > b → no`. Equality's negation is `≠` / `is not`. */
+const NEG_INFIX: Readonly<Record<string, string>> = { ">": "≤", "<": "≥", ">=": "<", "<=": ">", "=": "≠", "equal?": "is not", "eq?": "is not", "eqv?": "is not" };
+
+/** Render a test OPERAND. A compound operand (`(car prop)`, `(proposal-batch-score …)`)
+ *  goes through the sweet lens — `prop[0]`, curly subscripts — so the pill reads as the
+ *  authored expression would. A bare atom keeps its inline runtime-value annotation. */
+const renderOperand = (operand: unknown, ann: Annotate): string => {
+  if (asPair(operand)) {
+    try {
+      return schemeToSweet(sexpr(operand, NO_ANNOTATE)).trim();
+    } catch {
+      return sexpr(operand, ann);
+    }
+  }
+  return atomStr(operand, ann);
+};
+
+/**
+ * Render a test as the REALIZED condition for the arm that ran — no `→ yes/no` suffix.
+ * `taken` is whether the test was true on this path; when false, each shape renders its
+ * own negation (`a > b` → `a ≤ b`, `is empty` → `is not empty`, `not X` flips back to
+ * `X`). So the pill states the fact that actually held, not the predicate plus an
+ * outcome label. Operand symbols carry inline runtime values via `ann`; compound
+ * operands pass through the sweet lens.
+ */
+function readablePolar(test: unknown, taken: boolean, ann: Annotate = NO_ANNOTATE): string {
+  const p = asPair(test);
+  if (!p) {
+    // Bare-symbol guard (`prop`): its realized truth is presence/absence.
+    const s = symOf(test);
+    const base = s !== undefined ? s : atomStr(test, ann);
+    return taken ? `${base} is present` : `${base} is absent`;
+  }
+  const parts = listOf(test);
+  const head = symOf(parts[0]);
+  const opr = (i: number): string => renderOperand(parts[i], ann);
+  if (head && INFIX[head] && parts.length === 3) return `${opr(1)} ${(taken ? INFIX : NEG_INFIX)[head]} ${opr(2)}`;
+  if (head === "zero?" && parts.length === 2) return `${opr(1)} ${taken ? "=" : "≠"} 0`;
+  if (head === "null?" && parts.length === 2) return `${opr(1)} is ${taken ? "" : "not "}empty`;
+  if (head === "even?" && parts.length === 2) return `${opr(1)} is ${taken ? "" : "not "}even`;
+  if (head === "odd?" && parts.length === 2) return `${opr(1)} is ${taken ? "" : "not "}odd`;
+  if (head === "string-prefix?" && parts.length === 3) return `${opr(2)} ${taken ? "starts with" : "does not start with"} ${opr(1)}`;
+  if (head === "not" && parts.length === 2) return readablePolar(parts[1], !taken, ann); // ¬¬ flips back
+  const body = sexpr(test, ann); // fallback: verbatim s-expression
+  return taken ? body : `not ${body}`;
+}
+
+// ── operand resolution (where the tested value CAME FROM) ────────────────────
+// A decision branches on locals (`fails`, `pair`, `prop`) bound by enclosing lets
+// whose value-expressions are unrendered plumbing — so a wire would point at an
+// invisible node. Instead we resolve each operand to its binding site and read the
+// actual value: `fails (∅)`, `pair (#f)`. This is "where it came from" made legible
+// inline, the faithful form of operand-wiring when the producer isn't a drawn node.
+const LET_FORMS: ReadonlySet<string> = new Set(["let", "let*", "letrec"]);
+
+/** The value-expression a let-family node binds `sym` to, or undefined. Handles the
+ *  named-let shape `(let name ((b v)…) …)` whose bindings sit one slot later. */
+const bindingValueExpr = (letNode: unknown, sym: string): { valExpr: unknown } | undefined => {
+  const parts = listOf(letNode);
+  // named let: slot 1 is the loop name (a symbol), bindings shift to slot 2.
+  const bindings = symOf(parts[1]) !== undefined ? parts[2] : parts[1];
+  for (const b of listOf(bindings)) {
+    const bp = listOf(b); // (name valExpr)
+    if (symOf(bp[0]) === sym) return { valExpr: bp[1] };
+  }
+  return undefined;
+};
+
+/** Resolve a free symbol in a decision's test to its runtime value, by walking up to
+ *  the enclosing let that bound it and reading that binding's producer invocation. */
+const resolveRaw = (
+  decision: PlainInv,
+  sym: string,
+  valueById: (id: number) => unknown,
+): { value: unknown; producerId?: number } | undefined => {
+  for (let anc = decision.parent; anc; anc = anc.parent) {
+    if (!LET_FORMS.has(headOf(anc))) continue;
+    const found = bindingValueExpr(anc.node, sym);
+    if (found === undefined) continue;
+    if (asPair(found.valExpr)) {
+      const producer = anc.children.find((c) => c.node === found.valExpr);
+      // `producerId` is the invocation that computed the binding — a candidate
+      // data-input wire (drawn only when it's a rendered provenance point).
+      return producer ? { value: valueById(producer.id), producerId: producer.id } : undefined;
+    }
+    // A literal-bound symbol (`(x 0.6)`) — the value IS the literal.
+    return { value: found.valExpr };
+  }
+  return undefined;
+};
+
+/** Compact runtime-value glyph for inline annotation: `(∅)`, `(#f)`, `(0.73)`, `([3])`. */
+const fmtVal = (v: unknown): string => {
+  if (v === false) return " (#f)";
+  if (v === true) return " (#t)";
+  if (v === null || v === undefined) return " (∅)";
+  if (Array.isArray(v)) return v.length === 0 ? " (∅)" : ` ([${v.length}])`;
+  if (typeof v === "string") return ` (${JSON.stringify(v.length > 16 ? `${v.slice(0, 16)}…` : v)})`;
+  if (typeof v === "number" || typeof v === "bigint") return ` (${String(v)})`;
+  if (typeof v === "object") return " ({…})";
+  return ` (${String(v)})`;
+};
+
+/** The test's runtime outcome. First the test child's materialized value (compound
+ *  test → a child invocation carries the boolean); else, for a bare-symbol test,
+ *  the resolved operand value. Scheme truthiness: only `#f` is false. */
+const outcomeOf = (
+  inv: PlainInv,
+  testNode: unknown,
+  valueById: (id: number) => unknown,
+): "yes" | "no" | undefined => {
+  const child = inv.children.find((c) => c.node === testNode);
+  if (child !== undefined && child.value !== undefined) return child.value === false ? "no" : "yes";
+  const sym = symOf(testNode);
+  if (sym !== undefined) {
+    const r = resolveRaw(inv, sym, valueById);
+    if (r !== undefined) return r.value === false ? "no" : "yes";
+  }
+  return undefined;
+};
+
+/** The readable condition for a branch invocation, or undefined for the multi-clause
+ *  forms (`cond`/`case`). Rendered as the REALIZED fact for the arm that ran (polarised
+ *  by the recovered outcome — `a > b` on the true arm, `a ≤ b` on the false one), with
+ *  static operands carrying their runtime values inline. */
+const conditionOf = (
+  inv: PlainInv,
+  valueById: (id: number) => unknown,
+  wired: ReadonlySet<string>,
+): string | undefined => {
+  const head = headOf(inv);
+  if (head === "if" || head === "when" || head === "unless") {
+    const test = listOf(inv.node)[1]; // (if TEST then else) → slot 1
+    if (test === undefined) return undefined;
+    // A WIRED operand's value arrives on a data wire (from the infer it derived from),
+    // so the pill shows just its NAME — the value lives at the wire's source. A STATIC
+    // (literal-rooted) operand has no wire, so its value is annotated inline.
+    const ann: Annotate = (sym) => {
+      if (wired.has(sym)) return "";
+      const r = resolveRaw(inv, sym, valueById);
+      return r === undefined ? "" : fmtVal(r.value);
+    };
+    // The realized condition is the test under its taken polarity: an undetermined
+    // outcome falls back to the as-written (true) form.
+    const outcome = outcomeOf(inv, test, valueById);
+    return readablePolar(test, outcome !== "no", ann);
+  }
+  return undefined;
+};
+
+/** The provenance set carried by a raw scheme VALUE — non-empty when it's an AValue
+ *  stamped by a producer (a field-pluck off an infer, an infer result). Read
+ *  structurally to avoid importing AValue here; a literal/unstamped value yields none. */
+const valueProvenance = (v: unknown): Iterable<number> => {
+  const p = (v as { provenance?: unknown } | null | undefined)?.provenance;
+  return p != null && typeof (p as Iterable<number>)[Symbol.iterator] === "function" ? (p as Iterable<number>) : [];
+};
+
+/** Symbols appearing in a test expression (operator heads included — harmless, they
+ *  never resolve to a let-binding). */
+const symbolsIn = (node: unknown): string[] => {
+  const s = symOf(node);
+  if (s !== undefined) return [s];
+  const p = asPair(node);
+  if (!p) return [];
+  return listOf(node).flatMap(symbolsIn);
+};
+
+/** The decision's DATA-input PRODUCERS: the invocations that computed the let-bound
+ *  operands its test reads. A bare symbol `pair` or a compound `(> score 0.6)` both
+ *  resolve through the enclosing lets to whichever invocation produced each operand.
+ *
+ *  Every operand value is, by construction, either rooted purely in literals (a
+ *  STATIC operand — degenerate, no dataflow to draw) or derived directly/indirectly
+ *  from an inference (then it ALWAYS carries that inference in its TRANSITIVE
+ *  provenance). So the caller doesn't require the immediate producer to itself be a
+ *  rendered point — it follows the producer's provenance back to the inference
+ *  origin(s) and wires from THOSE. A plumbing producer (`(find-merge candidates)`)
+ *  that derived from inferences thus still wires; a literal-only one wires nothing. */
+const decisionInputProducers = (inv: PlainInv, valueById: (id: number) => unknown): { sym: string; producerId: number }[] => {
+  const head = headOf(inv);
+  if (head !== "if" && head !== "when" && head !== "unless") return [];
+  const test = listOf(inv.node)[1];
+  if (test === undefined) return [];
+  const out: { sym: string; producerId: number }[] = [];
+  const seen = new Set<string>();
+  for (const sym of symbolsIn(test)) {
+    if (seen.has(sym)) continue;
+    seen.add(sym);
+    const r = resolveRaw(inv, sym, valueById);
+    if (r?.producerId !== undefined) out.push({ sym, producerId: r.producerId });
+  }
+  return out;
+};
 
 /** The rosetta heads of a DIRECT, user-written inference call. A provenance point
  *  whose head is one of these is a raw `(infer …)` / `(infer/chat …)`. Any OTHER
@@ -166,6 +438,20 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   const snap = snapshotTrace(trace);
   const points = snap.invocations.filter((i) => i.isProvenancePoint);
   const pointIds = new Set(points.map((p) => p.id));
+
+  // Live-value accessor for decision-operand substitution. The snapshot drops values
+  // for plumbing, but a decision's operands are bound by enclosing lets whose
+  // value-invocations ARE plumbing — we read those few values live, memoized, paying
+  // the MobX/`lipsToJs` cost only for operands a decision actually references.
+  const liveById = new Map<number, { value: unknown }>();
+  for (const rec of trace.records.values()) for (const inv of rec.bindings) liveById.set(inv.id, inv);
+  const valCache = new Map<number, unknown>();
+  const valueById = (id: number): unknown => {
+    if (valCache.has(id)) return valCache.get(id);
+    const v = lipsToJs(liveById.get(id)?.value);
+    valCache.set(id, v);
+    return v;
+  };
 
   // Wires: upstream(X) = ⋃ over X's children of child.provenance, ∩ points.
   // Provenance accumulates TRANSITIVELY (a value carries every ancestor point it
@@ -216,7 +502,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   // before any consumer reads it. `reach[x]` = all ancestors reachable from x.
   const EMPTY: ReadonlySet<number> = new Set();
   const reach = new Map<number, Set<number>>();
-  const edges: { from: number; to: number; field?: string }[] = [];
+  const edges: { from: number; to: number; field?: string; kind: "data" | "control" }[] = [];
   for (const x of [...pointIds].sort((a, b) => a - b)) {
     const up = upstreamOf.get(x) ?? EMPTY;
     const closure = new Set<number>();
@@ -230,7 +516,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       for (const w of up) {
         if (w !== u && (reach.get(w) ?? EMPTY).has(u)) { redundant = true; break; }
       }
-      if (!redundant) edges.push({ from: u, to: x });
+      if (!redundant) edges.push({ from: u, to: x, kind: "data" });
     }
     reach.set(x, closure);
   }
@@ -329,10 +615,14 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   // inner regions is the producer whose value the branch yielded. We seat the knot at
   // the head of that producer's flow once the walk is done.
   const knotArm: { knot: number; arm: number }[] = [];
-  const lastLeafId = (rs: Region[]): number | undefined => {
-    for (let i = rs.length - 1; i >= 0; i--) if (rs[i]!.kind === "leaf") return rs[i]!.id;
-    return undefined;
-  };
+  // The arm a knot routes to is the LAST region its inner walk emitted (eval order:
+  // test first, chosen value last) — regardless of kind. Taking only `leaf` floated
+  // every knot whose arm was a fanout/recursion (gepa's `if@291`/`if@293`): the arm
+  // had no bare leaf, so the control wire dangled. Last-of-any-kind seats the knot at
+  // the head of whatever the arm actually produced (a leaf, a fanout, a nested knot).
+  const lastRegionId = (rs: Region[]): number | undefined => (rs.length > 0 ? rs[rs.length - 1]!.id : undefined);
+  // Decision data-inputs collected during the walk: knot id → operand producer ids.
+  const knotInputs: { knot: number; from: number }[] = [];
 
   const regionsAt = (inv: PlainInv): Region[] => {
     if (inv.isProvenancePoint) {
@@ -373,7 +663,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       // Label by the recursive fn name (the call head, e.g. `loop`), not the
       // body form (`let`).
       const label = inv.parent ? headOf(inv.parent) : headOf(inv);
-      return [{ kind: "fanout", id: inv.id, stages: [{ label, id: inv.id }], iterations, incoming, loop: true }];
+      return [{ kind: "fanout", id: inv.id, stages: [{ label, id: inv.id }], iterations, incoming, loop: true, inputs: [], outputs: [] }];
     }
 
     if (FANOUT.has(headOf(inv))) {
@@ -385,7 +675,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       const iterations = applChildren.map((c) => regionsAt(c)).filter((r) => r.length > 0);
       // Degenerate container (mapped/filtered over non-inference data) → drop it.
       if (iterations.length === 0) return [];
-      return [{ kind: "fanout", id: inv.id, stages: [{ label: headOf(inv), id: inv.id }], iterations, incoming: applChildren.length }];
+      return [{ kind: "fanout", id: inv.id, stages: [{ label: headOf(inv), id: inv.id }], iterations, incoming: applChildren.length, inputs: [], outputs: [] }];
     }
 
     // A LIVE branch (decided ≥2 ways trace-wide) does NOT box — boxing every `if`
@@ -400,9 +690,39 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
     if (BRANCH_FORMS.has(headOf(inv)) && liveBranchScopes.has(scopeId(inv.node))) {
       const inner = inv.children.flatMap(regionsAt);
       if (inner.length === 0) return [];
-      const arm = lastLeafId(inner);
+      // Data-in: each operand traces (through plumbing) to the inference(s) that
+      // produced it. Follow the operand back to its inference origin(s) and wire those
+      // into the decision — a literal-rooted operand resolves to none (static, nothing
+      // to draw). The provenance rides on the operand's VALUE (an AValue), not on its
+      // producer invocation: a field-pluck like `(:verdict (car (infer …)))` leaves the
+      // `:verdict` invocation's own provenance empty but stamps the plucked AValue with
+      // the field point that resolves back to the infer. Read it live (`liveById`); the
+      // snapshot drops plumbing values, but the live trace keeps them.
+      //
+      // An operand that resolves to ≥1 inference origin is WIRED: its value arrives on a
+      // data wire, so the pill shows only its name (the value lives at the wire source).
+      const wired = new Set<string>();
+      const inputs: number[] = [];
+      for (const { sym, producerId } of decisionInputProducers(inv, valueById)) {
+        const origins = pointIds.has(producerId)
+          ? [producerId]
+          : [...valueProvenance(liveById.get(producerId)?.value)].map(resolveOrigin).filter((o) => pointIds.has(o));
+        if (origins.length === 0) continue;
+        wired.add(sym);
+        inputs.push(...origins);
+      }
+      // DYNAMIC-PROVENANCE GATE (V's rule): a decision renders only when its outcome is
+      // genuinely INDETERMINATE from the trace's dynamic data — i.e. at least one tested
+      // operand traces back to an inference. A purely static test (`(if #t …)`, a
+      // literal-only comparison `{10 + 20 < 50}`, a pool-shape guard like `pair`) is
+      // degenerate: its result was fixed before the run, so it carries no decision the
+      // reader can act on. Dissolve it — flatten to the gated work, no marker, no control
+      // arm. We could only decide it because nothing inferred fed it; that's the tell.
+      if (wired.size === 0) return inner;
+      const arm = lastRegionId(inner);
       if (arm !== undefined) knotArm.push({ knot: inv.id, arm });
-      return [{ kind: "decision", id: inv.id, label: headOf(inv), scope: scopeId(inv.node) }, ...inner];
+      for (const from of inputs) knotInputs.push({ knot: inv.id, from });
+      return [{ kind: "decision", id: inv.id, label: headOf(inv), scope: scopeId(inv.node), condition: conditionOf(inv, valueById, wired) }, ...inner];
     }
 
     return inv.children.flatMap(regionsAt); // plumbing: flatten through
@@ -479,7 +799,20 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   // invocations carry no materialized provenance (trace-snapshot only retains it for
   // children-of-points and roots), so we seat the knot via the arm's own leaf, not a
   // provenance scan.
-  for (const { knot, arm } of knotArm) edges.push({ from: knot, to: arm });
+  for (const { knot, arm } of knotArm) edges.push({ from: knot, to: arm, kind: "control" });
+
+  // Data-in: each decision's operand producers feed the knot. This is the OTHER
+  // spaghetti — "WHAT data the decision consumed" — distinct from the control wire
+  // above ("WHICH arm the decision gated"). A decision thus reads as a junction that
+  // CONSUMES data (inbound data edges) and PRODUCES a control signal (outbound control
+  // edge to the arm). Deduped: the same producer can back two operands of one test.
+  const seenInput = new Set<string>();
+  for (const { knot, from } of knotInputs) {
+    const key = `${from}->${knot}`;
+    if (seenInput.has(key)) continue;
+    seenInput.add(key);
+    edges.push({ from, to: knot, kind: "data" });
+  }
 
   // The program's STATEMENT OUTPUT — the value the LAST top-level expression
   // returned. Render it as a terminal node the graph flows into, but only when
@@ -498,9 +831,60 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
     }
     for (const o of origins) {
       const redundant = [...origins].some((w) => w !== o && (reach.get(w) ?? EMPTY).has(o));
-      if (!redundant) edges.push({ from: o, to: OUTPUT_ID });
+      if (!redundant) edges.push({ from: o, to: OUTPUT_ID, kind: "data" });
     }
     roots.push({ kind: "output", id: OUTPUT_ID, value: final.value, state: final.state });
+  }
+
+  // ── Stage 2a: regions ARE boxes — populate each container's boundary ports ────
+  // Pure edge-vs-membership over the region tree we just built (no recompute, no
+  // forest/scope-id round-trip): walk the tree to learn, for every region id, which
+  // fanout containers enclose it and (for leaves/decisions) its structural scope.
+  // Then an edge `from→to` is an INPUT of every container holding `to` but not
+  // `from`, and an OUTPUT of every container holding `from` but not `to` — keyed by
+  // the producer's scope so a body that ran N times contributes ONE port, not N.
+  const enclosing = new Map<number, number[]>(); // region id → enclosing fanout ids (outer→inner)
+  const scopeById = new Map<number, string>(); // leaf/decision id → structural scope-id
+  const fanoutById = new Map<number, Extract<Region, { kind: "fanout" }>>();
+  const walkPorts = (regions: Region[], ancestors: number[]): void => {
+    for (const r of regions) {
+      enclosing.set(r.id, ancestors);
+      if (r.kind === "leaf" || r.kind === "decision") scopeById.set(r.id, r.scope);
+      if (r.kind === "fanout") {
+        fanoutById.set(r.id, r);
+        const inner = [...ancestors, r.id];
+        for (const iter of r.iterations) walkPorts(iter, inner);
+      }
+    }
+  };
+  walkPorts(roots, []);
+
+  // Per-container port accumulators, deduped by `producer-scope | field`.
+  const inPorts = new Map<number, Map<string, RegionPort>>();
+  const outPorts = new Map<number, Map<string, RegionPort>>();
+  const addPort = (
+    table: Map<number, Map<string, RegionPort>>,
+    container: number,
+    producer: string,
+    field?: string,
+  ): void => {
+    const ports = table.get(container) ?? table.set(container, new Map()).get(container)!;
+    const key = `${producer}|${field ?? ""}`;
+    if (!ports.has(key)) ports.set(key, field === undefined ? { producer } : { producer, field });
+  };
+  for (const e of edges) {
+    const producer = scopeById.get(e.from);
+    if (producer === undefined) continue; // output terminal etc. — not a structural producer
+    const fromAnc = new Set(enclosing.get(e.from) ?? []);
+    const toAnc = new Set(enclosing.get(e.to) ?? []);
+    for (const c of toAnc) if (!fromAnc.has(c)) addPort(inPorts, c, producer, e.field); // crosses IN
+    for (const c of fromAnc) if (!toAnc.has(c)) addPort(outPorts, c, producer, e.field); // crosses OUT
+  }
+  const sortPorts = (ports: Map<string, RegionPort> | undefined): RegionPort[] =>
+    [...(ports?.values() ?? [])].sort((a, b) => (a.producer === b.producer ? (a.field ?? "").localeCompare(b.field ?? "") : a.producer.localeCompare(b.producer)));
+  for (const [id, fanout] of fanoutById) {
+    fanout.inputs = sortPorts(inPorts.get(id));
+    fanout.outputs = sortPorts(outPorts.get(id));
   }
 
   return { roots, edges, warnings: [] };

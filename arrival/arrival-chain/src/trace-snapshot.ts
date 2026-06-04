@@ -51,6 +51,17 @@ export interface PlainTrace {
   fieldPointMeta: EvalTrace["fieldPointMeta"];
 }
 
+/** The branch heads whose children carry decision-relevant values. A child of one
+ *  of these is a branch TEST or chosen-ARM evaluation; we materialize its `value`
+ *  so the region build can substitute the runtime outcome into a readable decision
+ *  pill (`fails is empty → yes`). Bounded — a branch has a few children, not O(n). */
+const BRANCH_HEADS: ReadonlySet<string> = new Set(["if", "cond", "case", "when", "unless"]);
+const headName = (node: Pair | undefined): string | undefined => {
+  const car = (node as { car?: unknown } | undefined)?.car;
+  const n = (car as { __name__?: unknown } | undefined)?.__name__;
+  return typeof n === "string" ? n : undefined;
+};
+
 /** Shared empty set for invocations whose provenance the build never reads. */
 const NO_PROVENANCE: ReadonlySet<number> = new Set();
 
@@ -66,6 +77,9 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
       // roots, so still O(n)) so the region build can render the program's returned
       // value as a terminal node wired from its producers.
       const isRoot = !inv.parent;
+      // A child of a branch form is a test/arm evaluation — materialize its value so
+      // the readable decision pill can show the runtime outcome (`→ yes` / `→ no`).
+      const isBranchChild = BRANCH_HEADS.has(headName(inv.parent?.node) ?? "");
       const plain: PlainInv = {
         id: inv.id,
         node: inv.node,
@@ -85,7 +99,7 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
         // AValue (the wrapper `jsToLips`'d it on the way back). `lipsToJs` peels that
         // envelope to plain JS so the render shows the string, not
         // `{ provenance, kind, __string__ }`.
-        value: isPoint || isRoot ? lipsToJs(inv.value) : undefined,
+        value: isPoint || isRoot || isBranchChild ? lipsToJs(inv.value) : undefined,
         metadata: isPoint ? inv.metadata : undefined,
         state: inv.state,
       };

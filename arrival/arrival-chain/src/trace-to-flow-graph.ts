@@ -31,12 +31,11 @@
  * routes the second to a distinct sentinel id (so it still renders, just without
  * a causal layer/edges), and records a non-fatal warning. Surfaced, not hidden.
  *
- * ── nesting caveat (inherited, not introduced) ───────────────────────────────
- * The forest's documented TCO gap (a tail-recursive loop body floats to root as
- * a sibling of the loop box rather than nesting under it — see trace-to-forest)
- * affects only visual CONTAINMENT here. The causal edges are independent of
- * nesting, so the graph stays causally correct; only the loop region won't wrap
- * its body until the `tailPosition`-anchored fix lands.
+ * ── TCO nesting ──────────────────────────────────────────────────────────────
+ * Tail-recursive loop bodies nest correctly: the forest boxes the recursive fn's
+ * BODY scope (entered ×K, first call included), so the per-iteration work nests
+ * under one loop box (see trace-to-forest). The causal edges are independent of
+ * nesting anyway, so the graph would stay causally correct regardless.
  *
  * ── where the pure model lives ───────────────────────────────────────────────
  * The render-ready value types (`FlowGraph*`) and the causal cones moved to

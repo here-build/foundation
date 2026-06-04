@@ -64,7 +64,9 @@ async function gepaTrace(): Promise<EvalTrace> {
 const fanouts = (rs: Region[]): Extract<Region, { kind: "fanout" }>[] =>
   rs.flatMap((r) => (r.kind === "fanout" ? [r, ...r.iterations.flatMap(fanouts)] : []));
 const leaves = (rs: Region[]): Extract<Region, { kind: "leaf" }>[] =>
-  rs.flatMap((r) => (r.kind === "leaf" ? [r] : r.iterations.flatMap(leaves)));
+  rs.flatMap((r) => (r.kind === "leaf" ? [r] : r.kind === "fanout" ? r.iterations.flatMap(leaves) : []));
+const decisions = (rs: Region[]): Extract<Region, { kind: "decision" }>[] =>
+  rs.flatMap((r) => (r.kind === "decision" ? [r] : r.kind === "fanout" ? r.iterations.flatMap(decisions) : []));
 
 describe("traceToRegions", () => {
   it("surfaces the map as a fan-out container with distinct iterations", async () => {
@@ -85,6 +87,39 @@ describe("traceToRegions", () => {
 
     // Provenance wires are present (react → reflect at least).
     expect(edges.length).toBeGreaterThan(0);
+
+    // The program's STATEMENT OUTPUT is a terminal node, wired from a producer.
+    const outs = roots.filter((r): r is Extract<Region, { kind: "output" }> => r.kind === "output");
+    expect(outs.length).toBe(1);
+    const out = outs[0]!;
+    expect(out.value).not.toBe(undefined);
+    // At least one edge sinks into it (its immediate producer).
+    expect(edges.some((e) => e.to === out.id)).toBe(true);
+  });
+
+  it("exposes each container's boundary ports — regions ARE boxes (Stage 2a)", async () => {
+    const { roots } = traceToRegions(await gepaTrace());
+
+    // The react fan-out (`map`) is a hermetic box: its react infers feed the reflect
+    // OUTSIDE it (→ an OUTPUT port), and the reflect loop-back feeds the next
+    // iteration's reacts (→ an INPUT port). Ports are keyed by STRUCTURAL producer
+    // scope, so the ×2 react fan-out — two values, ONE source location — emits ONE
+    // output port, not two.
+    const map = fanouts(roots).filter((f) => f.stages.some((s) => s.label === "map"))[0]!;
+    const reactScopes = new Set(leaves(map.iterations.flat()).map((l) => l.scope));
+    // ONE output port per structural react producer (not one per value).
+    expect(map.outputs.length).toBe(1);
+    expect(reactScopes.has(map.outputs[0]!.producer)).toBe(true);
+    // The boundary is keyed by scope-id (`head@line:col`), never per-iteration value.
+    expect(map.outputs[0]!.producer).toMatch(/@\d+:\d+$/);
+    // Every output producer is genuinely INSIDE the map; no input producer is.
+    expect(map.outputs.every((p) => reactScopes.has(p.producer))).toBe(true);
+    expect(map.inputs.every((p) => !reactScopes.has(p.producer))).toBe(true);
+
+    // The TCO loop is also a box: its internal reflect feeds the program OUTPUT
+    // outside the loop → a non-empty OUTPUT port set.
+    const loop = fanouts(roots).filter((f) => f.stages.some((s) => s.label === "loop"))[0]!;
+    expect(loop.outputs.length).toBeGreaterThan(0);
   });
 
   it("labels .prompt invocations by their run-X binding, direct infers by infer/chat", async () => {
@@ -182,6 +217,170 @@ describe("traceToRegions", () => {
     expect(intoReflect.every((e) => e.field === "failures")).toBe(true);
   });
 
+  it("DISSOLVES a static-test branch (no dynamic provenance) even when both arms run", async () => {
+    // `pick` branches on the sign of n. Over (1 -1 2 -2) the `if` takes BOTH arms — it's
+    // LIVE — but `(> n 0)` reads only `n`, a literal-list element: no inference feeds the
+    // test, so its outcome was fixed before the run. By V's dynamic-provenance rule that's
+    // DEGENERATE (`(if {10 + 20 < 50} …)`-grade) → the decision dissolves, leaving just the
+    // gated infer leaves, no `<>` marker. `always`'s constant `(if #t …)` dissolves too.
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt.slice(-12) }) }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+    await project.run(
+      `
+(define (pick n)
+  (if (> n 0)
+      (car (infer/chat "fast" (list (infer/chat/user "POS")) #f (string-append "p/" (number->string n))))
+      (car (infer/chat "fast" (list (infer/chat/user "NEG")) #f (string-append "n/" (number->string n))))))
+(define (always n)
+  (if #t
+      (car (infer/chat "fast" (list (infer/chat/user "ALWAYS")) #f (string-append "a/" (number->string n))))
+      "never"))
+(for-each pick (list 1 -1 2 -2))
+(for-each always (list 1 2))
+`,
+      { trace },
+    );
+    ac.abort();
+    await draining;
+
+    const { roots } = traceToRegions(trace);
+    // No `<>` marker survives: every `if` here tests static data, so all dissolve —
+    // never a container either (branches never become fanouts).
+    const marks = decisions(roots).filter((d) => d.label === "if");
+    expect(marks.length).toBe(0);
+    expect(fanouts(roots).some((f) => f.stages.some((s) => s.label === "if"))).toBe(false);
+    // The gated work is untouched: all 6 inference leaves (pick 4 + always 2) still
+    // render and stay reachable — dissolving the decision keeps its content.
+    const allLeaves = leaves(roots);
+    expect(allLeaves.length).toBe(6);
+  });
+
+  it("renders a bare-symbol decision bound to an inference field, polarised present/absent", async () => {
+    // `route` branches on `big`, a LOCAL bound to the `big` field PLUCKED off an infer
+    // (`(:big (car (infer …)))`). The test is a bare symbol, so its outcome is resolved by
+    // walking up to the binding `let` and reading the plucked value — and because that
+    // value traces to an inference, the decision is DYNAMIC (renders, not degenerate). Over
+    // (x y) one comes back truthy and one false → `big is present` / `big is absent`.
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({
+        complete: async (spec: ModelSpec) => {
+          const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
+          const user = msgs.find((m) => m.role === "user")?.content ?? "";
+          if (user.startsWith("G|")) return { value: { big: user.endsWith("x") } };
+          return { value: "leaf" };
+        },
+      }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+    await project.run(
+      `
+(define (route tag)
+  (let ((big (:big (car (infer/chat "fast"
+                                    (list (infer/chat/user (string-append "G|" tag)))
+                                    (s/object (s/field/boolean "big"))
+                                    (string-append "g/" tag))))))
+    (if big
+        (car (infer/chat "fast" (list (infer/chat/user "BIG")) #f (string-append "b/" tag)))
+        (car (infer/chat "fast" (list (infer/chat/user "SMALL")) #f (string-append "s/" tag))))))
+(for-each route (list "x" "y"))
+`,
+      { trace },
+    );
+    ac.abort();
+    await draining;
+
+    const { roots, edges } = traceToRegions(trace);
+    const conditions = decisions(roots)
+      .filter((d) => d.label === "if")
+      .map((d) => d.condition)
+      .sort();
+    expect(conditions).toEqual(["big is absent", "big is present"]);
+
+    // Two edge kinds. Every edge is tagged data | control. Each `if` decision PRODUCES
+    // a control signal: a control edge FROM the knot to the arm it gated this run.
+    expect(edges.every((e) => e.kind === "data" || e.kind === "control")).toBe(true);
+    const ifIds = new Set(decisions(roots).filter((d) => d.label === "if").map((d) => d.id));
+    const control = edges.filter((e) => e.kind === "control");
+    expect(control.length).toBeGreaterThan(0);
+    expect(control.every((e) => ifIds.has(e.from))).toBe(true);
+    // The control arm target is a rendered region (no float): the arm is the infer leaf
+    // the chosen branch produced, never a dangling id.
+    const ids = new Set([...leaves(roots).map((l) => l.id), ...fanouts(roots).map((f) => f.id), ...ifIds]);
+    expect(control.every((e) => ids.has(e.to))).toBe(true);
+  });
+
+  it("wires an inference-derived operand into the decision as a DATA edge (through plumbing)", async () => {
+    // `r` is bound to `(:verdict (car (infer …)))` — the operand isn't an inference
+    // itself, it's a field PLUCK off one. Its value still traces, through provenance,
+    // back to that infer. So the decision must CONSUME a data wire from the verdict
+    // infer, not merely read the value as static text. The branch goes both ways over
+    // (x y) → it's live and renders a `<>` decision.
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
+    project.bindCache(cache);
+    const ac = new AbortController();
+    const draining = startOrchestrator({
+      cache,
+      router: singletonRouter({
+        complete: async (spec: ModelSpec) => {
+          const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
+          const user = msgs.find((m) => m.role === "user")?.content ?? "";
+          if (user.startsWith("R|")) return { value: { verdict: user.endsWith("x") ? "go" : "stop" } };
+          return { value: "leaf" };
+        },
+      }),
+      signal: ac.signal,
+    }).done;
+    const trace = new EvalTrace();
+    await project.run(
+      `
+(define (route tag)
+  (let ((r (:verdict (car (infer/chat "fast"
+                                      (list (infer/chat/user (string-append "R|" tag)))
+                                      (s/object (s/field/string "verdict"))
+                                      (string-append "r/" tag))))))
+    (if (equal? r "go")
+        (car (infer/chat "fast" (list (infer/chat/user "A")) #f (string-append "a/" tag)))
+        (car (infer/chat "fast" (list (infer/chat/user "B")) #f (string-append "b/" tag))))))
+(for-each route (list "x" "y"))
+`,
+      { trace },
+    );
+    ac.abort();
+    await draining;
+
+    const { roots, edges } = traceToRegions(trace);
+    const ifIds = new Set(decisions(roots).filter((d) => d.label === "if").map((d) => d.id));
+    expect(ifIds.size).toBeGreaterThan(0);
+    const leafIds = new Set(leaves(roots).map((l) => l.id));
+    // A DATA edge sinks INTO a decision, sourced from a rendered infer leaf — the
+    // operand's value arrives as dataflow, not as a baked annotation.
+    const dataIn = edges.filter((e) => e.kind === "data" && ifIds.has(e.to));
+    expect(dataIn.length).toBeGreaterThan(0);
+    expect(dataIn.every((e) => leafIds.has(e.from))).toBe(true);
+
+    // The wired operand `r` shows NAME ONLY in the pill — no inline value glyph — since
+    // its value arrives on the data wire. `(if (equal? r "go") …)` reads `r is "go"` on
+    // the match arm, `r is not "go"` on the other.
+    const conds = decisions(roots).filter((d) => d.label === "if").map((d) => d.condition ?? "");
+    expect(conds.length).toBeGreaterThan(0);
+    expect(conds.every((c) => /^r is( not)? "go"$/.test(c))).toBe(true);
+  });
+
   it("wraps the TCO loop in one container with its body entries as distinct iterations", async () => {
     const { roots } = traceToRegions(await gepaTrace());
 
@@ -190,6 +389,11 @@ describe("traceToRegions", () => {
     const loops = fanouts(roots).filter((f) => f.stages.some((s) => s.label === "loop"));
     expect(loops.length).toBe(1);
     const loop = loops[0]!;
+    // It's flagged a TCO self-recursion loop (not a map/filter fan-out) so the
+    // render draws the loop-back recursion arc.
+    expect(loop.loop).toBe(true);
+    // A map fan-out, by contrast, carries no loop flag.
+    expect(fanouts(roots).filter((f) => f.stages.some((s) => s.label === "map")).every((f) => !f.loop)).toBe(true);
     // `(loop "t0" 0 2)` → iters 0,1,2; the last terminates (no `reflect` seeding a
     // 4th), but each entry still ran its ×2 react fan-out.
     expect(loop.iterations.length).toBe(3);

@@ -60,7 +60,7 @@ const CONTROL_TYPE: Record<string, BoxType> = {
  *  so "any same-Pair ancestor" would mistake those for loops. A loop is a
  *  recursive APPLICATION, not a special form. (cond/case/when/unless are NOT
  *  here — they're dnf control forms.) */
-const STRUCTURAL_FORMS = new Set([
+export const STRUCTURAL_FORMS = new Set([
   "let",
   "let*",
   "letrec",
@@ -80,6 +80,109 @@ function headOf(node: unknown): string {
   const car = (node as { car?: { __name__?: unknown } } | null)?.car;
   const name = (car as { __name__?: unknown } | undefined)?.__name__;
   return typeof name === "string" ? name : "?";
+}
+
+// ── Static tail-recursion detection ──────────────────────────────────────────
+// `hasSelfAncestor` can only call a function a loop AFTER it has recursed at least
+// once — which, when the recursive arg is an async `(infer …)`, is not until the
+// CURRENT iteration finishes. So a streaming loop renders with no container until
+// its successor fires, then snaps into one (V's stability directive: the structure
+// must not reshape mid-run). The fix is static: a function whose body tail-calls
+// ITSELF is a loop the moment it's defined — knowable from the AST, before any
+// iteration runs. We read it straight off the `(define …)` forms in the trace.
+
+interface PairLike {
+  car: unknown;
+  cdr: unknown;
+}
+const isPair = (v: unknown): v is PairLike => v !== null && typeof v === "object" && "car" in v && "cdr" in v;
+const symName = (v: unknown): string | null =>
+  v !== null && typeof v === "object" && "__name__" in v && typeof (v as { __name__: unknown }).__name__ === "string"
+    ? ((v as { __name__: string }).__name__)
+    : null;
+/** Proper-list elements of a Pair chain (stops at a non-pair cdr). */
+const listOf = (p: unknown): unknown[] => {
+  const out: unknown[] = [];
+  for (let cur = p; isPair(cur); cur = cur.cdr) out.push(cur.car);
+  return out;
+};
+
+/** Does `form`, evaluated in tail position, tail-call `fname`? Walks only the tail
+ *  arms of the structural forms (R7RS §3.5): the chosen-arm of `if`/`cond`, the
+ *  last form of `begin`/`let*`/`when`/`and`/…; a bare application in tail position
+ *  is a self-call iff its head is `fname`. Non-tail sub-positions are irrelevant —
+ *  a self-call there grows the stack but is still detected dynamically. */
+function tailCallsSelf(form: unknown, fname: string): boolean {
+  if (!isPair(form)) return false;
+  const items = listOf(form);
+  const head = symName(form.car);
+  const last = (xs: unknown[]): boolean => xs.length > 0 && tailCallsSelf(xs[xs.length - 1], fname);
+  switch (head) {
+    case "if": // (if c then else) — both arms are tail
+      return tailCallsSelf(items[2], fname) || tailCallsSelf(items[3], fname);
+    case "cond": // each clause's last expr is tail
+      return items.slice(1).some((cl) => last(listOf(cl)));
+    case "case": // (case key (datums expr…)…) — each clause body's last is tail
+      return items.slice(2).some((cl) => last(listOf(cl).slice(1)));
+    case "begin":
+    case "when":
+    case "unless":
+    case "and":
+    case "or":
+      return last(items.slice(1));
+    case "let":
+    case "let*":
+    case "letrec": // (let [name] bindings body…) — the LAST body form is tail
+      return last(items);
+    default:
+      return head === fname; // a tail-position application of the function itself
+  }
+}
+
+/** Reads a `(define …)` invocation into `{ fname, body }` for both shapes:
+ *  `(define (f …) body…)` → the signature's head + the rest as body forms;
+ *  `(define f (lambda (…) body…))` → the target + the lambda's body forms.
+ *  Returns null for anything that isn't a function define. */
+function defineShape(node: unknown): { fname: string; body: unknown[] } | null {
+  if (headOf(node) !== "define") return null;
+  const [, target, ...rest] = listOf(node);
+  if (isPair(target)) {
+    const fname = symName(target.car);
+    return fname ? { fname, body: rest } : null;
+  }
+  const fname = symName(target);
+  if (fname && isPair(rest[0]) && symName((rest[0] as PairLike).car) === "lambda") {
+    return { fname, body: listOf(rest[0]).slice(2) };
+  }
+  return null;
+}
+
+/** The function names whose `(define …)` body statically tail-recurses — loops
+ *  recognizable before they've run a single iteration. */
+export function staticRecursiveHeads(invs: PlainInv[]): Set<string> {
+  const heads = new Set<string>();
+  for (const inv of invs) {
+    const d = defineShape(inv.node);
+    if (d && d.body.length > 0 && tailCallsSelf(d.body[d.body.length - 1], d.fname)) heads.add(d.fname);
+  }
+  return heads;
+}
+
+/** The exact body-form Pairs of statically-recursive functions — the scopes a loop
+ *  re-enters each iteration. This is the PRECISE loop-body set: unlike "any child
+ *  of a recursive-head call" (which also catches the recursive call's ARGUMENT
+ *  evaluations, e.g. `(loop (next x) …)`'s `(next x)`), the body Pair is exactly
+ *  what the function evaluates per call, shared by identity across every iteration
+ *  INCLUDING the first. The evaluator runs the literal body Pair from the source,
+ *  so its runtime invocation node is identity-equal to these AST Pairs. */
+export function staticLoopBodyScopes(invs: PlainInv[]): Set<object> {
+  const scopes = new Set<object>();
+  for (const inv of invs) {
+    const d = defineShape(inv.node);
+    if (!d || d.body.length === 0 || !tailCallsSelf(d.body[d.body.length - 1], d.fname)) continue;
+    for (const form of d.body) if (form !== null && typeof form === "object") scopes.add(form as object);
+  }
+  return scopes;
 }
 
 /** Stable structural scope id: `head@line:col` (or `head` if unlocated). The
@@ -133,12 +236,22 @@ export function traceToForest(trace: EvalTrace, opts: ForestOptions = {}): Candi
     for (let p = inv.parent; p; p = p.parent) if (p.node === inv.node) return true;
     return false;
   };
-  const recursiveFnHeads = new Set<string>();
+  // Recursive-function heads come from TWO sources, unioned: the static AST scan
+  // (`staticRecursiveHeads`) knows a function loops the moment it's defined — so a
+  // streaming loop boxes from iteration 0, before its successor fires; the dynamic
+  // `hasSelfAncestor` scan catches anything the static reader misses (e.g. mutual
+  // recursion, or a loop the define-form heuristic doesn't match).
+  const recursiveFnHeads = staticRecursiveHeads(all);
   for (const inv of all) {
     if (STRUCTURAL_FORMS.has(headOf(inv.node))) continue;
     if (hasSelfAncestor(inv)) recursiveFnHeads.add(headOf(inv.node));
   }
-  const loopScopes = new Set<object>();
+  // Loop body scopes, two sources. The STATIC set is the exact body Pairs of
+  // statically-recursive defines — present from iteration 0 (box midway, not only
+  // on completion) without mis-tagging the recursive call's argument evaluations.
+  // The DYNAMIC rule (parent is a recursive call AND the body re-entered) covers
+  // loops the static reader can't see (mutual recursion).
+  const loopScopes = staticLoopBodyScopes(all);
   for (const inv of all) {
     if (inv.parent && hasSelfAncestor(inv) && recursiveFnHeads.has(headOf(inv.parent.node))) {
       loopScopes.add(inv.node as object);
