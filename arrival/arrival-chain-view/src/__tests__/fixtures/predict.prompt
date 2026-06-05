@@ -1,0 +1,7 @@
+---
+model: qwen3.5-9b
+---
+{{role "user"}}
+{{instruction}}
+
+{{input}}

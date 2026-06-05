@@ -5,5 +5,14 @@
 export { projectToJs, projectToJsRaw, type ProjectOptions } from "./project.js";
 export { formatJs } from "./format.js";
 export { cleanName } from "./names.js";
-export { aiClientModule, compilePromptToTs, type CompiledPrompt } from "./prompt.js";
+export {
+  aiClientModule,
+  compilePromptToTs,
+  type CompiledPrompt,
+  getPromptBackend,
+  PROMPT_BACKENDS,
+  type PromptBackend,
+  type PromptModule,
+} from "./prompt.js";
 export { projectToPy, pyName, type PyOptions } from "./python.js";
+export type { PromptDoc, PromptInput } from "./prompt-ir.js";
