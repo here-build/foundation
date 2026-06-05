@@ -45,6 +45,10 @@ describe("gepa.scm → JS (golden files)", () => {
     golden("gepa.py", projectToPy(read("gepa.scm"), { requireSource }));
   });
 
+  it("python run-view matches fixtures/gepa.run.py", () => {
+    golden("gepa.run.py", projectToPy(read("gepa.scm"), { target: "run", requireSource }));
+  });
+
   it("is deterministic (same source → same output)", async () => {
     const a = await projectToJs(read("gepa.scm"), { requireSource });
     const b = await projectToJs(read("gepa.scm"), { requireSource });

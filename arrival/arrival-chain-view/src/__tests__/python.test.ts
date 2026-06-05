@@ -47,4 +47,13 @@ describe("python emitter", () => {
   it("string-ci=? → .lower() compare", () => {
     expect(p("(define (m a b) (if (string-ci=? a b) 1 0))")).toContain("a.lower() == b.lower()");
   });
+
+  it("run-view drops the infer cache key, keeps the kwargs", () => {
+    const src = `(define run-predict (require "predict.prompt"))\n(define (ask a b) (run-predict (list a b) :instruction a :input b))`;
+    expect(p(src)).toContain("run_predict([a, b], instruction=a, input=b)"); // read-view: cache key shown
+    const run = projectToPy(src, { target: "run" });
+    expect(run).toContain("run_predict(instruction=a, input=b)"); // run-view: real infer call
+    expect(run).not.toContain("[a, b]");
+    expect(run).toContain("from predict_prompt import infer_predict as run_predict");
+  });
 });

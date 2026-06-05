@@ -5,7 +5,9 @@
  * else b` ternaries, snake_case names. Shares the parser with the JS backend; the
  * prompt library (dspy / langchain) is hidden behind the emitted `infer_<name>`.
  *
- * v1 scope: read-view (sync). No external formatter (black is out-of-process) — the
+ * Both views are sync (no asyncio): the read-view shows infer calls with their
+ * content-derived cache key, the run-view drops it to call the real
+ * `infer_<name>(**fields)`. No external formatter (black is out-of-process) — the
  * emitter prints well-formed Python directly, leaning on single-`return` `def`s and
  * expression comprehensions so the gepa-class chain stays one statement per binding.
  */
@@ -77,18 +79,28 @@ const PY_UNOP: Record<string, (a: string) => string> = {
 export interface PyOptions {
   /** Source of a `.scm` required file, for spill name extraction. */
   requireSource?: (path: string) => string | undefined;
+  /** "read" (default, the legible cache-keyed projection) or "run" (calls the real
+   *  `infer_<name>(**kwargs)` — drops the read-view's content-derived cache key). */
+  target?: "read" | "run";
 }
 
-/** Project an arrival-chain scheme source to idiomatic Python (read-view). */
+/** Project an arrival-chain scheme source to idiomatic Python.
+ *
+ * The read-view and run-view differ in exactly ONE place: the read-view shows an
+ * infer call with its content-derived cache key (`run_predict([k], a=a, b=b)`,
+ * legible — this is what replays in the trace); the run-view drops that key and
+ * calls the dspy/langchain module's real `infer_<name>(a=a, b=b)`. No async: unlike
+ * JS, the Python read-view is already sync-sequential, so there's nothing else to
+ * change — `.invoke`/`dspy.Predict` are synchronous. */
 export function projectToPy(source: string, opts: PyOptions = {}): string {
   const forest = parseSexprs(source);
-  const { importLines, requireSubst, skipForms } = collectPyImports(forest, opts);
-  const lower = makePyLower(requireSubst);
+  const { importLines, requireSubst, skipForms, inferLocals } = collectPyImports(forest, opts);
+  const lower = makePyLower(requireSubst, inferLocals, opts.target ?? "read");
   const body = forest.filter((f) => !skipForms.has(f)).map((f) => lower.top(f));
   return [importLines.join("\n"), body.join("\n\n")].filter((s) => s.length > 0).join("\n\n") + "\n";
 }
 
-function makePyLower(requireSubst: Map<string, string>) {
+function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>, target: "read" | "run") {
   const subst: Map<string, string>[] = [];
   const resolve = (s: string): string => {
     for (let i = subst.length - 1; i >= 0; i--) {
@@ -239,6 +251,12 @@ function makePyLower(requireSubst: Map<string, string>) {
   }
 
   function call(fn: Node, args: Node[]): string {
+    // Run-view: an infer primitive is called as `infer_<name>(**fields)` — drop the
+    // read-view's leading content-derived cache-key positional (`(list a b)`).
+    const headName = isAtom(fn) && !fn.str ? resolve(fn.atom) : undefined;
+    if (target === "run" && headName !== undefined && inferLocals.has(headName) && args.length > 0 && !isKeyword(args[0])) {
+      args = args.slice(1);
+    }
     const pos: Node[] = [];
     const kw: [string, Node][] = [];
     let i = 0;
@@ -285,11 +303,12 @@ const extOf = (p: string): string => /\.([^.]+)$/.exec(p)?.[1] ?? "";
 function collectPyImports(
   forest: Node[],
   opts: PyOptions,
-): { importLines: string[]; requireSubst: Map<string, string>; skipForms: Set<Node> } {
+): { importLines: string[]; requireSubst: Map<string, string>; skipForms: Set<Node>; inferLocals: Set<string> } {
   const importLines: string[] = [];
   const requireSubst = new Map<string, string>();
   const skipForms = new Set<Node>();
   const consumed = new Set<Node>();
+  const inferLocals = new Set<string>(); // locals bound to a `.prompt` — the infer primitives
   let needsJson = false;
 
   const asRequire = (n: Node | undefined): string | null => {
@@ -327,7 +346,9 @@ function collectPyImports(
       if (path !== null && rhs) {
         consumed.add(rhs);
         skipForms.add(form);
-        importLines.push(loadOf(pyName(form.list[1].atom), path));
+        const local = pyName(form.list[1].atom);
+        if (extOf(path) === "prompt") inferLocals.add(local);
+        importLines.push(loadOf(local, path));
         continue;
       }
     }
@@ -339,6 +360,7 @@ function collectPyImports(
       if (!requireSubst.has(p)) {
         const local = stemOf(p);
         requireSubst.set(p, local);
+        if (extOf(p) === "prompt") inferLocals.add(local);
         importLines.push(loadOf(local, p));
       }
       return;
@@ -348,7 +370,7 @@ function collectPyImports(
   for (const form of forest) if (!skipForms.has(form)) walk(form);
 
   if (needsJson) importLines.unshift("import json");
-  return { importLines, requireSubst, skipForms };
+  return { importLines, requireSubst, skipForms, inferLocals };
 }
 
 function topLevelDefineNames(src: string): string[] {
