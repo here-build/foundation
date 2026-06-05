@@ -7,6 +7,7 @@
  * `(every >= xs ys)` lower to an INDEX-driven traverse (`xs.map((x,i)=>…ys[i]…)`),
  * which is more legible than an explicit `zip`; `(apply + xs)` folds to `reduce`.
  */
+import { cleanName } from "./names.js";
 import { head, isAtom, isList, isKeyword, keywordName, type Node } from "./nodes.js";
 
 /** What a stdlib emitter receives: a way to lower sub-expressions (+ a binding-substituting variant). */
@@ -207,7 +208,10 @@ export const STDLIB: Record<string, Emitter> = {
     const parts: string[] = [];
     for (let i = 0; i + 1 < args.length; i += 2) {
       const k = args[i]!;
-      const key = isKeyword(k) ? keywordName(k) : E.lower(k);
+      // A keyword key → a valid JS identifier key (`:max-words` → `maxWords`),
+      // consistent with how every other identifier is cleaned. A hyphen would be
+      // an invalid object key otherwise.
+      const key = isKeyword(k) ? cleanName(keywordName(k)) : E.lower(k);
       parts.push(`${key}: ${E.lower(args[i + 1]!)}`);
     }
     return `{ ${parts.join(", ")} }`;

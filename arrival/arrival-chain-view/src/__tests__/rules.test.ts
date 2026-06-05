@@ -169,4 +169,10 @@ describe("round-2 audit regressions (precedence + operators + escapes + collisio
     expect(out).toContain("gepa(seed_2)");
     expect(out).not.toMatch(/import seed from/); // no duplicate `seed` binding
   });
+
+  it("a hyphenated keyword becomes a valid camelCase object key (caught live in the studio)", async () => {
+    // `:max-words` as a raw object key would be invalid JS (hyphen); clean it.
+    expect(await p("(define (f x) (g :max-words 1 :tone x))")).toContain("{ maxWords: 1, tone: x }");
+    expect(await p("(define (f a) (dict :max-words a))")).toContain("maxWords: a");
+  });
 });

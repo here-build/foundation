@@ -130,7 +130,9 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
       i += 2;
     }
     const argStrs = positional.map((p) => lower(p));
-    if (kwargs.length > 0) argStrs.push(`{ ${kwargs.map(([k, v]) => `${k}: ${lower(v)}`).join(", ")} }`);
+    // Keyword → a valid JS identifier key (`:max-words` → `maxWords`), same cleaning
+    // as every other identifier (a hyphen would be an invalid unquoted object key).
+    if (kwargs.length > 0) argStrs.push(`{ ${kwargs.map(([k, v]) => `${cleanName(k)}: ${lower(v)}`).join(", ")} }`);
     return `${lower(fn)}(${argStrs.join(", ")})`;
   }
 
