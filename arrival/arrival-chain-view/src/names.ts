@@ -64,3 +64,30 @@ export function elementName(list: Node): string | null {
   if (!singular || singular === base || singular === "acc") return null;
   return singular;
 }
+
+const ORDINALS = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"];
+const ordinal = (k: number): string => ORDINALS[k] ?? `item${k + 1}`;
+
+/**
+ * The namer's tuple solver. If `param` is consumed ONLY as `param[N]` (literal
+ * indices) in `body`, return an array-destructuring pattern + the body rewritten to
+ * the positional names:
+ *   `__x[0]` (index 0 only)        → `[head]`            + `head`
+ *   `pair[1]` (highest index ≥ 1)  → `[first, second]`   + `second`
+ * Returns null when the param is ever used whole (it then can't be safely
+ * destructured) or is never index-accessed. v1 works on the lowered body string;
+ * a malformed match (param[N] inside a string literal) is the known limit.
+ */
+export function destructureTuple(param: string, body: string): { pattern: string; body: string } | null {
+  const esc = param.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const idxRe = new RegExp(`\\b${esc}\\[(\\d+)\\]`, "g");
+  const indices = [...body.matchAll(idxRe)].map((m) => Number(m[1]));
+  if (indices.length === 0) return null;
+  // Used whole somewhere (outside an index) → can't destructure.
+  if (new RegExp(`\\b${esc}\\b`).test(body.replace(idxRe, ""))) return null;
+  const max = Math.max(...indices);
+  const nameAt = (k: number): string => (max === 0 ? "head" : ordinal(k));
+  const slots = max === 0 ? ["head"] : Array.from({ length: max + 1 }, (_v, k) => ordinal(k));
+  const rewritten = body.replace(idxRe, (_m, n: string) => nameAt(Number(n)));
+  return { pattern: `[${slots.join(", ")}]`, body: rewritten };
+}

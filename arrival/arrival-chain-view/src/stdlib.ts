@@ -7,7 +7,7 @@
  * `(every >= xs ys)` lower to an INDEX-driven traverse (`xs.map((x,i)=>…ys[i]…)`),
  * which is more legible than an explicit `zip`; `(apply + xs)` folds to `reduce`.
  */
-import { cleanName, elementName } from "./names.js";
+import { cleanName, destructureTuple, elementName } from "./names.js";
 import { head, isAtom, isList, isKeyword, keywordName, type Node } from "./nodes.js";
 
 /** What a stdlib emitter receives: a way to lower sub-expressions (+ a binding-substituting variant). */
@@ -83,20 +83,29 @@ function inlineUnaryLambda(lambda: Node, argStr: string, E: Emit): string {
   return applyFn(lambda, [argStr], E);
 }
 
-/** `(map f xs)` → `xs.map(f)`; `(map f xs ys)` → index-driven; `(map car xs)` → `xs.map(x => x[0])`. */
+/** A single-param arrow, array-destructuring the param when it's consumed only as a
+ *  tuple: `(x) => x[0]` → `([head]) => head`. */
+function arrow1(param: string, body: string): string {
+  const d = destructureTuple(param, body);
+  return d ? `(${d.pattern}) => ${d.body}` : `(${param}) => ${body}`;
+}
+
+/** `(map f xs)` → `xs.map(f)`; `(map f xs ys)` → index-driven; `(map car xs)` → `xs.map(([head]) => head)`. */
 function mapLike(method: "map" | "filter" | "every" | "some"): Emitter {
   return (args, E) => {
     const [fn, ...lists] = args;
     if (!fn || lists.length === 0) return `[]`;
     const el = elementName(lists[0]!) ?? "__x"; // examples.map((example) => …)
     if (lists.length === 1) {
-      return passableFn(fn)
-        ? `${E.lower(lists[0]!)}.${method}(${E.lower(fn)})`
-        : `${E.lower(lists[0]!)}.${method}((${el}) => ${applyFn(fn, [el], E)})`;
+      if (passableFn(fn)) return `${E.lower(lists[0]!)}.${method}(${E.lower(fn)})`;
+      return `${E.lower(lists[0]!)}.${method}(${arrow1(el, applyFn(fn, [el], E))})`;
     }
     // Multi-list: drive off the first list, pull the rest by index (the arity bridge).
-    const rest = lists.slice(1).map((l) => `${E.lower(l)}[__i]`);
-    return `${E.lower(lists[0]!)}.${method}((${el}, __i) => ${applyFn(fn, [el, ...rest], E)})`;
+    const idx = el === "i" || el === "index" ? "idx" : "i";
+    const rest = lists.slice(1).map((l) => `${E.lower(l)}[${idx}]`);
+    const body = applyFn(fn, [el, ...rest], E);
+    const d = destructureTuple(el, body);
+    return `${E.lower(lists[0]!)}.${method}((${d ? d.pattern : el}, ${idx}) => ${d ? d.body : body})`;
   };
 }
 

@@ -23,17 +23,17 @@ const assess = (instruction) => ({ instruction, scores: evaluate(instruction) })
 // A readable summary of the examples this candidate got wrong.
 const failing = (candidate) =>
   examples
-    .map((example, __i) => [example, candidate.scores[__i]])
-    .filter((pair) => pair[1] === 0)
-    .map((__x) => __x[0]);
+    .map((example, i) => [example, candidate.scores[i]])
+    .filter(([first, second]) => second === 0)
+    .map(([head]) => head);
 
 // Reflective mutation: hand this candidate's failures to the reflect prompt.
 const mutate = (candidate) => assess(reflect(candidate.instruction, failing(candidate)));
 
 // Pareto frontier: keep every candidate no other candidate beats outright.
 const dominates = (a, b) =>
-  a.scores.every((score, __i) => score >= b.scores[__i]) &&
-  a.scores.some((score, __i) => score > b.scores[__i]);
+  a.scores.every((score, i) => score >= b.scores[i]) &&
+  a.scores.some((score, i) => score > b.scores[i]);
 
 const frontier = (pool) => pool.filter((c) => !pool.some((other) => dominates(other, c)));
 

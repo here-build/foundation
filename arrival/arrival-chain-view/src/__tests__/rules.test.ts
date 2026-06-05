@@ -64,18 +64,18 @@ describe("arity bridge (§5)", () => {
     expect(await p("(define (f xs) (map double xs))")).toContain("xs.map(double)");
   });
 
-  it("single-list map of an accessor builtin wraps in an arrow (singular element name)", async () => {
-    expect(await p("(define (f pairs) (map car pairs))")).toContain("pairs.map((pair) => pair[0])");
+  it("single-list map of an accessor builtin destructures to [head]", async () => {
+    expect(await p("(define (f pairs) (map car pairs))")).toContain("pairs.map(([head]) => head)");
   });
 
-  it("multi-list map → index-driven traverse (no zip)", async () => {
+  it("multi-list map → index-driven traverse (no zip), index named i", async () => {
     const out = await p("(define (f items others) (map cons items others))");
-    expect(out).toContain("items.map((item, __i) => [item, others[__i]])");
+    expect(out).toContain("items.map((item, i) => [item, others[i]])");
   });
 
   it("every over two lists → indexed predicate", async () => {
     const out = await p("(define (f scores limits) (every >= scores limits))");
-    expect(out).toContain("scores.every((score, __i) => score >= limits[__i])");
+    expect(out).toContain("scores.every((score, i) => score >= limits[i])");
   });
 
   it("apply + → reduce-sum (acc + singular element)", async () => {
@@ -178,26 +178,46 @@ describe("round-2 audit regressions (precedence + operators + escapes + collisio
 });
 
 describe("namer heuristics — singular element + acc", () => {
-  it("singularizes a plural collection name for a synthetic element param", async () => {
-    expect(await p("(define (f items) (map car items))")).toContain("items.map((item) => item[0])");
+  it("singularizes a plural collection name for a synthetic element param (whole use)", async () => {
+    // shown on a whole-use (multi-list driver); a single-list car would destructure instead.
+    expect(await p("(define (f items others) (map cons items others))")).toContain("items.map((item, i) =>");
   });
 
   it("derives the element name from an accessor field", async () => {
     const out = await p("(define (f c) (every >= (:scores c) (:limits c)))");
-    expect(out).toContain("c.scores.every((score, __i) => score >= c.limits[__i])");
+    expect(out).toContain("c.scores.every((score, i) => score >= c.limits[i])");
   });
 
   it("names the reduce accumulator `acc`", async () => {
     expect(await p("(define (f scores) (apply + scores))")).toContain("scores.reduce((acc, score) =>");
   });
 
-  it("falls back to __x when the collection has no good singular (pool → pool)", async () => {
-    expect(await p("(define (f pool) (map car pool))")).toContain("pool.map((__x) => __x[0])");
+  it("falls back to __x when the collection has no good singular (used whole)", async () => {
+    expect(await p("(define (f pool others) (map cons pool others))")).toContain("pool.map((__x, i) => [__x, others[i]])");
   });
 
   it("leaves a user-written lambda param untouched (heuristic is synthetic-params-only)", async () => {
     expect(await p("(define (f examples) (map (lambda (ex) (:id ex)) examples))")).toContain(
       "examples.map((ex) => ex.id)",
     );
+  });
+});
+
+describe("namer — tuple destructuring + index", () => {
+  it("a single index-0 access destructures to [head]", async () => {
+    expect(await p("(define (f pairs) (map car pairs))")).toContain("pairs.map(([head]) => head)");
+  });
+
+  it("a higher index destructures to positional names (the gepa filter shape)", async () => {
+    const out = await p("(define (f rows) (filter (lambda (pair) (zero? (cdr pair))) rows))");
+    expect(out).toContain("rows.filter(([first, second]) => second === 0)");
+  });
+
+  it("a param used whole is NOT destructured", async () => {
+    expect(await p("(define (f xs others) (map cons xs others))")).not.toContain("[head]");
+  });
+
+  it("index param is `i` (free), and `idx` if `i` is the element name", async () => {
+    expect(await p("(define (f items others) (map cons items others))")).toContain(", i) =>");
   });
 });

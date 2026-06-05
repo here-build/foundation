@@ -5,7 +5,7 @@
  * not a silent miss). Faithful to the parse tree it is GIVEN — a malformed source
  * projects to malformed-but-isomorphic JS; the projection never invents structure.
  */
-import { cleanName } from "./names.js";
+import { cleanName, destructureTuple } from "./names.js";
 import {
   type Atom,
   head,
@@ -138,7 +138,14 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
 
   function lowerLambda(n: ListNode): string {
     const params = paramList(n.list[1]);
-    return `(${params.join(", ")}) => ${lowerBody(n.list.slice(2))}`;
+    const body = lowerBody(n.list.slice(2));
+    // A single tuple param consumed only by index destructures: (pair) => pair[1] === 0
+    // becomes ([first, second]) => second === 0.
+    if (params.length === 1) {
+      const d = destructureTuple(params[0]!, body);
+      if (d) return `(${d.pattern}) => ${d.body}`;
+    }
+    return `(${params.join(", ")}) => ${body}`;
   }
 
   function lowerIf(n: ListNode): string {
