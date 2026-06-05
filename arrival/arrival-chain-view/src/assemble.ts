@@ -4,6 +4,7 @@
  * Node formatter (`project.ts`) or the browser formatter (`browser.ts`).
  */
 import { parseSexprs } from "@here.build/arrival-chain/sweet";
+import { computeAsyncNames, inferPrimitives } from "./async-analysis.js";
 import { collectImports, type ProjectOptions } from "./imports.js";
 import { makeLowerer } from "./lower.js";
 
@@ -13,7 +14,10 @@ export type { ProjectOptions };
 export function assemble(source: string, opts: ProjectOptions = {}): string {
   const forest = parseSexprs(source);
   const { importLines, requireSubst, skipForms } = collectImports(forest, opts);
-  const lowerer = makeLowerer({ requireSubst });
+  const target = opts.target ?? "read";
+  const inferReqs = target === "run" ? inferPrimitives(forest) : new Set<string>();
+  const asyncNames = target === "run" ? computeAsyncNames(forest, inferReqs) : new Set<string>();
+  const lowerer = makeLowerer({ requireSubst, target, asyncNames, inferReqs });
   const body = forest.filter((f) => !skipForms.has(f)).map((f) => lowerer.lowerTop(f));
   return [importLines.join("\n"), body.join("\n\n")].filter((s) => s.length > 0).join("\n\n");
 }

@@ -5,6 +5,7 @@
  * not a silent miss). Faithful to the parse tree it is GIVEN — a malformed source
  * projects to malformed-but-isomorphic JS; the projection never invents structure.
  */
+import { reachesAsync } from "./async-analysis.js";
 import { cleanName, destructureTuple } from "./names.js";
 import {
   type Atom,
@@ -24,6 +25,12 @@ import { type Emit, STDLIB } from "./stdlib.js";
 export interface LowerCtx {
   /** Inline `(require "p")` (nested in an expression) → its hoisted import local. */
   requireSubst: Map<string, string>;
+  /** "read" (sync, legible) or "run" (async, ax-wired). */
+  target: "read" | "run";
+  /** Cleaned `define` names that must be `async` (run-view). */
+  asyncNames: Set<string>;
+  /** Cleaned `.prompt`-require locals — the async inference primitives (run-view). */
+  inferReqs: Set<string>;
 }
 
 export interface Lowerer extends Emit {
@@ -56,6 +63,34 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     }
   };
 
+  // Lexical params in scope. A call to a function-valued param is conservatively
+  // awaited in the run-view (it might be an async fn passed in; await on a
+  // non-Promise is a no-op, so over-awaiting is safe).
+  const paramStack: Set<string>[] = [];
+  const inParams = (name: string): boolean => paramStack.some((s) => s.has(name));
+  const withParams = (params: string[], body: () => string): string => {
+    paramStack.push(new Set(params));
+    try {
+      return body();
+    } finally {
+      paramStack.pop();
+    }
+  };
+
+  // Is this function node async (run-view)? An async-named fn / infer primitive, or a
+  // lambda whose body reaches one.
+  const isAsyncFn = (node: Node): boolean => {
+    if (ctx.target !== "run") return false;
+    if (isAtom(node) && !node.str) {
+      const c = cleanName(node.atom);
+      return ctx.asyncNames.has(c) || ctx.inferReqs.has(c);
+    }
+    if (isList(node) && head(node) === "lambda") return reachesAsync(node, ctx.asyncNames, ctx.inferReqs);
+    return false;
+  };
+
+  const E: Emit = { lower, lowerWith, target: ctx.target, isAsyncFn };
+
   function lowerAtom(a: Atom): string {
     if (a.str) return JSON.stringify(decodeString(a.atom));
     if (isBool(a)) return a.atom === "#t" ? "true" : "false";
@@ -78,7 +113,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     if (isKeyword(h)) {
       const obj = n.list[1];
       if (!obj) throw new Error(`accessor ${h.atom} with no operand`);
-      return `${lower(obj)}.${keywordName(h)}`;
+      return `${recv(lower(obj))}.${keywordName(h)}`;
     }
 
     const hName = isAtom(h) && !h.str ? h.atom : undefined;
@@ -110,7 +145,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
           throw new Error(`\`${hName}\` is unsupported in read-view (run-view concern)`);
       }
       const emit = STDLIB[hName];
-      if (emit) return emit(n.list.slice(1), { lower, lowerWith });
+      if (emit) return emit(n.list.slice(1), E);
     }
 
     return lowerCall(h!, n.list.slice(1));
@@ -129,23 +164,35 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
       kwargs.push([keywordName(k), v]);
       i += 2;
     }
-    const argStrs = positional.map((p) => lower(p));
+    const headName = isAtom(fn) && !fn.str ? cleanName(fn.atom) : undefined;
     // Keyword → a valid JS identifier key (`:max-words` → `maxWords`), same cleaning
     // as every other identifier (a hyphen would be an invalid unquoted object key).
-    if (kwargs.length > 0) argStrs.push(`{ ${kwargs.map(([k, v]) => `${cleanName(k)}: ${lower(v)}`).join(", ")} }`);
-    return `${lower(fn)}(${argStrs.join(", ")})`;
+    const kwObj = `{ ${kwargs.map(([k, v]) => `${cleanName(k)}: ${lower(v)}`).join(", ")} }`;
+    // run-view inference call: await, and take ONLY the inputs object — the content
+    // cache-key the read-view keeps is the runtime's concern, not ax's.
+    if (ctx.target === "run" && headName !== undefined && ctx.inferReqs.has(headName)) {
+      return `await ${lower(fn)}(${kwargs.length ? kwObj : ""})`;
+    }
+    const argStrs = positional.map((p) => lower(p));
+    if (kwargs.length > 0) argStrs.push(kwObj);
+    const call = `${lower(fn)}(${argStrs.join(", ")})`;
+    if (ctx.target === "run" && headName !== undefined && (ctx.asyncNames.has(headName) || inParams(headName))) {
+      return `await ${call}`;
+    }
+    return call;
   }
 
   function lowerLambda(n: ListNode): string {
     const params = paramList(n.list[1]);
-    const body = lowerBody(n.list.slice(2));
+    const body = withParams(params, () => lowerBody(n.list.slice(2)));
+    const asyncKw = ctx.target === "run" && body.includes("await") ? "async " : "";
     // A single tuple param consumed only by index destructures: (pair) => pair[1] === 0
     // becomes ([first, second]) => second === 0.
     if (params.length === 1) {
       const d = destructureTuple(params[0]!, body);
-      if (d) return `(${d.pattern}) => ${d.body}`;
+      if (d) return `${asyncKw}(${d.pattern}) => ${d.body}`;
     }
-    return `(${params.join(", ")}) => ${body}`;
+    return `${asyncKw}(${params.join(", ")}) => ${body}`;
   }
 
   function lowerIf(n: ListNode): string {
@@ -204,16 +251,23 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     if (isList(sig)) {
       const name = isAtom(sig.list[0]) ? cleanName(sig.list[0].atom) : "_";
       const params = paramList({ list: sig.list.slice(1) });
-      return `const ${name} = (${params.join(", ")}) => ${lowerBody(n.list.slice(2))};`;
+      const asyncKw = ctx.target === "run" && ctx.asyncNames.has(name) ? "async " : "";
+      const body = withParams(params, () => lowerBody(n.list.slice(2)));
+      return `const ${name} = ${asyncKw}(${params.join(", ")}) => ${body};`;
     }
     const name = isAtom(sig) ? cleanName(sig.atom) : "_";
     return `const ${name} = ${lower(n.list[2]!)};`;
   }
 
-  return { lower, lowerWith, lowerTop };
+  return { ...E, lowerTop };
 }
 
 // ── pure helpers ──────────────────────────────────────────────────────
+
+/** Parenthesize an `await …` before a member access: `(await x).f`. No-op in read-view. */
+function recv(s: string): string {
+  return /^await\b/.test(s) ? `(${s})` : s;
+}
 
 /** Parameter list, with a dotted rest `(a b . rest)` → `["a", "b", "...rest"]`. */
 function paramList(node: Node | undefined): string[] {

@@ -16,7 +16,15 @@ export interface Emit {
   lower(n: Node): string;
   /** Lower `body` with scheme→js name overrides pushed (used to inline a unary lambda in place). */
   lowerWith(bindings: Record<string, string>, body: Node): string;
+  /** "read" (sync, legible) or "run" (async, ax-wired). */
+  target: "read" | "run";
+  /** Is this function node async (an async-named fn, or a lambda that awaits)? Run-view only. */
+  isAsyncFn(node: Node): boolean;
 }
+
+/** Parenthesize an `await …` expression before a member access: `(await x).map(…)`,
+ *  not `await x.map(…)` (which would `.map` the Promise). A no-op in the read-view. */
+const recv = (s: string): string => (/^await\b/.test(s) ? `(${s})` : s);
 
 type Emitter = (args: Node[], E: Emit) => string;
 
@@ -90,22 +98,36 @@ function arrow1(param: string, body: string): string {
   return d ? `(${d.pattern}) => ${d.body}` : `(${param}) => ${body}`;
 }
 
-/** `(map f xs)` → `xs.map(f)`; `(map f xs ys)` → index-driven; `(map car xs)` → `xs.map(([head]) => head)`. */
+/** `(map f xs)` → `xs.map(f)`; `(map f xs ys)` → index-driven; async maps → `await Promise.all(…)`. */
 function mapLike(method: "map" | "filter" | "every" | "some"): Emitter {
   return (args, E) => {
     const [fn, ...lists] = args;
     if (!fn || lists.length === 0) return `[]`;
     const el = elementName(lists[0]!) ?? "__x"; // examples.map((example) => …)
+    const list = recv(E.lower(lists[0]!));
+    const run = E.target === "run";
     if (lists.length === 1) {
-      if (passableFn(fn)) return `${E.lower(lists[0]!)}.${method}(${E.lower(fn)})`;
-      return `${E.lower(lists[0]!)}.${method}(${arrow1(el, applyFn(fn, [el], E))})`;
+      if (passableFn(fn)) {
+        if (run && E.isAsyncFn(fn)) {
+          if (method !== "map") throw new Error(`run-view: async \`${method}\` is unsupported (only async map)`);
+          return `await Promise.all(${list}.map(${E.lower(fn)}))`;
+        }
+        return `${list}.${method}(${E.lower(fn)})`;
+      }
+      return `${list}.${method}(${arrow1(el, applyFn(fn, [el], E))})`;
     }
     // Multi-list: drive off the first list, pull the rest by index (the arity bridge).
     const idx = el === "i" || el === "index" ? "idx" : "i";
-    const rest = lists.slice(1).map((l) => `${E.lower(l)}[${idx}]`);
+    const rest = lists.slice(1).map((l) => `${recv(E.lower(l))}[${idx}]`);
     const body = applyFn(fn, [el, ...rest], E);
     const d = destructureTuple(el, body);
-    return `${E.lower(lists[0]!)}.${method}((${d ? d.pattern : el}, ${idx}) => ${d ? d.body : body})`;
+    const param = d ? d.pattern : el;
+    const inner = d ? d.body : body;
+    if (run && inner.includes("await")) {
+      if (method !== "map") throw new Error(`run-view: async \`${method}\` is unsupported`);
+      return `await Promise.all(${list}.map(async (${param}, ${idx}) => ${inner}))`;
+    }
+    return `${list}.${method}((${param}, ${idx}) => ${inner})`;
   };
 }
 
@@ -153,7 +175,7 @@ export const STDLIB: Record<string, Emitter> = {
   // folds
   apply: (args, E) => {
     const [fn, xs] = args;
-    const x = E.lower(xs!);
+    const x = recv(E.lower(xs!));
     const el = elementName(xs!) ?? "__b"; // (apply + scores) → scores.reduce((acc, score) => …)
     if (isAtom(fn) && !fn.str) {
       switch (fn.atom) {
@@ -180,9 +202,10 @@ export const STDLIB: Record<string, Emitter> = {
   // `max-by` also errors on the empty list, so this is faithful, not a new bug.
   "max-by": (args, E) => {
     const [fn, xs] = args;
+    const list = recv(E.lower(xs!));
     const el = elementName(xs!) ?? "__x";
     const key = (v: string) => (isList(fn) && head(fn) === "lambda" ? inlineUnaryLambda(fn!, v, E) : applyFn(fn!, [v], E));
-    return `${E.lower(xs!)}.reduce((acc, ${el}) => (${key(el)} > ${key("acc")} ? ${el} : acc))`;
+    return `${list}.reduce((acc, ${el}) => (${key(el)} > ${key("acc")} ? ${el} : acc))`;
   },
 
   // arithmetic

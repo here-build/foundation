@@ -17,6 +17,8 @@ import { head, isAtom, isList, type Node } from "./nodes.js";
 export interface ProjectOptions {
   /** Source of a required file, for `.scm` spill name extraction. Pure injection; no fs in the core. */
   requireSource?: (path: string) => string | undefined;
+  /** "read" (default, sync + legible) or "run" (async + ax-wired, runnable). */
+  target?: "read" | "run";
 }
 
 export interface ImportPlan {

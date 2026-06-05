@@ -76,6 +76,12 @@ export function computeAsyncNames(forest: Node[], inferReqs: Set<string>): Set<s
   return asyncNames;
 }
 
+/** Does a single node reach async — used to decide whether a lambda passed to a
+ *  higher-order builtin must be `async`. */
+export function reachesAsync(node: Node, asyncNames: Set<string>, inferReqs: Set<string>): boolean {
+  return callsAsync([node], new Set(), asyncNames, inferReqs);
+}
+
 /** Does any call in `forms` (at any nesting) reach an async name — directly in head
  *  position, as the function argument to a higher-order builtin, or by invoking a
  *  function-valued parameter? */
