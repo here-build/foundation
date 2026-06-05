@@ -17,7 +17,7 @@ describe("inferTasksByScope — infer node content", () => {
     const byScope = inferTasksByScope(trace);
 
     // The react scope (a ×2 persona fan-out) carries two distinct tasks — one
-    // prompt per persona — all on the "fast" tier, all resolved with a verdict.
+    // prompt per persona — all on the "fast" model, all resolved with a verdict.
     const reactScope = [...byScope.keys()].find((k) => {
       const tasks = byScope.get(k)!;
       return tasks.some((t) => t.prompt.includes("REACT|"));

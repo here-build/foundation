@@ -63,7 +63,7 @@ describe("Layer 2 — EvalTrace records map", () => {
   });
 
   it("during a pending async form: exited < entered, invocation is running", async () => {
-    // Use a tier with no registered backend AND no pre-seeded result → task
+    // Use a model with no registered backend AND no pre-seeded result → task
     // stays pending forever, giving us a clean in-flight window to inspect.
     const project = ArrivalChain.bootstrap(new Project()).root;
     const cache = ArrivalCache.bootstrap(new InferenceCache()).root;

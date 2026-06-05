@@ -83,7 +83,7 @@ export type Shape =
   | { kind: "loop-named-let"; loopName: string; bindings: unknown[]; body: unknown[] }
   | { kind: "tail-recursive"; defineName: string }
   | { kind: "sequence"; head: string; forms: unknown[] }
-  | { kind: "infer"; tier?: unknown; prompt?: unknown }
+  | { kind: "infer"; model?: unknown; prompt?: unknown }
   | { kind: "define"; name?: string; body: unknown[] }
   | { kind: "atomic" };
 
@@ -117,7 +117,7 @@ export function detectShape(form: unknown): Shape {
     return { kind: "sequence", head, forms: args };
   }
   if (head === "infer" || head === "infer/chat") {
-    return { kind: "infer", tier: args[0], prompt: args[1] };
+    return { kind: "infer", model: args[0], prompt: args[1] };
   }
   // Named-let loop: `(let loop-name ((b1 v1) (b2 v2)) body...)`
   if (head === "let" && args.length >= 2 && isSymbol(args[0])) {

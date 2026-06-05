@@ -14,7 +14,7 @@ const counterStub = () => {
   return { complete };
 };
 
-// (infer tier prompt schema cache-key)
+// (infer model prompt schema cache-key)
 //   schema    = #f for "no schema"
 //   cache-key = #f for "no distinguisher"
 

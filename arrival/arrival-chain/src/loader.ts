@@ -57,8 +57,9 @@ export interface PromptUnit {
   /** The `.prompt` file's resolved path — the node's stable identity for the
    *  render (the card header shows it), and a future go-to-source anchor. */
   path: string;
-  /** Model tier from the frontmatter `model:` / `tier:`. */
-  tier: string;
+  /** The concrete model name from the frontmatter `model:` — passed straight to
+   *  the inference backend; the provider config binds it to an endpoint. */
+  model: string;
   /** Compiled `(s/object …)` schema SOURCE (from Picoschema `output:`), or null
    *  for an unstructured prompt. Evaluated ONCE at compile time, not per call. */
   schemaSrc: string | null;
@@ -195,11 +196,11 @@ export function splitChatSections(src: string): { role: string; body: string }[]
 
 // ── .prompt (dotprompt) support ──────────────────────────────────────────────
 //
-// A `.prompt` file is a whole inference unit: YAML frontmatter (`model:` tier +
+// A `.prompt` file is a whole inference unit: YAML frontmatter (`model:` name +
 // optional Picoschema `output:`) over a `{{role}}`-marked body. `(require)`ing
 // one yields a lambda `(key . kv)` that RUNS infer/chat with the frontmatter
-// tier, the compiled output schema, and the rendered messages — so the verbose
-// `s/object` schema blocks, the tier, and the (list (system…)(user…)) ceremony
+// model, the compiled output schema, and the rendered messages — so the verbose
+// `s/object` schema blocks, the model name, and the (list (system…)(user…)) ceremony
 // all collapse into the file. The cache-key stays a call argument (it's the
 // provenance/dedup identity — often a computed loop key like "V0/p1/3" that
 // inputs alone don't determine), passed first.
@@ -299,7 +300,7 @@ export function defaultResolvers(): Map<string, ContentResolver> {
       }),
     ],
     // `.prompt` (dotprompt) is a SEALED inference unit — parsed HERE into a pure
-    // `PromptUnit` descriptor (tier + Picoschema-compiled output schema + the
+    // `PromptUnit` descriptor (model name + Picoschema-compiled output schema + the
     // {{role}}-split body sections), then handed to the project's
     // `compileInferUnit`, which seals it into a provenance-point native proc.
     // `(define run-x (require "x.prompt"))` binds run-x to that proc; calling
@@ -313,13 +314,13 @@ export function defaultResolvers(): Map<string, ContentResolver> {
       ".prompt",
       (contents, { path }) => {
         const { fm, body } = parsePromptFile(String(contents));
-        const tier = fm.model ?? fm.tier;
-        if (typeof tier !== "string") {
-          throw new Error('.prompt: frontmatter needs a `model:` (our tier, e.g. "fast" or "high")');
+        const model = fm.model;
+        if (typeof model !== "string") {
+          throw new Error('.prompt: frontmatter needs a `model:` (a concrete model name, e.g. "qwen3.5-9b")');
         }
         const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
         const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
-        return { kind: "infer-unit", unit: { path, tier, schemaSrc, sections } };
+        return { kind: "infer-unit", unit: { path, model, schemaSrc, sections } };
       },
     ],
   ]);

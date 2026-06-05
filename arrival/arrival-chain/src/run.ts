@@ -55,7 +55,7 @@ export function formatRunError(error: unknown): string {
  * Counterfactual replay of a Run with chosen inference overrides.
  *
  * `tweaks` keys are the canonical JSON-stringified content tuples
- * `[tier, prompt, schema, cacheKey]` (the same shape `InferenceCache.tasks`
+ * `[model, prompt, schema, cacheKey]` (the same shape `InferenceCache.tasks`
  * uses). During re-execution any `(infer …)` call whose content tuple
  * matches a tweak key short-circuits with the tweak value, bypassing
  * the LLM. Non-matching calls flow through the cache as normal — so a
@@ -72,7 +72,7 @@ export class Hypothesis extends PlexusModel<Run> {
   /**
    * Ordered canonical-tuple-string keys identifying every `(infer …)` call
    * fired during this run/hypothesis. Each key is
-   * `JSON.stringify([tier, prompt, schema, cacheKey])` — the same shape the
+   * `JSON.stringify([model, prompt, schema, cacheKey])` — the same shape the
    * `InferenceCache.tasks` map uses. To resolve a live task, look up the
    * tuple in the bound cache. Plexus can't cross-reference between docs
    * (cache is a sibling doc), so we hold the lookup key instead of the ref.
@@ -110,7 +110,7 @@ export class Run extends PlexusModel<Program | Draft> {
   /**
    * Ordered canonical-tuple-string keys identifying every `(infer …)` call
    * fired during this run/hypothesis. Each key is
-   * `JSON.stringify([tier, prompt, schema, cacheKey])` — the same shape the
+   * `JSON.stringify([model, prompt, schema, cacheKey])` — the same shape the
    * `InferenceCache.tasks` map uses. To resolve a live task, look up the
    * tuple in the bound cache. Plexus can't cross-reference between docs
    * (cache is a sibling doc), so we hold the lookup key instead of the ref.

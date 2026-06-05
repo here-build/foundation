@@ -131,6 +131,75 @@ function compileTemplate(source: string): CompiledTemplate {
   return tm;
 }
 
+/** Per root-slot, the subfields a template actually reads — the static truth for
+ *  granular field-to-field wiring. `{ ideas: ["idea"] }` for a digest that reads only
+ *  `this.idea` off each element though `spark` also produced `energy`. An empty list =
+ *  whole-value use (`{{topic}}`, `{{this}}`) → a box wire; a proper subset of the
+ *  producer's record = per-field wires, the unread fields left out. Unioned across a
+ *  chat template's role sections.
+ *
+ *  Walks the Handlebars AST itself rather than reusing the validation `Shape`, whose
+ *  `#each` element collapses to `any` (its `addPath` can't upgrade an array element to
+ *  an object in place — fine for validation, lossy for our field set). A scope stack
+ *  tracks the slot a `#each`/`#with` body is iterating, so `{{this.idea}}` inside
+ *  `{{#each ideas}}` attributes `idea` to `ideas`. */
+function templateReads(sections: { source: string }[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const add = (slot: string, field: string | null): void => {
+    const acc = (out[slot] ??= []);
+    if (field !== null && !acc.includes(field)) acc.push(field);
+  };
+  const BLOCK_HELPERS = new Set(["if", "unless", "each", "with"]);
+  // A scope is the slot a body iterates (`each`/`with`), or null at the root dict.
+  const walk = (nodes: HbsNode[], scope: string | null): void => {
+    for (const n of nodes) {
+      if (n.type === "MustacheStatement" || n.type === "SubExpression") {
+        const parts = pathOf(n.path);
+        if (scope === null) {
+          // `{{a.b}}` reads b off a; `{{a}}` is whole-a; `{{this…}}` at root is noise.
+          if (parts.length >= 2) add(parts[0]!, parts[1]!);
+          else if (parts.length === 1) add(parts[0]!, null);
+        } else {
+          // Inside `#each ideas`: `{{this.idea}}`/`{{idea}}` → ideas reads `idea`;
+          // `{{this}}` (no parts) → whole element use.
+          add(scope, parts.length >= 1 ? parts[0]! : null);
+        }
+        // helper arguments are read too
+        for (const p of (n.params as HbsNode[] | undefined) ?? []) walk([p], scope);
+      } else if (n.type === "BlockStatement") {
+        const helper = pathOf(n.path)[0];
+        const arg = pathOf((n.params as HbsNode[] | undefined)?.[0]);
+        const inner = helper && BLOCK_HELPERS.has(helper) && arg.length > 0 ? arg[0]! : scope;
+        if (helper === "each" || helper === "with") {
+          if (arg.length > 0) add(arg[0]!, null); // the slot itself is referenced
+          walk(((n.program as HbsNode | undefined)?.body as HbsNode[] | undefined) ?? [], inner);
+        } else {
+          // `if`/`unless`: body stays in the outer scope.
+          if (arg.length > 0) add(scope ?? arg[0]!, scope ? arg[0]! : null);
+          walk(((n.program as HbsNode | undefined)?.body as HbsNode[] | undefined) ?? [], scope);
+        }
+        walk(((n.inverse as HbsNode | undefined)?.body as HbsNode[] | undefined) ?? [], scope);
+      }
+    }
+  };
+  for (const s of sections) {
+    const ast = Handlebars.parse(s.source) as unknown as { body: HbsNode[] };
+    walk(ast.body, null);
+  }
+  return out;
+}
+
+type HbsNode = { type: string; path?: unknown; params?: unknown; program?: unknown; inverse?: unknown; body?: unknown };
+
+/** PathExpression `parts` (`this.idea` → `["idea"]`, `this` → `[]`), or `[]` for
+ *  non-paths (literals, etc.). `this`/`@`-prefixed segments are already stripped by
+ *  Handlebars into `parts`. */
+function pathOf(node: unknown): string[] {
+  const n = node as { type?: string; parts?: unknown } | undefined;
+  if (!n || n.type !== "PathExpression") return [];
+  return Array.isArray(n.parts) ? (n.parts as string[]) : [];
+}
+
 const isPrimitiveLike = (v: unknown): boolean =>
   v === null ||
   v === undefined ||
@@ -240,11 +309,11 @@ const schemaSlot = (v: unknown): string | null => {
  * caller decides where the task lives (the project's content-addressed cache, or
  * host's per-File tasks) and how it resolves. Returns the RAW value;
  * `buildArrivalEnv` wraps it to a list for scheme. Args arrive already coerced
- * (tier/prompt stringified, schema via schemaSlot, cacheKey via nullable).
+ * (model/prompt stringified, schema via schemaSlot, cacheKey via nullable).
  */
 export type InferFn = (
   ctx: { currentInvocation?: unknown } | undefined,
-  tier: string,
+  model: string,
   prompt: string,
   schema: string | null,
   cacheKey: string | null,
@@ -277,8 +346,8 @@ export function buildArrivalEnv(opts: {
   env.defineRosetta("infer", {
     withContext: true,
     options: { provenancePoint: true },
-    fn: async (ctx, tier, prompt, schema, cacheKey) =>
-      list(await opts.infer(ctx, String(tier), String(prompt), schemaSlot(schema), nullable(cacheKey))),
+    fn: async (ctx, model, prompt, schema, cacheKey) =>
+      list(await opts.infer(ctx, String(model), String(prompt), schemaSlot(schema), nullable(cacheKey))),
   });
   env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)) });
   env.defineRosetta("dict", { fn: (...args: unknown[]) => buildDict(args) });
@@ -288,8 +357,8 @@ export function buildArrivalEnv(opts: {
   env.defineRosetta("infer/chat", {
     withContext: true,
     options: { provenancePoint: true },
-    fn: async (ctx, tier, messages, schema, cacheKey) =>
-      list(await opts.infer(ctx, String(tier), canonicalizeMessages(messages), schemaSlot(schema), nullable(cacheKey))),
+    fn: async (ctx, model, messages, schema, cacheKey) =>
+      list(await opts.infer(ctx, String(model), canonicalizeMessages(messages), schemaSlot(schema), nullable(cacheKey))),
   });
   // Seal a `.prompt` PromptUnit into a provenance-point native proc. The output
   // schema is evaluated ONCE here (the `s/…` rosettas live on this env) and
@@ -325,12 +394,12 @@ export function buildArrivalEnv(opts: {
         const inv = (ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined)
           ?.currentInvocation;
         if (inv) {
-          const meta = { kind: "prompt", path: unit.path, model: unit.tier, inputs, inputsProvenance };
+          const meta = { kind: "prompt", path: unit.path, model: unit.model, inputs, inputsProvenance, reads: templateReads(unit.sections) };
           if (typeof inv.setMetadata === "function") inv.setMetadata(meta);
           else inv.metadata = meta;
         }
         const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
-        return opts.infer(ctx, unit.tier, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
+        return opts.infer(ctx, unit.model, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
       },
     });
   };
@@ -358,7 +427,7 @@ export function buildArrivalEnv(opts: {
 export class Project extends PlexusModel<null> {
   // Model resolution lives in a separate `ModelRouter` passed to the
   // orchestrator at startup — see `registry.ts`. Project is pure model
-  // state (no API keys, no SDK instances, no tier mappings — programs
+  // state (no API keys, no SDK instances, no model→endpoint mappings — programs
   // call `(infer "model-id" …)` with the literal model name the runner
   // knows how to route).
 
@@ -455,7 +524,7 @@ export class Project extends PlexusModel<null> {
       onInfer?: (tupleKey: string) => void;
       /**
        * Override inference resolution by content tuple — keyed by canonical
-       * JSON of `[tier, prompt, schema, cacheKey]`. Hypothesis re-runs pass
+       * JSON of `[model, prompt, schema, cacheKey]`. Hypothesis re-runs pass
        * tweaks here so chosen tuples short-circuit without hitting the LLM.
        */
       tweaks?: Map<string, string>;
@@ -465,13 +534,13 @@ export class Project extends PlexusModel<null> {
     // content-addressed cache, bind the trace, await its result. The rosetta
     // wiring + list-wrapping live in buildArrivalEnv (shared with runTraced +
     // host); this closure is the project-specific seam.
-    const inferAndWait: InferFn = async (ctx, tier, prompt, schema, cacheKey) => {
+    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey) => {
       // Hypothesis tweaks short-circuit before any cache lookup — the whole
       // point is to NOT consult the LLM for these tuples.
-      const tweakKey = JSON.stringify([tier, prompt, schema, cacheKey]);
+      const tweakKey = JSON.stringify([model, prompt, schema, cacheKey]);
       const tweak = opts.tweaks?.get(tweakKey);
       if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
-      const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
+      const task = this.cache.upsertTask(model, prompt, schema, cacheKey);
       opts.onInfer?.(tweakKey);
       const inv = ctx?.currentInvocation;
       if (inv && opts.trace) {
@@ -832,11 +901,11 @@ export class Project extends PlexusModel<null> {
     // Reuse the same rosetta wiring as run() by going through run() for the
     // preamble half, then parsing and tap-evaluating the user body ourselves.
     // To avoid duplicating the env-setup, we set up the env inline here.
-    const inferAndWait: InferFn = async (ctx, tier, prompt, schema, cacheKey) => {
-      const tupleKey = JSON.stringify([tier, prompt, schema, cacheKey]);
+    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey) => {
+      const tupleKey = JSON.stringify([model, prompt, schema, cacheKey]);
       const tweak = opts.tweaks?.get(tupleKey);
       if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
-      const task = this.cache.upsertTask(tier, prompt, schema, cacheKey);
+      const task = this.cache.upsertTask(model, prompt, schema, cacheKey);
       opts.onInfer?.(tupleKey);
       const inv = ctx?.currentInvocation;
       if (inv) {

@@ -243,7 +243,7 @@ describe("Project.runHypothesis — counterfactual replay", () => {
     expect((original.output as RunResult).value).toBe("real:a+real:b");
     expect(original.inferences.length).toBe(2);
 
-    // Tweak the FIRST inference: tuple for (tier="m", prompt="a", schema=null, cacheKey=null).
+    // Tweak the FIRST inference: tuple for (model="m", prompt="a", schema=null, cacheKey=null).
     const aTuple = JSON.stringify(["m", "a", null, null]);
     const tweaks = new Map<string, string>([[aTuple, JSON.stringify("forced-a")]]);
 

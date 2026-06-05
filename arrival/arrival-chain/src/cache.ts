@@ -6,7 +6,7 @@ import { InferenceTask } from "./task.js";
 
 /**
  * Doc root for the inference cache — the content-addressed store of
- * resolved `(tier, prompt, schema, cacheKey)` → `InferenceTask` cells.
+ * resolved `(model, prompt, schema, cacheKey)` → `InferenceTask` cells.
  *
  * Separated from `Project` (authored intent: files / programs / models /
  * env) so that:
@@ -22,7 +22,7 @@ import { InferenceTask } from "./task.js";
  */
 @syncing("ArrivalChainInferenceCache")
 export class InferenceCache extends PlexusModel<null> {
-  @syncing.child.map /** Content-addressed cache. Key = [tier, prompt, schema, cacheKey]. */
+  @syncing.child.map /** Content-addressed cache. Key = [model, prompt, schema, cacheKey]. */
   accessor tasks: Map<readonly [string, string, string | null, string | null], InferenceTask> = new Map();
 
   transact(fn: () => void): void {
@@ -37,8 +37,8 @@ export class InferenceCache extends PlexusModel<null> {
    * entity via Plexus map semantics — no in-flight dedup needed at call
    * sites.
    */
-  upsertTask(tier: string, prompt: string, schema: string | null, cacheKey: string | null = null): InferenceTask {
-    const key = [tier, prompt, schema, cacheKey] as const;
+  upsertTask(model: string, prompt: string, schema: string | null, cacheKey: string | null = null): InferenceTask {
+    const key = [model, prompt, schema, cacheKey] as const;
     const existing = this.tasks.get(key);
     if (existing) return existing;
     const task = new InferenceTask();

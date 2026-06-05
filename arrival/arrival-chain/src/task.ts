@@ -35,7 +35,7 @@ export class InferenceError extends PlexusModel<InferenceTask> {
 
 /**
  * One inference, keyed in `InferenceCache.tasks` by its content tuple
- * `[tier, prompt, schema, cacheKey]`. The key IS the spec — no hash. The
+ * `[model, prompt, schema, cacheKey]`. The key IS the spec — no hash. The
  * result slot is a discriminated child:
  *   `null`             → pending
  *   `InferenceResult`  → resolved (value is in `result.value`)
