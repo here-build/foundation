@@ -6,3 +6,4 @@ export { projectToJs, projectToJsRaw, type ProjectOptions } from "./project.js";
 export { formatJs } from "./format.js";
 export { cleanName } from "./names.js";
 export { aiClientModule, compilePromptToTs, type CompiledPrompt } from "./prompt.js";
+export { projectToPy, pyName, type PyOptions } from "./python.js";

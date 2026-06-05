@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { projectToJs } from "../project.js";
+import { projectToPy } from "../python.js";
 
 const fixtureDir = fileURLToPath(new URL("./fixtures/", import.meta.url));
 const read = (name: string) => readFileSync(fixtureDir + name, "utf8");
@@ -38,6 +39,10 @@ describe("gepa.scm → JS (golden files)", () => {
 
   it("run-view matches fixtures/gepa.run.js", async () => {
     golden("gepa.run.js", await projectToJs(read("gepa.scm"), { target: "run", requireSource }));
+  });
+
+  it("python read-view matches fixtures/gepa.py", () => {
+    golden("gepa.py", projectToPy(read("gepa.scm"), { requireSource }));
   });
 
   it("is deterministic (same source → same output)", async () => {
