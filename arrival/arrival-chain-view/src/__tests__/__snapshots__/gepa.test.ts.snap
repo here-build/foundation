@@ -1,0 +1,57 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`gepa.scm → JS read-view > projects to formatted JS (golden snapshot) 1`] = `
+"import { metric } from "./metric.scm";
+import examples from "./examples.json";
+import runPredict from "./predict.prompt";
+import runImprove from "./improve.prompt";
+import seed from "./seed.txt";
+
+// Call the prompts with a content-derived cache key, so identical calls replay.
+const ask = (instruction, input) => runPredict([instruction, input], { instruction, input });
+
+const reflect = (instruction, failures) =>
+  runImprove([instruction, failures], { instruction, failures });
+
+// Score an instruction across every example, in parallel.
+const evaluate = (instruction) =>
+  examples.map((ex) => metric(ask(instruction, ex.input), ex.expected));
+
+// A candidate is an instruction together with its per-example scores.
+const assess = (instruction) => ({ instruction, scores: evaluate(instruction) });
+
+// A readable summary of the examples this candidate got wrong.
+const failing = (candidate) =>
+  examples
+    .map((__x, __i) => [__x, candidate.scores[__i]])
+    .filter((pair) => pair[1] === 0)
+    .map((__x) => __x[0]);
+
+// Reflective mutation: hand this candidate's failures to the reflect prompt.
+const mutate = (candidate) => assess(reflect(candidate.instruction, failing(candidate)));
+
+// Pareto frontier: keep every candidate no other candidate beats outright.
+const dominates = (a, b) =>
+  a.scores.every((__x, __i) => __x >= b.scores[__i]) &&
+  a.scores.some((__x, __i) => __x > b.scores[__i]);
+
+const frontier = (pool) => pool.filter((c) => !pool.some((other) => dominates(other, c)));
+
+// Apply \`step\` to the pool \`n\` times.
+const iterate = (step, pool, n) => (n === 0 ? pool : iterate(step, step(pool), n - 1));
+
+// One generation: mutate each survivor, then re-select the frontier over all.
+const generation = (pool) => frontier([...pool, ...pool.map(mutate)]);
+
+// Evolve from the seed for \`rounds\` generations; keep the best on the full set.
+const gepa = (seed, rounds) =>
+  iterate(generation, [assess(seed)], rounds).reduce((__m, __x) =>
+    __x.scores.reduce((__a, __b) => __a + __b, 0) > __m.scores.reduce((__a, __b) => __a + __b, 0)
+      ? __x
+      : __m,
+  );
+
+// The winning candidate — its :instruction is the optimized prompt.
+gepa(seed, 4);
+"
+`;
