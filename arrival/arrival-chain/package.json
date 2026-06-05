@@ -50,6 +50,10 @@
       "types": "./dist/flow.d.ts",
       "import": "./dist/flow.js"
     },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "import": "./dist/runner.js"
+    },
     "./backends/openai": {
       "types": "./dist/backends/openai.d.ts",
       "import": "./dist/backends/openai.js"

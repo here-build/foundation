@@ -50,7 +50,12 @@ export { lipsToJs } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
 export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
 export { ArrivalChain } from "./arrival-chain.js";
-export { runPipeline, type RunPipelineOptions, type PublishOptions } from "./runner.js";
+// `runPipeline` (the Node/CLI top-to-bottom entry) is deliberately NOT in this
+// barrel: it lazy-imports yjs + y-websocket for the publish path, which the
+// browser studio never runs but vite would still crawl off the barrel. It lives
+// at the `@here.build/arrival-chain/runner` subpath — a Node-only entry — so the
+// browser kernel stays free of the websocket-publish transport (materialization).
+// Tests import it via the relative `./runner.js`.
 export {
   defaultResolvers,
   defineImport,
