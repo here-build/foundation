@@ -202,7 +202,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
   }
 
   function lowerLet(n: ListNode): string {
-    if (isAtom(n.list[1])) throw new Error("named `let` is unsupported in read-view (run-view concern)");
+    if (isAtom(n.list[1])) return lowerNamedLet(n);
     const bindings = n.list[1];
     const decls: string[] = [];
     if (isList(bindings)) {
@@ -211,6 +211,36 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
       }
     }
     return lowerSequence(n.list.slice(2), `(() => { ${decls.join(" ")}`, "})()");
+  }
+
+  /**
+   * Named `let` — Scheme's loop primitive. `(let loop ((x init)…) body)` binds `loop`
+   * to a recursive procedure and calls it once. Lowers to the same shape in JS: a
+   * local recursive arrow, called immediately inside an IIFE so it stays an
+   * expression. (The init values are evaluated in the OUTER scope, the body in the
+   * loop's.) Run-view: if the body reaches an inference call it goes async, and a
+   * second pass re-lowers with the loop name in scope so its recursive calls await.
+   */
+  function lowerNamedLet(n: ListNode): string {
+    const name = cleanName((n.list[1] as Atom).atom);
+    const bindings = n.list[2];
+    const params: string[] = [];
+    const inits: string[] = [];
+    if (isList(bindings)) {
+      for (const b of bindings.list) {
+        if (isList(b) && isAtom(b.list[0])) {
+          params.push(cleanName(b.list[0].atom));
+          inits.push(b.list[1] !== undefined ? lower(b.list[1]) : "undefined");
+        }
+      }
+    }
+    const bodyForms = n.list.slice(3);
+    let body = withParams(params, () => lowerBody(bodyForms));
+    const isAsync = ctx.target === "run" && body.includes("await");
+    if (isAsync) body = withParams([...params, name], () => lowerBody(bodyForms)); // recursive calls await
+    const a = isAsync ? "async " : "";
+    const call = `${name}(${inits.join(", ")})`;
+    return `(${a}() => { const ${name} = ${a}(${params.join(", ")}) => ${body}; return ${isAsync ? `await ${call}` : call}; })()`;
   }
 
   function lowerSequence(forms: Node[], open: string, close: string): string {

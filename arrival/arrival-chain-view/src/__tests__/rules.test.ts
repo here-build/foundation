@@ -59,6 +59,21 @@ describe("lens rules (§4)", () => {
   });
 });
 
+describe("named let → recursive IIFE (Scheme's loop primitive)", () => {
+  it("(let loop ((i 0) (acc 0)) …) → a local recursive arrow, called once", async () => {
+    const out = await p("(define (sum-to n) (let loop ((i 0) (acc 0)) (if (> i n) acc (loop (+ i 1) (+ acc i)))))");
+    expect(out).toContain("const loop = (i, acc) =>");
+    expect(out).toContain("loop(0, 0)"); // called with the init values
+    expect(out).toContain("loop(i + 1, acc + i)"); // recursive call resolves to the binding
+  });
+
+  it("nested named lets keep distinct recursion names + their bindings", async () => {
+    const out = await p("(define (f xs) (let outer ((ys xs)) (let inner ((zs ys)) (inner zs))))");
+    expect(out).toContain("const outer = (ys) =>");
+    expect(out).toContain("const inner = (zs) =>");
+  });
+});
+
 describe("arity bridge (§5)", () => {
   it("single-list map passes a user fn by reference", async () => {
     expect(await p("(define (f xs) (map double xs))")).toContain("xs.map(double)");
