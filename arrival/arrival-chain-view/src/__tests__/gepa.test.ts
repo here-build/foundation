@@ -1,16 +1,14 @@
 /**
- * The golden: the full GEPA example chain → formatted JS read-view. The snapshot
- * IS the golden artifact; the explicit fragment assertions encode the INTENT
- * (the bug-fixes over the hand-written gepa.ts), so the snapshot can't silently
- * drift away from correctness.
+ * The golden: the full GEPA example chain → JS, both views. The committed golden
+ * FILES (`fixtures/gepa.read.js`, `fixtures/gepa.run.js`) ARE the spec — readable,
+ * diffable JS rather than scattered substring checks. Regenerate intentional
+ * changes with `UPDATE_GOLDENS=1 pnpm test`.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { projectToJs } from "../project.js";
 
-// Self-contained fixtures (copied from examples/host-gepa). The golden stays
-// stable regardless of edits to the live example — which is actively authored.
 const fixtureDir = fileURLToPath(new URL("./fixtures/", import.meta.url));
 const read = (name: string) => readFileSync(fixtureDir + name, "utf8");
 
@@ -23,44 +21,26 @@ const requireSource = (path: string): string | undefined => {
   }
 };
 
-describe("gepa.scm → JS read-view", () => {
-  it("projects to formatted JS (golden snapshot)", async () => {
-    const out = await projectToJs(read("gepa.scm"), { requireSource });
-    expect(out).toMatchSnapshot();
+const UPDATE = process.env.UPDATE_GOLDENS === "1";
+/** Assert `actual` equals the committed golden, or (re)write it under UPDATE_GOLDENS=1. */
+function golden(name: string, actual: string): void {
+  if (UPDATE) {
+    writeFileSync(fixtureDir + name, actual);
+    return;
+  }
+  expect(actual).toBe(read(name));
+}
+
+describe("gepa.scm → JS (golden files)", () => {
+  it("read-view matches fixtures/gepa.read.js", async () => {
+    golden("gepa.read.js", await projectToJs(read("gepa.scm"), { requireSource }));
   });
 
-  it("imports resolve to the right shapes", async () => {
-    const out = await projectToJs(read("gepa.scm"), { requireSource });
-    expect(out).toContain('import { metric } from "./metric.scm";'); // .scm bare spill → named
-    expect(out).toContain('import examples from "./examples.json";'); // .json → default (not * as)
-    expect(out).toContain('import runPredict from "./predict.prompt";'); // .prompt → default
-    expect(out).toContain('import runImprove from "./improve.prompt";');
-    expect(out).toContain('import seed from "./seed.txt";'); // inline require hoisted
+  it("run-view matches fixtures/gepa.run.js", async () => {
+    golden("gepa.run.js", await projectToJs(read("gepa.scm"), { target: "run", requireSource }));
   });
 
-  it("fixes the hand-written gepa.ts bugs", async () => {
-    const out = await projectToJs(read("gepa.scm"), { requireSource });
-    expect(out).toContain("[...pool, ...pool.map(mutate)]"); // append, not R.append
-    expect(out).not.toContain("R.append");
-    expect(out).not.toContain("R.maxBy");
-    expect(out).not.toContain("R.sum");
-    expect(out).not.toContain("Symbol("); // kwargs are an options object, not Symbol pairs
-    expect(out).not.toContain("await import"); // read-view is synchronous: no async seed import
-  });
-
-  it("emits the right top-level shape", async () => {
-    const out = await projectToJs(read("gepa.scm"), { requireSource });
-    expect(out).toContain("const dominates = (a, b) =>"); // dominates? → dominates
-    expect(out).toContain("const ask = (instruction, input) =>"); // run-predict → runPredict call
-    expect(out).toContain("gepa(seed, 4);"); // top-level expression → statement
-  });
-
-  it("preserves the leading doc comments (legibility)", async () => {
-    const out = await projectToJs(read("gepa.scm"), { requireSource });
-    expect(out).toContain("// Pareto frontier"); // a `;;` comment carried into the read-view
-  });
-
-  it("is deterministic", async () => {
+  it("is deterministic (same source → same output)", async () => {
     const a = await projectToJs(read("gepa.scm"), { requireSource });
     const b = await projectToJs(read("gepa.scm"), { requireSource });
     expect(a).toBe(b);

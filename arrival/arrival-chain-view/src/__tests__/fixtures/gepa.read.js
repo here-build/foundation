@@ -1,7 +1,4 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`gepa.scm → JS read-view > projects to formatted JS (golden snapshot) 1`] = `
-"import { metric } from "./metric.scm";
+import { metric } from "./metric.scm";
 import examples from "./examples.json";
 import runPredict from "./predict.prompt";
 import runImprove from "./improve.prompt";
@@ -37,13 +34,13 @@ const dominates = (a, b) =>
 
 const frontier = (pool) => pool.filter((c) => !pool.some((other) => dominates(other, c)));
 
-// Apply \`step\` to the pool \`n\` times.
+// Apply `step` to the pool `n` times.
 const iterate = (step, pool, n) => (n === 0 ? pool : iterate(step, step(pool), n - 1));
 
 // One generation: mutate each survivor, then re-select the frontier over all.
 const generation = (pool) => frontier([...pool, ...pool.map(mutate)]);
 
-// Evolve from the seed for \`rounds\` generations; keep the best on the full set.
+// Evolve from the seed for `rounds` generations; keep the best on the full set.
 const gepa = (seed, rounds) =>
   iterate(generation, [assess(seed)], rounds).reduce((acc, __x) =>
     __x.scores.reduce((acc, score) => acc + score, 0) >
@@ -54,5 +51,3 @@ const gepa = (seed, rounds) =>
 
 // The winning candidate — its :instruction is the optimized prompt.
 gepa(seed, 4);
-"
-`;
