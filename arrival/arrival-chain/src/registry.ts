@@ -7,10 +7,9 @@ import type { ModelBackend } from "./model.js";
  * implementations can defer expensive work to first use.
  *
  * Returns `null` when no backend is configured for `modelId` — the
- * orchestrator turns that into a per-task `InferenceError` rather than
- * crashing the worker.
+ * `InferStore` turns that into a rejected cell rather than crashing the run.
  *
- * Decoupled from `Project` so the same orchestrator runs unchanged in:
+ * Decoupled from `Project` so the same router runs unchanged in:
  *   - the local Node daemon (LayeredRouter composed from env + keychain
  *     + auto-detected local servers)
  *   - a Cloudflare Worker / DO (StaticRouter populated from `env`)
@@ -72,8 +71,8 @@ export function singletonRouter(backend: ModelBackend): ModelRouter {
 
 /**
  * The empty router — every lookup returns null. Useful as the default
- * layer when no backend is configured (the orchestrator marks every
- * task as an InferenceError of "no backend for model X").
+ * layer when no backend is configured (the `InferStore` rejects every
+ * cell with "no backend for model X").
  */
 export const emptyRouter: ModelRouter = {
   async backendFor() {

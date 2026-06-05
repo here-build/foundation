@@ -2,7 +2,7 @@ import type { TokenUsage } from "./model.js";
 
 /**
  * USD per 1,000,000 tokens, input and output. The volatile half of cost
- * accounting: tokens are the stable fact we persist on `InferenceResult`;
+ * accounting: tokens are the stable fact carried on a `Completion`'s usage;
  * dollars are derived here at display time so a price change reflows without
  * rewriting history.
  *

@@ -17,12 +17,10 @@ import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
 import { reaction } from "mobx";
 
 import { ArrivalChain } from "./arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "./cache.js";
+import { createInferStore, InferBinding } from "./infer-store.js";
 import { Project } from "./project.js";
-import { InferenceError, InferenceResult, type InferenceTask } from "./task.js";
 import { EvalTrace, Invocation } from "./trace.js";
 import type { ModelRouter } from "./registry.js";
-import { startOrchestrator } from "./worker.js";
 
 // ════════════════════════════════════════════════════════════════════
 // PUBLIC SURFACE — the three functions everything else exists to serve.
@@ -338,8 +336,7 @@ function findDirectChildOfInChain(leaf: Invocation, target: Invocation): Invocat
  */
 export async function recordSession(config: TraceConfig): Promise<TraceSession> {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
+  project.bindInfer(createInferStore(config.router));
 
   for (const [path, content] of Object.entries(config.files)) {
     project.addFile(path, content);
@@ -351,60 +348,52 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
   const programHash = programHashOf(source);
 
   const trace = new EvalTrace();
-  const ac = new AbortController();
-  const orch = startOrchestrator({ cache, router: config.router, signal: ac.signal });
-  const draining = orch.done;
 
   // Swallow program-eval errors so a recordSession over a program that
   // raises (e.g., backend throws mid-run) still returns a partial session
-  // with whatever sites were produced. Each task carries its own
-  // resolved/rejected state on `result` — the per-site error markers come
-  // from there. We log via the trace's existing channels; the caller can
-  // inspect `inferences[].result.kind === "error"`.
+  // with whatever sites were produced. A binding whose cell never settled
+  // (rejected or still in-flight) carries `completion === undefined` — the
+  // per-site error markers come from there. The caller can inspect
+  // `inferences[].result.kind === "error"`.
+  const { finished } = await project.runTraced(source, { trace });
   try {
-    const { finished } = await project.runTraced(source, { trace });
-    try {
-      await finished;
-    } catch {
-      // Eval-time error: program rejected. Sites observed before the throw
-      // are still on the trace; tasks that errored have InferenceError
-      // results. recordSession returns the partial session.
-    }
-  } finally {
-    ac.abort();
-    await draining;
+    await finished;
+  } catch {
+    // Eval-time error: program rejected. Sites observed before the throw
+    // are still on the trace; bindings whose cells errored have an undefined
+    // completion. recordSession returns the partial session.
   }
 
-  // Build sites from tasks-with-invocations. The trace's invocationByTask
-  // is a WeakMap (not iterable); we enumerate project.tasks and look up
-  // bindings, which yields one site per task that this run touched.
-  // Path reconstruction: classify each parent in the invocation chain by
-  // its head symbol, emit a DNFEntry where applicable.
+  // Build sites from the InferBindings the run stamped onto the trace. Each
+  // (infer …) invocation mints its OWN binding (sharing the underlying
+  // single-flight cell), so a content-key that fires N times in a loop yields
+  // N bindings — one invocation each — instead of one task with N invocations.
+  // Path reconstruction: classify each parent in the invocation chain by its
+  // head symbol, emit a DNFEntry where applicable.
   const idx = childrenIndexOf(trace);
   const inferences: InferenceCallSite[] = [];
   const invByTaskId = new Map<string, Invocation>();
-  for (const task of cache.tasks.values()) {
+  for (const task of trace.invocationByTask.keys()) {
+    if (!(task instanceof InferBinding)) continue;
     const invs = trace.invocationsFor(task);
     if (invs.length === 0) continue;
     const result: SiteResult =
-      task.result instanceof InferenceResult
-        ? { kind: "value", value: task.result.value }
-        : task.result instanceof InferenceError
-          ? { kind: "error", message: task.result.message }
-          : { kind: "error", message: "task did not resolve before recordSession returned" };
+      task.completion !== undefined
+        ? { kind: "value", value: task.completion.value }
+        : { kind: "error", message: "inference did not resolve before recordSession returned" };
     const taskId = taskIdOf(task);
     // Map taskId → canonical (first) invocation for traceForOutput.
     invByTaskId.set(taskId, invs[0]!);
-    // Emit one site per invocation — same task can have many sites when
+    // Emit one site per invocation — a binding can hold many sites when
     // the same prompt fires from different HOF iterations.
     for (const inv of invs) {
       const loc = locationOf(inv.node);
       if (!loc) continue;
       inferences.push({
         ast: { programHash, line: loc.line, col: loc.col },
-        // Under the new model, the task.model string IS the concrete model id
-        // — no tier indirection. Keep the same shape for downstream consumers
-        // (they get `concrete` directly; `tier` is the same string for now).
+        // The binding's model string IS the concrete model id — no tier
+        // indirection. Keep the same shape for downstream consumers (they
+        // get `concrete` directly; `tier` is the same string for now).
         model: { tier: task.model, concrete: task.model },
         prompt: task.prompt,
         schema: task.schema,
@@ -455,7 +444,7 @@ function locationOf(pair: object): { line: number; col: number } | null {
  * the same components so sites can reference tasks even after the project
  * is gone.
  */
-function taskIdOf(task: InferenceTask): string {
+function taskIdOf(task: InferBinding): string {
   return `${task.model} ${task.prompt} ${task.schema ?? ""} ${task.cacheKey ?? ""}`;
 }
 

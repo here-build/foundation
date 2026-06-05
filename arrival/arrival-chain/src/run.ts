@@ -10,7 +10,7 @@
  *
  * Every Run records:
  *   - which `Program.versions[]` index was executing (provenance)
- *   - ordered references to every InferenceTask that fired during it
+ *   - ordered references to every inference that fired during it
  *     (the trace — survives reload, replicates to peers)
  *   - hypotheses: counterfactual replays substituting some infer results
  *     with chosen values, to explore "what if this LLM said X instead?"
@@ -55,10 +55,10 @@ export function formatRunError(error: unknown): string {
  * Counterfactual replay of a Run with chosen inference overrides.
  *
  * `tweaks` keys are the canonical JSON-stringified content tuples
- * `[model, prompt, schema, cacheKey]` (the same shape `InferenceCache.tasks`
- * uses). During re-execution any `(infer …)` call whose content tuple
- * matches a tweak key short-circuits with the tweak value, bypassing
- * the LLM. Non-matching calls flow through the cache as normal — so a
+ * `[model, prompt, schema, cacheKey]` (the same shape the `InferStore`
+ * content key uses). During re-execution any `(infer …)` call whose content
+ * tuple matches a tweak key short-circuits with the tweak value, bypassing
+ * the LLM. Non-matching calls flow through the store as normal — so a
  * hypothesis that only branches at one point reuses every prior cell.
  *
  * `inferences` records the ordered references for this re-run (same
@@ -73,9 +73,9 @@ export class Hypothesis extends PlexusModel<Run> {
    * Ordered canonical-tuple-string keys identifying every `(infer …)` call
    * fired during this run/hypothesis. Each key is
    * `JSON.stringify([model, prompt, schema, cacheKey])` — the same shape the
-   * `InferenceCache.tasks` map uses. To resolve a live task, look up the
-   * tuple in the bound cache. Plexus can't cross-reference between docs
-   * (cache is a sibling doc), so we hold the lookup key instead of the ref.
+   * `InferStore` content key uses. To resolve a live cell, look up the
+   * tuple in the bound `InferStore`. The inference plane is host-local (not
+   * synced), so we hold the lookup key here instead of a cross-doc ref.
    */
   @syncing.list accessor inferences: string[] = [];
 
@@ -111,9 +111,9 @@ export class Run extends PlexusModel<Program | Draft> {
    * Ordered canonical-tuple-string keys identifying every `(infer …)` call
    * fired during this run/hypothesis. Each key is
    * `JSON.stringify([model, prompt, schema, cacheKey])` — the same shape the
-   * `InferenceCache.tasks` map uses. To resolve a live task, look up the
-   * tuple in the bound cache. Plexus can't cross-reference between docs
-   * (cache is a sibling doc), so we hold the lookup key instead of the ref.
+   * `InferStore` content key uses. To resolve a live cell, look up the
+   * tuple in the bound `InferStore`. The inference plane is host-local (not
+   * synced), so we hold the lookup key here instead of a cross-doc ref.
    */
   @syncing.list accessor inferences: string[] = [];
 

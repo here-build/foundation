@@ -1,7 +1,7 @@
+import { InferBinding } from "./infer-store.js";
 import type { TokenUsage } from "./model.js";
 import { referenceCost } from "./pricing.js";
 import { type InferCost, type ProjectedCostStrategy, uncachedSumStrategy } from "./projected-cost.js";
-import { InferenceResult, type InferenceTask } from "./task.js";
 import type { EvalTrace } from "./trace.js";
 
 /**
@@ -74,12 +74,13 @@ export function summarizeCosts(
  */
 export function runCostSummary(trace: EvalTrace, strategy: ProjectedCostStrategy = uncachedSumStrategy): RunCost {
   const tasks: TaskCost[] = [];
-  for (const [taskObj, invs] of trace.invocationByTask) {
-    const task = taskObj as InferenceTask;
-    if (!(task.result instanceof InferenceResult)) continue; // pending / errored
+  for (const [obj, invs] of trace.invocationByTask) {
+    if (!(obj instanceof InferBinding)) continue;
+    const usage = obj.completion?.usage;
+    if (!usage) continue; // pending / errored / no-usage backend → nothing to count yet
     tasks.push({
-      model: task.model,
-      usage: { inputTokens: task.result.inputTokens, outputTokens: task.result.outputTokens },
+      model: obj.model,
+      usage,
       freshThisRun: invs.some((inv) => inv.cached === false),
       calls: invs.length,
     });

@@ -15,9 +15,17 @@ export {
   singletonRouter,
   emptyRouter,
 } from "./registry.js";
-export { startOrchestrator, type OrchestratorOptions } from "./worker.js";
 
-export { InferenceTask, InferenceResult, InferenceError } from "./task.js";
+export {
+  InferStore,
+  type InferStoreLike,
+  createInferStore,
+  InferBinding,
+  type InferCell,
+  type InferCache,
+  noopCache,
+} from "./infer-store.js";
+
 export { Run, Hypothesis, RunResult, RunError, formatRunError, type RunStatus } from "./run.js";
 export { Draft } from "./draft.js";
 // Re-exported from arrival-scheme where AValue lives (L4 collapsed the draft).
@@ -41,7 +49,6 @@ export {
 export { lipsToJs } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
 export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
-export { InferenceCache, ArrivalCache } from "./cache.js";
 export { ArrivalChain } from "./arrival-chain.js";
 export { runPipeline, type RunPipelineOptions, type PublishOptions } from "./runner.js";
 export {
@@ -111,7 +118,7 @@ export { sweetToScheme } from "./sweet-read.js";
 //   import { anthropicBackend } from "@here.build/arrival-chain/backends/anthropic";
 //
 // Compose them into a ModelRouter (StaticRouter / LayeredRouter) and
-// pass to startOrchestrator. The shared helpers below are exported from
+// pass to `createInferStore`. The shared helpers below are exported from
 // the kernel for callers writing their own backends.
 export {
   lazyBackend,

@@ -12,8 +12,8 @@ import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
 import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
 
-import type { InferenceCache } from "./cache.js";
 import { Draft } from "./draft.js";
+import { InferBinding, type InferStoreLike } from "./infer-store.js";
 import { Program, ProgramVersion } from "./program.js";
 import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
 import {
@@ -413,11 +413,11 @@ export function buildArrivalEnv(opts: {
  *   `files`    — owns Programs by path (the filesystem of this project)
  *   `programs` — non-owning refs into `files`, in explicit execution order
  *
- * Inference results live in a sibling `InferenceCache` doc — bind one via
- * `project.bindCache(cache)` before running programs or workers. The
- * separation keeps authored intent (this doc) decoupled from derived
- * facts (cache doc) so ephemeral runs can share a cache without
- * polluting any project doc, and projects can share caches.
+ * Inference is resolved by a runtime-bound `InferStore` — bind one via
+ * `project.bindInfer(store)` before running programs. The store is not
+ * part of the synced model: a run is a pure function of the project's
+ * files, so each host resolves inference through its own store (sharing
+ * a disk/HTTP cache as configured) without cross-doc entity pointers.
  *
  * A file in `files` but NOT in `programs` is a library — imported by
  * other files, never executed standalone. Workers consume `programs`
@@ -433,24 +433,24 @@ export class Project extends PlexusModel<null> {
 
   @syncing.child.map /** path → Program. Owning child map. */ accessor files: Map<string, Program> = new Map();
 
-  // ── Cache binding (runtime, not synced) ───────────────────────────
+  // ── Inference plane (runtime, not synced) ─────────────────────────
   //
-  // The sibling `InferenceCache` doc that holds `tasks`. Bound at
-  // orchestration time (runner / CLI / test setup); not part of the
-  // synced model because (a) docs don't reference each other in plexus
-  // by entity-pointer — different state vectors — and (b) the same
-  // project may bind different caches across processes (e.g. team
-  // cache in prod, scratch cache in tests).
+  // The content-keyed single-flight `InferStore` that resolves every
+  // `(infer …)` — replacing the CRDT Task plane. Bound at orchestration
+  // time (runner / CLI / DO / test setup). Like the old cache it is not
+  // synced: a run is a pure function of the project's files, so each host
+  // resolves inference through its own store (sharing a disk/HTTP cache as
+  // configured) without any cross-doc entity pointers.
 
-  #cache: InferenceCache | null = null;
+  #infer: InferStoreLike | null = null;
 
-  bindCache(cache: InferenceCache): void {
-    this.#cache = cache;
+  bindInfer(store: InferStoreLike): void {
+    this.#infer = store;
   }
 
-  get cache(): InferenceCache {
-    invariant(this.#cache, "Project: no cache bound — call project.bindCache(cache) before running programs or workers");
-    return this.#cache;
+  get infer(): InferStoreLike {
+    invariant(this.#infer, "Project: no inference store bound — call project.bindInfer(store) before running programs");
+    return this.#infer;
   }
 
   // Config-as-code: per-run configuration is no longer a project-env map.
@@ -535,23 +535,34 @@ export class Project extends PlexusModel<null> {
     // wiring + list-wrapping live in buildArrivalEnv (shared with runTraced +
     // host); this closure is the project-specific seam.
     const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey) => {
-      // Hypothesis tweaks short-circuit before any cache lookup — the whole
+      // Hypothesis tweaks short-circuit before any inference — the whole
       // point is to NOT consult the LLM for these tuples.
       const tweakKey = JSON.stringify([model, prompt, schema, cacheKey]);
       const tweak = opts.tweaks?.get(tweakKey);
       if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
-      const task = this.cache.upsertTask(model, prompt, schema, cacheKey);
+      // Single-flight cell: the first call for this content tuple starts the
+      // backend; later identical calls ride the same cell. Acquire keeps it alive;
+      // release lets the last holder abort a superseded run.
+      const cell = this.infer.get({ model, prompt, schema }, cacheKey);
+      const cached = cell.finished(); // already-settled at bind = served from a prior get this run
+      cell.acquire();
       opts.onInfer?.(tweakKey);
       const inv = ctx?.currentInvocation;
+      let binding: InferBinding | undefined;
       if (inv && opts.trace) {
-        opts.trace.bindTask(task, inv as never);
-        // A task already holding a result at bind time was paid for by an earlier
-        // run — colour this invocation a cache hit. Read before the await resolves.
-        opts.trace.markInferCached(inv as never, task.isResolved);
+        binding = new InferBinding(model, prompt, schema, cacheKey, cell);
+        opts.trace.bindTask(binding, inv as never);
+        opts.trace.markInferCached(inv as never, cached);
         // Every (infer …) is a fresh provenance singleton {self.id}.
         opts.trace.markProvenancePoint(inv as never);
       }
-      return task.waitFor();
+      try {
+        const completion = await cell.done;
+        if (binding) binding.completion = completion; // stamp usage for synchronous cost walk
+        return completion.value;
+      } finally {
+        cell.release();
+      }
     };
 
     const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
@@ -905,15 +916,25 @@ export class Project extends PlexusModel<null> {
       const tupleKey = JSON.stringify([model, prompt, schema, cacheKey]);
       const tweak = opts.tweaks?.get(tupleKey);
       if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
-      const task = this.cache.upsertTask(model, prompt, schema, cacheKey);
+      const cell = this.infer.get({ model, prompt, schema }, cacheKey);
+      const cached = cell.finished();
+      cell.acquire();
       opts.onInfer?.(tupleKey);
       const inv = ctx?.currentInvocation;
+      let binding: InferBinding | undefined;
       if (inv) {
-        opts.trace.bindTask(task, inv as never);
-        opts.trace.markInferCached(inv as never, task.isResolved);
+        binding = new InferBinding(model, prompt, schema, cacheKey, cell);
+        opts.trace.bindTask(binding, inv as never);
+        opts.trace.markInferCached(inv as never, cached);
         opts.trace.markProvenancePoint(inv as never);
       }
-      return task.waitFor();
+      try {
+        const completion = await cell.done;
+        if (binding) binding.completion = completion;
+        return completion.value;
+      } finally {
+        cell.release();
+      }
     };
 
     const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
