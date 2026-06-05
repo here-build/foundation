@@ -8,7 +8,7 @@
  * which is more legible than an explicit `zip`; `(apply + xs)` folds to `reduce`.
  */
 import { cleanName, destructureTuple, elementName } from "./names.js";
-import { head, isAtom, isList, isKeyword, keywordName, type Node } from "./nodes.js";
+import { head, isAtom, isList, isKeyword, keywordName, type ListNode, type Node } from "./nodes.js";
 
 /** What a stdlib emitter receives: a way to lower sub-expressions (+ a binding-substituting variant). */
 export interface Emit {
@@ -53,17 +53,37 @@ const BINOP: Record<string, (a: string, b: string) => string> = {
 
 const UNOP: Record<string, (a: string) => string> = {
   car: (a) => `${a}[0]`,
-  cdr: (a) => `${a}[1]`,
+  cdr: (a) => `${a}.slice(1)`, // list TAIL (cadr accesses the 2nd element of a pair)
+  cadr: (a) => `${a}[1]`,
+  caddr: (a) => `${a}[2]`,
   first: (a) => `${a}[0]`,
   "zero?": (a) => `${a} === 0`,
+  "even?": (a) => `${a} % 2 === 0`,
+  "odd?": (a) => `${a} % 2 !== 0`,
   not: (a) => `!${a}`,
   "null?": (a) => `${a}.length === 0`,
   "empty?": (a) => `${a}.length === 0`,
   length: (a) => `${a}.length`,
 };
 
+/** Inline a lambda `(lambda (p…) body)` with its params bound to argStrs — no IIFE,
+ *  no call. Generalizes `inlineUnaryLambda` to N params, so a multi-list map with a
+ *  multi-param lambda `(map (lambda (s m) …) xs ys)` inlines instead of currying. */
+function inlineLambda(lambda: ListNode, argStrs: string[], E: Emit): string {
+  const params = lambda.list[1];
+  const body = lambda.list[2];
+  if (isList(params) && body) {
+    const names = params.list.filter(isAtom);
+    if (names.length === argStrs.length) {
+      return E.lowerWith(Object.fromEntries(names.map((p, i) => [p.atom, argStrs[i]!])), body);
+    }
+  }
+  return `${E.lower(lambda)}(${argStrs.join(", ")})`;
+}
+
 /** Apply a function node to already-lowered argument strings (op-as-argument case). */
 function applyFn(fn: Node, argStrs: string[], E: Emit): string {
+  if (isList(fn) && head(fn) === "lambda") return inlineLambda(fn, argStrs, E);
   if (isAtom(fn) && !fn.str) {
     const b = BINOP[fn.atom];
     if (b && argStrs.length === 2) return b(argStrs[0]!, argStrs[1]!);
@@ -73,9 +93,10 @@ function applyFn(fn: Node, argStrs: string[], E: Emit): string {
   return `${E.lower(fn)}(${argStrs.join(", ")})`;
 }
 
-/** A function that can be passed by reference to a JS array method (a lambda, or a user fn — not a builtin op). */
+/** A function that can be passed by reference to a JS array method (a lambda, a `cut`,
+ *  or a user fn — not a builtin op). `cut` lowers to a lambda, so it passes too. */
 function passableFn(fn: Node): boolean {
-  if (isList(fn) && head(fn) === "lambda") return true;
+  if (isList(fn) && (head(fn) === "lambda" || head(fn) === "cut")) return true;
   if (isAtom(fn) && !fn.str && !(fn.atom in BINOP) && !(fn.atom in UNOP) && !(fn.atom in STDLIB)) return true;
   return false;
 }
@@ -164,7 +185,12 @@ export const STDLIB: Record<string, Emitter> = {
   list: (args, E) => `[${args.map((a) => E.lower(a)).join(", ")}]`,
   cons: (args, E) => `[${E.lower(args[0]!)}, ${E.lower(args[1]!)}]`,
   car: (args, E) => `${E.lower(args[0]!)}[0]`,
-  cdr: (args, E) => `${E.lower(args[0]!)}[1]`,
+  // `cdr` is the list TAIL; `cadr`/`caddr` access the 2nd/3rd element (of a pair or
+  // list). Keeping them distinct is what lets `cons`/pairs and list-recursion coexist.
+  cdr: (args, E) => `${E.lower(args[0]!)}.slice(1)`,
+  cadr: (args, E) => `${E.lower(args[0]!)}[1]`,
+  caddr: (args, E) => `${E.lower(args[0]!)}[2]`,
+  "list-ref": (args, E) => `${recv(E.lower(args[0]!))}[${E.lower(args[1]!)}]`,
   first: (args, E) => `${E.lower(args[0]!)}[0]`,
   length: (args, E) => `${E.lower(args[0]!)}.length`,
   reverse: (args, E) => `[...${E.lower(args[0]!)}].reverse()`,
@@ -175,6 +201,16 @@ export const STDLIB: Record<string, Emitter> = {
   // folds
   apply: (args, E) => {
     const [fn, xs] = args;
+    // (apply map list rows) — transpose: combine the rows column-wise. `list` as the
+    // combiner zips each column into an array; the one apply-map shape with a JS form.
+    if (isAtom(fn) && !fn.str && fn.atom === "map") {
+      const combiner = args[1];
+      if (isAtom(combiner) && !combiner.str && combiner.atom === "list" && args[2]) {
+        const rows = recv(E.lower(args[2]));
+        return `((rows) => rows[0].map((_, i) => rows.map((row) => row[i])))(${rows})`;
+      }
+      throw new Error("`apply map` is supported only as the transpose `(apply map list rows)`");
+    }
     const x = recv(E.lower(xs!));
     const el = elementName(xs!) ?? "__b"; // (apply + scores) → scores.reduce((acc, score) => …)
     if (isAtom(fn) && !fn.str) {
@@ -232,6 +268,8 @@ export const STDLIB: Record<string, Emitter> = {
 
   // predicates / logic
   "zero?": (args, E) => `(${E.lower(args[0]!)} === 0)`,
+  "even?": (args, E) => `(${E.lower(args[0]!)} % 2 === 0)`,
+  "odd?": (args, E) => `(${E.lower(args[0]!)} % 2 !== 0)`,
   "null?": (args, E) => `(${E.lower(args[0]!)}.length === 0)`,
   "empty?": (args, E) => `(${E.lower(args[0]!)}.length === 0)`,
   not: (args, E) => `!(${E.lower(args[0]!)})`,

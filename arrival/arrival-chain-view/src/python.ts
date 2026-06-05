@@ -70,9 +70,13 @@ const PY_BINOP: Record<string, (a: string, b: string) => string> = {
 };
 const PY_UNOP: Record<string, (a: string) => string> = {
   car: (a) => `${a}[0]`,
-  cdr: (a) => `${a}[1]`,
+  cdr: (a) => `${a}[1:]`, // list TAIL (cadr accesses the 2nd element of a pair)
+  cadr: (a) => `${a}[1]`,
+  caddr: (a) => `${a}[2]`,
   first: (a) => `${a}[0]`,
   "zero?": (a) => `${a} == 0`,
+  "even?": (a) => `${a} % 2 == 0`,
+  "odd?": (a) => `${a} % 2 != 0`,
   not: (a) => `not ${a}`,
 };
 
@@ -122,6 +126,7 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
 
   /** Apply a function node to a loop-var string (comprehension element). */
   function applyTo(fn: Node, v: string): string {
+    if (isList(fn) && head(fn) === "cut") return applyTo(cutLambda(fn), v); // inline the desugared cut
     if (isList(fn) && head(fn) === "lambda") {
       const params = (fn.list[1] as ListNode).list;
       if (params.length === 1 && isAtom(params[0])) {
@@ -174,7 +179,10 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     list: (a) => `[${a.map(lower).join(", ")}]`,
     cons: (a) => `(${lower(a[0]!)}, ${lower(a[1]!)})`,
     car: (a) => `${lower(a[0]!)}[0]`,
-    cdr: (a) => `${lower(a[0]!)}[1]`,
+    cdr: (a) => `${lower(a[0]!)}[1:]`, // list TAIL; cadr/caddr access the 2nd/3rd element
+    cadr: (a) => `${lower(a[0]!)}[1]`,
+    caddr: (a) => `${lower(a[0]!)}[2]`,
+    "list-ref": (a) => `${lower(a[0]!)}[${lower(a[1]!)}]`,
     length: (a) => `len(${lower(a[0]!)})`,
     reverse: (a) => `list(reversed(${lower(a[0]!)}))`,
     append: (a) => a.map(lower).join(" + "),
@@ -191,6 +199,13 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     },
     apply: (a) => {
       const [fn, xs] = a;
+      if (isAtom(fn) && !fn.str && fn.atom === "map") {
+        const combiner = a[1];
+        if (isAtom(combiner) && !combiner.str && combiner.atom === "list" && a[2]) {
+          return `[list(col) for col in zip(*${lower(a[2])})]`; // (apply map list rows) → transpose
+        }
+        throw new Error("`apply map` is supported only as the transpose `(apply map list rows)`");
+      }
       if (isAtom(fn) && fn.atom === "+") return `sum(${lower(xs!)})`;
       if (isAtom(fn) && fn.atom === "*") return `math.prod(${lower(xs!)})`;
       return `${lower(fn!)}(*${lower(xs!)})`;
@@ -205,6 +220,8 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     "<=": (a) => `${lower(a[0]!)} <= ${lower(a[1]!)}`,
     ">=": (a) => `${lower(a[0]!)} >= ${lower(a[1]!)}`,
     "zero?": (a) => `${lower(a[0]!)} == 0`,
+    "even?": (a) => `${lower(a[0]!)} % 2 == 0`,
+    "odd?": (a) => `${lower(a[0]!)} % 2 != 0`,
     not: (a) => `not ${lower(a[0]!)}`,
     and: (a) => `(${a.map(lower).join(" and ")})`,
     or: (a) => `(${a.map(lower).join(" or ")})`,
@@ -239,6 +256,7 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
         const params = (n.list[1] as ListNode).list.filter(isAtom).map((p) => pyName(p.atom));
         return `lambda ${params.join(", ")}: ${lower(n.list[2]!)}`;
       }
+      if (hName === "cut") return cut(n);
       if (hName === "require") {
         const local = requireSubst.get(pathOf(n.list[1]));
         if (local === undefined) throw new Error(`unresolved inline require`);
@@ -248,6 +266,25 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
       if (emit) return emit(n.list.slice(1));
     }
     return call(h!, n.list.slice(1));
+  }
+
+  /** SRFI-26 `cut` → a synthetic `(lambda (slots…) (proc args…))` — one param per `<>`,
+   *  filled left-to-right. Exposed as a node so a comprehension can inline its body. */
+  function cutLambda(n: ListNode): ListNode {
+    const items = n.list.slice(1);
+    const isSlot = (x: Node): boolean => isAtom(x) && !x.str && x.atom === "<>";
+    const names = items.filter(isSlot).length === 1 ? ["it"] : ["a", "b", "c", "d", "e", "f"];
+    const slots: Atom[] = [];
+    const fill = (x: Node): Node => {
+      if (!isSlot(x)) return x;
+      const g: Atom = { atom: names[slots.length] ?? `arg${slots.length + 1}` };
+      slots.push(g);
+      return g;
+    };
+    return { list: [{ atom: "lambda" }, { list: slots }, { list: items.map(fill) }] };
+  }
+  function cut(n: ListNode): string {
+    return list(cutLambda(n)); // `(cut dominates? <> c)` → `lambda it: dominates(it, c)`
   }
 
   function call(fn: Node, args: Node[]): string {

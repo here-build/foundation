@@ -130,6 +130,8 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
           return lowerLet(n);
         case "begin":
           return lowerSequence(n.list.slice(1), "(() => {", "})()");
+        case "cut":
+          return lowerCut(n);
         case "require": {
           const path = pathOf(n.list[1]);
           const local = ctx.requireSubst.get(path);
@@ -199,6 +201,29 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     const [, c, a, b] = n.list;
     const els = b !== undefined ? lower(b) : "undefined";
     return `(${lower(c!)} ? ${lower(a!)} : ${els})`;
+  }
+
+  /**
+   * SRFI-26 `cut` — `(cut proc arg…)` with `<>` slots is a terse lambda: one param
+   * per slot, filled left-to-right (the proc position may itself be a slot). Desugar
+   * to a synthetic `(lambda (slots…) (proc args…))` and lower THAT, so `apply`,
+   * operators, and async detection all flow through the normal call path.
+   *   (cut apply max <>)     → (it) => Math.max(...it)
+   *   (cut dominates? <> c)  → (it) => dominates(it, c)
+   */
+  function lowerCut(n: ListNode): string {
+    const items = n.list.slice(1);
+    const isSlot = (x: Node): boolean => isAtom(x) && !x.str && x.atom === "<>";
+    const names = items.filter(isSlot).length === 1 ? ["it"] : ["a", "b", "c", "d", "e", "f"];
+    const slots: Atom[] = [];
+    const fill = (x: Node): Node => {
+      if (!isSlot(x)) return x;
+      const g: Atom = { atom: names[slots.length] ?? `arg${slots.length + 1}` };
+      slots.push(g);
+      return g;
+    };
+    const call: ListNode = { list: items.map(fill) };
+    return lowerLambda({ list: [{ atom: "lambda" }, { list: slots }, call] });
   }
 
   function lowerLet(n: ListNode): string {

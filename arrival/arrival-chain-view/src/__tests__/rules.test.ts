@@ -74,6 +74,42 @@ describe("named let → recursive IIFE (Scheme's loop primitive)", () => {
   });
 });
 
+describe("list layer — pair vs list (the cdr/cadr split), cut, list-ref, transpose", () => {
+  it("cdr is the list TAIL; cadr/caddr are positional access", async () => {
+    expect(await p("(define (f xs) (cdr xs))")).toContain("xs.slice(1)");
+    expect(await p("(define (f xs) (cadr xs))")).toContain("xs[1]");
+    expect(await p("(define (f xs) (caddr xs))")).toContain("xs[2]");
+  });
+
+  it("cons stays a pair / cell [a, b]", async () => {
+    expect(await p("(define (f a b) (cons a b))")).toContain("[a, b]");
+  });
+
+  it("list-ref → index; even?/odd? → modulo", async () => {
+    expect(await p("(define (f xs i) (list-ref xs i))")).toContain("xs[i]");
+    expect(await p("(define (f n) (even? n))")).toContain("n % 2 === 0");
+    expect(await p("(define (f n) (odd? n))")).toContain("n % 2 !== 0");
+  });
+
+  it("cut → a terse lambda, one `it` param per <> slot", async () => {
+    expect(await p("(define (f xs c) (filter (cut dominates? <> c) xs))")).toContain("xs.filter((it) => dominates(it, c))");
+  });
+
+  it("cut over apply → a max-of-list mapper", async () => {
+    expect(await p("(define (f cols) (map (cut apply max <>) cols))")).toContain("cols.map((it) => Math.max(...it))");
+  });
+
+  it("(apply map list rows) → transpose (columns)", async () => {
+    expect(await p("(define (f rows) (apply map list rows))")).toContain("rows[0].map((_, i) => rows.map((row) => row[i]))");
+  });
+
+  it("multi-list map with a multi-param lambda INLINES (not a broken curry)", async () => {
+    const out = await p("(define (f xs ys) (map (lambda (s m) (if (>= s m) 1 0)) xs ys))");
+    expect(out).toContain("xs.map((x, i) =>");
+    expect(out).toContain("x >= ys[i] ? 1 : 0");
+  });
+});
+
 describe("arity bridge (§5)", () => {
   it("single-list map passes a user fn by reference", async () => {
     expect(await p("(define (f xs) (map double xs))")).toContain("xs.map(double)");
@@ -224,7 +260,7 @@ describe("namer — tuple destructuring + index", () => {
   });
 
   it("a higher index destructures to positional names (the gepa filter shape)", async () => {
-    const out = await p("(define (f rows) (filter (lambda (pair) (zero? (cdr pair))) rows))");
+    const out = await p("(define (f rows) (filter (lambda (pair) (zero? (cadr pair))) rows))");
     expect(out).toContain("rows.filter(([first, second]) => second === 0)");
   });
 
