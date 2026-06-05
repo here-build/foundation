@@ -13,7 +13,7 @@
 import { describe, expect, test } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
@@ -23,7 +23,6 @@ import { traceToFlowGraphNaive } from "../trace-to-flow-graph-naive.js";
 import { traceToForest } from "../trace-to-forest.js";
 import { traceToStatechart } from "../statechart.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 /** Deterministic stub: react → {verdict}, reflect → {next}. The tagline grows by
  *  one char per round, so every round mints distinct infers (no cache collisions
@@ -43,10 +42,7 @@ const stub = {
  *  rounds infer points, plus the full plumbing tree the build must filter. */
 async function buildBenchTrace(rounds: number, personas: number): Promise<EvalTrace> {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
-  const ac = new AbortController();
-  const draining = startOrchestrator({ cache, router: singletonRouter(stub), signal: ac.signal }).done;
+  project.bindInfer(createInferStore(singletonRouter(stub)));
   const trace = new EvalTrace();
   const personaList = Array.from({ length: personas }, (_, i) => `"p${i}"`).join(" ");
   await project.run(
@@ -71,8 +67,6 @@ async function buildBenchTrace(rounds: number, personas: number): Promise<EvalTr
 `,
     { trace },
   );
-  ac.abort();
-  await draining;
   return trace;
 }
 

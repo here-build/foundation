@@ -17,11 +17,10 @@ import { describe, expect, it, vi } from "vitest";
 import { stringify as stringifyYaml } from "yaml";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import { parseChatPrompt } from "../backends/_shared.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 import { configScm } from "./fixtures/config-scm.js";
 
@@ -98,8 +97,6 @@ const stub = (
 describe("best-tagline.scm — integration smoke", () => {
   it("converges in one branch when everyone clicks the initial tagline", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const PERSONAS = {
       p1: profile("p1", "Maya"),
       p2: profile("p2", "Sam"),
@@ -122,8 +119,7 @@ describe("best-tagline.scm — integration smoke", () => {
     }));
 
     const backend = stub(() => "click");
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const program = project.addProgram("main.scm", FILES["main.scm"]);
     const out = (await program.run()) as {
@@ -145,15 +141,10 @@ describe("best-tagline.scm — integration smoke", () => {
     expect(out.buckets.every((b) => b.bucket === "clicking")).toBe(true);
     expect((out.summaries["audience-miss"] as { summary: string }).summary).toBe("");
     expect((out.summaries.unreachable as { summary: string }).summary).toBe("");
-
-    ac.abort();
-    await draining;
   });
 
   it("splits on plateau: triage divides bouncers, child branch runs on latent-fit subset", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const PERSONAS = {
       p1: profile("p1", "Maya"), // always clicks
       p2: profile("p2", "Sam"), // bounces, mismatch
@@ -184,8 +175,7 @@ describe("best-tagline.scm — integration smoke", () => {
     const mismatchFor = (name: string): boolean => name === "Sam";
 
     const backend = stub(verdictFor, mismatchFor);
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const program = project.addProgram("main.scm", FILES["main.scm"]);
     const out = (await program.run()) as {
@@ -215,8 +205,5 @@ describe("best-tagline.scm — integration smoke", () => {
     // audience-miss has Sam → consolidation fires. unreachable empty → no LM call.
     expect(out.summaries["audience-miss"]!.summary).toBe("stub consolidation summary");
     expect(out.summaries.unreachable!.summary).toBe("");
-
-    ac.abort();
-    await draining;
   });
 });

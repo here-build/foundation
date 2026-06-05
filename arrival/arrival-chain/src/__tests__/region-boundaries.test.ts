@@ -8,13 +8,12 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { regionBoundaries } from "../region-boundaries.js";
 import { singletonRouter } from "../registry.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 const LOOP_PROGRAM = `
 (define (react-cell tagline persona-id)
@@ -45,14 +44,9 @@ const loopStub = async (spec: ModelSpec) => {
 
 async function traceOf(program: string, complete: (spec: ModelSpec) => Promise<{ value: unknown }>): Promise<EvalTrace> {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
-  const ac = new AbortController();
-  const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+  project.bindInfer(createInferStore(singletonRouter({ complete })));
   const trace = new EvalTrace();
   await project.run(program, { trace });
-  ac.abort();
-  await draining;
   return trace;
 }
 

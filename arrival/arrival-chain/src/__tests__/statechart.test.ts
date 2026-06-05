@@ -14,11 +14,10 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import { EvalTrace } from "../trace.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 import { backwardCone, forwardCone, traceToStatechart, type Statechart } from "../statechart.js";
 
@@ -70,20 +69,10 @@ function stubBackend() {
 describe("traceToStatechart — gepa-loop causal DAG", () => {
   it("collapses react/reflect to one cell each, with forward + loopback edges", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter(stubBackend()),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(createInferStore(singletonRouter(stubBackend())));
 
     const trace = new EvalTrace();
     await project.run(PROGRAM, { trace });
-    ac.abort();
-    await draining;
 
     const chart = traceToStatechart(trace);
 

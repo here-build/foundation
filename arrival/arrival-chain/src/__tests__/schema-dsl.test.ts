@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { InferenceResult } from "../task.js";
-import { startOrchestrator } from "../worker.js";
-import { singletonRouter, StaticRouter } from "../registry.js";
+import { singletonRouter } from "../registry.js";
+import { inferKey, seededCache } from "./_seeded-cache.js";
+
+const neverBackend = singletonRouter({
+  complete: async () => {
+    throw new Error("backend hit — expected a content-cache replay");
+  },
+});
 
 /**
  * Schema is a nested tagged list of strings:
@@ -23,11 +28,8 @@ import { singletonRouter, StaticRouter } from "../registry.js";
 describe("infer — schema as tagged-list DSL", () => {
   it("accepts a structured schema and canonicalises it to JSON in the cache key", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: { name: "Maya" } }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer "fast"
@@ -39,16 +41,12 @@ describe("infer — schema as tagged-list DSL", () => {
     expect(complete.mock.calls[0][0].schema).toBe(
       '["object",["name","string"],["occupation","string"]]',
     );
-    ac.abort(); await draining;
   });
 
   it("identical structured schemas dedupe to one task", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     const program = `
       (infer "fast" "p" '("object" ("name" "string")))
@@ -57,17 +55,12 @@ describe("infer — schema as tagged-list DSL", () => {
     await project.run(program);
 
     expect(complete).toHaveBeenCalledTimes(1);
-    expect(cache.tasks.size).toBe(1);
-    ac.abort(); await draining;
   });
 
   it("different structured schemas produce different tasks", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer "fast" "p" '("object" ("name" "string")))
@@ -75,17 +68,12 @@ describe("infer — schema as tagged-list DSL", () => {
     `);
 
     expect(complete).toHaveBeenCalledTimes(2);
-    expect(cache.tasks.size).toBe(2);
-    ac.abort(); await draining;
   });
 
   it("nested array-of-objects schema", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: [] }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer "fast"
@@ -95,14 +83,13 @@ describe("infer — schema as tagged-list DSL", () => {
 
     expect(complete).toHaveBeenCalledTimes(1);
     expect(complete.mock.calls[0][0].schema).toContain('"enum","A","B"');
-    ac.abort(); await draining;
   });
 
   it("string-form schema keeps working (backward-compat)", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    cache.upsertTask("fast", "p", "ProfileLegacy", null).result = new InferenceResult({ valueJson: '"ok"' });
+    project.bindInfer(
+      createInferStore(neverBackend, seededCache({ [inferKey("fast", "p", "ProfileLegacy")]: "ok" })),
+    );
 
     const value = await project.run(`(car (infer "fast" "p" "ProfileLegacy"))`);
     expect(value).toBe("ok");
@@ -112,11 +99,8 @@ describe("infer — schema as tagged-list DSL", () => {
 describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
   it("s/field/string yields the same shape as s/field name string", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer "fast" "a" (s/object (s/field/string "name")))
@@ -124,18 +108,13 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     `);
 
     // Same canonical form ⇒ one task.
-    expect(cache.tasks.size).toBe(1);
     expect(complete).toHaveBeenCalledTimes(1);
-    ac.abort(); await draining;
   });
 
   it("primitive shortcut with description renders into JSON Schema", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer "fast" "x"
@@ -152,16 +131,12 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
       ["age", "integer"],
       ["verified", "boolean", "true if email-confirmed"],
     ]));
-    ac.abort(); await draining;
   });
 
   it("composite (s/field/array name config) — without description", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer "fast" "x"
@@ -172,16 +147,12 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     expect(complete.mock.calls[0][0].schema).toBe(
       '["object",["pains",["array","string"]]]',
     );
-    ac.abort(); await draining;
   });
 
   it("composite (s/field/enum name desc config) — with description", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: {} }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer "fast" "x"
@@ -192,6 +163,5 @@ describe("schema DSL shortcuts — s/field/<type> and descriptions", () => {
     expect(complete.mock.calls[0][0].schema).toBe(
       '["object",["bucket",["enum","A","B","C"],"audience classification"]]',
     );
-    ac.abort(); await draining;
   });
 });

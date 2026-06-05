@@ -16,11 +16,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { parseChatPrompt } from "../backends/_shared.js";
 import { Project } from "../project.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 
 const SEEDS = [
@@ -96,15 +95,12 @@ const recordingBackend = () => {
 describe("enrich-distant-personas — accumulating fold port", () => {
   it("threads each prior enrichment into the next call's prompt", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     project.addFile("baseline.json",     JSON.stringify(BASELINE));
     project.addFile("owl-seeds.json",    JSON.stringify(SEEDS));
     project.addFile("enrich-system.txt", SYSTEM_PROMPT);
 
     const backend = recordingBackend();
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = await project.run(PROGRAM);
 
@@ -130,37 +126,28 @@ describe("enrich-distant-personas — accumulating fold port", () => {
     // Call 2 — avoid block has baseline + both previous enrichments.
     expect(userText(2)).toContain("E-regulatory ");
     expect(userText(2)).toContain("E-part-time co");  // second enrichment's name tag
-
-    ac.abort(); await draining;
   });
 
   it("replays the whole fold with zero new backend calls", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     project.addFile("baseline.json",     JSON.stringify(BASELINE));
     project.addFile("owl-seeds.json",    JSON.stringify(SEEDS));
     project.addFile("enrich-system.txt", SYSTEM_PROMPT);
 
-    // First run: populate cache.
+    // First run: populate the single-flight store's session cache.
     const b1 = recordingBackend();
-    const ac1 = new AbortController();
-    const d1 = startOrchestrator({ cache, router: singletonRouter(b1), signal: ac1.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(b1)));
     const first = await project.run(PROGRAM);
     expect(b1.complete).toHaveBeenCalledTimes(3);
-    ac1.abort(); await d1;
 
-    // Second run: every step should hit the cache because each prompt
-    // deterministically embeds the priors that yielded the cached results
-    // at the prior steps — content-addressing makes the whole accumulating
-    // chain replay-stable.
-    const b2 = recordingBackend();
-    const ac2 = new AbortController();
-    const d2 = startOrchestrator({ cache, router: singletonRouter(b2), signal: ac2.signal }).done;
+    // Second run: every step should hit the same content-keyed cells because
+    // each prompt deterministically embeds the priors that yielded the cached
+    // results at the prior steps — content-addressing makes the whole
+    // accumulating chain replay-stable. The store (and its cells) persist
+    // across runs, so no further backend calls fire.
     const second = await project.run(PROGRAM);
 
-    expect(b2.complete).toHaveBeenCalledTimes(0);
+    expect(b1.complete).toHaveBeenCalledTimes(3);
     expect(second).toEqual(first);
-    ac2.abort(); await d2;
   });
 });

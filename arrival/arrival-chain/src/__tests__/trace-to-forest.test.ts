@@ -8,14 +8,13 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import { collapseMDL, type CandidateBox } from "../mdl-collapse.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
 import { traceToForest, type ForestOptions } from "../trace-to-forest.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 const PROGRAM = `
 (define (react-cell tagline persona-id)
@@ -39,26 +38,21 @@ const PROGRAM = `
 
 async function gepaTrace(): Promise<EvalTrace> {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
-  const ac = new AbortController();
-  const draining = startOrchestrator({
-    cache,
-    router: singletonRouter({
-      complete: async (spec: ModelSpec) => {
-        const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
-        const user = parsed.find((m) => m.role === "user")?.content ?? "";
-        if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
-        const [, current] = user.split("|");
-        return { value: { next: current === "t0" ? "t1" : "t2" } };
-      },
-    }),
-    signal: ac.signal,
-  }).done;
+  project.bindInfer(
+    createInferStore(
+      singletonRouter({
+        complete: async (spec: ModelSpec) => {
+          const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
+          const user = parsed.find((m) => m.role === "user")?.content ?? "";
+          if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
+          const [, current] = user.split("|");
+          return { value: { next: current === "t0" ? "t1" : "t2" } };
+        },
+      }),
+    ),
+  );
   const trace = new EvalTrace();
   await project.run(PROGRAM, { trace });
-  ac.abort();
-  await draining;
   return trace;
 }
 

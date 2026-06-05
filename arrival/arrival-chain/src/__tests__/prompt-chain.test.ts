@@ -9,13 +9,12 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
 import { traceToChain } from "../trace-to-chain.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 const ANALYZE = `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}}\n\nMessage: {{message}}\n`;
 const DECIDE = `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}}\n\nMessage: {{message}}\nAnalysis: {{analysis}}\n`;
@@ -23,16 +22,11 @@ const DECIDE = `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}}\n\nMessa
 describe("traceToChain — provenance through .prompt infers", () => {
   it("links run-analyze → run-decide across a let* binding", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(
+      createInferStore(singletonRouter({ complete: async (_s: ModelSpec) => ({ value: "stub" }) })),
+    );
     project.addFile("analyze.prompt", ANALYZE);
     project.addFile("decide.prompt", DECIDE);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete: async (_s: ModelSpec) => ({ value: "stub" }) }),
-      signal: ac.signal,
-    }).done;
     const trace = new EvalTrace();
     await project.run(
       `
@@ -45,8 +39,6 @@ describe("traceToChain — provenance through .prompt infers", () => {
 `,
       { trace },
     );
-    ac.abort();
-    await draining;
 
     const chain = traceToChain(trace);
     // Two infer calls, one provenance edge: analyze (layer 0) feeds decide (layer 1).

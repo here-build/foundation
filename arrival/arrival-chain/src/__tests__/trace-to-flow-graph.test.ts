@@ -13,7 +13,7 @@ import { autorun, untracked } from "mobx";
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
@@ -26,7 +26,6 @@ import {
   type FlowGraphNode,
 } from "../trace-to-flow-graph.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 const PROGRAM = `
 (define (react-cell tagline persona-id)
@@ -50,26 +49,21 @@ const PROGRAM = `
 
 async function gepaTrace(): Promise<EvalTrace> {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
-  const ac = new AbortController();
-  const draining = startOrchestrator({
-    cache,
-    router: singletonRouter({
-      complete: async (spec: ModelSpec) => {
-        const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
-        const user = parsed.find((m) => m.role === "user")?.content ?? "";
-        if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
-        const [, current] = user.split("|");
-        return { value: { next: current === "t0" ? "t1" : "t2" } };
-      },
-    }),
-    signal: ac.signal,
-  }).done;
+  project.bindInfer(
+    createInferStore(
+      singletonRouter({
+        complete: async (spec: ModelSpec) => {
+          const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
+          const user = parsed.find((m) => m.role === "user")?.content ?? "";
+          if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
+          const [, current] = user.split("|");
+          return { value: { next: current === "t0" ? "t1" : "t2" } };
+        },
+      }),
+    ),
+  );
   const trace = new EvalTrace();
   await project.run(PROGRAM, { trace });
-  ac.abort();
-  await draining;
   return trace;
 }
 
@@ -186,22 +180,19 @@ describe("traceToFlowGraph — unified model over the real gepa trace", () => {
     // re-fire. Only a NEW scope (a new record) does. This is the O(n²)→O(n) fix:
     // re-running the O(invocations) build on every trace-tick was the "minutes".
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({
-        complete: async (spec: ModelSpec) => {
-          const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
-          const user = parsed.find((m) => m.role === "user")?.content ?? "";
-          if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
-          const [, current] = user.split("|");
-          return { value: { next: current === "t0" ? "t1" : "t2" } };
-        },
-      }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(
+      createInferStore(
+        singletonRouter({
+          complete: async (spec: ModelSpec) => {
+            const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
+            const user = parsed.find((m) => m.role === "user")?.content ?? "";
+            if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
+            const [, current] = user.split("|");
+            return { value: { next: current === "t0" ? "t1" : "t2" } };
+          },
+        }),
+      ),
+    );
     const trace = new EvalTrace();
 
     let builds = 0;
@@ -212,8 +203,6 @@ describe("traceToFlowGraph — unified model over the real gepa trace", () => {
     });
 
     await project.run(PROGRAM, { trace });
-    ac.abort();
-    await draining;
     dispose();
 
     const scopes = trace.records.size;

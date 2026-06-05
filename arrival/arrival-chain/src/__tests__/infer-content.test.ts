@@ -1,11 +1,10 @@
 /**
  * inferTasksByScope — the content sidecar, against the real gepa trace. Pins the
- * bridge from a flow-graph scope id to the live InferenceTask(s) its instances
+ * bridge from a flow-graph scope id to the live InferBinding(s) its instances
  * created, so the renderer can show what each infer actually sent + got back.
  */
 import { describe, expect, it } from "vitest";
 
-import { InferenceResult } from "../task.js";
 import { inferTasksByScope } from "../infer-content.js";
 import { traceToFlowGraph } from "../trace-to-flow-graph.js";
 
@@ -28,8 +27,8 @@ describe("inferTasksByScope — infer node content", () => {
     for (const t of reactTasks) {
       expect(t.model).toBe("fast");
       expect(t.prompt).toContain("REACT|");
-      expect(t.result).toBeInstanceOf(InferenceResult);
-      expect((t.result as InferenceResult).value).toEqual({ verdict: "click" });
+      expect(t.completion).toBeDefined();
+      expect(t.completion!.value).toEqual({ verdict: "click" });
     }
 
     // The reflect scope is distinct and carries the REFLECT prompt.

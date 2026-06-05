@@ -1,6 +1,7 @@
 /**
  * Shared gepa-trace harness — a real `EvalTrace` from running the canonical
- * gepa-until-plateau program through the orchestrator with a stub router.
+ * gepa-until-plateau program through the single-flight `InferStore` with a stub
+ * router.
  *
  * Extracted so new trace-consumer tests stop re-pasting it (it was duplicated
  * across trace-to-forest / statechart / trace-to-flow-graph). NOT a `.test.ts`
@@ -8,12 +9,11 @@
  * can migrate to this when next touched.
  */
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 export const GEPA_PROGRAM = `
 (define (react-cell tagline persona-id)
@@ -37,25 +37,20 @@ export const GEPA_PROGRAM = `
 
 export async function gepaTrace(): Promise<EvalTrace> {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
-  const ac = new AbortController();
-  const draining = startOrchestrator({
-    cache,
-    router: singletonRouter({
-      complete: async (spec: ModelSpec) => {
-        const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
-        const user = parsed.find((m) => m.role === "user")?.content ?? "";
-        if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
-        const [, current] = user.split("|");
-        return { value: { next: current === "t0" ? "t1" : "t2" } };
-      },
-    }),
-    signal: ac.signal,
-  }).done;
+  project.bindInfer(
+    createInferStore(
+      singletonRouter({
+        complete: async (spec: ModelSpec) => {
+          const parsed = JSON.parse(spec.prompt) as { role: string; content: string }[];
+          const user = parsed.find((m) => m.role === "user")?.content ?? "";
+          if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
+          const [, current] = user.split("|");
+          return { value: { next: current === "t0" ? "t1" : "t2" } };
+        },
+      }),
+    ),
+  );
   const trace = new EvalTrace();
   await project.run(GEPA_PROGRAM, { trace });
-  ac.abort();
-  await draining;
   return trace;
 }

@@ -7,11 +7,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { parseChatPrompt } from "../backends/_shared.js";
-import type { ModelSpec } from "../model.js";
+import type { Completion, ModelSpec } from "../model.js";
 import { runPipeline } from "../runner.js";
 import { singletonRouter } from "../registry.js";
 
-const run = (files: Record<string, string>, complete: (s: ModelSpec) => Promise<unknown>) =>
+const run = (files: Record<string, string>, complete: (s: ModelSpec) => Promise<Completion>) =>
   runPipeline({ files, entry: "main.scm", router: singletonRouter({ complete: vi.fn(complete) }) });
 
 describe(".prompt format", () => {

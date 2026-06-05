@@ -14,30 +14,27 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
 import { EvalTrace, Invocation } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 const fresh = () => {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
+  const cache = undefined;
   return { project, cache };
 };
 
-/** Bootstrap a worker against a stub backend that echoes input deterministically. */
-function workerOver(project: Project, cache: InferenceCache) {
-  const ac = new AbortController();
-  const done = startOrchestrator({
-    cache,
-    router: singletonRouter({
-      complete: vi.fn(async (s: { prompt: string }) => ({ value: `R[${s.prompt}]` })),
-    }),
-    signal: ac.signal,
-  }).done;
-  return { stop: () => ac.abort(), done };
+/** Bind a stub backend that echoes input deterministically, single-flight. */
+function workerOver(project: Project, _cache: unknown) {
+  project.bindInfer(
+    createInferStore(
+      singletonRouter({
+        complete: vi.fn(async (s: { prompt: string }) => ({ value: `R[${s.prompt}]` })),
+      }),
+    ),
+  );
+  return { stop: () => {}, done: Promise.resolve() };
 }
 
 /** Collect every invocation in the trace whose value made it to exit. */

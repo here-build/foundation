@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
 import { runCostSummary, summarizeCosts, type TaskCost } from "../run-cost.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 // qwen3.5-9b prices a {1M in, 1M out} call at $0.05 + $0.10 = $0.15 (see pricing.test.ts).
 const USAGE = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
@@ -59,11 +58,8 @@ describe("summarizeCosts — pure arithmetic", () => {
 describe("runCostSummary — fresh run pays, replay is saved (end-to-end)", () => {
   it("fresh → spent>0/saved=0; replay → spent=0/saved=what-the-fresh-run-paid", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: "ok", usage: USAGE }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     const program = `(infer "fast" "hello")`;
 
@@ -86,8 +82,5 @@ describe("runCostSummary — fresh run pays, replay is saved (end-to-end)", () =
     expect(c2.saved).toBeGreaterThan(0);
     expect(c2.saved).toBeCloseTo(c1.spent, 9); // the replay saved exactly what run 1 paid
     expect(c2.spent + c2.saved).toBeCloseTo(c2.projected, 9);
-
-    ac.abort();
-    await draining;
   });
 });

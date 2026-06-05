@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import { defineImport, makeProjectLoader } from "../loader.js";
 import { Project } from "../project.js";
+import { singletonRouter } from "../registry.js";
 
 const newProject = () => {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
+  project.bindInfer(createInferStore(singletonRouter({ complete: async () => ({ value: "" }) })));
   return project;
 };
 

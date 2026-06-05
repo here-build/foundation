@@ -12,10 +12,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 
 const stub = (delayMs = 0) => {
@@ -60,35 +59,27 @@ const PROGRAM = `
 describe("cross-fertilization — N×(N-1) critique matrix", () => {
   it("fires one call per (critic, target) pair, skipping the diagonal", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     project.addFile("personas.json", JSON.stringify([
       { name: "Maya" }, { name: "Priya" }, { name: "Sam" },
     ]));
 
     const backend = stub();
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     await project.run(PROGRAM);
 
-    // 3 personas, no self-critique: 3 × 2 = 6 calls.
+    // 3 personas, no self-critique: 3 × 2 = 6 distinct content-keyed calls.
     expect(backend.complete).toHaveBeenCalledTimes(6);
-    expect(cache.tasks.size).toBe(6);
-    ac.abort(); await draining;
   });
 
   it("the K² matrix fans out concurrently — one delay, not K²", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     project.addFile("personas.json", JSON.stringify([
       { name: "A" }, { name: "B" }, { name: "C" }, { name: "D" },
     ]));
 
     const backend = stub(60); // 4 × 3 = 12 calls; sequential would be 720ms
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const t0 = Date.now();
     await project.run(PROGRAM);
@@ -96,38 +87,31 @@ describe("cross-fertilization — N×(N-1) critique matrix", () => {
 
     expect(backend.complete).toHaveBeenCalledTimes(12);
     expect(elapsed).toBeLessThan(300); // not 12 × 60 = 720
-    ac.abort(); await draining;
   });
 
   it("adding a persona only invalidates 2N new cells, not (N+1)²", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     project.addFile("personas.json", JSON.stringify([
       { name: "Maya" }, { name: "Priya" }, { name: "Sam" },
     ]));
 
+    // One store bound once: its single-flight cell map IS the session cache, so a
+    // second run replays the unchanged pairs and only fires the genuinely-new ones.
+    const backend = stub();
+    project.bindInfer(createInferStore(singletonRouter(backend)));
+
     // First pass: 3 personas → 6 cells.
-    const b1 = stub();
-    const ac1 = new AbortController();
-    const d1 = startOrchestrator({ cache, router: singletonRouter(b1), signal: ac1.signal }).done;
     await project.run(PROGRAM);
-    expect(b1.complete).toHaveBeenCalledTimes(6);
-    ac1.abort(); await d1;
+    expect(backend.complete).toHaveBeenCalledTimes(6);
 
     // Add one persona — replace personas.json with the bigger list.
     project.files.get("personas.json")!.publish(JSON.stringify([
       { name: "Maya" }, { name: "Priya" }, { name: "Sam" }, { name: "Lex" },
     ]));
 
-    // Second pass: only the new (Lex, *) row and (*, Lex) column are
-    // uncached — that's 2*3 = 6 new cells. The original 6 still hit.
-    const b2 = stub();
-    const ac2 = new AbortController();
-    const d2 = startOrchestrator({ cache, router: singletonRouter(b2), signal: ac2.signal }).done;
+    // Second pass: only the new (Lex, *) row and (*, Lex) column are uncached —
+    // 2*3 = 6 new cells. The original 6 still hit, so the backend climbs by 6, to 12.
     await project.run(PROGRAM);
-    expect(b2.complete).toHaveBeenCalledTimes(6);
-    expect(cache.tasks.size).toBe(12); // 4 × 3 total
-    ac2.abort(); await d2;
+    expect(backend.complete).toHaveBeenCalledTimes(12);
   });
 });

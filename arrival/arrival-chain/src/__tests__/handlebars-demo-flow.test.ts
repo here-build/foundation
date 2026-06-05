@@ -1,14 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
+import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { InferenceResult } from "../task.js";
+import { singletonRouter } from "../registry.js";
 
 describe("demo flow: hbs + dict + infer", () => {
   it("end-to-end with stubbed infer", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    const complete = vi.fn(async (s: ModelSpec) => {
+      const isFrOfEn = s.prompt.startsWith("French of:");
+      return { value: isFrOfEn ? "vendre la mèche" : "spill the beans" };
+    });
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
     project.addFile("fr-of-en.hbs", `French of: {{english}}`);
     project.addFile("en-of-fr.hbs", `English of: {{french}}`);
     const program = project.addProgram("demo.scm", `
@@ -18,17 +22,8 @@ describe("demo flow: hbs + dict + infer", () => {
         (list english (fr-of-en english) (en-of-fr (fr-of-en english))))
       (round-trip "spill the beans")
     `);
-    const seed = setInterval(() => {
-      for (const t of cache.tasks.values()) {
-        if (t.result !== null) continue;
-        const isFrOfEn = t.prompt.startsWith("French of:");
-        t.result = new InferenceResult({ valueJson: JSON.stringify(isFrOfEn ? "vendre la mèche" : "spill the beans") });
-      }
-    }, 5);
-    try {
-      const r = await program.run();
-      expect(r).toEqual(["spill the beans", "vendre la mèche", "spill the beans"]);
-    } finally { clearInterval(seed); }
-    expect(cache.tasks.size).toBe(2);
+    const r = await program.run();
+    expect(r).toEqual(["spill the beans", "vendre la mèche", "spill the beans"]);
+    expect(complete).toHaveBeenCalledTimes(2);
   });
 });

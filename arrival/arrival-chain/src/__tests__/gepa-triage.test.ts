@@ -11,10 +11,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 
 const PROGRAM_PREAMBLE = `
@@ -76,8 +75,6 @@ const triageStub = (
 describe("triage-bouncers — mismatch vs latent fit split", () => {
   it("calls LM once per bouncer; skips clickers; splits cleanly", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     // 4 personas, 4 reactions:
     //   p1 click  — no triage
     //   p2 bounce — category rejection → mismatch=true
@@ -89,8 +86,7 @@ describe("triage-bouncers — mismatch vs latent fit split", () => {
       p4: { mismatch: true,  reason: "rejects JS as a foundation" },
     });
 
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -111,16 +107,12 @@ ${PROGRAM_PREAMBLE}
     expect(out).toEqual([3, 2, 1]);
     expect(backend.complete).toHaveBeenCalledTimes(3);
 
-    ac.abort(); await draining;
   });
 
   it("returns empty lists when no one bounced", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const backend = triageStub({});
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -135,7 +127,6 @@ ${PROGRAM_PREAMBLE}
     expect(out).toEqual([0, 0, 0]);
     expect(backend.complete).toHaveBeenCalledTimes(0);
 
-    ac.abort(); await draining;
   });
 
   it("replays the same triage result without backend calls (cache hit)", async () => {
@@ -152,21 +143,15 @@ ${PROGRAM_PREAMBLE}
       p2: { mismatch: false, reason: "could be reached with clearer copy" },
     };
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const b1 = triageStub(verdicts);
-    const ac1 = new AbortController();
-    const d1 = startOrchestrator({ cache, router: singletonRouter(b1), signal: ac1.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(b1)));
     const first = await project.run(PROGRAM);
     expect(b1.complete).toHaveBeenCalledTimes(2);
-    ac1.abort(); await d1;
 
-    const b2 = triageStub(verdicts);
-    const ac2 = new AbortController();
-    const d2 = startOrchestrator({ cache, router: singletonRouter(b2), signal: ac2.signal }).done;
+    // Replay over the same store: every content tuple hits its existing cell,
+    // so no further backend calls fire.
     const second = await project.run(PROGRAM);
-    expect(b2.complete).toHaveBeenCalledTimes(0);
+    expect(b1.complete).toHaveBeenCalledTimes(2);
     expect(second).toEqual(first);
-    ac2.abort(); await d2;
   });
 });

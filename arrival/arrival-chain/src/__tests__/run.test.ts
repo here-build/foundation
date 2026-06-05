@@ -5,18 +5,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
 import { RunError, RunResult } from "../run.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 const fresh = () => {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
-  return { project, cache };
+  return { project };
 };
 
 const waitFor = async (cond: () => boolean, timeoutMs = 1000): Promise<void> => {
@@ -86,14 +83,9 @@ describe("Project.invoke — reverse-membrane apiCall Run", () => {
   });
 
   it("records every infer call in run.inferences as the trace", async () => {
-    const { project, cache } = fresh();
+    const { project } = fresh();
     const complete = vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` }));
-    const ac = new AbortController();
-    const worker = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     project.addFile(
       "ai.scm",
@@ -110,20 +102,13 @@ describe("Project.invoke — reverse-membrane apiCall Run", () => {
     expect(run.inferences.length).toBe(2);
     expect(run.inferences[0]).toBe(JSON.stringify(["m", "p1", null, null]));
     expect(run.inferences[1]).toBe(JSON.stringify(["m", "p2", null, null]));
-    ac.abort();
-    await worker;
   });
 });
 
 describe("Project.sandboxRun — forward-membrane sandbox Run", () => {
   it("mints a sandbox Run with no input, populates inferences", async () => {
-    const { project, cache } = fresh();
-    const ac = new AbortController();
-    const worker = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete: async () => ({ value: "ok" }) }),
-      signal: ac.signal,
-    }).done;
+    const { project } = fresh();
+    project.bindInfer(createInferStore(singletonRouter({ complete: async () => ({ value: "ok" }) })));
 
     project.addFile("main.scm", `(car (infer "m" "hi"))`);
     const program = project.findFile("main.scm")!;
@@ -139,8 +124,6 @@ describe("Project.sandboxRun — forward-membrane sandbox Run", () => {
     expect((run.output as RunResult).value).toBe("ok");
     expect(run.inferences.length).toBe(1);
     expect(run.inferences[0]).toBe(JSON.stringify(["m", "hi", null, null]));
-    ac.abort();
-    await worker;
   });
 });
 
@@ -224,14 +207,9 @@ describe("Project.sandboxRunTraced — studio sandbox with userForms", () => {
 
 describe("Project.runHypothesis — counterfactual replay", () => {
   it("substitutes a tweaked infer result, leaves other cells intact", async () => {
-    const { project, cache } = fresh();
+    const { project } = fresh();
     const complete = vi.fn(async (s: { prompt: string }) => ({ value: `real:${s.prompt}` }));
-    const ac = new AbortController();
-    const worker = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     project.addFile(
       "branch.scm",
@@ -256,8 +234,6 @@ describe("Project.runHypothesis — counterfactual replay", () => {
     expect(hypothesis.inferences.length).toBe(1);
     expect(hypothesis.inferences[0]).toBe(JSON.stringify(["m", "b", null, null]));
     expect(original.hypotheses.get("h1")).toBe(hypothesis);
-    ac.abort();
-    await worker;
   });
 
   it("hypothesis runs against the pinned version, not the latest", async () => {

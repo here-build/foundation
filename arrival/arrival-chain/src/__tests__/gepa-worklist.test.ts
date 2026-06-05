@@ -19,10 +19,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 import { configScm } from "./fixtures/config-scm.js";
 
@@ -233,8 +232,6 @@ const stub = (
 describe("optimize-tagline — worklist driver", () => {
   it("single branch — low bounce, no triage, no recurse", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     project.addFile("config.scm", configScm({
       "max-iter": 1,
       "plateau-delta": -1,     // never plateau
@@ -252,8 +249,7 @@ describe("optimize-tagline — worklist driver", () => {
       { t0: "t1" },
       {},
     );
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = (await project.run(`
 (require "config.scm")
@@ -269,13 +265,10 @@ ${PREAMBLE}
     // triaged means low-bounce, so just check it isn't a populated array.
     expect(Array.isArray(out[0]!.triaged)).toBe(false);
 
-    ac.abort(); await draining;
   });
 
   it("two branches — high bounce triggers triage and recursion on latent-fit subset", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     project.addFile("config.scm", configScm({
       "max-iter": 1,
       "plateau-delta": -1,
@@ -312,8 +305,7 @@ ${PREAMBLE}
         p3: { mismatch: false, reason: "clarity issue, could be reached" },
       },
     );
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = (await project.run(`
 (require "config.scm")
@@ -332,13 +324,10 @@ ${PREAMBLE}
     expect((child.personas as string[])).toEqual(["p3"]);
     expect((child["bounce-rate"] as number)).toBe(0);
 
-    ac.abort(); await draining;
   });
 
   it("total-iter-cap bounds the recursion (oscillation safety)", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     project.addFile("config.scm", configScm({
       "max-iter": 0,
       "plateau-delta": -1,
@@ -353,8 +342,7 @@ ${PREAMBLE}
       {},
       { p1: { mismatch: false, reason: "always reachable in theory" } },
     );
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = (await project.run(`
 (require "config.scm")
@@ -365,6 +353,5 @@ ${PREAMBLE}
     expect(out.length).toBe(3);
     expect(out.every(n => n.tagline === "t0")).toBe(true);
 
-    ac.abort(); await draining;
   });
 });

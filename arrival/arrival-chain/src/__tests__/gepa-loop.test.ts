@@ -14,10 +14,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 
 const PROGRAM_PREAMBLE = `
@@ -141,8 +140,6 @@ const gepaStub = (
 describe("gepa-until-plateau — single-candidate hill climb", () => {
   it("stops on max-iter; returns highest-scoring tagline in history", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const personas = ["p1"];
 
     // Trajectory: t0 bounce, t1 click (best), t2 bounce.
@@ -156,8 +153,7 @@ describe("gepa-until-plateau — single-candidate hill climb", () => {
       { t0: "t1", t1: "t2" },
     );
 
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -169,13 +165,10 @@ ${PROGRAM_PREAMBLE}
     // 3 react × 1 persona + 2 reflect = 5 backend calls
     expect(backend.complete).toHaveBeenCalledTimes(5);
 
-    ac.abort(); await draining;
   });
 
   it("stops on the 3-frame degrading window before max-iter", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const personas = ["p1", "p2"];
 
     // 6 taglines, 2 personas, click-rate trajectory:
@@ -195,8 +188,7 @@ ${PROGRAM_PREAMBLE}
       { t0: "t1", t1: "t2", t2: "t3", t3: "t4", t4: "t5" },
     );
 
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -213,13 +205,10 @@ ${PROGRAM_PREAMBLE}
     // 6 iters × 2 personas + 5 reflections = 17 calls; degrading triggers, loop never advances past iter=5.
     expect(backend.complete).toHaveBeenCalledTimes(6 * 2 + 5);
 
-    ac.abort(); await draining;
   });
 
   it("hints from prior branches change the reflection result (frontier memory)", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     // The stub returns DIFFERENT next-taglines depending on whether the
     // reflection user-prompt mentions the inherited hint ("t-prior").
     // This proves: hints flow into the reflection call's user content
@@ -239,8 +228,7 @@ ${PROGRAM_PREAMBLE}
       throw new Error(`unexpected: ${user}`);
     });
     const backend = { complete };
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     // Pass an inherited hint: prior branch found that "t-prior" reached p1.
     // We expect reflection to synthesize "t-merged" instead of the cold "t1".
@@ -252,13 +240,10 @@ ${PROGRAM_PREAMBLE}
 
     expect(out[0]).toBe("t-merged");
 
-    ac.abort(); await draining;
   });
 
   it("continues while last-3 vs prior-3 delta stays above plateau-delta", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     // Monotonic improvement: every step gains > delta, never plateaus.
     // We bound it with max-iter so the test finishes.
     const v = (a: string) => ({ p1: a });
@@ -274,8 +259,7 @@ ${PROGRAM_PREAMBLE}
       { t0: "t1", t1: "t2", t2: "t3", t3: "t4", t4: "t5" },
     );
 
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = (await project.run(`
 ${PROGRAM_PREAMBLE}
@@ -290,6 +274,5 @@ ${PROGRAM_PREAMBLE}
     expect(out[1]).toBe(1);
     expect(backend.complete).toHaveBeenCalledTimes(6 + 5); // 6 react × 1 + 5 reflect
 
-    ac.abort(); await draining;
   });
 });

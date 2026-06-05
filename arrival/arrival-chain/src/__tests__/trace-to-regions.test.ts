@@ -8,13 +8,12 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
 import { traceToRegions, type Region } from "../trace-to-regions.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 const PROGRAM = `
 (define (react-cell tagline persona-id)
@@ -38,26 +37,21 @@ const PROGRAM = `
 
 async function gepaTrace(): Promise<EvalTrace> {
   const project = ArrivalChain.bootstrap(new Project()).root;
-  const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-  project.bindCache(cache);
-  const ac = new AbortController();
-  const draining = startOrchestrator({
-    cache,
-    router: singletonRouter({
-      complete: async (spec: ModelSpec) => {
-        const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
-        const user = msgs.find((m) => m.role === "user")?.content ?? "";
-        if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
-        const current = user.split("|")[1] ?? "";
-        return { value: { next: current === "t0" ? "t1" : "t2" } };
-      },
-    }),
-    signal: ac.signal,
-  }).done;
+  project.bindInfer(
+    createInferStore(
+      singletonRouter({
+        complete: async (spec: ModelSpec) => {
+          const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
+          const user = msgs.find((m) => m.role === "user")?.content ?? "";
+          if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
+          const current = user.split("|")[1] ?? "";
+          return { value: { next: current === "t0" ? "t1" : "t2" } };
+        },
+      }),
+    ),
+  );
   const trace = new EvalTrace();
   await project.run(PROGRAM, { trace });
-  ac.abort();
-  await draining;
   return trace;
 }
 
@@ -124,16 +118,9 @@ describe("traceToRegions", () => {
 
   it("labels .prompt invocations by their run-X binding, direct infers by infer/chat", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(singletonRouter({ complete: async (_s: ModelSpec) => ({ value: "v" }) })));
     project.addFile("analyze.prompt", `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}} {{message}}\n`);
     project.addFile("decide.prompt", `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}} {{message}} {{analysis}}\n`);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete: async (_s: ModelSpec) => ({ value: "v" }) }),
-      signal: ac.signal,
-    }).done;
     const trace = new EvalTrace();
     await project.run(
       `
@@ -146,8 +133,6 @@ describe("traceToRegions", () => {
 `,
       { trace },
     );
-    ac.abort();
-    await draining;
 
     const ls = leaves(traceToRegions(trace).roots);
     const labels = new Map(ls.map((l) => [l.label, l.nodeKind]));
@@ -182,16 +167,9 @@ describe("traceToRegions", () => {
     // `inputsProvenance.failures = [pointA, pointB]`, so both edges attribute to
     // `failures` instead of the block in general.
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) })));
     project.addFile("react.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nREACT {{tagline}}\n`);
     project.addFile("reflect.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nREFLECT {{failures}}\n`);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) }),
-      signal: ac.signal,
-    }).done;
     const trace = new EvalTrace();
     await project.run(
       `
@@ -203,8 +181,6 @@ describe("traceToRegions", () => {
 `,
       { trace },
     );
-    ac.abort();
-    await draining;
 
     const { roots, edges } = traceToRegions(trace);
     const ls = leaves(roots);
@@ -224,16 +200,9 @@ describe("traceToRegions", () => {
     // (producer, slot), not collapse to a single arbitrary field — so the consumer's
     // two field-rows each get their own wire from the producer.
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) })));
     project.addFile("score.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nSCORE {{seed}}\n`);
     project.addFile("judge.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nJUDGE {{score}} AND {{also}}\n`);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) }),
-      signal: ac.signal,
-    }).done;
     const trace = new EvalTrace();
     await project.run(
       `
@@ -244,8 +213,6 @@ describe("traceToRegions", () => {
 `,
       { trace },
     );
-    ac.abort();
-    await draining;
 
     const { roots, edges } = traceToRegions(trace);
     const ls = leaves(roots);
@@ -257,6 +224,41 @@ describe("traceToRegions", () => {
     expect(new Set(intoJudge.map((e) => e.field))).toEqual(new Set(["score", "also"]));
   });
 
+  it("labels a FIELD-PLUCK edge — a single plucked field flows into the slot, not the whole value", async () => {
+    // 01-linear-chain: `(b (refine :idea (field a "idea")))`. spark's value is a record
+    // `{idea, energy}`; only its `idea` field lands in refine's `:idea` slot. The whole
+    // spark value is NOT present in the slot — a pluck is, so the gate must recognise a
+    // MEMBER of the producer flowing in, and label the edge with the consumer slot.
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    project.bindInfer(
+      createInferStore(
+        singletonRouter({
+          complete: async (s: ModelSpec) => (/SPARK/.test(s.prompt) ? { value: { idea: "vivid", energy: 0.7 } } : { value: s.prompt }),
+        }),
+      ),
+    );
+    project.addFile("spark.prompt", `---\nmodel: fast\noutput:\n  idea: string\n  energy: number\n---\n{{role "user"}}\nSPARK {{topic}}\n`);
+    project.addFile("refine.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nREFINE {{idea}}\n`);
+    const trace = new EvalTrace();
+    await project.run(
+      `
+(define spark  (require "spark.prompt"))
+(define refine (require "refine.prompt"))
+(let ((a (spark "ks" :topic "t")))
+  (refine "kr" :idea (field a "idea")))
+`,
+      { trace },
+    );
+
+    const { roots, edges } = traceToRegions(trace);
+    const ls = leaves(roots);
+    const refine = ls.find((l) => l.label === "refine")!;
+    const spark = ls.find((l) => l.label === "spark")!;
+    const intoRefine = edges.filter((e) => e.to === refine.id && e.from === spark.id);
+    expect(intoRefine.length).toBe(1);
+    expect(intoRefine[0]!.field).toBe("idea");
+  });
+
   it("does NOT wire a producer that merely INFLUENCED a literal slot (Where-vs-Why)", async () => {
     // `inputsProvenance` carries a slot's influenced-BY provenance, but field wiring
     // wants value-flowed-FROM. Here `s`'s value gates a branch whose RESULT is a fixed
@@ -264,16 +266,9 @@ describe("traceToRegions", () => {
     // CHOSEN because of s) yet none of s's value appears in it. The note slot must get
     // NO field-qualified wire from the score producer (the gepa seed-instruction bug).
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) })));
     project.addFile("score.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nSCORE {{seed}}\n`);
     project.addFile("note.prompt", `---\nmodel: fast\n---\n{{role "user"}}\nNOTE {{note}}\n`);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt }) }),
-      signal: ac.signal,
-    }).done;
     const trace = new EvalTrace();
     await project.run(
       `
@@ -284,8 +279,6 @@ describe("traceToRegions", () => {
 `,
       { trace },
     );
-    ac.abort();
-    await draining;
 
     const { roots, edges } = traceToRegions(trace);
     const ls = leaves(roots);
@@ -303,14 +296,7 @@ describe("traceToRegions", () => {
     // DEGENERATE (`(if {10 + 20 < 50} …)`-grade) → the decision dissolves, leaving just the
     // gated infer leaves, no `<>` marker. `always`'s constant `(if #t …)` dissolves too.
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt.slice(-12) }) }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete: async (s: ModelSpec) => ({ value: s.prompt.slice(-12) }) })));
     const trace = new EvalTrace();
     await project.run(
       `
@@ -327,8 +313,6 @@ describe("traceToRegions", () => {
 `,
       { trace },
     );
-    ac.abort();
-    await draining;
 
     const { roots } = traceToRegions(trace);
     // No `<>` marker survives: every `if` here tests static data, so all dissolve —
@@ -349,21 +333,18 @@ describe("traceToRegions", () => {
     // value traces to an inference, the decision is DYNAMIC (renders, not degenerate). Over
     // (x y) one comes back truthy and one false → `big is present` / `big is absent`.
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({
-        complete: async (spec: ModelSpec) => {
-          const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
-          const user = msgs.find((m) => m.role === "user")?.content ?? "";
-          if (user.startsWith("G|")) return { value: { big: user.endsWith("x") } };
-          return { value: "leaf" };
-        },
-      }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(
+      createInferStore(
+        singletonRouter({
+          complete: async (spec: ModelSpec) => {
+            const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
+            const user = msgs.find((m) => m.role === "user")?.content ?? "";
+            if (user.startsWith("G|")) return { value: { big: user.endsWith("x") } };
+            return { value: "leaf" };
+          },
+        }),
+      ),
+    );
     const trace = new EvalTrace();
     await project.run(
       `
@@ -379,8 +360,6 @@ describe("traceToRegions", () => {
 `,
       { trace },
     );
-    ac.abort();
-    await draining;
 
     const { roots, edges } = traceToRegions(trace);
     const conditions = decisions(roots)
@@ -409,21 +388,18 @@ describe("traceToRegions", () => {
     // infer, not merely read the value as static text. The branch goes both ways over
     // (x y) → it's live and renders a `<>` decision.
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({
-        complete: async (spec: ModelSpec) => {
-          const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
-          const user = msgs.find((m) => m.role === "user")?.content ?? "";
-          if (user.startsWith("R|")) return { value: { verdict: user.endsWith("x") ? "go" : "stop" } };
-          return { value: "leaf" };
-        },
-      }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(
+      createInferStore(
+        singletonRouter({
+          complete: async (spec: ModelSpec) => {
+            const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
+            const user = msgs.find((m) => m.role === "user")?.content ?? "";
+            if (user.startsWith("R|")) return { value: { verdict: user.endsWith("x") ? "go" : "stop" } };
+            return { value: "leaf" };
+          },
+        }),
+      ),
+    );
     const trace = new EvalTrace();
     await project.run(
       `
@@ -439,8 +415,6 @@ describe("traceToRegions", () => {
 `,
       { trace },
     );
-    ac.abort();
-    await draining;
 
     const { roots, edges } = traceToRegions(trace);
     const ifIds = new Set(decisions(roots).filter((d) => d.label === "if").map((d) => d.id));
@@ -491,18 +465,9 @@ describe("traceToRegions", () => {
     // reader knows `loop` tail-recurses from its `(define …)`, so the single body
     // entry is a loop container from the start.
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    const ac = new AbortController();
-    const draining = startOrchestrator({
-      cache,
-      router: singletonRouter({ complete: async (_s: ModelSpec) => ({ value: { verdict: "click" } }) }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete: async (_s: ModelSpec) => ({ value: { verdict: "click" } }) })));
     const trace = new EvalTrace();
     await project.run(PROGRAM.replace('(loop "t0" 0 2)', '(loop "t0" 0 0)'), { trace });
-    ac.abort();
-    await draining;
 
     const { roots } = traceToRegions(trace);
     const loops = fanouts(roots).filter((f) => f.stages.some((s) => s.label === "loop"));

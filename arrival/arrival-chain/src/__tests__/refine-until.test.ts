@@ -8,10 +8,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
 
 const PROGRAM = `
@@ -76,11 +75,8 @@ const momTestStub = () => {
 describe("refine-until — convergence loop", () => {
   it("loops until predicate passes; depth depends on the input", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const backend = momTestStub();
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter(backend), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
     const out = await project.run(PROGRAM);
 
@@ -88,27 +84,22 @@ describe("refine-until — convergence loop", () => {
     expect(backend.complete).toHaveBeenCalledTimes(3);
     // Last list element is the iteration count when it converged.
     expect(out).toEqual(["tell me about the last time you faced this problem at work", "2"]);
-
-    ac.abort(); await draining;
   });
 
   it("replays the whole convergence chain with zero backend calls", async () => {
+    // The InferStore IS the session cache; bound once, a second run of the same
+    // program replays from content cells without re-hitting the backend.
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    const b1 = momTestStub();
-    const ac1 = new AbortController();
-    const d1 = startOrchestrator({ cache, router: singletonRouter(b1), signal: ac1.signal }).done;
-    const first = await project.run(PROGRAM);
-    expect(b1.complete).toHaveBeenCalledTimes(3);
-    ac1.abort(); await d1;
+    const backend = momTestStub();
+    project.bindInfer(createInferStore(singletonRouter(backend)));
 
-    const b2 = momTestStub();
-    const ac2 = new AbortController();
-    const d2 = startOrchestrator({ cache, router: singletonRouter(b2), signal: ac2.signal }).done;
+    const first = await project.run(PROGRAM);
+    const callsAfterFirst = backend.complete.mock.calls.length;
+    expect(callsAfterFirst).toBe(3);
+
     const second = await project.run(PROGRAM);
-    expect(b2.complete).toHaveBeenCalledTimes(0);
+    // No new backend calls on the replay run.
+    expect(backend.complete.mock.calls.length).toBe(callsAfterFirst);
     expect(second).toEqual(first);
-    ac2.abort(); await d2;
   });
 });

@@ -1,19 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import { Project } from "../project.js";
-import { InferenceResult } from "../task.js";
+import { singletonRouter } from "../registry.js";
+import { inferKey, seededCache } from "./_seeded-cache.js";
 
-const seed = (cache: InferenceCache, m: string, p: string, valueJson: string) => {
-  cache.upsertTask(m, p, null).result = new InferenceResult({ valueJson });
-};
+const neverBackend = singletonRouter({
+  complete: async () => {
+    throw new Error("backend hit — expected a content-cache replay");
+  },
+});
 
 describe("require — Plexus VFS preamble", () => {
   it("inlines a .scm file so its defines are visible to the caller", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("_lib.scm", `(define (greet who) (string-append "hi " who))`);
 
     const value = await project.run(`
@@ -26,8 +28,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("binds a .txt file as a string identifier (filename minus extension)", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("greeting.txt", "hello from txt");
 
     const value = await project.run(`
@@ -40,8 +41,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("binds a .json file as a JS object — access via @ or :key", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("config.json", `{"answer": 42, "ok": true}`);
 
     const value = await project.run(`
@@ -54,10 +54,8 @@ describe("require — Plexus VFS preamble", () => {
 
   it("threads required helpers into an infer call", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend, seededCache({ [inferKey("fast", "Greet world")]: "hi" })));
     project.addFile("_prompts.scm", `(define (greet-prompt who) (string-append "Greet " who))`);
-    seed(cache, "fast", "Greet world", '"hi"');
 
     const value = await project.run(`
       (require "_prompts.scm")
@@ -69,8 +67,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("expands transitive requires once (dedup)", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("_base.scm", `(define base 1)`);
     project.addFile("_mid.scm", `(require "_base.scm") (define mid (+ base 1))`);
 
@@ -85,8 +82,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("ignores (require …) tokens in comments and strings — not real requires", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     // A real-world library that documents its own usage in a header comment and
     // mentions a require inside a string. Neither is a real require; the naive
     // regex used to match them → false `_lib.scm → _lib.scm` self-cycle.
@@ -108,8 +104,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("ignores a (require …) inside a block comment", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("_b.scm", `#| example: (require "_b.scm") |# (define x 7)`);
     const value = await project.run(`(require "_b.scm") x`);
     expect(value).toBe(7);
@@ -117,8 +112,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("throws on a cyclic require", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("a.scm", `(require "b.scm")`);
     project.addFile("b.scm", `(require "a.scm")`);
 
@@ -127,8 +121,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("a parallel (map (require …)) over the same VALUE leaf dedups, not a false cycle", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("d.json", `{"n": 7}`);
     // `map` evaluates its body in parallel (promise_all), so the three requires of
     // d.json fire concurrently. The old flat in-flight Set read siblings #2 and #3
@@ -139,8 +132,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("a parallel (map (require …)) over the same EVAL leaf dedups (the react.prompt shape)", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("t.hbs", `hi {{who}}`);
     // `.hbs`/`.prompt` are eval-kind leaves — exactly the class that fanned out as
     // `(map (require "react.prompt") …)` and spuriously cycled. Loading is what
@@ -151,15 +143,13 @@ describe("require — Plexus VFS preamble", () => {
 
   it("throws when the file isn't in the project", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     await expect(project.run(`(require "missing.scm")`)).rejects.toThrow(/not found/);
   });
 
   it("parses .yaml and binds the value", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile(
       "config.yaml",
       ["name: maya", "scores:", "  - 10", "  - 20", "  - 30"].join("\n"),
@@ -171,8 +161,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("parses .toml and binds the value", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile(
       "config.toml",
       ['name = "priya"', "scores = [1, 2, 3]"].join("\n"),
@@ -184,8 +173,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("parses .ndjson and binds an array of records", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile(
       "people.ndjson",
       ['{"id":1,"name":"a"}', '{"id":2,"name":"b"}', '{"id":3,"name":"c"}'].join("\n"),
@@ -197,8 +185,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("a data require RETURNS its value and does NOT spill a filename-global", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     project.addFile("data.json", JSON.stringify({ x: 7 }));
 
     // Explicit binding works — require returns the value.
@@ -209,8 +196,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("makes a define-macro from a required file available to the caller", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     // A library's `define-macro` must be installed before the CALLER's next form
     // expands. `require` is eager-sequential (the macro spills during the require
     // form) and macro expansion is at eval time — so by the time `(when …)`
@@ -228,8 +214,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("annotates a throw inside a required module with the require chain", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     // a requires b; b throws (unbound variable). The error carries the chain of
     // files loading when it threw — the deepest require wins, so the chain reads
     // entry → failing module. (L3 stacktraces: this is the "which require led
@@ -249,8 +234,7 @@ describe("require — Plexus VFS preamble", () => {
 
   it("tags a required module's frames with its file path (file:line in the scheme stack)", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
+    project.bindInfer(createInferStore(neverBackend));
     // A require-time throw via a USER-function call located in the module: only
     // user-function calls push a frame (builtins like `car` are leaf ops), so the
     // `(boom)` call — located in util.scm via the `source` threaded through parse —

@@ -15,27 +15,22 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
 import { detectShape } from "../ast-shapes.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore, InferBinding } from "../infer-store.js";
 import type { Invocation } from "../trace.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
 import { EvalTrace } from "../trace.js";
-import { startOrchestrator } from "../worker.js";
 
 describe("live call-stack capture at (infer) time", () => {
   it("walks each task's invocation up to the enclosing AST shape", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-
-    const ac = new AbortController();
-    const worker = startOrchestrator({
-      cache,
-      router: singletonRouter({
-        complete: vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` })),
-      }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(
+      createInferStore(
+        singletonRouter({
+          complete: vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` })),
+        }),
+      ),
+    );
 
     project.addFile(
       "main.scm",
@@ -53,13 +48,13 @@ describe("live call-stack capture at (infer) time", () => {
     });
     await finished;
 
-    // Each infer call minted a task → invocation chain captured in the trace.
-    const tasks = [...cache.tasks.values()];
-    expect(tasks.length).toBe(3);
+    // Each infer call minted a binding → invocation chain captured in the trace.
+    const bindings = [...trace.invocationByTask.keys()].filter((k) => k instanceof InferBinding);
+    expect(bindings.length).toBe(3);
 
-    // For each task, walk the invocation chain — the ENCLOSING forms.
+    // For each binding, walk the invocation chain — the ENCLOSING forms.
     const containerKinds = new Set<string>();
-    for (const task of tasks) {
+    for (const task of bindings) {
       const inv = trace.invocationFor(task);
       expect(inv).toBeDefined();
       // Walk up through .parent until we find a shape we recognise as a
@@ -85,23 +80,17 @@ describe("live call-stack capture at (infer) time", () => {
     // All three infers were under the same (map …) — semantic collapse can
     // group them into one Map ×3 node instead of three flat span entries.
     expect([...containerKinds]).toEqual(["map"]);
-
-    ac.abort();
-    await worker;
   });
 
   it("distinguishes infers in different containers (map vs branch)", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    const ac = new AbortController();
-    const worker = startOrchestrator({
-      cache,
-      router: singletonRouter({
-        complete: vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` })),
-      }),
-      signal: ac.signal,
-    }).done;
+    project.bindInfer(
+      createInferStore(
+        singletonRouter({
+          complete: vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` })),
+        }),
+      ),
+    );
 
     project.addFile(
       "mix.scm",
@@ -123,7 +112,8 @@ describe("live call-stack capture at (infer) time", () => {
 
     // Group prompts by their innermost container shape.
     const promptsByContainer = new Map<string, string[]>();
-    for (const task of cache.tasks.values()) {
+    for (const task of trace.invocationByTask.keys()) {
+      if (!(task instanceof InferBinding)) continue;
       const inv = trace.invocationFor(task);
       if (!inv) continue;
       let cur: Invocation | null = inv.parent;
@@ -141,8 +131,5 @@ describe("live call-stack capture at (infer) time", () => {
 
     expect(promptsByContainer.get("branch")?.sort()).toEqual(["in-then"]);
     expect(promptsByContainer.get("map")?.sort()).toEqual(["in-map-1", "in-map-2"]);
-
-    ac.abort();
-    await worker;
   });
 });

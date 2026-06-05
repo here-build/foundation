@@ -1,21 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { InferenceResult } from "../task.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
+import { inferKey, seededCache } from "./_seeded-cache.js";
+
+const neverBackend = singletonRouter({
+  complete: async () => {
+    throw new Error("backend hit — expected a content-cache replay");
+  },
+});
 
 describe("infer/chat — role-tagged message list", () => {
   it("serialises (role content) pairs into a canonical JSON prompt", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (s: ModelSpec) => ({ value: `recv:${s.prompt}` }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer/chat "fast"
@@ -27,16 +29,12 @@ describe("infer/chat — role-tagged message list", () => {
     expect(complete.mock.calls[0][0].prompt).toBe(
       '[{"role":"system","content":"be terse"},{"role":"user","content":"hello"}]',
     );
-    ac.abort(); await draining;
   });
 
   it("dedupes identical message lists to a single task", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: "ok" }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     const program = `
       (infer/chat "fast"
@@ -47,17 +45,12 @@ describe("infer/chat — role-tagged message list", () => {
     await project.run(program);
 
     expect(complete).toHaveBeenCalledTimes(1);
-    expect(cache.tasks.size).toBe(1);
-    ac.abort(); await draining;
   });
 
   it("different messages produce different tasks", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: "ok" }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (infer/chat "fast" (list (infer/chat/user "first")))
@@ -65,17 +58,12 @@ describe("infer/chat — role-tagged message list", () => {
     `);
 
     expect(complete).toHaveBeenCalledTimes(2);
-    expect(cache.tasks.size).toBe(2);
-    ac.abort(); await draining;
   });
 
   it("cache-key composes with infer/chat the same way as infer", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = vi.fn(async (_s: ModelSpec) => ({ value: "ok" }));
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal }).done;
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (map (lambda (i)
@@ -84,16 +72,12 @@ describe("infer/chat — role-tagged message list", () => {
     `);
 
     expect(complete).toHaveBeenCalledTimes(3);
-    expect(cache.tasks.size).toBe(3);
-    ac.abort(); await draining;
   });
 
   it("infer/chat seeds and replays from a pre-populated cache without the worker", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const canonical = '[{"role":"system","content":"sys"},{"role":"user","content":"u"}]';
-    cache.upsertTask("fast", canonical, null, null).result = new InferenceResult({ valueJson: '"hit"' });
+    project.bindInfer(createInferStore(neverBackend, seededCache({ [inferKey("fast", canonical)]: "hit" })));
 
     const value = await project.run(`
       (car (infer/chat "fast"

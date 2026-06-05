@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { ArrivalCache, InferenceCache } from "../cache.js";
+import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
-import { InferenceResult } from "../task.js";
-import { startOrchestrator } from "../worker.js";
 import { singletonRouter } from "../registry.js";
+import { inferKey, seededCache } from "./_seeded-cache.js";
 
 const echoStub = (delayMs = 0) =>
   vi.fn(async (s: ModelSpec) => {
@@ -17,11 +16,8 @@ const echoStub = (delayMs = 0) =>
 describe("Project.run — the converge kernel", () => {
   it("converges a chain of dependent infers", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = echoStub();
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal });
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     const value = await project.run(`
       (define a (car (infer "m" "p1")))
@@ -30,17 +26,21 @@ describe("Project.run — the converge kernel", () => {
 
     expect(String(value)).toContain("echo(m):");
     expect(complete).toHaveBeenCalledTimes(2);
-    ac.abort();
-    await draining;
   });
 
   it("replays from a pre-populated cache without touching the model", async () => {
-    // Cache as continuation: seed the entities directly, no worker needed.
+    // Cache as continuation: seed the entities directly, no backend needed.
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
-    cache.upsertTask("m", "seed", null).result = new InferenceResult({ valueJson: '"X"' });
-    cache.upsertTask("m", "xX", null).result = new InferenceResult({ valueJson: '"done"' });
+    project.bindInfer(
+      createInferStore(
+        singletonRouter({
+          complete: async () => {
+            throw new Error("backend hit — expected a content-cache replay");
+          },
+        }),
+        seededCache({ [inferKey("m", "seed")]: "X", [inferKey("m", "xX")]: "done" }),
+      ),
+    );
 
     const value = await project.run(`(car (infer "m" (string-append "x" (car (infer "m" "seed")))))`);
 
@@ -49,11 +49,8 @@ describe("Project.run — the converge kernel", () => {
 
   it("auto-parallelizes (map infer …) — frontier resolves concurrently", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = echoStub(60);
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal });
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     const t0 = Date.now();
     await project.run(`
@@ -65,17 +62,12 @@ describe("Project.run — the converge kernel", () => {
 
     expect(complete).toHaveBeenCalledTimes(8);
     expect(elapsed).toBeLessThan(300); // 8 × 60 = 480 sequential
-    ac.abort();
-    await draining;
   });
 
-  it("dedups identical specs to a single task within a run", async () => {
+  it("dedups identical specs to a single backend call within a run", async () => {
     const project = ArrivalChain.bootstrap(new Project()).root;
-    const cache = ArrivalCache.bootstrap(new InferenceCache()).root;
-    project.bindCache(cache);
     const complete = echoStub();
-    const ac = new AbortController();
-    const draining = startOrchestrator({ cache, router: singletonRouter({ complete }), signal: ac.signal });
+    project.bindInfer(createInferStore(singletonRouter({ complete })));
 
     await project.run(`
       (apply string-append
@@ -83,8 +75,5 @@ describe("Project.run — the converge kernel", () => {
     `);
 
     expect(complete).toHaveBeenCalledTimes(1);
-    expect(cache.tasks.size).toBe(1);
-    ac.abort();
-    await draining;
   });
 });
