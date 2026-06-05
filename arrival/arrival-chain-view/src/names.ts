@@ -12,6 +12,9 @@
  * lowering pass (it only changes what `cleanName` returns per binding). See the
  * package SPEC §7. Tracked as its own task.
  */
+import pluralize from "pluralize";
+
+import { isAtom, isKeyword, isList, keywordName, type Node } from "./nodes.js";
 
 const RESERVED = new Set([
   "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else",
@@ -40,4 +43,24 @@ export function cleanName(scheme: string): string {
   if (/^[0-9]/.test(s)) s = `_${s}`;
   if (RESERVED.has(s)) s = `${s}_`;
   return s;
+}
+
+/**
+ * A readable singular element name for a collection node, or null (the caller falls
+ * back to a generic `__x`). The "magic" that turns `examples.map((__x) => …)` into
+ * `examples.map((example) => …)`. Fires only when the collection name is genuinely
+ * plural:
+ *   examples      → example
+ *   (:scores c)   → score      (accessor field name)
+ *   pool / data   → null       (singular === base, nothing gained)
+ * Never returns `acc` — that name is reserved for the reduce accumulator.
+ */
+export function elementName(list: Node): string | null {
+  let base: string | undefined;
+  if (isAtom(list) && !list.str) base = cleanName(list.atom);
+  else if (isList(list) && isKeyword(list.list[0])) base = cleanName(keywordName(list.list[0]));
+  if (base === undefined || base === "") return null;
+  const singular = pluralize.singular(base);
+  if (!singular || singular === base || singular === "acc") return null;
+  return singular;
 }

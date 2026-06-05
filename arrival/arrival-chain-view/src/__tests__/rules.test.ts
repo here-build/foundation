@@ -64,22 +64,22 @@ describe("arity bridge (§5)", () => {
     expect(await p("(define (f xs) (map double xs))")).toContain("xs.map(double)");
   });
 
-  it("single-list map of an accessor builtin wraps in an arrow", async () => {
-    expect(await p("(define (f pairs) (map car pairs))")).toContain("pairs.map((__x) => __x[0])");
+  it("single-list map of an accessor builtin wraps in an arrow (singular element name)", async () => {
+    expect(await p("(define (f pairs) (map car pairs))")).toContain("pairs.map((pair) => pair[0])");
   });
 
   it("multi-list map → index-driven traverse (no zip)", async () => {
-    const out = await p("(define (f xs ys) (map cons xs ys))");
-    expect(out).toContain("xs.map((__x, __i) => [__x, ys[__i]])");
+    const out = await p("(define (f items others) (map cons items others))");
+    expect(out).toContain("items.map((item, __i) => [item, others[__i]])");
   });
 
   it("every over two lists → indexed predicate", async () => {
-    const out = await p("(define (f xs ys) (every >= xs ys))");
-    expect(out).toContain("xs.every((__x, __i) => __x >= ys[__i])");
+    const out = await p("(define (f scores limits) (every >= scores limits))");
+    expect(out).toContain("scores.every((score, __i) => score >= limits[__i])");
   });
 
-  it("apply + → reduce-sum", async () => {
-    expect(await p("(define (f xs) (apply + xs))")).toContain("xs.reduce((__a, __b) => __a + __b, 0)");
+  it("apply + → reduce-sum (acc + singular element)", async () => {
+    expect(await p("(define (f scores) (apply + scores))")).toContain("scores.reduce((acc, score) => acc + score, 0)");
   });
 
   it("append → spread concat (not R.append)", async () => {
@@ -89,8 +89,8 @@ describe("arity bridge (§5)", () => {
   });
 
   it("max-by → reduce, inlining the unary key lambda in place (not R.maxBy)", async () => {
-    const out = await p("(define (f xs) (max-by (lambda (c) (:score c)) xs))");
-    expect(out).toContain("xs.reduce((__m, __x) => (__x.score > __m.score ? __x : __m))");
+    const out = await p("(define (f candidates) (max-by (lambda (c) (:score c)) candidates))");
+    expect(out).toContain("candidates.reduce((acc, candidate) => (candidate.score > acc.score ? candidate : acc))");
     expect(out).not.toContain("R.maxBy");
   });
 });
@@ -143,8 +143,8 @@ describe("round-2 audit regressions (precedence + operators + escapes + collisio
   });
 
   it("apply of `-` / `/` folds via reduce (no garbage identifier)", async () => {
-    expect(await p("(define (f xs) (apply - xs))")).toContain("xs.reduce((__a, __b) => __a - __b)");
-    expect(await p("(define (f xs) (apply / xs))")).toContain("xs.reduce((__a, __b) => __a / __b)");
+    expect(await p("(define (f nums) (apply - nums))")).toContain("nums.reduce((acc, num) => acc - num)");
+    expect(await p("(define (f nums) (apply / nums))")).toContain("nums.reduce((acc, num) => acc / num)");
   });
 
   it("apply of min/max → Math.min/max spread", async () => {
@@ -174,5 +174,30 @@ describe("round-2 audit regressions (precedence + operators + escapes + collisio
     // `:max-words` as a raw object key would be invalid JS (hyphen); clean it.
     expect(await p("(define (f x) (g :max-words 1 :tone x))")).toContain("{ maxWords: 1, tone: x }");
     expect(await p("(define (f a) (dict :max-words a))")).toContain("maxWords: a");
+  });
+});
+
+describe("namer heuristics — singular element + acc", () => {
+  it("singularizes a plural collection name for a synthetic element param", async () => {
+    expect(await p("(define (f items) (map car items))")).toContain("items.map((item) => item[0])");
+  });
+
+  it("derives the element name from an accessor field", async () => {
+    const out = await p("(define (f c) (every >= (:scores c) (:limits c)))");
+    expect(out).toContain("c.scores.every((score, __i) => score >= c.limits[__i])");
+  });
+
+  it("names the reduce accumulator `acc`", async () => {
+    expect(await p("(define (f scores) (apply + scores))")).toContain("scores.reduce((acc, score) =>");
+  });
+
+  it("falls back to __x when the collection has no good singular (pool → pool)", async () => {
+    expect(await p("(define (f pool) (map car pool))")).toContain("pool.map((__x) => __x[0])");
+  });
+
+  it("leaves a user-written lambda param untouched (heuristic is synthetic-params-only)", async () => {
+    expect(await p("(define (f examples) (map (lambda (ex) (:id ex)) examples))")).toContain(
+      "examples.map((ex) => ex.id)",
+    );
   });
 });

@@ -23,7 +23,7 @@ const assess = (instruction) => ({ instruction, scores: evaluate(instruction) })
 // A readable summary of the examples this candidate got wrong.
 const failing = (candidate) =>
   examples
-    .map((__x, __i) => [__x, candidate.scores[__i]])
+    .map((example, __i) => [example, candidate.scores[__i]])
     .filter((pair) => pair[1] === 0)
     .map((__x) => __x[0]);
 
@@ -32,8 +32,8 @@ const mutate = (candidate) => assess(reflect(candidate.instruction, failing(cand
 
 // Pareto frontier: keep every candidate no other candidate beats outright.
 const dominates = (a, b) =>
-  a.scores.every((__x, __i) => __x >= b.scores[__i]) &&
-  a.scores.some((__x, __i) => __x > b.scores[__i]);
+  a.scores.every((score, __i) => score >= b.scores[__i]) &&
+  a.scores.some((score, __i) => score > b.scores[__i]);
 
 const frontier = (pool) => pool.filter((c) => !pool.some((other) => dominates(other, c)));
 
@@ -45,10 +45,11 @@ const generation = (pool) => frontier([...pool, ...pool.map(mutate)]);
 
 // Evolve from the seed for \`rounds\` generations; keep the best on the full set.
 const gepa = (seed, rounds) =>
-  iterate(generation, [assess(seed)], rounds).reduce((__m, __x) =>
-    __x.scores.reduce((__a, __b) => __a + __b, 0) > __m.scores.reduce((__a, __b) => __a + __b, 0)
+  iterate(generation, [assess(seed)], rounds).reduce((acc, __x) =>
+    __x.scores.reduce((acc, score) => acc + score, 0) >
+    acc.scores.reduce((acc, score) => acc + score, 0)
       ? __x
-      : __m,
+      : acc,
   );
 
 // The winning candidate — its :instruction is the optimized prompt.

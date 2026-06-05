@@ -7,7 +7,7 @@
  * `(every >= xs ys)` lower to an INDEX-driven traverse (`xs.map((x,i)=>…ys[i]…)`),
  * which is more legible than an explicit `zip`; `(apply + xs)` folds to `reduce`.
  */
-import { cleanName } from "./names.js";
+import { cleanName, elementName } from "./names.js";
 import { head, isAtom, isList, isKeyword, keywordName, type Node } from "./nodes.js";
 
 /** What a stdlib emitter receives: a way to lower sub-expressions (+ a binding-substituting variant). */
@@ -88,14 +88,15 @@ function mapLike(method: "map" | "filter" | "every" | "some"): Emitter {
   return (args, E) => {
     const [fn, ...lists] = args;
     if (!fn || lists.length === 0) return `[]`;
+    const el = elementName(lists[0]!) ?? "__x"; // examples.map((example) => …)
     if (lists.length === 1) {
       return passableFn(fn)
         ? `${E.lower(lists[0]!)}.${method}(${E.lower(fn)})`
-        : `${E.lower(lists[0]!)}.${method}((__x) => ${applyFn(fn, ["__x"], E)})`;
+        : `${E.lower(lists[0]!)}.${method}((${el}) => ${applyFn(fn, [el], E)})`;
     }
     // Multi-list: drive off the first list, pull the rest by index (the arity bridge).
     const rest = lists.slice(1).map((l) => `${E.lower(l)}[__i]`);
-    return `${E.lower(lists[0]!)}.${method}((__x, __i) => ${applyFn(fn, ["__x", ...rest], E)})`;
+    return `${E.lower(lists[0]!)}.${method}((${el}, __i) => ${applyFn(fn, [el, ...rest], E)})`;
   };
 }
 
@@ -144,16 +145,17 @@ export const STDLIB: Record<string, Emitter> = {
   apply: (args, E) => {
     const [fn, xs] = args;
     const x = E.lower(xs!);
+    const el = elementName(xs!) ?? "__b"; // (apply + scores) → scores.reduce((acc, score) => …)
     if (isAtom(fn) && !fn.str) {
       switch (fn.atom) {
         case "+":
-          return `${x}.reduce((__a, __b) => __a + __b, 0)`;
+          return `${x}.reduce((acc, ${el}) => acc + ${el}, 0)`;
         case "*":
-          return `${x}.reduce((__a, __b) => __a * __b, 1)`;
+          return `${x}.reduce((acc, ${el}) => acc * ${el}, 1)`;
         case "-":
-          return `${x}.reduce((__a, __b) => __a - __b)`;
+          return `${x}.reduce((acc, ${el}) => acc - ${el})`;
         case "/":
-          return `${x}.reduce((__a, __b) => __a / __b)`;
+          return `${x}.reduce((acc, ${el}) => acc / ${el})`;
         case "max":
           return `Math.max(...${x})`;
         case "min":
@@ -169,8 +171,9 @@ export const STDLIB: Record<string, Emitter> = {
   // `max-by` also errors on the empty list, so this is faithful, not a new bug.
   "max-by": (args, E) => {
     const [fn, xs] = args;
+    const el = elementName(xs!) ?? "__x";
     const key = (v: string) => (isList(fn) && head(fn) === "lambda" ? inlineUnaryLambda(fn!, v, E) : applyFn(fn!, [v], E));
-    return `${E.lower(xs!)}.reduce((__m, __x) => (${key("__x")} > ${key("__m")} ? __x : __m))`;
+    return `${E.lower(xs!)}.reduce((acc, ${el}) => (${key(el)} > ${key("acc")} ? ${el} : acc))`;
   },
 
   // arithmetic
