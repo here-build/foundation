@@ -26,7 +26,7 @@
   (dict :instruction instruction :scores (evaluate instruction)))
 
 ;; A readable summary of the examples this candidate got wrong.
-(define (failing candidate) (map car (filter (lambda (pair) (zero? (cadr pair))) (map cons examples (:scores candidate)))))
+(define (failing candidate) (map car (filter (lambda (pair) (zero? (cadr pair))) (map list examples (:scores candidate)))))
 
 ;; Reflective mutation: hand this candidate's failures to the reflect prompt.
 (define (mutate candidate)

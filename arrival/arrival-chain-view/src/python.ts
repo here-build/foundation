@@ -166,8 +166,13 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     const srcs = lists.map((l) => lower(l));
     const vars = lists.map((_l, i) => `_${"abcdefgh"[i] ?? `v${i}`}`);
     const zipped = `zip(${srcs.join(", ")})`;
-    if (isAtom(fn) && fn.atom === "cons" && lists.length === 2) return `list(${zipped})`;
-    const applied = isAtom(fn) && PY_BINOP[fn.atom] ? PY_BINOP[fn.atom]!(vars[0]!, vars[1]!) : `${lower(fn)}(${vars.join(", ")})`;
+    if (isAtom(fn) && fn.atom === "list" && lists.length === 2) return `list(${zipped})`; // (map list a b) → pairs
+    const applied =
+      isAtom(fn) && fn.atom === "cons"
+        ? `[${vars[0]}, *${vars[1]}]` // cons = prepend
+        : isAtom(fn) && PY_BINOP[fn.atom]
+          ? PY_BINOP[fn.atom]!(vars[0]!, vars[1]!)
+          : `${lower(fn)}(${vars.join(", ")})`;
     const head2 = method === "map" ? `[${applied}` : method === "every" ? `all(${applied}` : method === "some" ? `any(${applied}` : `[${applied}`;
     const tail = method === "map" ? "]" : method === "filter" ? "]" : ")";
     return `${head2} for ${vars.join(", ")} in ${zipped}${tail}`;
@@ -179,7 +184,7 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     every: (a) => comp("every", a),
     some: (a) => comp("some", a),
     list: (a) => `[${a.map(lower).join(", ")}]`,
-    cons: (a) => `(${lower(a[0]!)}, ${lower(a[1]!)})`,
+    cons: (a) => `[${lower(a[0]!)}, *${lower(a[1]!)}]`, // prepend (pairs use `list` + car/cadr)
     car: (a) => `${lower(a[0]!)}[0]`,
     cdr: (a) => `${lower(a[0]!)}[1:]`, // list TAIL; cadr/caddr access the 2nd/3rd element
     cadr: (a) => `${lower(a[0]!)}[1]`,

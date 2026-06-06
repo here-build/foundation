@@ -40,7 +40,7 @@ const BINOP: Record<string, (a: string, b: string) => string> = {
   ">": (a, b) => `${a} > ${b}`,
   "<=": (a, b) => `${a} <= ${b}`,
   ">=": (a, b) => `${a} >= ${b}`,
-  cons: (a, b) => `[${a}, ${b}]`,
+  cons: (a, b) => `[${a}, ...${b}]`, // prepend (the canonical cons; pairs use `list`)
   "eq?": (a, b) => `${a} === ${b}`,
   "eqv?": (a, b) => `${a} === ${b}`,
   "equal?": (a, b) => `${a} === ${b}`,
@@ -85,6 +85,7 @@ function inlineLambda(lambda: ListNode, argStrs: string[], E: Emit): string {
 function applyFn(fn: Node, argStrs: string[], E: Emit): string {
   if (isList(fn) && head(fn) === "lambda") return inlineLambda(fn, argStrs, E);
   if (isAtom(fn) && !fn.str) {
+    if (fn.atom === "list") return `[${argStrs.join(", ")}]`; // n-ary; e.g. `(map list xs ys)` → pairs
     const b = BINOP[fn.atom];
     if (b && argStrs.length === 2) return b(argStrs[0]!, argStrs[1]!);
     const u = UNOP[fn.atom];
@@ -183,7 +184,9 @@ export const STDLIB: Record<string, Emitter> = {
 
   // list construction / access
   list: (args, E) => `[${args.map((a) => E.lower(a)).join(", ")}]`,
-  cons: (args, E) => `[${E.lower(args[0]!)}, ${E.lower(args[1]!)}]`,
+  // `cons` is PREPEND — `(cons x xs)` → `[x, ...xs]` (the 99% Scheme use). A 2-tuple/pair
+  // is `(list a b)`, accessed by `car`/`cadr`. So cons + car/cadr/cdr coexist cleanly.
+  cons: (args, E) => `[${E.lower(args[0]!)}, ...${E.lower(args[1]!)}]`,
   car: (args, E) => `${E.lower(args[0]!)}[0]`,
   // `cdr` is the list TAIL; `cadr`/`caddr` access the 2nd/3rd element (of a pair or
   // list). Keeping them distinct is what lets `cons`/pairs and list-recursion coexist.

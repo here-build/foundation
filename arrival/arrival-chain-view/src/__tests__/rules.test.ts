@@ -81,8 +81,8 @@ describe("list layer — pair vs list (the cdr/cadr split), cut, list-ref, trans
     expect(await p("(define (f xs) (caddr xs))")).toContain("xs[2]");
   });
 
-  it("cons stays a pair / cell [a, b]", async () => {
-    expect(await p("(define (f a b) (cons a b))")).toContain("[a, b]");
+  it("cons is PREPEND — `(cons x xs)` → `[x, ...xs]` (a pair is `(list a b)`)", async () => {
+    expect(await p("(define (f a xs) (cons a xs))")).toContain("[a, ...xs]");
   });
 
   it("list-ref → index; even?/odd? → modulo", async () => {
@@ -165,7 +165,7 @@ describe("arity bridge (§5)", () => {
   });
 
   it("multi-list map → index-driven traverse (no zip), index named i", async () => {
-    const out = await p("(define (f items others) (map cons items others))");
+    const out = await p("(define (f items others) (map list items others))");
     expect(out).toContain("items.map((item, i) => [item, others[i]])");
   });
 
@@ -276,7 +276,7 @@ describe("round-2 audit regressions (precedence + operators + escapes + collisio
 describe("namer heuristics — singular element + acc", () => {
   it("singularizes a plural collection name for a synthetic element param (whole use)", async () => {
     // shown on a whole-use (multi-list driver); a single-list car would destructure instead.
-    expect(await p("(define (f items others) (map cons items others))")).toContain("items.map((item, i) =>");
+    expect(await p("(define (f items others) (map list items others))")).toContain("items.map((item, i) =>");
   });
 
   it("derives the element name from an accessor field", async () => {
@@ -294,7 +294,7 @@ describe("namer heuristics — singular element + acc", () => {
   });
 
   it("falls back to __x when the collection has no good singular (used whole)", async () => {
-    expect(await p("(define (f pool others) (map cons pool others))")).toContain("pool.map((__x, i) => [__x, others[i]])");
+    expect(await p("(define (f pool others) (map list pool others))")).toContain("pool.map((__x, i) => [__x, others[i]])");
   });
 
   it("leaves a user-written lambda param untouched (heuristic is synthetic-params-only)", async () => {
@@ -315,10 +315,10 @@ describe("namer — tuple destructuring + index", () => {
   });
 
   it("a param used whole is NOT destructured", async () => {
-    expect(await p("(define (f xs others) (map cons xs others))")).not.toContain("[head]");
+    expect(await p("(define (f xs others) (map list xs others))")).not.toContain("[head]");
   });
 
   it("index param is `i` (free), and `idx` if `i` is the element name", async () => {
-    expect(await p("(define (f items others) (map cons items others))")).toContain(", i) =>");
+    expect(await p("(define (f items others) (map list items others))")).toContain(", i) =>");
   });
 });
