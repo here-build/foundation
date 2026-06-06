@@ -300,9 +300,15 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     return `(${a}() => { const ${name} = ${a}(${emitParams.join(", ")}) => ${body}; return ${isAsync ? `await ${call}` : call}; })()`;
   }
 
+  /** A body statement: an internal `(define …)` → a block-local `const` (Scheme allows
+   *  defines at the head of any body); anything else → an expression statement. */
+  function lowerStmt(form: Node): string {
+    return isList(form) && head(form) === "define" ? lowerDefine(form) : `${lower(form)};`;
+  }
+
   function lowerSequence(forms: Node[], open: string, close: string): string {
     const last = lower(forms[forms.length - 1]!);
-    const lead = forms.slice(0, -1).map((f) => `${lower(f)};`);
+    const lead = forms.slice(0, -1).map(lowerStmt);
     return `${open} ${[...lead, `return ${last};`].join(" ")} ${close}`;
   }
 

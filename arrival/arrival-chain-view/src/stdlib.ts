@@ -227,6 +227,8 @@ export const STDLIB: Record<string, Emitter> = {
           return `Math.max(...${x})`;
         case "min":
           return `Math.min(...${x})`;
+        case "append":
+          return `${x}.flat()`; // (apply append list-of-lists) → concat one level
       }
       // An operator with no n-ary JS form (`<`, `string-append`, …) cannot be spread-called
       // — that would emit a call to a garbage identifier. A door, not a silent miss.

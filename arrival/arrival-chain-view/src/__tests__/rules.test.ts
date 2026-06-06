@@ -110,6 +110,25 @@ describe("list layer — pair vs list (the cdr/cadr split), cut, list-ref, trans
   });
 });
 
+describe("internal defines + apply-append", () => {
+  it("an internal value define → a block-local const, body returns the trailing expr", async () => {
+    const out = await p("(define (f x) (define y (* x 2)) (+ x y))");
+    expect(out).toContain("const f = (x) =>");
+    expect(out).toContain("const y = x * 2;");
+    expect(out).toContain("return x + y;");
+  });
+
+  it("an internal function define → a block-local arrow (Scheme's local helper)", async () => {
+    const out = await p("(define (f xs) (define (g a) (* a 2)) (g xs))");
+    expect(out).toContain("const g = (a) => a * 2;");
+    expect(out).toContain("return g(xs);");
+  });
+
+  it("(apply append xss) → flat() (concat a list of lists one level)", async () => {
+    expect(await p("(define (f xss) (apply append xss))")).toContain("xss.flat()");
+  });
+});
+
 describe("let unwrapping — a let/let* body IS the arrow's block (no redundant IIFE)", () => {
   it("let* as a function body becomes the block directly", async () => {
     const out = await p("(define (trace a ex) (let* ((m (:input ex)) (r (run a m))) (dict :m m :r r)))");
