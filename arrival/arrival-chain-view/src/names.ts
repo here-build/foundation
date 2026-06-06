@@ -74,13 +74,15 @@ export function nameCandidates(scheme: string): string[] {
  * plural:
  *   examples      → example
  *   (:scores c)   → score      (accessor field name)
+ *   (scores a)    → score      (a getter call whose name is plural)
  *   pool / data   → null       (singular === base, nothing gained)
  * Never returns `acc` — that name is reserved for the reduce accumulator.
  */
 export function elementName(list: Node): string | null {
   let base: string | undefined;
   if (isAtom(list) && !list.str) base = cleanName(list.atom);
-  else if (isList(list) && isKeyword(list.list[0])) base = cleanName(keywordName(list.list[0]));
+  else if (isList(list) && isKeyword(list.list[0])) base = cleanName(keywordName(list.list[0])); // (:scores c)
+  else if (isList(list) && isAtom(list.list[0]) && !list.list[0].str) base = cleanName(list.list[0].atom); // (scores a)
   if (base === undefined || base === "") return null;
   const singular = pluralize.singular(base);
   if (!singular || singular === base || singular === "acc") return null;

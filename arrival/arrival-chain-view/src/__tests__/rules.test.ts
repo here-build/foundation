@@ -265,6 +265,11 @@ describe("namer heuristics — singular element + acc", () => {
     expect(out).toContain("c.scores.every((score, i) => score >= c.limits[i])");
   });
 
+  it("derives the element name from a getter-call head: (scores a) → score", async () => {
+    const out = await p("(define (f a b) (every >= (scores a) (scores b)))");
+    expect(out).toContain("scores(a).every((score, i) => score >= scores(b)[i])");
+  });
+
   it("names the reduce accumulator `acc`", async () => {
     expect(await p("(define (f scores) (apply + scores))")).toContain("scores.reduce((acc, score) =>");
   });

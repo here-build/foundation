@@ -45,11 +45,13 @@ export function pyName(scheme: string): string {
   return s;
 }
 
-/** A singular snake loop-variable for a collection node, or null. `examples`→`example`, `(:scores c)`→`score`. */
+/** A singular snake loop-variable for a collection node, or null. `examples`→`example`,
+ *  `(:scores c)`→`score`, `(scores a)`→`score` (a getter call whose name is plural). */
 function pyElement(list: Node): string | null {
   let base: string | undefined;
   if (isAtom(list) && !list.str) base = list.atom;
   else if (isList(list) && isKeyword(list.list[0])) base = keywordName(list.list[0] as Atom);
+  else if (isList(list) && isAtom(list.list[0]) && !list.list[0].str) base = (list.list[0] as Atom).atom;
   if (!base) return null;
   const singular = pluralize.singular(pyName(base));
   return singular && singular !== pyName(base) ? singular : null;
