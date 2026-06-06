@@ -31,6 +31,11 @@ export interface LowerCtx {
   asyncNames: Set<string>;
   /** Cleaned `.prompt`-require locals — the async inference primitives (run-view). */
   inferReqs: Set<string>;
+  /** Scope-resolved JS name per BOUND identifier occurrence (binding + ref), from the
+   *  lexical namer (#76). Absent for free refs / stdlib → fall back to `cleanName`.
+   *  EMIT uses this; the await/async machinery stays keyed by `cleanName` (decoupled —
+   *  for a collision-free program `nameOf === cleanName`, so output is unchanged). */
+  nameOf: Map<Atom, string>;
 }
 
 export interface Lowerer extends Emit {
@@ -44,13 +49,24 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
   // through to the pure `cleanName`.
   const substStack: Map<string, string>[] = [];
 
-  const resolveRef = (scheme: string): string => {
+  /** The EMITTED JS name for a bound identifier occurrence: the namer's assignment, or
+   *  `cleanName` for a free ref / global / stdlib (absent from `nameOf`). */
+  const emitName = (a: Atom): string => ctx.nameOf.get(a) ?? cleanName(a.atom);
+
+  /** Resolve an identifier atom to its emitted name. An inline-lambda substitution
+   *  (max-by) wins; then the scope-resolved name; then `cleanName`. */
+  const resolveRef = (a: Atom): string => {
     for (let i = substStack.length - 1; i >= 0; i--) {
-      const hit = substStack[i]!.get(scheme);
+      const hit = substStack[i]!.get(a.atom);
       if (hit !== undefined) return hit;
     }
-    return cleanName(scheme);
+    return emitName(a);
   };
+  /** Param-list forms — `cleanParam` feeds the await machinery (cleanName), `emitParam`
+   *  the emitted arrow (scope-resolved name). They agree for collision-free programs. */
+  const cleanParam = (p: { atom: Atom; rest: boolean }): string =>
+    p.rest ? `...${cleanName(p.atom.atom)}` : cleanName(p.atom.atom);
+  const emitParam = (p: { atom: Atom; rest: boolean }): string => (p.rest ? `...${emitName(p.atom)}` : emitName(p.atom));
 
   const lower = (n: Node): string => (isAtom(n) ? lowerAtom(n) : isList(n) ? lowerList(n) : "undefined");
 
@@ -101,7 +117,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     if (!a.str && a.atom.length > 1 && a.atom.startsWith(":")) {
       throw new Error(`bare keyword in expression position: ${a.atom}`);
     }
-    return resolveRef(a.atom);
+    return resolveRef(a);
   }
 
   function lowerList(n: ListNode): string {
@@ -185,16 +201,17 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
   }
 
   function lowerLambda(n: ListNode): string {
-    const params = paramList(n.list[1]);
-    const body = withParams(params, () => lowerBody(n.list.slice(2)));
+    const ps = paramAtoms(n.list[1]);
+    const body = withParams(ps.map(cleanParam), () => lowerBody(n.list.slice(2)));
     const asyncKw = ctx.target === "run" && body.includes("await") ? "async " : "";
+    const emit = ps.map(emitParam);
     // A single tuple param consumed only by index destructures: (pair) => pair[1] === 0
     // becomes ([first, second]) => second === 0.
-    if (params.length === 1) {
-      const d = destructureTuple(params[0]!, body);
+    if (ps.length === 1) {
+      const d = destructureTuple(emit[0]!, body);
       if (d) return `${asyncKw}(${d.pattern}) => ${d.body}`;
     }
-    return `${asyncKw}(${params.join(", ")}) => ${body}`;
+    return `${asyncKw}(${emit.join(", ")}) => ${body}`;
   }
 
   function lowerIf(n: ListNode): string {
@@ -232,7 +249,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     const decls: string[] = [];
     if (isList(bindings)) {
       for (const b of bindings.list) {
-        if (isList(b) && isAtom(b.list[0])) decls.push(`const ${cleanName(b.list[0].atom)} = ${lower(b.list[1]!)};`);
+        if (isList(b) && isAtom(b.list[0])) decls.push(`const ${emitName(b.list[0])} = ${lower(b.list[1]!)};`);
       }
     }
     return lowerSequence(n.list.slice(2), `{ ${decls.join(" ")}`, "}");
@@ -259,25 +276,28 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
    * second pass re-lowers with the loop name in scope so its recursive calls await.
    */
   function lowerNamedLet(n: ListNode): string {
-    const name = cleanName((n.list[1] as Atom).atom);
+    const nameAtom = n.list[1] as Atom;
+    const name = emitName(nameAtom);
     const bindings = n.list[2];
-    const params: string[] = [];
+    const varAtoms: Atom[] = [];
     const inits: string[] = [];
     if (isList(bindings)) {
       for (const b of bindings.list) {
         if (isList(b) && isAtom(b.list[0])) {
-          params.push(cleanName(b.list[0].atom));
+          varAtoms.push(b.list[0]);
           inits.push(b.list[1] !== undefined ? lower(b.list[1]) : "undefined");
         }
       }
     }
+    const cleanParams = varAtoms.map((a) => cleanName(a.atom)); // await machinery
+    const emitParams = varAtoms.map(emitName); // emitted arrow
     const bodyForms = n.list.slice(3);
-    let body = withParams(params, () => lowerBody(bodyForms));
+    let body = withParams(cleanParams, () => lowerBody(bodyForms));
     const isAsync = ctx.target === "run" && body.includes("await");
-    if (isAsync) body = withParams([...params, name], () => lowerBody(bodyForms)); // recursive calls await
+    if (isAsync) body = withParams([...cleanParams, cleanName(nameAtom.atom)], () => lowerBody(bodyForms)); // recursive calls await
     const a = isAsync ? "async " : "";
     const call = `${name}(${inits.join(", ")})`;
-    return `(${a}() => { const ${name} = ${a}(${params.join(", ")}) => ${body}; return ${isAsync ? `await ${call}` : call}; })()`;
+    return `(${a}() => { const ${name} = ${a}(${emitParams.join(", ")}) => ${body}; return ${isAsync ? `await ${call}` : call}; })()`;
   }
 
   function lowerSequence(forms: Node[], open: string, close: string): string {
@@ -326,13 +346,15 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
   function lowerDefine(n: ListNode): string {
     const sig = n.list[1];
     if (isList(sig)) {
-      const name = isAtom(sig.list[0]) ? cleanName(sig.list[0].atom) : "_";
-      const params = paramList({ list: sig.list.slice(1) });
-      const asyncKw = ctx.target === "run" && ctx.asyncNames.has(name) ? "async " : "";
-      const body = withParams(params, () => lowerBody(n.list.slice(2)));
-      return `const ${name} = ${asyncKw}(${params.join(", ")}) => ${body};`;
+      const nameAtom = isAtom(sig.list[0]) ? sig.list[0] : undefined;
+      const name = nameAtom ? emitName(nameAtom) : "_";
+      const ps = paramAtoms({ list: sig.list.slice(1) });
+      // async-ness keyed by cleanName — matches `asyncNames` (from async-analysis).
+      const asyncKw = ctx.target === "run" && nameAtom && ctx.asyncNames.has(cleanName(nameAtom.atom)) ? "async " : "";
+      const body = withParams(ps.map(cleanParam), () => lowerBody(n.list.slice(2)));
+      return `const ${name} = ${asyncKw}(${ps.map(emitParam).join(", ")}) => ${body};`;
     }
-    const name = isAtom(sig) ? cleanName(sig.atom) : "_";
+    const name = isAtom(sig) ? emitName(sig) : "_";
     return `const ${name} = ${lower(n.list[2]!)};`;
   }
 
@@ -346,18 +368,19 @@ function recv(s: string): string {
   return /^await\b/.test(s) ? `(${s})` : s;
 }
 
-/** Parameter list, with a dotted rest `(a b . rest)` → `["a", "b", "...rest"]`. */
-function paramList(node: Node | undefined): string[] {
+/** Parameter atoms, with a dotted rest `(a b . rest)` flagged. The caller derives the
+ *  cleanName form (await machinery) and the scope-resolved emit form. */
+function paramAtoms(node: Node | undefined): { atom: Atom; rest: boolean }[] {
   if (!isList(node)) return [];
-  const out: string[] = [];
+  const out: { atom: Atom; rest: boolean }[] = [];
   for (let i = 0; i < node.list.length; i++) {
     const p = node.list[i]!;
     if (isAtom(p) && p.atom === ".") {
       const rest = node.list[i + 1];
-      if (isAtom(rest)) out.push(`...${cleanName(rest.atom)}`);
+      if (isAtom(rest)) out.push({ atom: rest, rest: true });
       break;
     }
-    if (isAtom(p)) out.push(cleanName(p.atom));
+    if (isAtom(p)) out.push({ atom: p, rest: false });
   }
   return out;
 }
