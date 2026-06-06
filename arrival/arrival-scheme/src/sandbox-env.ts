@@ -6,12 +6,53 @@ import { SAFE_BUILTINS } from "./safe_builtins.js";
 import { sandboxedAccess, sandboxedHas, sandboxedKeys, NOT_FOUND, SandboxViolationError } from "./sandbox-boundary.js";
 import { fromJS, SchemeJSArray, SchemeJSObject } from "./membrane.js";
 import { Pair } from "./Pair.js";
+import { AValue } from "./AValue.js";
+import { SchemeString } from "./LString.js";
 
 const lipsCar = lipsGlobalEnv.get("car", { throwError: false }) as Function;
 const lipsCdr = lipsGlobalEnv.get("cdr", { throwError: false }) as Function;
 const lipsFilter = lipsGlobalEnv.get("filter", { throwError: false }) as Function;
 const lipsMap = lipsGlobalEnv.get("map", { throwError: false }) as Function;
 const lipsReduce = lipsGlobalEnv.get("reduce", { throwError: false }) as Function;
+const lipsJoin = lipsGlobalEnv.get("join", { throwError: false }) as Function;
+
+/**
+ * Provenance taint for value-collapsing string combinators.
+ *
+ * `string-append`/`join` fold their AValue args down to a fresh JS string, which
+ * drops the `.provenance` the producing inference stamped onto each input. That
+ * breaks field-to-field wiring in the trace: a prompt template hole fed by
+ * `(string-append "known:\n" (lines (cons seed acc)))` shows no edge back to
+ * `seed`, because the collapsed string carries no point. Structure-PRESERVING ops
+ * (`cons`/`list`) keep taint for free — the AValue stays a walkable member — so
+ * only the collapsing ops need this. We union the EXISTING point ids of any AValue
+ * reachable in the inputs (deep-walking list spines), never minting fresh ids, so
+ * this stays idempotent under loop accumulation (cf. the fieldPoint O(n²) fix).
+ */
+function deepStringProvenance(...vals: unknown[]): Set<number> {
+  const acc = new Set<number>();
+  const seen = new Set<unknown>();
+  const walk = (v: unknown): void => {
+    if (v === null || typeof v !== "object" || seen.has(v)) return;
+    seen.add(v);
+    if (v instanceof AValue) for (const p of v.provenance) acc.add(p);
+    if (v instanceof Pair) {
+      walk(v.car);
+      walk(v.cdr);
+    } else if (v instanceof SchemeJSArray) {
+      for (const el of v.source) walk(el);
+    } else if (Array.isArray(v)) {
+      for (const el of v) walk(el);
+    }
+  };
+  for (const v of vals) walk(v);
+  return acc;
+}
+
+/** Re-stamp a collapsed string result with provenance, only when there's taint to carry. */
+function taintString(result: string, prov: Set<number>): string | SchemeString {
+  return prov.size > 0 ? new SchemeString(result, prov) : result;
+}
 
 /**
  * Collect all leaf values from an FL Foldable using fantasy-land/reduce.
@@ -342,7 +383,13 @@ export const sandboxedEnv = new Environment(
     "string-length": (s: any) => (s?.__string__ ?? String(s)).length,
     "string-upcase": (s: any) => (s?.__string__ ?? String(s)).toUpperCase(),
     "string-downcase": (s: any) => (s?.__string__ ?? String(s)).toLowerCase(),
-    "string-append": (...args: any[]) => args.map((a: any) => a?.__string__ ?? String(a)).join(""),
+    "string-append": (...args: any[]) =>
+      taintString(args.map((a: any) => a?.__string__ ?? String(a)).join(""), deepStringProvenance(...args)),
+    // join collapses a list to one string — taint with the list elements' points
+    // so `(join sep (cons seed …))` keeps wiring back to `seed`. Delegates the
+    // actual joining to the LIPS builtin (handles list->array, separators, etc).
+    join: (separator: any, list: any) =>
+      taintString(String(lipsJoin(separator, list)), deepStringProvenance(list)),
     "string-contains": (haystack: any, needle: any) =>
       (haystack?.__string__ ?? String(haystack)).includes(needle?.__string__ ?? String(needle)),
     "string-ref": (s: any, i: any) => (s?.__string__ ?? String(s))[i?.valueOf?.() ?? i] ?? nil,
