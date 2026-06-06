@@ -261,7 +261,10 @@ export const STDLIB: Record<string, Emitter> = {
       // — that would emit a call to a garbage identifier. A door, not a silent miss.
       if (isBuiltin(fn.atom)) throw new Error(`\`apply\` of operator \`${fn.atom}\` is unsupported (no n-ary JS form)`);
     }
-    return `${E.lower(fn!)}(...${x})`; // free function → spread
+    // free function / lambda → spread the list as args. A lambda callee needs parens so it
+    // isn't read as `(…) => body(...x)`: `((a, b) => …)(...xs)`.
+    const callee = isList(fn) && head(fn) === "lambda" ? `(${E.lower(fn)})` : E.lower(fn!);
+    return `${callee}(...${x})`;
   },
   // NOTE: empty-list precondition — `reduce` with no seed throws on `[]`. Scheme's
   // `max-by` also errors on the empty list, so this is faithful, not a new bug.

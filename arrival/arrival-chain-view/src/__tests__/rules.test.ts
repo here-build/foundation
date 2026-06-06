@@ -127,6 +127,16 @@ describe("internal defines + apply-append", () => {
   it("(apply append xss) → flat() (concat a list of lists one level)", async () => {
     expect(await p("(define (f xss) (apply append xss))")).toContain("xss.flat()");
   });
+
+  it("(apply (lambda …) xs) parenthesizes the lambda callee, spreads the list", async () => {
+    expect(await p("(define (f p) (apply (lambda (a b) (+ a b)) p))")).toContain("((a, b) => a + b)(...p)");
+  });
+});
+
+describe("statement / top-level position parens", () => {
+  it("a top-level dict (the program's value) is parenthesized, not a block", async () => {
+    expect(await p("(dict :a 1 :b 2)")).toContain("({ a: 1, b: 2 });");
+  });
 });
 
 describe("spread peephole — a (list …) literal splices inline, not `...[x]`", () => {

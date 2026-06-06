@@ -355,7 +355,13 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
 
   function lowerTop(form: Node): string {
     const lead = leadComments(form);
-    const code = isList(form) && head(form) === "define" ? lowerDefine(form) : `${lower(form)};`;
+    let code: string;
+    if (isList(form) && head(form) === "define") {
+      code = lowerDefine(form);
+    } else {
+      const expr = lower(form); // a top-level expression statement: parenthesize an object
+      code = `${expr.startsWith("{") ? `(${expr})` : expr};`; // literal so `{…}` isn't a block
+    }
     return lead ? `${lead}\n${code}` : code;
   }
 
