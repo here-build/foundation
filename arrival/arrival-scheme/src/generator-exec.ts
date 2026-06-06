@@ -59,6 +59,14 @@ export interface ExecOptions {
    * the host. Composable with `signal` — whichever fires first wins.
    */
   budgetMs?: number;
+  /**
+   * Opt into Tier-2 speculative evaluation (latency-only; Scheme-invisible).
+   * When true, producers (filter/map) may emit a lazy `HalfBaked` carrier so
+   * control-flow over a still-filling promise fan can collapse early. With the
+   * flag off, evaluation is byte-identical to the eager path. See
+   * docs/working-proposals/speculative-evaluation-promise-functor-2026-06-05.md.
+   */
+  speculate?: boolean;
 }
 
 /**
@@ -83,7 +91,7 @@ export interface ExecOptions {
  */
 export async function exec(
   code: string | SchemeValue,
-  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal, budgetMs }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal, budgetMs, speculate }: ExecOptions = {},
 ): Promise<SchemeValue[]> {
   const lips = await getLips();
 
@@ -119,6 +127,7 @@ export async function exec(
         tap,
         nodeFilter,
         signal,
+        speculate,
       }),
       { signal, budgetMs: remaining },
     );
@@ -145,7 +154,7 @@ export async function parse(code: string, env?: Environment, source?: string): P
  */
 export async function execExpr(
   expr: SchemeValue,
-  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal, budgetMs }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal, budgetMs, speculate }: ExecOptions = {},
 ): Promise<SchemeValue> {
   const lips = await getLips();
   const actualEnv = env ?? lips.env;
@@ -158,6 +167,7 @@ export async function execExpr(
       tap,
       nodeFilter,
       signal,
+      speculate,
     }),
     { signal, budgetMs },
   );

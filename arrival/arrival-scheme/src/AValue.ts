@@ -27,6 +27,7 @@ export type AKind =
   | "character"
   | "procedure"
   | "object"
+  | "halfbaked"
   | "void";
 
 /** Keyed by `typeof`-tag plus the two null-ish tags ("null", "undefined") — see `resolveTypeofTag`. */

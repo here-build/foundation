@@ -12,6 +12,7 @@ import unicodeProperties from "unicode-properties";
 
 import { AValue, unionProvenance } from "./AValue.js";
 import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
+import { HalfBaked, is_half_baked, type Interval } from "./HalfBaked.js";
 import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./LBool.js";
 import { global_env as lipsGlobalEnv, env as userEnv, evaluate, exec } from "./lips.js";
@@ -311,20 +312,22 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
   // mismatch on already-numeric args, etc.) already include `op.name` in
   // their messages via membrane.ts:671-679.
   // ════════════════════════════════════════════════════════════════════════════
-  // Use Object.defineProperty to set the name from operator
-  const fn = function (...args: unknown[]): unknown {
-    const provenance = unionProvenance(args.filter((a): a is AValue => a instanceof AValue));
+  // The synchronous numeric core: convert args, apply the operator, stamp
+  // provenance. Factored out so the speculative path can run it either eagerly
+  // or after forcing a HalfBaked carrier.
+  const applyNumeric = (callArgs: unknown[]): unknown => {
+    const provenance = unionProvenance(callArgs.filter((a): a is AValue => a instanceof AValue));
     let converted: SchemeNumeric[];
     try {
-      converted = args.map(fromLIPS);
+      converted = callArgs.map(fromLIPS);
     } catch (cause) {
       // Find the first non-numeric arg so the error names what actually failed,
       // not just "some arg." Mirror isSchemeNumber's contract — anything it
       // rejects is what fromLIPS would have thrown on.
-      const badIndex = args.findIndex((a) => !isSchemeNumber(a));
-      const typeNames = args.map(type).join(", ");
+      const badIndex = callArgs.findIndex((a) => !isSchemeNumber(a));
+      const typeNames = callArgs.map(type).join(", ");
       const detail = badIndex >= 0
-        ? `argument ${badIndex} is ${type(args[badIndex])}`
+        ? `argument ${badIndex} is ${type(callArgs[badIndex])}`
         : "argument type mismatch";
       throw new TypeError(
         `Cannot apply ${op.name} to (${typeNames}): ${detail}`,
@@ -342,8 +345,104 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
     }
     return result;
   };
+
+  // Use Object.defineProperty to set the name from operator
+  const fn = function (...args: unknown[]): unknown {
+    // ── Tier 2 speculative evaluation ──────────────────────────────────────
+    // A `HalfBaked` reaches this wrapper ONLY for the comparison ops marked
+    // `__speculate__` below (the dispatch choke forces it for every other
+    // numeric op). For a comparison against a still-filling cardinality
+    // interval we can often decide the result EARLY — that early-decision
+    // promise is what collapses the enclosing `if`. If we can't decide here
+    // (both operands HalfBaked, undecidable interval at call time, etc.), we
+    // force the carrier(s) and run the normal numeric path — never wrong,
+    // just not early. `args.some(is_half_baked)` is only ever true here.
+    if (args.some(is_half_baked)) {
+      const decided = SPECULATIVE_OPS.has(op.name) ? speculativeCompare(op.name, args) : undefined;
+      if (decided !== undefined) return decided;
+      return Promise.all(
+        args.map((a) => (is_half_baked(a) ? (a as HalfBaked).force() : a)),
+      ).then(applyNumeric);
+    }
+    return applyNumeric(args);
+  };
+  // Mark the comparison ops so the dispatch choke leaves their HalfBaked args
+  // unforced — this wrapper reads the interval instead of a settled value.
+  if (SPECULATIVE_OPS.has(op.name)) {
+    (fn as { __speculate__?: boolean }).__speculate__ = true;
+  }
   Object.defineProperty(fn, "name", { value: op.name });
   return fn;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tier 2 speculative comparison against a HalfBaked cardinality interval.
+// See docs/working-proposals/speculative-evaluation-promise-functor-2026-06-05.md.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The comparison ops that can decide early against a narrowing interval. */
+const SPECULATIVE_OPS = new Set(["=", "<", ">", "<=", ">="]);
+
+/** `(op k hb)` ⟺ `(reflect[op] hb k)` — used to normalize the HalfBaked to the left. */
+const REFLECT: Record<string, string> = { ">=": "<=", "<=": ">=", ">": "<", "<": ">", "=": "=" };
+
+/**
+ * The early-decision verdict for `(op interval k)`: returns a definite boolean
+ * the instant the interval is decisive, or `undefined` to keep waiting. Sound by
+ * construction — every branch only fires when the interval ENTIRELY lies on one
+ * side of `k`, so the answer cannot change as the interval narrows further.
+ */
+function verdictFor(op: string, k: number): ((iv: Interval) => boolean | undefined) | undefined {
+  switch (op) {
+    case ">=":
+      return (iv) => (iv.lo >= k ? true : iv.hi < k ? false : undefined);
+    case ">":
+      return (iv) => (iv.lo > k ? true : iv.hi <= k ? false : undefined);
+    case "<=":
+      return (iv) => (iv.hi <= k ? true : iv.lo > k ? false : undefined);
+    case "<":
+      return (iv) => (iv.hi < k ? true : iv.lo >= k ? false : undefined);
+    case "=":
+      return (iv) => (iv.lo === iv.hi && iv.lo === k ? true : iv.hi < k || iv.lo > k ? false : undefined);
+    default:
+      return undefined;
+  }
+}
+
+/** Best-effort numeric extraction of the concrete operand; undefined ⇒ can't speculate. */
+function toNumber(v: unknown): number | undefined {
+  if (typeof v === "number") return v;
+  if (typeof v === "bigint") return Number(v);
+  if (v instanceof AValue && typeof (v as { valueOf?: () => unknown }).valueOf === "function") {
+    const n = Number((v as { valueOf: () => unknown }).valueOf());
+    return Number.isNaN(n) ? undefined : n;
+  }
+  return undefined;
+}
+
+/**
+ * Try to decide a binary comparison where exactly one operand is a number-domain
+ * `HalfBaked` (a narrowing cardinality interval) and the other is a concrete
+ * number. Returns an early-decision `Promise<boolean>` (provenance-stamped to
+ * match the eager path), or `undefined` when speculation doesn't apply — caller
+ * then forces and runs normally.
+ */
+function speculativeCompare(name: string, args: unknown[]): unknown | undefined {
+  if (args.length !== 2) return undefined;
+  const [a, b] = args;
+  const aHB = is_half_baked(a);
+  const bHB = is_half_baked(b);
+  if (aHB === bHB) return undefined; // need exactly one HalfBaked operand
+  const hb = (aHB ? a : b) as HalfBaked;
+  const k = toNumber(aHB ? b : a);
+  if (k === undefined) return undefined;
+  // Normalize so the interval is on the left of the operator.
+  const verdict = verdictFor(aHB ? name : REFLECT[name], k);
+  if (!verdict) return undefined;
+  const provenance = unionProvenance(args.filter((x): x is AValue => x instanceof AValue));
+  return hb.decide(verdict).then((bool) =>
+    provenance.size > 0 ? (bool ? schemeTrue : schemeFalse).withProvenance(provenance) : bool,
+  );
 }
 
 /**

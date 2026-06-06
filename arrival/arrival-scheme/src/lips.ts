@@ -8,6 +8,7 @@ import invariant from "tiny-invariant";
 import { AValue, unionProvenance } from "./AValue.js";
 import { Environment, setLipsRuntime } from "./Environment.js";
 import { eof } from "./EOF.js";
+import { HalfBaked, is_half_baked } from "./HalfBaked.js";
 import { IgnoreException } from "./IgnoreException.js";
 import { Lexer } from "./Lexer.js";
 import { Parameter } from "./Parameter.js";
@@ -69,7 +70,7 @@ import { compose, curry, fold, pipe } from "./utils/functional.js";
 import { SchemeBool } from "./LBool.js";
 import { SchemeString } from "./LString.js";
 import { NOT_FOUND, SandboxViolationError, SchemeJSFunction, SchemeJSObject, sandboxedAccess } from "./membrane.js";
-import genRun, { type EvalContext, evaluate as genEvaluate } from "./evaluator.js";
+import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating } from "./evaluator.js";
 
 // Declare jQuery for browser environments
 declare const jQuery: { fn: { init: new (...args: unknown[]) => object } } | undefined;
@@ -325,6 +326,18 @@ export function doc(name: string | null, fn: SchemeValue, docstring?: string) {
   if (docstring) {
     fn.__doc__ = docstring;
   }
+  return fn;
+}
+
+/**
+ * Mark a builtin as understanding a `HalfBaked` arg (Tier 2 speculative
+ * evaluation). The dispatch choke (evaluator.ts) skips forcing the args of a
+ * marked callable, so the builtin reads the lazy carrier itself (its cardinality
+ * interval) instead of receiving a settled value. Only `length` and the
+ * comparison ops are marked; everything else gets force-on-unknown-boundary.
+ */
+export function speculative<T>(fn: T): T {
+  (fn as { __speculate__?: boolean }).__speculate__ = true;
   return fn;
 }
 
@@ -3538,9 +3551,16 @@ export const global_env = new Environment(
       return fn.apply(this, prepare_fn_args(fn, args));
     }),
     // ------------------------------------------------------------------
-    length: doc("length", function length(obj) {
+    length: speculative(doc("length", function length(obj) {
       if (!obj || is_nil(obj)) {
         return 0;
+      }
+      // Tier 2 speculation: length of a still-filling collection is its narrowing
+      // cardinality INTERVAL, surfaced as a number-domain HalfBaked that the
+      // comparison ops read for early collapse. Reached only when speculation is
+      // on (the choke leaves a HalfBaked unforced solely for this marked op).
+      if (is_half_baked(obj)) {
+        return obj.toCardinalityNumber();
       }
       if (is_pair(obj)) {
         return withInputProvenance([obj], obj.length());
@@ -3548,7 +3568,7 @@ export const global_env = new Environment(
       if ("length" in obj) {
         return withInputProvenance([obj], obj.length);
       }
-    }),
+    })),
     // ------------------------------------------------------------------
     "string->number": doc("string->number", function (arg, radix = 10) {
       typecheck("string->number", arg, "string", 1);
@@ -3641,6 +3661,16 @@ export const global_env = new Environment(
 
       // Wait for all and convert back to list
       const hasPromises = results.some(is_promise);
+
+      // Tier-2 speculation: map's count is known exactly up front (one output
+      // per input → bounds [1,1]), so its `HalfBaked` interval is already a
+      // point — `length` is decidable immediately while values still resolve.
+      // This carries speculation THROUGH a map sitting between filter and the
+      // length/comparison (the values stay lazy; only the count is surfaced).
+      if (hasPromises && isSpeculating()) {
+        const slots = results.map((r) => Promise.resolve(r).then((v) => [v as SchemeValue]));
+        return HalfBaked.collection(slots, () => [1, 1]);
+      }
       if (hasPromises) {
         return (promise_all(results) as Promise<unknown[]>).then((resolved) =>
           Pair.fromArray(resolved as SchemeValue[]),
@@ -3732,6 +3762,24 @@ export const global_env = new Environment(
       // SchemeBool wrappers (e.g. `:active` on a SchemeJSObject yields a
       // boxed boolean carrying container provenance). Raw `&&` treats any
       // object as truthy and would retain false-valued entries.
+
+      // Tier-2 speculation: when the predicate fan is still filling AND the
+      // caller opted in, return a lazy `HalfBaked` collection instead of
+      // awaiting `promise_all`. Each slot resolves to the items it contributes
+      // ([] dropped, [item] kept), so the cardinality interval narrows from both
+      // ends as slots settle — letting `(>= (length …) k)` collapse the instant
+      // lo reaches k, with the rest of the fan still pending. Bounds [0,1] per
+      // slot (a predicate keeps at most one). Forced back to a Pair (identical
+      // to the eager result) at any non-speculating boundary. EMPTY_PROVENANCE:
+      // filter doesn't union container provenance on the eager path either.
+      if (hasPromises && isSpeculating()) {
+        const slots = predicateResults.map((r, i) => {
+          const keep = (verdict: unknown): SchemeValue[] =>
+            !is_false(verdict) && !is_nil(verdict) ? [array[i]] : [];
+          return is_promise(r) ? (r as Promise<unknown>).then(keep) : Promise.resolve(keep(r));
+        });
+        return HalfBaked.collection(slots, () => [0, 1]);
+      }
       if (hasPromises) {
         return (promise_all(predicateResults) as Promise<unknown[]>).then((results) => {
           const filtered = array.filter((_, i) => !is_false(results[i]) && !is_nil(results[i]));

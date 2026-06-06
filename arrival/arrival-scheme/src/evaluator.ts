@@ -31,6 +31,7 @@ import {
   is_promise,
   is_syntax,
 } from "./guards.js";
+import { HalfBaked, is_half_baked } from "./HalfBaked.js";
 import { Parameter } from "./Parameter.js";
 import { SchemeJSFunction } from "./membrane.js";
 import { LipsError } from "./LipsError.js";
@@ -246,6 +247,19 @@ export interface EvalContext {
    * `{ tailCall }` (replace this slot) when the callable is a Scheme lambda.
    */
   tail?: boolean;
+  /**
+   * Speculative-evaluation flag (Tier 2 — see
+   * `docs/working-proposals/speculative-evaluation-promise-functor-2026-06-05.md`).
+   * When false/absent (the default) the evaluator is byte-identical to today:
+   * collection operators resolve their promise fans eagerly to a `Pair`. When
+   * true, `filter`/`map`/`list` may return a `HalfBaked` lazy carrier so that
+   * `length` + comparison + `if` can collapse control flow early, before the fan
+   * fully settles. The carrier is forced at any operator that does not understand
+   * it (force-on-unknown-boundary), so speculation-off ≡ speculation-on for every
+   * observable channel — this flag only changes *latency*, never values or
+   * effects. Propagated structurally like `tail`.
+   */
+  speculate?: boolean;
 }
 
 /** Options for the trampoline runner (`run`). */
@@ -272,6 +286,13 @@ export interface RunOptions {
    * with, `signal` (whichever fires first wins).
    */
   budgetMs?: number;
+  /**
+   * Opt into Tier 2 speculative evaluation for this run (see `EvalContext.speculate`).
+   * Default false = byte-identical to today. Set on the root `EvalContext` and
+   * propagated structurally; consumed by the collection operators + comparison
+   * membrane. Latency-only: never changes values or fired effects.
+   */
+  speculate?: boolean;
 }
 
 /**
@@ -318,6 +339,20 @@ let _dynamicCallSite: Invocation | undefined = undefined;
 let _canBounce = false;
 
 /**
+ * Tier-2 speculation flag, read synchronously by producer builtins (filter/map
+ * in lips.ts) at apply time to decide whether to emit a lazy `HalfBaked` carrier
+ * instead of awaiting the whole promise fan. Module-level (not `__withCtx`) so
+ * variadic / HOF / value uses of the producers see it without a wrapper that
+ * would break their arity. Saved/restored around each apply, mirroring
+ * `_canBounce`. Off by default → eager, byte-identical path. See
+ * docs/working-proposals/speculative-evaluation-promise-functor-2026-06-05.md.
+ */
+let _speculate = false;
+
+/** Producer builtins read this synchronously at apply time. */
+export const isSpeculating = (): boolean => _speculate;
+
+/**
  * Re-install `_dynamicCallSite` on every invocation of a lambda passed as
  * an arg. Native HOFs like reduce/fold/find recurse via promise chains
  * (lips.ts:3593 `unpromise(fn(acc, x)).then(recurse)`), so iteration N+1
@@ -340,10 +375,36 @@ function wrapLambdaArgs(args: SchemeValue[], dynSite: Invocation | undefined): S
   return out ?? args;
 }
 
+/** Is `a` a strict descendant of `b` in the invocation tree? Walks `a`'s parent
+ *  chain looking for `b`. Used to pick the deeper of two candidate dynamic call
+ *  sites in `wrapLambda` (the genuine nested call site vs the HOF boundary). */
+function isStrictDescendant(a: Invocation | undefined, b: Invocation | undefined): boolean {
+  if (!a || !b) return false;
+  // `Invocation` is opaque (`unknown`) to the evaluator — the tap owns its shape —
+  // but every tap invocation exposes a `parent` link; narrow structurally to walk it.
+  type ParentLinked = { parent: ParentLinked | null };
+  for (let p = (a as ParentLinked).parent; p; p = p.parent) if (p === b) return true;
+  return false;
+}
+
 function wrapLambda(lambda: LambdaFunction, dynSite: Invocation | undefined): LambdaFunction {
   const wrapped: LambdaFunction = function (this: unknown, ...values: SchemeValue[]): SchemeValue {
     const saved = _dynamicCallSite;
-    _dynamicCallSite = dynSite;
+    // Prefer the DEEPER of the two candidate dynamic parents. `dynSite` is the
+    // HOF boundary — where the lambda was passed in (e.g. `index-map`'s call
+    // site). `saved` is whatever the immediate caller set: for a genuine
+    // Scheme-to-Scheme call `(f i x)`, the inner evaluatePair has already
+    // stamped it with THAT call's invocation — a descendant of `dynSite`,
+    // sitting inside the loop iteration that actually invoked the lambda.
+    //
+    // Keeping `saved` when it's a descendant places the body under its real
+    // call site (so a loop's per-iteration work nests under the iteration,
+    // not at the outer pass-in frame — without this a TCO loop that calls a
+    // passed-in lambda scatters its work to the driver). The native-HOF escape
+    // (map/filter/reduce iterating from JS with no Scheme call Pair) leaves
+    // `saved` equal to `dynSite` or absent, so it falls through to `dynSite`
+    // unchanged. See the bug write-up: arrival-chain index-map fan-out.
+    _dynamicCallSite = isStrictDescendant(saved, dynSite) ? saved : dynSite;
     try {
       return lambda.apply(this, values);
     } finally {
@@ -357,6 +418,16 @@ function wrapLambda(lambda: LambdaFunction, dynSite: Invocation | undefined): La
 }
 
 /** Interface for functions created by lambda */
+/**
+ * Marker for builtins that understand a `HalfBaked` arg and must NOT have it
+ * forced at the dispatch choke (Tier 2 speculation). Set on `length` (reads the
+ * cardinality interval) and the comparison ops (return an early-decision promise).
+ * Every other callable receives forced, settled values — force-on-unknown-boundary.
+ */
+interface SpeculationAware {
+  __speculate__?: boolean;
+}
+
 interface LambdaFunction {
   __lambda__?: boolean;
   __name__?: string;
@@ -2388,6 +2459,24 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     invariant(Array.isArray(argsResult), "evaluateArgs must return array");
     const args = argsResult;
 
+    // ── Force-on-unknown-boundary (Tier 2 speculative evaluation) ──────────
+    // A `HalfBaked` lazy carrier reaches a builtin's JS body directly via
+    // `fn.apply` below — `evaluateArgs` only awaits real thenables, and a
+    // HalfBaked is not one (`is_promise` is false on it). Any operator that does
+    // NOT understand the carrier must receive its settled value, so here we
+    // FORCE every HalfBaked arg unless the callable opted in (`__speculate__` —
+    // set on `length` and the comparison ops, which read the interval instead).
+    // This is the single chokepoint the force-on-unknown-boundary contract rides
+    // on. Gated on `ctx.speculate`, so default-off runs pay nothing and no
+    // HalfBaked can even exist (producers are gated on the same flag).
+    if (ctx.speculate && (fn as SpeculationAware).__speculate__ !== true) {
+      for (let i = 0; i < args.length; i++) {
+        if (is_half_baked(args[i])) {
+          args[i] = yield (args[i] as HalfBaked).force();
+        }
+      }
+    }
+
     // Handle continuations specially
     if (is_continuation(fn)) {
       // Continuations are invoked via their invoke method (no args per Continuation class)
@@ -2419,6 +2508,8 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     _dynamicCallSite = dynSite;
     const __savedCanBounce = _canBounce;
     _canBounce = (fn as LambdaFunction).__lambda__ === true;
+    const __savedSpeculate = _speculate;
+    _speculate = ctx.speculate === true;
     const wrappedArgs = wrapLambdaArgs(args, dynSite);
     let result: SchemeValue;
     try {
@@ -2428,6 +2519,7 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     } finally {
       _dynamicCallSite = __savedDynamicCallSite;
       _canBounce = __savedCanBounce;
+      _speculate = __savedSpeculate;
     }
 
     // Bounce result — the callee was a Scheme lambda speaking the protocol
