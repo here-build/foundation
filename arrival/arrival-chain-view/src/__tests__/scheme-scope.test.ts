@@ -44,6 +44,21 @@ describe("scheme-scope — lexical name resolution", () => {
     expect(m.get("picked")).toEqual(["picked"]); // data binding keeps the clean name
   });
 
+  it("an internal (body-local) define is a binding the namer sees", () => {
+    // Before W1.0 the scope walk had no `define` case, so an internal `loop` was absent from
+    // `nameOf` entirely (its refs fell back to cleanName). Now it resolves like any binding.
+    const m = namesByScheme(
+      "(define (index-map f xs) (define (loop i ys acc) (loop (+ i 1) (cdr ys) (cons (f i (car ys)) acc))) (loop 0 xs '()))",
+    );
+    expect(m.get("loop")).toEqual(["loop"]); // the binding + both call refs all resolve to `loop`
+  });
+
+  it("an internal define shadowing a top-level name is disambiguated (cross-scope)", () => {
+    const m = namesByScheme("(define (helper x) (rp x))\n(define (caller xs) (define (helper y) (+ y 1)) (map helper xs))");
+    // top-level keeps `helper`; the inner one (a descendant) takes `helper2`.
+    expect(new Set(m.get("helper"))).toEqual(new Set(["helper", "helper2"]));
+  });
+
   it("a predicate whose bare name no plain binding wants keeps it (drops the `?`)", () => {
     // No plain `dominates` exists → the predicate is free to claim the bare name.
     const m = namesByScheme("(define (dominates? a b) (> a b))\n(define (f xs) (filter (lambda (x) (dominates? x 0)) xs))");

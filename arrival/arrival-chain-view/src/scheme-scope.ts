@@ -135,6 +135,14 @@ export function resolveNames(forest: Node[], reserved: readonly string[]): Map<A
     return undefined;
   };
 
+  /** The bound name of a `define`: `(define (f …) …)` → `f`, `(define x v)` → `x`. */
+  const defineNameAtom = (form: ListNode): Atom | undefined => {
+    const sig = form.list[1];
+    if (isList(sig) && isAtom(sig.list[0])) return sig.list[0];
+    if (isAtom(sig)) return sig;
+    return undefined;
+  };
+
   // Walk an expression, recording references and collecting nested binding scopes.
   function scanInto(n: Node, children: ScopeSpec<Atom>[]): void {
     if (isAtom(n)) {
@@ -157,12 +165,34 @@ export function resolveNames(forest: Node[], reserved: readonly string[]): Map<A
     for (const c of n.list) scanInto(c, children); // call / special form — walk all parts
   }
 
-  /** A child scope from binding atoms + body forms (lambda / define-with-params). */
-  function fnScope(params: Atom[], bodyForms: Node[]): ScopeSpec<Atom> {
-    const entities = params.map(entity);
+  /**
+   * A child scope: the frame bindings (params / let-vars / loop name) PLUS any internal
+   * `define`s at the body head — Scheme allows local defines there, with letrec* semantics, so
+   * every body define's NAME is pre-registered in the frame (forward + mutual refs resolve) and
+   * a function-form define gets its own child scope. This is the same pre-register-then-process
+   * the root scope does for top-level defines, applied at every body — without it, an internal
+   * `(define (loop …) …)` is invisible to the namer (its refs fall back to `cleanName`).
+   */
+  function fnScope(frameAtoms: Atom[], bodyForms: Node[]): ScopeSpec<Atom> {
+    const defNames = bodyForms
+      .filter((f): f is ListNode => isList(f) && head(f) === "define")
+      .map(defineNameAtom)
+      .filter((a): a is Atom => a !== undefined);
+    const entities = [...frameAtoms.map(entity), ...defNames.map(entity)];
     const children: ScopeSpec<Atom>[] = [];
-    stack.push(new Map(params.map((a) => [a.atom, a])));
-    for (const f of bodyForms) scanInto(f, children);
+    const frame = new Map<string, Atom>();
+    for (const a of frameAtoms) frame.set(a.atom, a);
+    for (const a of defNames) frame.set(a.atom, a);
+    stack.push(frame);
+    for (const f of bodyForms) {
+      if (isList(f) && head(f) === "define") {
+        const sig = f.list[1];
+        if (isList(sig)) children.push(fnScope(bindingAtoms({ list: sig.list.slice(1) }), f.list.slice(2)));
+        else if (f.list[2]) scanInto(f.list[2], children); // (define x val) — value in this scope
+      } else {
+        scanInto(f, children);
+      }
+    }
     stack.pop();
     return { entities, children };
   }
@@ -172,35 +202,25 @@ export function resolveNames(forest: Node[], reserved: readonly string[]): Map<A
   }
 
   /** `(let ((x i)…) body)` / `let*` and named `(let loop ((x i)…) body)`. Inits are scanned
-   *  in the PARENT (their child scopes over-reserve against the let vars — safe). */
+   *  in the PARENT (their child scopes over-reserve against the let vars — safe); the body is an
+   *  ordinary scope (loop name + vars as the frame), so internal defines work there too. */
   function letScope(n: ListNode): ScopeSpec<Atom> {
     const named = isAtom(n.list[1]);
     const loopAtom = named ? (n.list[1] as Atom) : undefined;
     const bindings = named ? n.list[2] : n.list[1];
     const bodyForms = n.list.slice(named ? 3 : 2);
     const vars = bindingAtoms(bindings);
-    const children: ScopeSpec<Atom>[] = [];
+    const initChildren: ScopeSpec<Atom>[] = [];
     // init expressions live in the enclosing scope (vars not yet bound).
-    if (isList(bindings)) for (const b of bindings.list) if (isList(b) && b.list[1]) scanInto(b.list[1], children);
-    const entities = [...(loopAtom ? [entity(loopAtom)] : []), ...vars.map(entity)];
-    const frame = new Map(vars.map((a) => [a.atom, a]));
-    if (loopAtom) frame.set(loopAtom.atom, loopAtom);
-    stack.push(frame);
-    for (const f of bodyForms) scanInto(f, children);
-    stack.pop();
-    return { entities, children };
+    if (isList(bindings)) for (const b of bindings.list) if (isList(b) && b.list[1]) scanInto(b.list[1], initChildren);
+    const inner = fnScope([...(loopAtom ? [loopAtom] : []), ...vars], bodyForms);
+    return { entities: inner.entities, children: [...initChildren, ...(inner.children ?? [])] };
   }
 
   // ── root scope: top-level defines are entities; their bodies are child scopes ──
   const rootEntities: ScopedEntity<Atom>[] = [];
   const rootChildren: ScopeSpec<Atom>[] = [];
   const rootBindings = new Map<string, Atom>();
-  const defineNameAtom = (form: ListNode): Atom | undefined => {
-    const sig = form.list[1];
-    if (isList(sig) && isAtom(sig.list[0])) return sig.list[0];
-    if (isAtom(sig)) return sig;
-    return undefined;
-  };
   // Pre-register all top-level names so forward references resolve.
   for (const form of forest) {
     if (isList(form) && head(form) === "define") {
