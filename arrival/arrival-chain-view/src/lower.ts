@@ -226,8 +226,8 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     return lowerLambda({ list: [{ atom: "lambda" }, { list: slots }, call] });
   }
 
-  function lowerLet(n: ListNode): string {
-    if (isAtom(n.list[1])) return lowerNamedLet(n);
+  /** The arrow-BLOCK interior of a plain (non-named) let/let*: `{ const x = …; return last; }`. */
+  function letBlock(n: ListNode): string {
     const bindings = n.list[1];
     const decls: string[] = [];
     if (isList(bindings)) {
@@ -235,7 +235,19 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
         if (isList(b) && isAtom(b.list[0])) decls.push(`const ${cleanName(b.list[0].atom)} = ${lower(b.list[1]!)};`);
       }
     }
-    return lowerSequence(n.list.slice(2), `(() => { ${decls.join(" ")}`, "})()");
+    return lowerSequence(n.list.slice(2), `{ ${decls.join(" ")}`, "}");
+  }
+
+  /** A let binding would collide with a param in scope → keep the IIFE's fresh scope
+   *  (unwrapping into the arrow block would be a `const`-redeclares-param error). */
+  function letShadowsParam(n: ListNode): boolean {
+    const bindings = n.list[1];
+    return isList(bindings) && bindings.list.some((b) => isList(b) && isAtom(b.list[0]) && inParams(cleanName(b.list[0].atom)));
+  }
+
+  function lowerLet(n: ListNode): string {
+    if (isAtom(n.list[1])) return lowerNamedLet(n);
+    return `(() => ${letBlock(n)})()`;
   }
 
   /**
@@ -276,9 +288,19 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
 
   function lowerBody(forms: Node[]): string {
     if (forms.length === 1) {
+      const only = forms[0]!;
+      // A let/let*/begin as the SOLE body IS the arrow's own block — drop the IIFE
+      // `lowerLet`/`begin` add for expression position (it's pure ceremony here, and
+      // unwrapping lets an `await` inside sit in the now-async function, not a nested
+      // sync IIFE). Skip a let that would shadow a param (same-scope const redeclare).
+      if (isList(only)) {
+        const h = head(only);
+        if ((h === "let" || h === "let*") && !isAtom(only.list[1]) && !letShadowsParam(only)) return letBlock(only);
+        if (h === "begin") return lowerSequence(only.list.slice(1), "{", "}");
+      }
       // A single object-literal body must be parenthesized so the arrow doesn't
       // read `=> { … }` as a block: `(x) => ({ a: 1 })`, not `(x) => { a: 1 }`.
-      const e = lower(forms[0]!);
+      const e = lower(only);
       return e.startsWith("{") ? `(${e})` : e;
     }
     return lowerSequence(forms, "{", "}");

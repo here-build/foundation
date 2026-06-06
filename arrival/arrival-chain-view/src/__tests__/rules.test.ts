@@ -110,6 +110,32 @@ describe("list layer — pair vs list (the cdr/cadr split), cut, list-ref, trans
   });
 });
 
+describe("let unwrapping — a let/let* body IS the arrow's block (no redundant IIFE)", () => {
+  it("let* as a function body becomes the block directly", async () => {
+    const out = await p("(define (trace a ex) (let* ((m (:input ex)) (r (run a m))) (dict :m m :r r)))");
+    expect(out).toContain("const trace = (a, ex) => {");
+    expect(out).toContain("const m = ex.input;");
+    expect(out).not.toContain("=> (() =>"); // the IIFE is gone
+  });
+
+  it("keeps the IIFE in expression position (a let used as an argument)", async () => {
+    expect(await p("(define (f xs) (g (let ((y 1)) (+ y 2)) xs))")).toContain("(() => {");
+  });
+
+  it("keeps the IIFE when a let binding would shadow a param (fresh scope)", async () => {
+    expect(await p("(define (f x) (let ((x 5)) (+ x 1)))")).toContain("(() => {");
+  });
+
+  it("run-view: an infer call in a let* body unwraps so `await` sits in the async fn", async () => {
+    const out = await projectToJs('(define runX (require "x.prompt"))\n(define (trace a) (let* ((r (runX (list a) :a a))) r))', {
+      target: "run",
+    });
+    expect(out).toContain("const trace = async (a) =>");
+    expect(out).toContain("await runX(");
+    expect(out).not.toContain("=> (() =>");
+  });
+});
+
 describe("arity bridge (§5)", () => {
   it("single-list map passes a user fn by reference", async () => {
     expect(await p("(define (f xs) (map double xs))")).toContain("xs.map(double)");
