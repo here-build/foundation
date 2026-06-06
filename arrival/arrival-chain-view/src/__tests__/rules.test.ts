@@ -164,8 +164,14 @@ describe("let unwrapping — a let/let* body IS the arrow's block (no redundant 
     expect(await p("(define (f xs) (g (let ((y 1)) (+ y 2)) xs))")).toContain("(() => {");
   });
 
-  it("keeps the IIFE when a let binding would shadow a param (fresh scope)", async () => {
-    expect(await p("(define (f x) (let ((x 5)) (+ x 1)))")).toContain("(() => {");
+  it("a let binding that shadows a param is renamed by the namer, so it still unwraps", async () => {
+    // The inner `x` resolves to `x2` (distinct from the param), so there's no redeclare —
+    // the IIFE the old fresh-scope guard kept is unnecessary.
+    const out = await p("(define (f x) (let ((x 5)) (+ x 1)))");
+    expect(out).toContain("const f = (x) => {");
+    expect(out).toContain("const x2 = 5;");
+    expect(out).toContain("return x2 + 1;");
+    expect(out).not.toContain("(() => {");
   });
 
   it("run-view: an infer call in a let* body unwraps so `await` sits in the async fn", async () => {
@@ -175,6 +181,27 @@ describe("let unwrapping — a let/let* body IS the arrow's block (no redundant 
     expect(out).toContain("const trace = async (a) =>");
     expect(out).toContain("await runX(");
     expect(out).not.toContain("=> (() =>");
+  });
+
+  it("a named let (loop) as a function's sole body unwraps to the arrow's own block", async () => {
+    const out = await p("(define (sum xs) (let loop ((ys xs) (acc 0)) (if (null? ys) acc (loop (cdr ys) (+ acc (car ys))))))");
+    expect(out).toContain("const sum = (xs) => {");
+    expect(out).toContain("const loop = (ys, acc) =>");
+    expect(out).toContain("return loop(xs, 0);"); // called once with the inits
+    expect(out).not.toContain("=> (() =>"); // no wrapper IIFE at body position
+  });
+
+  it("run-view: an expression-position let with an infer call awaits inline (not a sync IIFE)", async () => {
+    // The let sits in a ternary arm, so it can't unwrap to a block — it must stay an
+    // expression. Its body awaits, so the IIFE is async AND awaited inline (legal: the
+    // enclosing fn is async), never a sync `(() => { … await … })()` (a syntax error).
+    const out = await projectToJs(
+      '(define runX (require "x.prompt"))\n(define (f c a) (if c 0 (let ((r (runX (list a) :a a))) r)))',
+      { target: "run" },
+    );
+    expect(out).toContain("const f = async (c, a) =>");
+    expect(out).toContain("await (async () =>"); // async IIFE, awaited inline in the ternary arm
+    expect(out).toContain("await runX(");
   });
 });
 

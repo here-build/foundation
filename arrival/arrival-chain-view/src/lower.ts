@@ -33,8 +33,10 @@ export interface LowerCtx {
   inferReqs: Set<string>;
   /** Scope-resolved JS name per BOUND identifier occurrence (binding + ref), from the
    *  lexical namer (#76). Absent for free refs / stdlib → fall back to `cleanName`.
-   *  EMIT uses this; the await/async machinery stays keyed by `cleanName` (decoupled —
-   *  for a collision-free program `nameOf === cleanName`, so output is unchanged). */
+   *  Both EMIT and the PARAM-scope await machinery (`inParams`) use this resolved name, so
+   *  a call's await decision matches what's emitted; the GLOBAL `asyncNames`/`inferReqs`
+   *  sets stay `cleanName`-keyed (async-analysis builds them on cleanNames). For a
+   *  collision-free program `nameOf === cleanName`, so output is unchanged. */
   nameOf: Map<Atom, string>;
 }
 
@@ -62,10 +64,11 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     }
     return emitName(a);
   };
-  /** Param-list forms — `cleanParam` feeds the await machinery (cleanName), `emitParam`
-   *  the emitted arrow (scope-resolved name). They agree for collision-free programs. */
-  const cleanParam = (p: { atom: Atom; rest: boolean }): string =>
-    p.rest ? `...${cleanName(p.atom.atom)}` : cleanName(p.atom.atom);
+  /** Param-list form: the scope-resolved name (`emitName`). Both the emitted arrow AND the
+   *  await machinery (`inParams`) use this same resolved name — so a call's await decision
+   *  matches what's emitted. (Using `cleanName` for the await side instead would conflate a
+   *  global predicate `picked?` with an in-scope param `picked`: both clean to `picked`, so
+   *  the predicate call would be spuriously awaited. They agree only for collision-free names.) */
   const emitParam = (p: { atom: Atom; rest: boolean }): string => (p.rest ? `...${emitName(p.atom)}` : emitName(p.atom));
 
   const lower = (n: Node): string => (isAtom(n) ? lowerAtom(n) : isList(n) ? lowerList(n) : "undefined");
@@ -145,7 +148,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
         case "let*":
           return lowerLet(n);
         case "begin":
-          return lowerSequence(n.list.slice(1), "(() => {", "})()");
+          return iife(lowerSequence(n.list.slice(1), "{", "}"));
         case "cut":
           return lowerCut(n);
         case "require": {
@@ -182,7 +185,12 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
       kwargs.push([keywordName(k), v]);
       i += 2;
     }
+    // `headName` (cleanName) keys the GLOBAL sets (`inferReqs`/`asyncNames`, built by
+    // async-analysis on cleanNames); `headEmit` (scope-resolved) keys the PARAM scope so a
+    // call's await decision matches what's emitted — a predicate `picked?` is `isPicked`
+    // here, never confused with an in-scope param `picked` (both clean to `picked`).
     const headName = isAtom(fn) && !fn.str ? cleanName(fn.atom) : undefined;
+    const headEmit = isAtom(fn) && !fn.str ? emitName(fn) : undefined;
     // Keyword → a valid JS identifier key (`:max-words` → `maxWords`), same cleaning
     // as every other identifier (a hyphen would be an invalid unquoted object key).
     const kwObj = `{ ${kwargs.map(([k, v]) => `${cleanName(k)}: ${lower(v)}`).join(", ")} }`;
@@ -194,7 +202,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     const argStrs = positional.map((p) => lower(p));
     if (kwargs.length > 0) argStrs.push(kwObj);
     const call = `${lower(fn)}(${argStrs.join(", ")})`;
-    if (ctx.target === "run" && headName !== undefined && (ctx.asyncNames.has(headName) || inParams(headName))) {
+    if (ctx.target === "run" && headName !== undefined && (ctx.asyncNames.has(headName) || (headEmit !== undefined && inParams(headEmit)))) {
       return `await ${call}`;
     }
     return call;
@@ -202,7 +210,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
 
   function lowerLambda(n: ListNode): string {
     const ps = paramAtoms(n.list[1]);
-    const body = withParams(ps.map(cleanParam), () => lowerBody(n.list.slice(2)));
+    const body = withParams(ps.map(emitParam), () => lowerBody(n.list.slice(2)));
     const asyncKw = ctx.target === "run" && body.includes("await") ? "async " : "";
     const emit = ps.map(emitParam);
     // A single tuple param consumed only by index destructures: (pair) => pair[1] === 0
@@ -259,23 +267,31 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
    *  (unwrapping into the arrow block would be a `const`-redeclares-param error). */
   function letShadowsParam(n: ListNode): boolean {
     const bindings = n.list[1];
-    return isList(bindings) && bindings.list.some((b) => isList(b) && isAtom(b.list[0]) && inParams(cleanName(b.list[0].atom)));
+    return isList(bindings) && bindings.list.some((b) => isList(b) && isAtom(b.list[0]) && inParams(emitName(b.list[0])));
   }
+
+  /** Wrap a `{ … }` block as an immediately-invoked arrow for EXPRESSION position. When the
+   *  block awaits (run-view), the arrow is async AND the call is awaited inline — legal
+   *  because any function reaching this point is itself async (it transitively calls infer),
+   *  so the value flows correctly in ANY context. A bare `(async () => …)()` would instead
+   *  leak a Promise into `1 + …`, `f(…)`, a ternary arm, etc. — the run-view footgun. */
+  const iife = (block: string): string =>
+    ctx.target === "run" && block.includes("await") ? `(await (async () => ${block})())` : `(() => ${block})()`;
 
   function lowerLet(n: ListNode): string {
     if (isAtom(n.list[1])) return lowerNamedLet(n);
-    return `(() => ${letBlock(n)})()`;
+    return iife(letBlock(n));
   }
 
   /**
-   * Named `let` — Scheme's loop primitive. `(let loop ((x init)…) body)` binds `loop`
-   * to a recursive procedure and calls it once. Lowers to the same shape in JS: a
-   * local recursive arrow, called immediately inside an IIFE so it stays an
-   * expression. (The init values are evaluated in the OUTER scope, the body in the
-   * loop's.) Run-view: if the body reaches an inference call it goes async, and a
-   * second pass re-lowers with the loop name in scope so its recursive calls await.
+   * The arrow-BLOCK interior of a named `let`: `{ const loop = (…) => body; return loop(inits); }`.
+   * Shared by {@link lowerNamedLet} (wraps it in an IIFE for expression position) and the
+   * body-unwrap in {@link lowerBody} (where the enclosing arrow already IS the wrapper, so
+   * the IIFE is pure ceremony). The init values are lowered in the OUTER scope, the body in
+   * the loop's. Run-view: if the body reaches an inference call it goes async, and a second
+   * pass re-lowers with the loop name in scope so its recursive calls await.
    */
-  function lowerNamedLet(n: ListNode): string {
+  function namedLetBlock(n: ListNode): { block: string; isAsync: boolean } {
     const nameAtom = n.list[1] as Atom;
     const name = emitName(nameAtom);
     const bindings = n.list[2];
@@ -289,15 +305,29 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
         }
       }
     }
-    const cleanParams = varAtoms.map((a) => cleanName(a.atom)); // await machinery
-    const emitParams = varAtoms.map(emitName); // emitted arrow
+    const emitParams = varAtoms.map(emitName); // scope-resolved names (emit + await machinery)
     const bodyForms = n.list.slice(3);
-    let body = withParams(cleanParams, () => lowerBody(bodyForms));
+    let body = withParams(emitParams, () => lowerBody(bodyForms));
     const isAsync = ctx.target === "run" && body.includes("await");
-    if (isAsync) body = withParams([...cleanParams, cleanName(nameAtom.atom)], () => lowerBody(bodyForms)); // recursive calls await
+    if (isAsync) body = withParams([...emitParams, emitName(nameAtom)], () => lowerBody(bodyForms)); // recursive calls await
     const a = isAsync ? "async " : "";
     const call = `${name}(${inits.join(", ")})`;
-    return `(${a}() => { const ${name} = ${a}(${emitParams.join(", ")}) => ${body}; return ${isAsync ? `await ${call}` : call}; })()`;
+    return { block: `{ const ${name} = ${a}(${emitParams.join(", ")}) => ${body}; return ${isAsync ? `await ${call}` : call}; }`, isAsync };
+  }
+
+  /**
+   * Named `let` — Scheme's loop primitive — in EXPRESSION position: the block wrapped in
+   * an immediately-invoked arrow so it's an expression. At a function's sole-body position
+   * {@link lowerBody} unwraps it (the enclosing arrow is the wrapper).
+   */
+  function lowerNamedLet(n: ListNode): string {
+    return iife(namedLetBlock(n).block);
+  }
+
+  /** A named let unwrapped at body position declares `const <loopName>` in the arrow block;
+   *  keep the IIFE if that name shadows a param (same-scope const redeclare). */
+  function namedLetShadowsParam(n: ListNode): boolean {
+    return isAtom(n.list[1]) && inParams(emitName(n.list[1]));
   }
 
   /** A body statement: an internal `(define …)` → a block-local `const` (Scheme allows
@@ -315,13 +345,14 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
   function lowerBody(forms: Node[]): string {
     if (forms.length === 1) {
       const only = forms[0]!;
-      // A let/let*/begin as the SOLE body IS the arrow's own block — drop the IIFE
-      // `lowerLet`/`begin` add for expression position (it's pure ceremony here, and
-      // unwrapping lets an `await` inside sit in the now-async function, not a nested
-      // sync IIFE). Skip a let that would shadow a param (same-scope const redeclare).
+      // A let/let*/named-let/begin as the SOLE body IS the arrow's own block — drop the
+      // IIFE `lowerLet`/`begin` add for expression position (it's pure ceremony here, and
+      // unwrapping lets an `await` inside sit in the now-async function, not a nested sync
+      // IIFE). Skip one that would shadow a param (same-scope const redeclare).
       if (isList(only)) {
         const h = head(only);
         if ((h === "let" || h === "let*") && !isAtom(only.list[1]) && !letShadowsParam(only)) return letBlock(only);
+        if (h === "let" && isAtom(only.list[1]) && !namedLetShadowsParam(only)) return namedLetBlock(only).block;
         if (h === "begin") return lowerSequence(only.list.slice(1), "{", "}");
       }
       // A single object-literal body must be parenthesized so the arrow doesn't
@@ -357,7 +388,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
       const ps = paramAtoms({ list: sig.list.slice(1) });
       // async-ness keyed by cleanName — matches `asyncNames` (from async-analysis).
       const asyncKw = ctx.target === "run" && nameAtom && ctx.asyncNames.has(cleanName(nameAtom.atom)) ? "async " : "";
-      const body = withParams(ps.map(cleanParam), () => lowerBody(n.list.slice(2)));
+      const body = withParams(ps.map(emitParam), () => lowerBody(n.list.slice(2)));
       return `const ${name} = ${asyncKw}(${ps.map(emitParam).join(", ")}) => ${body};`;
     }
     const name = isAtom(sig) ? emitName(sig) : "_";
