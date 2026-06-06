@@ -48,6 +48,12 @@ describe("python emitter", () => {
     expect(p("(define (m a b) (if (string-ci=? a b) 1 0))")).toContain("a.lower() == b.lower()");
   });
 
+  it("append-snoc → list `+` (no spread machine-tell); cons onto a list literal flattens", () => {
+    expect(p("(define (f acc x) (append acc (list x)))")).toContain("acc + [x]");
+    expect(p("(define (f x xs) (cons x xs))")).toContain("[x, *xs]"); // var tail still spreads
+    expect(p("(define (f x a b) (cons x (list a b)))")).toContain("[x, a, b]"); // literal tail splices
+  });
+
   it("run-view drops the infer cache key, keeps the kwargs", () => {
     const src = `(define run-predict (require "predict.prompt"))\n(define (ask a b) (run-predict (list a b) :instruction a :input b))`;
     expect(p(src)).toContain("run_predict([a, b], instruction=a, input=b)"); // read-view: cache key shown

@@ -129,6 +129,29 @@ describe("internal defines + apply-append", () => {
   });
 });
 
+describe("spread peephole — a (list …) literal splices inline, not `...[x]`", () => {
+  it("append snoc → `[...acc, x]` (no `...[x]` machine-tell)", async () => {
+    expect(await p("(define (f acc x) (append acc (list x)))")).toContain("[...acc, x]");
+  });
+
+  it("append with a leading list literal → `[x, ...ys]`", async () => {
+    expect(await p("(define (f x ys) (append (list x) ys))")).toContain("[x, ...ys]");
+  });
+
+  it("a plain append of two vars still spreads both", async () => {
+    expect(await p("(define (f a b) (append a b))")).toContain("[...a, ...b]");
+  });
+
+  it("cons onto a list literal flattens → `[x, a, b]`", async () => {
+    expect(await p("(define (f x a b) (cons x (list a b)))")).toContain("[x, a, b]");
+  });
+
+  it("the dedupe idiom reads clean (reduce + append-snoc)", async () => {
+    const out = await p("(define (dedupe xs) (reduce (lambda (x acc) (if (member x acc) acc (append acc (list x)))) (list) xs))");
+    expect(out).toContain("? acc : [...acc, x]");
+  });
+});
+
 describe("let unwrapping — a let/let* body IS the arrow's block (no redundant IIFE)", () => {
   it("let* as a function body becomes the block directly", async () => {
     const out = await p("(define (trace a ex) (let* ((m (:input ex)) (r (run a m))) (dict :m m :r r)))");

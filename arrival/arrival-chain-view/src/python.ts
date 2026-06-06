@@ -184,7 +184,13 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     every: (a) => comp("every", a),
     some: (a) => comp("some", a),
     list: (a) => `[${a.map(lower).join(", ")}]`,
-    cons: (a) => `[${lower(a[0]!)}, *${lower(a[1]!)}]`, // prepend (pairs use `list` + car/cadr)
+    cons: (a) => {
+      // prepend (pairs use `list` + car/cadr). A `(list …)` tail splices its elements
+      // inline (`[x, a, b]`) rather than the machine-tell `[x, *[a, b]]`.
+      const tail = a[1]!;
+      const t = isList(tail) && head(tail) === "list" ? tail.list.slice(1).map(lower).join(", ") : `*${lower(tail)}`;
+      return `[${lower(a[0]!)}${t ? `, ${t}` : ""}]`;
+    },
     car: (a) => `${lower(a[0]!)}[0]`,
     cdr: (a) => `${lower(a[0]!)}[1:]`, // list TAIL; cadr/caddr access the 2nd/3rd element
     cadr: (a) => `${lower(a[0]!)}[1]`,

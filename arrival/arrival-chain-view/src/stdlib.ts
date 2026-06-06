@@ -26,6 +26,18 @@ export interface Emit {
  *  not `await x.map(…)` (which would `.map` the Promise). A no-op in the read-view. */
 const recv = (s: string): string => (/^await\b/.test(s) ? `(${s})` : s);
 
+/** Lower a node sitting in a SPREAD position (inside an array being built). A `(list a b)`
+ *  literal splices its elements inline (`a, b`) rather than the machine-tell `...[a, b]`;
+ *  an empty `(list)` contributes nothing; anything else is spread (`...x`). Shared by
+ *  `cons` (its tail) and `append` (every arg) — splicing a literal into a spread is one idea. */
+const spread = (a: Node, E: Emit): string => {
+  const h = isList(a) ? a.list[0] : undefined;
+  if (isList(a) && isAtom(h) && !h.str && h.atom === "list") {
+    return a.list.slice(1).map((el) => E.lower(el)).join(", ");
+  }
+  return `...${E.lower(a)}`;
+};
+
 type Emitter = (args: Node[], E: Emit) => string;
 
 // ── string-level operator forms (used when an op is an argument, e.g. to `map`) ──
@@ -186,7 +198,10 @@ export const STDLIB: Record<string, Emitter> = {
   list: (args, E) => `[${args.map((a) => E.lower(a)).join(", ")}]`,
   // `cons` is PREPEND — `(cons x xs)` → `[x, ...xs]` (the 99% Scheme use). A 2-tuple/pair
   // is `(list a b)`, accessed by `car`/`cadr`. So cons + car/cadr/cdr coexist cleanly.
-  cons: (args, E) => `[${E.lower(args[0]!)}, ...${E.lower(args[1]!)}]`,
+  cons: (args, E) => {
+    const tail = spread(args[1]!, E);
+    return `[${E.lower(args[0]!)}${tail ? `, ${tail}` : ""}]`;
+  },
   car: (args, E) => `${E.lower(args[0]!)}[0]`,
   // `cdr` is the list TAIL; `cadr`/`caddr` access the 2nd/3rd element (of a pair or
   // list). Keeping them distinct is what lets `cons`/pairs and list-recursion coexist.
@@ -197,7 +212,7 @@ export const STDLIB: Record<string, Emitter> = {
   first: (args, E) => `${E.lower(args[0]!)}[0]`,
   length: (args, E) => `${E.lower(args[0]!)}.length`,
   reverse: (args, E) => `[...${E.lower(args[0]!)}].reverse()`,
-  append: (args, E) => `[${args.map((a) => `...${E.lower(a)}`).join(", ")}]`,
+  append: (args, E) => `[${args.map((a) => spread(a, E)).filter((s) => s !== "").join(", ")}]`,
   min: (args, E) => `Math.min(${args.map((a) => E.lower(a)).join(", ")})`,
   max: (args, E) => `Math.max(${args.map((a) => E.lower(a)).join(", ")})`,
 
