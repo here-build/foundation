@@ -1,9 +1,11 @@
 import type { Completion, ModelBackend, ModelSpec } from "../model.js";
-import { lazyBackend, renderSchema, specMessages } from "./_shared.js";
+import { lazyBackend, renderSchema, specMessages, withRateLimitRetry, type RetryOptions } from "./_shared.js";
 
 export interface AnthropicOptions {
   apiKey?: string;
   maxTokens?: number;
+  /** Rate-limit retry policy (429/503). Defaults to 6 attempts, 60s fallback pause. */
+  retry?: RetryOptions;
 }
 
 /**
@@ -31,12 +33,16 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
               schema ? `\nShape:\n${JSON.stringify(schema, null, 2)}` : ""
             }`
           : systemMessage;
-        const res = await client.messages.create({
-          model: spec.model,
-          max_tokens: maxTokens,
-          system: sys,
-          messages: convo,
-        });
+        const res = await withRateLimitRetry(
+          () =>
+            client.messages.create({
+              model: spec.model,
+              max_tokens: maxTokens,
+              system: sys,
+              messages: convo,
+            }),
+          opts.retry,
+        );
         const block = res.content[0];
         const text = block?.type === "text" ? block.text : "";
         const value = wantsJson ? JSON.parse(text) : text;

@@ -1,6 +1,121 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { parseChatPrompt, renderSchema, specMessages } from "../backends/_shared.js";
+import { coerceModelJson, extractJsonObject, parseChatPrompt, renderSchema, specMessages, withRateLimitRetry } from "../backends/_shared.js";
+
+const err = (status: number, headers?: Record<string, string>): Error & { status: number; headers?: Record<string, string> } =>
+  Object.assign(new Error(`HTTP ${status}`), { status, headers });
+
+describe("withRateLimitRetry", () => {
+  it("retries a 429 then returns the eventual success", async () => {
+    let calls = 0;
+    const p = withRateLimitRetry(
+      async () => {
+        calls += 1;
+        if (calls < 3) throw err(429);
+        return "ok";
+      },
+      { fallbackMs: 1 },
+    );
+    await expect(p).resolves.toBe("ok");
+    expect(calls).toBe(3);
+  });
+
+  it("does NOT retry a non-retryable status (e.g. 400)", async () => {
+    let calls = 0;
+    await expect(
+      withRateLimitRetry(
+        async () => {
+          calls += 1;
+          throw err(400);
+        },
+        { fallbackMs: 1 },
+      ),
+    ).rejects.toThrow("HTTP 400");
+    expect(calls).toBe(1);
+  });
+
+  it("gives up after `max` retries and rethrows the last error", async () => {
+    let calls = 0;
+    await expect(
+      withRateLimitRetry(
+        async () => {
+          calls += 1;
+          throw err(429);
+        },
+        { max: 2, fallbackMs: 1 },
+      ),
+    ).rejects.toThrow("HTTP 429");
+    expect(calls).toBe(3); // initial + 2 retries
+  });
+
+  it("backs off progressively (doubling) when no Retry-After header, capped at fallbackMs", async () => {
+    const sleeps: number[] = [];
+    const realSet = globalThis.setTimeout;
+    vi.stubGlobal("setTimeout", ((fn: () => void, ms?: number) => {
+      sleeps.push(ms ?? 0);
+      return realSet(fn, 0);
+    }) as typeof setTimeout);
+    let calls = 0;
+    await withRateLimitRetry(
+      async () => {
+        calls += 1;
+        if (calls < 5) throw err(429);
+        return "ok";
+      },
+      { baseMs: 1000, fallbackMs: 4000 },
+    );
+    vi.unstubAllGlobals();
+    expect(sleeps).toEqual([1000, 2000, 4000, 4000]); // 1k,2k,4k(cap),4k(cap)
+  });
+
+  it("honors a numeric Retry-After header over the backoff", async () => {
+    const sleeps: number[] = [];
+    const realSet = globalThis.setTimeout;
+    vi.stubGlobal("setTimeout", ((fn: () => void, ms?: number) => {
+      sleeps.push(ms ?? 0);
+      return realSet(fn, 0);
+    }) as typeof setTimeout);
+    let calls = 0;
+    await withRateLimitRetry(
+      async () => {
+        calls += 1;
+        if (calls < 2) throw err(429, { "retry-after": "2" });
+        return "ok";
+      },
+      { baseMs: 50_000, fallbackMs: 99_999 },
+    );
+    vi.unstubAllGlobals();
+    expect(sleeps).toEqual([2000]); // 2s from header, not the 50,000ms backoff
+  });
+
+  it("stops retrying once canRetry() returns false (stream already emitted)", async () => {
+    let calls = 0;
+    let emitted = false;
+    await expect(
+      withRateLimitRetry(
+        async () => {
+          calls += 1;
+          emitted = true; // simulate a delta landing before the failure
+          throw err(429);
+        },
+        { fallbackMs: 1, canRetry: () => !emitted },
+      ),
+    ).rejects.toThrow("HTTP 429");
+    expect(calls).toBe(1);
+  });
+
+  it("aborts the pause when the signal fires", async () => {
+    const ac = new AbortController();
+    const p = withRateLimitRetry(
+      async () => {
+        throw err(429);
+      },
+      { fallbackMs: 10_000, signal: ac.signal },
+    );
+    ac.abort();
+    await expect(p).rejects.toThrow();
+  });
+});
 
 describe("parseChatPrompt", () => {
   it("parses canonical chat JSON", () => {
@@ -98,5 +213,44 @@ describe("specMessages", () => {
       { role: "user", content: "u" },
       { role: "assistant", content: "a" },
     ]);
+  });
+});
+
+describe("coerceModelJson", () => {
+  it("strict-parses clean JSON", () => {
+    expect(coerceModelJson('{"a":1}')).toEqual({ ok: true, value: { a: 1 }, via: "strict" });
+  });
+
+  it("repairs markdown-fenced JSON via the repair ladder", () => {
+    const fenced = '```json\n{"a": 1}\n```';
+    expect(coerceModelJson(fenced)).toEqual({ ok: true, value: { a: 1 }, via: "repair" });
+  });
+
+  it("repairs a lightly-malformed object (trailing comma)", () => {
+    expect(coerceModelJson('{"a": 1,}')).toEqual({ ok: true, value: { a: 1 }, via: "repair" });
+  });
+
+  it("does NOT repair a length-truncated stream — surfaces the loss as ok:false", () => {
+    // A cut-off object is genuine data loss; repairing it would fabricate a close.
+    expect(coerceModelJson('{"a": 1, "b": ', { finish: "length" })).toEqual({ ok: false });
+  });
+
+  it("recovers JSON from the reasoning channel when content is empty", () => {
+    const reasoning = "Let me think… the answer is {\"label\": \"bug\"} I'm confident.";
+    expect(coerceModelJson("", { reasoning })).toEqual({ ok: true, value: { label: "bug" }, via: "reasoning" });
+  });
+
+  it("fails (ok:false) on empty content with no reasoning to recover from", () => {
+    expect(coerceModelJson("", {})).toEqual({ ok: false });
+  });
+});
+
+describe("extractJsonObject", () => {
+  it("pulls the outermost object out of surrounding prose", () => {
+    expect(extractJsonObject('prefix {"a": 1} suffix')).toEqual({ a: 1 });
+  });
+
+  it("returns undefined when there's no JSON structure", () => {
+    expect(extractJsonObject("just thinking out loud")).toBeUndefined();
   });
 });
