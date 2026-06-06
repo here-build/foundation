@@ -44,6 +44,19 @@ const BACKEND_LANG: Record<PromptBackend["id"], "js" | "py"> = {
   "langchain-py": "py",
 };
 
+// Real registry versions (resolved via `npm view … dist-tags.latest`, 2026-06-06) — a
+// generated runnable project pins its deps rather than floating "latest" to newest-on-
+// install (the supply-chain posture in .claude/rules/npm-version-pinning.md). Bump
+// deliberately; verify on the registry first.
+const DEP_VERSIONS: Record<string, string> = {
+  "@ax-llm/ax": "^22.0.2",
+  "@langchain/core": "^1.1.48",
+  "@langchain/openai": "^1.4.7",
+  tsx: "^4.22.4",
+  typescript: "^6.0.3",
+};
+const dep = (name: string): Record<string, string> => ({ [name]: DEP_VERSIONS[name]! });
+
 const base = (p: string): string => p.split("/").pop() ?? p;
 const extOf = (p: string): string => /\.([^.]+)$/.exec(p)?.[1] ?? "";
 const stemOf = (p: string): string => base(p).replace(/\.[^.]+$/, "");
@@ -104,16 +117,14 @@ function manifest(target: CompileTarget, entryStem: string): EmittedFile {
     return { path: "requirements.txt", content: reqs };
   }
   const deps =
-    target.prompts === "ax"
-      ? { "@ax-llm/ax": "latest" }
-      : { "@langchain/core": "latest", "@langchain/openai": "latest" };
+    target.prompts === "ax" ? dep("@ax-llm/ax") : { ...dep("@langchain/core"), ...dep("@langchain/openai") };
   const pkg = {
     name: `host-${entryStem}`,
     private: true,
     type: "module",
     scripts: { start: `tsx ${entryStem}.ts` },
     dependencies: deps,
-    devDependencies: { tsx: "latest", typescript: "latest" },
+    devDependencies: { ...dep("tsx"), ...dep("typescript") },
   };
   return { path: "package.json", content: JSON.stringify(pkg, null, 2) + "\n" };
 }
