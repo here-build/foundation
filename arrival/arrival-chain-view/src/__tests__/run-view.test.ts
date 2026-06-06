@@ -25,6 +25,15 @@ describe("run-view (async + ax)", () => {
     expect(out).toContain("await Promise.all(xs.map(one))");
   });
 
+  it("a map over a `cut` of an async fn → await Promise.all, and the caller goes async", async () => {
+    // `cut` is desugared to a lambda BEFORE the async analysis, so the async taint + the
+    // Promise.all wrapping fall out of the normal lambda machinery (the bug was: cut lowered
+    // late → invisible to the analysis → `xs.map(async …)` leaking an array of Promises).
+    const out = await run('(define rp (require "p.prompt"))\n(define (one x y) (rp x))\n(define (go xs) (map (cut one <> 0) xs))');
+    expect(out).toContain("const go = async (xs) =>");
+    expect(out).toContain("await Promise.all(xs.map(async (it) => await one(it, 0)))");
+  });
+
   it("a call to a function-valued param is awaited (higher-order)", async () => {
     expect(await run("(define (iterate step pool) (step pool))")).toContain("await step(pool)");
   });

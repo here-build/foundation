@@ -149,8 +149,6 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
           return lowerLet(n);
         case "begin":
           return iife(lowerSequence(n.list.slice(1), "{", "}"));
-        case "cut":
-          return lowerCut(n);
         case "require": {
           const path = pathOf(n.list[1]);
           const local = ctx.requireSubst.get(path);
@@ -236,21 +234,6 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
    *   (cut apply max <>)     → (it) => Math.max(...it)
    *   (cut dominates? <> c)  → (it) => dominates(it, c)
    */
-  function lowerCut(n: ListNode): string {
-    const items = n.list.slice(1);
-    const isSlot = (x: Node): boolean => isAtom(x) && !x.str && x.atom === "<>";
-    const names = items.filter(isSlot).length === 1 ? ["it"] : ["a", "b", "c", "d", "e", "f"];
-    const slots: Atom[] = [];
-    const fill = (x: Node): Node => {
-      if (!isSlot(x)) return x;
-      const g: Atom = { atom: names[slots.length] ?? `arg${slots.length + 1}` };
-      slots.push(g);
-      return g;
-    };
-    const call: ListNode = { list: items.map(fill) };
-    return lowerLambda({ list: [{ atom: "lambda" }, { list: slots }, call] });
-  }
-
   /** The arrow-BLOCK interior of a plain (non-named) let/let*: `{ const x = …; return last; }`. */
   function letBlock(n: ListNode): string {
     const bindings = n.list[1];

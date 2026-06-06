@@ -106,10 +106,11 @@ function applyFn(fn: Node, argStrs: string[], E: Emit): string {
   return `${E.lower(fn)}(${argStrs.join(", ")})`;
 }
 
-/** A function that can be passed by reference to a JS array method (a lambda, a `cut`,
- *  or a user fn — not a builtin op). `cut` lowers to a lambda, so it passes too. */
+/** A function that can be passed by reference to a JS array method (a lambda or a user fn —
+ *  not a builtin op). `cut` is expanded to a lambda in the desugar pre-pass, so it never
+ *  reaches here as `cut`. */
 function passableFn(fn: Node): boolean {
-  if (isList(fn) && (head(fn) === "lambda" || head(fn) === "cut")) return true;
+  if (isList(fn) && head(fn) === "lambda") return true;
   if (isAtom(fn) && !fn.str && !(fn.atom in BINOP) && !(fn.atom in UNOP) && !(fn.atom in STDLIB)) return true;
   return false;
 }

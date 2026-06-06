@@ -13,6 +13,7 @@
  */
 import { parseSexprs } from "@here.build/arrival-chain/sweet";
 import pluralize from "pluralize";
+import { desugar } from "./desugar.js";
 import {
   type Atom,
   head,
@@ -99,7 +100,7 @@ export interface PyOptions {
  * JS, the Python read-view is already sync-sequential, so there's nothing else to
  * change — `.invoke`/`dspy.Predict` are synchronous. */
 export function projectToPy(source: string, opts: PyOptions = {}): string {
-  const forest = parseSexprs(source);
+  const forest = desugar(parseSexprs(source));
   const { importLines, requireSubst, skipForms, inferLocals } = collectPyImports(forest, opts);
   const lower = makePyLower(requireSubst, inferLocals, opts.target ?? "read");
   const body = forest.filter((f) => !skipForms.has(f)).map((f) => lower.top(f));
@@ -128,7 +129,6 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
 
   /** Apply a function node to a loop-var string (comprehension element). */
   function applyTo(fn: Node, v: string): string {
-    if (isList(fn) && head(fn) === "cut") return applyTo(cutLambda(fn), v); // inline the desugared cut
     if (isList(fn) && head(fn) === "lambda") {
       const params = (fn.list[1] as ListNode).list;
       if (params.length === 1 && isAtom(params[0])) {
@@ -269,7 +269,6 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
         const params = (n.list[1] as ListNode).list.filter(isAtom).map((p) => pyName(p.atom));
         return `lambda ${params.join(", ")}: ${lower(n.list[2]!)}`;
       }
-      if (hName === "cut") return cut(n);
       if (hName === "require") {
         const local = requireSubst.get(pathOf(n.list[1]));
         if (local === undefined) throw new Error(`unresolved inline require`);
@@ -279,25 +278,6 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
       if (emit) return emit(n.list.slice(1));
     }
     return call(h!, n.list.slice(1));
-  }
-
-  /** SRFI-26 `cut` → a synthetic `(lambda (slots…) (proc args…))` — one param per `<>`,
-   *  filled left-to-right. Exposed as a node so a comprehension can inline its body. */
-  function cutLambda(n: ListNode): ListNode {
-    const items = n.list.slice(1);
-    const isSlot = (x: Node): boolean => isAtom(x) && !x.str && x.atom === "<>";
-    const names = items.filter(isSlot).length === 1 ? ["it"] : ["a", "b", "c", "d", "e", "f"];
-    const slots: Atom[] = [];
-    const fill = (x: Node): Node => {
-      if (!isSlot(x)) return x;
-      const g: Atom = { atom: names[slots.length] ?? `arg${slots.length + 1}` };
-      slots.push(g);
-      return g;
-    };
-    return { list: [{ atom: "lambda" }, { list: slots }, { list: items.map(fill) }] };
-  }
-  function cut(n: ListNode): string {
-    return list(cutLambda(n)); // `(cut dominates? <> c)` → `lambda it: dominates(it, c)`
   }
 
   function call(fn: Node, args: Node[]): string {

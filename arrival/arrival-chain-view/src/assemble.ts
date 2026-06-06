@@ -5,6 +5,7 @@
  */
 import { parseSexprs } from "@here.build/arrival-chain/sweet";
 import { computeAsyncNames, inferPrimitives } from "./async-analysis.js";
+import { desugar } from "./desugar.js";
 import { collectImports, type ProjectOptions } from "./imports.js";
 import { makeLowerer } from "./lower.js";
 import { resolveNames } from "./scheme-scope.js";
@@ -13,7 +14,7 @@ export type { ProjectOptions };
 
 /** Parse → plan imports → lower body → join into one (unformatted) JS module string. */
 export function assemble(source: string, opts: ProjectOptions = {}): string {
-  const forest = parseSexprs(source);
+  const forest = desugar(parseSexprs(source));
   const { importLines, requireSubst, skipForms } = collectImports(forest, opts);
   const target = opts.target ?? "read";
   const inferReqs = target === "run" ? inferPrimitives(forest) : new Set<string>();
