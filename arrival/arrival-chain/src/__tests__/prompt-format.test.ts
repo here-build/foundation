@@ -92,13 +92,27 @@ describe(".prompt format", () => {
     expect(count).toBe(2); // system + user; the injected {{role}} is inert text
   });
 
-  it("rejects an optional field and a missing model at load time", async () => {
+  it("rejects an optional field at load time", async () => {
     const noop = async () => ({ value: "x" });
     await expect(
       run({ "p.prompt": ['---', 'model: qwen3.5-9b', 'output:', '  x?: string', '---', '{{role "user"}}', 'hi'].join("\n"), "main.scm": '(require "p.prompt")' }, noop),
     ).rejects.toThrow(/optional/);
+  });
+
+  it("a missing model loads fine but errors at call time unless `:meta` supplies one", async () => {
+    const noop = async () => ({ value: "x" });
+    const noModel = ['---', 'output:', '  x: string', '---', '{{role "user"}}', 'hi'].join("\n");
+    // Model is materialization: omitting frontmatter `model:` is legal — the unit
+    // loads; the error only fires at the CALL site if no `:meta` model resolves.
     await expect(
-      run({ "p.prompt": ['---', 'output:', '  x: string', '---', '{{role "user"}}', 'hi'].join("\n"), "main.scm": '(require "p.prompt")' }, noop),
-    ).rejects.toThrow(/model/);
+      run({ "p.prompt": noModel, "main.scm": '(define p (require "p.prompt")) (p "k")' }, noop),
+    ).rejects.toThrow(/no model/);
+    // …and supplying it via `:meta` makes the same unit run.
+    let used = "";
+    await run(
+      { "p.prompt": noModel, "main.scm": '(define p (require "p.prompt")) (p "k" :meta (dict :model "qwen3.5-9b"))' },
+      async (spec) => { used = spec.model; return { value: "x" }; },
+    );
+    expect(used).toBe("qwen3.5-9b");
   });
 });

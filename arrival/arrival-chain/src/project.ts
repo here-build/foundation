@@ -295,6 +295,10 @@ const isThenable = (v: unknown): v is PromiseLike<unknown> =>
 /** Coerce a scheme value to a nullable scalar string (false/null/undefined → null). */
 const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
 
+/** A `(dict …)` folds to a plain JS record; the `:meta` config slot must be one. */
+const isPlainRecord = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === "object" && !Array.isArray(v);
+
 /** Canonicalise a schema arg (string marker | tagged-list DSL | nothing) to the
  *  single string used as the schema slot of a task's content key. */
 const schemaSlot = (v: unknown): string | null => {
@@ -379,11 +383,29 @@ export function buildArrivalEnv(opts: {
       withContext: true,
       options: { provenancePoint: true, argProvenance: true },
       fn: async (ctx, key, ...kv: unknown[]) => {
-        const inputs = buildDict(kv);
+        const folded = buildDict(kv);
+        // `:meta` is the inference-CONFIG channel (model override, future temp/
+        // maxTokens) — kept separate from the template-INPUT namespace, so a
+        // `.prompt` can still have any template var name. Strip it from `inputs`
+        // before rendering; it's plumbing, not a hole the template fills.
+        const meta = isPlainRecord(folded.meta) ? folded.meta : {};
+        const { meta: _metaSlot, ...inputs } = folded;
+        // Model = materialization: call-time `meta.model` wins, else the
+        // frontmatter default, else a hard error (nothing to route to).
+        const model = meta.model === undefined ? unit.model : String(meta.model);
+        if (model === null) {
+          throw new Error(
+            `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
+          );
+        }
         // ctx.argProvenance aligns to the scheme args [key, ...kv]; drop the
         // leading `key` slot so it lines up with `kv` for buildInputsProvenance.
+        // `meta` is config, not an input, so drop it from the per-field provenance.
         const argProv = (ctx as { argProvenance?: ReadonlySet<number>[] } | undefined)?.argProvenance;
-        const inputsProvenance = argProv ? buildInputsProvenance(kv, argProv.slice(1)) : undefined;
+        const inputsProvenanceAll = argProv ? buildInputsProvenance(kv, argProv.slice(1)) : undefined;
+        const inputsProvenance = inputsProvenanceAll
+          ? Object.fromEntries(Object.entries(inputsProvenanceAll).filter(([k]) => k !== "meta"))
+          : undefined;
         // Bind the node's story (file, model, the structured inputs) to its
         // provenance node NOW, before the inference runs. It's all known at call
         // time, so the card renders its header + init fields WHILE the answer is
@@ -394,12 +416,12 @@ export function buildArrivalEnv(opts: {
         const inv = (ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined)
           ?.currentInvocation;
         if (inv) {
-          const meta = { kind: "prompt", path: unit.path, model: unit.model, inputs, inputsProvenance, reads: templateReads(unit.sections) };
-          if (typeof inv.setMetadata === "function") inv.setMetadata(meta);
-          else inv.metadata = meta;
+          const nodeMeta = { kind: "prompt", path: unit.path, model, inputs, inputsProvenance, reads: templateReads(unit.sections) };
+          if (typeof inv.setMetadata === "function") inv.setMetadata(nodeMeta);
+          else inv.metadata = nodeMeta;
         }
         const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
-        return opts.infer(ctx, unit.model, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
+        return opts.infer(ctx, model, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
       },
     });
   };

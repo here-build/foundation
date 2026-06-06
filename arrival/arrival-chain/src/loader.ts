@@ -57,9 +57,13 @@ export interface PromptUnit {
   /** The `.prompt` file's resolved path — the node's stable identity for the
    *  render (the card header shows it), and a future go-to-source anchor. */
   path: string;
-  /** The concrete model name from the frontmatter `model:` — passed straight to
-   *  the inference backend; the provider config binds it to an endpoint. */
-  model: string;
+  /** The DEFAULT model name from the frontmatter `model:`, or null if omitted.
+   *  Model is materialization, not intent: a `.prompt` carries the prompt SHAPE
+   *  (the intent), and the model is overridable at the call site via
+   *  `:meta (dict :model …)`. Resolution is call-time `meta.model` ?? this ?? throw.
+   *  Whatever resolves is passed straight to the backend; the provider config
+   *  binds the name to an endpoint. */
+  model: string | null;
   /** Compiled `(s/object …)` schema SOURCE (from Picoschema `output:`), or null
    *  for an unstructured prompt. Evaluated ONCE at compile time, not per call. */
   schemaSrc: string | null;
@@ -314,9 +318,12 @@ export function defaultResolvers(): Map<string, ContentResolver> {
       ".prompt",
       (contents, { path }) => {
         const { fm, body } = parsePromptFile(String(contents));
-        const model = fm.model;
-        if (typeof model !== "string") {
-          throw new Error('.prompt: frontmatter needs a `model:` (a concrete model name, e.g. "qwen3.5-9b")');
+        // `model:` is an OPTIONAL default — model is materialization, supplied
+        // (or overridden) at the call site via `:meta (dict :model …)`. A literal
+        // here is the fallback; absent is fine as long as the call supplies one.
+        const model = fm.model ?? null;
+        if (model !== null && typeof model !== "string") {
+          throw new Error('.prompt: frontmatter `model:` must be a model name string (e.g. "qwen3.5-9b") or omitted');
         }
         const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
         const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
