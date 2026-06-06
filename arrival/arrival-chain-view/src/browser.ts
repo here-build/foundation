@@ -13,6 +13,10 @@ import { type ProjectOptions } from "./imports.js";
 
 export type { ProjectOptions };
 export { assemble as projectToJsRaw };
+// Browser-safe siblings (no eslint/prettier/fs): the Python program emitter and the
+// prompt backends, for the studio's python / *+lc target views.
+export { projectToPy, type PyOptions } from "./python.js";
+export { getPromptBackend, PROMPT_BACKENDS, type PromptBackend } from "./prompt.js";
 
 /** Project arrival-chain scheme → formatted JS, entirely in the browser. */
 export async function projectToJsBrowser(source: string, opts: ProjectOptions = {}): Promise<string> {
