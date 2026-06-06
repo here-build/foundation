@@ -33,14 +33,21 @@ describe("scheme-scope — lexical name resolution", () => {
     expect(m.get("c")).toEqual(["c"]); // both lambdas' `c` resolve to `c`
   });
 
-  it("cross-scope shadow: predicate keeps its name, the local loop var is suffixed", () => {
+  it("cross-scope shadow: predicate yields the bare name to the data binding, taking isFoo", () => {
     const src = `(define (picked? x ys) #t)
 (define (f set)
   (let loop ((picked (list)))
     (if (picked? 1 picked) picked (loop picked))))`;
     const m = namesByScheme(src);
-    expect(m.get("picked?")).toEqual(["picked"]); // predicate, top-level → keeps "picked"
-    expect(m.get("picked")).toEqual(["picked2"]); // loop var, child scope → suffixed
+    // A plain binding (the loop var) wants "picked", so the predicate yields it cross-scope.
+    expect(m.get("picked?")).toEqual(["isPicked"]); // predicate → isFoo rung
+    expect(m.get("picked")).toEqual(["picked"]); // data binding keeps the clean name
+  });
+
+  it("a predicate whose bare name no plain binding wants keeps it (drops the `?`)", () => {
+    // No plain `dominates` exists → the predicate is free to claim the bare name.
+    const m = namesByScheme("(define (dominates? a b) (> a b))\n(define (f xs) (filter (lambda (x) (dominates? x 0)) xs))");
+    expect(m.get("dominates?")).toEqual(["dominates"]);
   });
 
   it("same-scope predicate vs plain binding: the isFoo rung fires", () => {

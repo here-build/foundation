@@ -13,32 +13,83 @@
  * refs / stdlib / globals are absent; the caller falls back to `cleanName`.
  *
  * Collision-free programs resolve every binding to tier-1 (`cleanName`), so output is
- * unchanged. The named-let `picked` resolves under root's `picked` claim (cross-scope,
- * parent-first) to `picked2` — the standard compiler disambiguation; the `isFoo` ladder
- * rung fires for SAME-scope ties.
+ * unchanged. When a named-let loop var `picked` shadows a top-level `picked?` predicate,
+ * the predicate yields the contested bare name (it takes `isPicked`) so the data binding
+ * keeps `picked` — see {@link ladder} for the content-aware bare-name ordering that makes
+ * this work cross-scope despite parent-first resolution.
  */
 import { type Candidate, resolveLexicalNames, type ScopedEntity, type ScopeSpec } from "@here.build/lexical-namer";
 import { nameCandidates } from "./names.js";
 import { type Atom, head, isAtom, isKeyword, isList, type ListNode, type Node } from "./nodes.js";
 
 /**
- * `nameCandidates` ladder → priority-keyed candidates. A PREDICATE bids its bare name
- * at a LOWER base than a plain binding (90 vs 100), so a same-scope clash resolves by
+ * `nameCandidates` ladder → priority-keyed candidates. A PREDICATE bids at a LOWER
+ * base than a plain binding (90 vs 100), so a same-scope clash resolves by
  * non-overlapping PRECEDENCE — the plain binding wins the bare name and the predicate
- * falls to its `isFoo` rung — rather than a tie (which would `_postfix` both). With no
- * clash the predicate still claims its bare name (drops `?`). Cross-scope clashes
- * (a top-level predicate vs a local of the same clean-name) still resolve to the
- * standard numeric suffix, since parent scopes are named first.
+ * falls to its `isFoo` rung — rather than a tie (which would `_postfix` both).
+ *
+ * The bare-name ordering is CONTENT-AWARE (`plainPrimaries` = the bare names every
+ * PLAIN binding wants): a predicate whose bare name no plain binding wants keeps it on
+ * top (`dominates?` → `dominates`). But when some plain binding wants that same name —
+ * even in a DIFFERENT scope — the predicate yields it, putting `isFoo` on top so the
+ * data binding keeps the clean name. This is what lets a top-level `picked?` resolve to
+ * `isPicked` while a nested loop var `picked` keeps `picked`: parent-first ordering
+ * would otherwise let the predicate grab the bare name before the descendant is reached.
  *   plain `picked`   → {100:"picked"}
- *   pred  `picked?`  → {90:"picked", 80:"isPicked"}
+ *   pred  `picked?`  (plain `picked` exists) → {90:"isPicked", 80:"picked"}
+ *   pred  `dominates?` (no plain `dominates`) → {90:"dominates", 80:"isDominates"}
  */
-function ladder(scheme: string): Record<number, Candidate> {
+function ladder(scheme: string, plainPrimaries: ReadonlySet<string>): Record<number, Candidate> {
   const rec: Record<number, Candidate> = {};
-  const base = scheme.endsWith("?") ? 90 : 100;
-  nameCandidates(scheme).forEach((name, i) => {
+  const isPred = scheme.endsWith("?");
+  const base = isPred ? 90 : 100;
+  let cands = nameCandidates(scheme);
+  if (isPred && cands.length > 1 && plainPrimaries.has(cands[0]!)) {
+    cands = [cands[1]!, cands[0]!, ...cands.slice(2)]; // yield the contested bare name; isFoo on top
+  }
+  cands.forEach((name, i) => {
     rec[base - i * 10] = name;
   });
   return rec;
+}
+
+/**
+ * Every binding site in the forest, flattened (define names + params, lambda params,
+ * let / let* / named-let vars). Used to pre-compute `plainPrimaries` so {@link ladder} can
+ * decide whether a predicate must yield its bare name. Mirrors the binding sites the
+ * scope walk in {@link resolveNames} visits, but order-free and scope-free — we only
+ * need the SET of names plain bindings want, not their scoping.
+ */
+function collectBindingAtoms(n: Node, out: Atom[]): void {
+  if (!isList(n) || n.list.length === 0) return;
+  const h = n.list[0];
+  const hn = isAtom(h) && !h.str ? h.atom : undefined;
+  if (hn === "define") {
+    const sig = n.list[1];
+    if (isList(sig) && isAtom(sig.list[0])) {
+      out.push(sig.list[0]); // fn name
+      out.push(...bindingAtoms({ list: sig.list.slice(1) })); // params
+    } else if (isAtom(sig)) {
+      out.push(sig); // value name
+    }
+    for (const c of n.list.slice(2)) collectBindingAtoms(c, out);
+    return;
+  }
+  if (hn === "lambda") {
+    out.push(...bindingAtoms(n.list[1]));
+    for (const c of n.list.slice(2)) collectBindingAtoms(c, out);
+    return;
+  }
+  if (hn === "let" || hn === "let*") {
+    const named = isAtom(n.list[1]);
+    if (named) out.push(n.list[1] as Atom);
+    const bindings = named ? n.list[2] : n.list[1];
+    out.push(...bindingAtoms(bindings));
+    if (isList(bindings)) for (const b of bindings.list) if (isList(b) && b.list[1]) collectBindingAtoms(b.list[1], out);
+    for (const c of n.list.slice(named ? 3 : 2)) collectBindingAtoms(c, out);
+    return;
+  }
+  for (const c of n.list) collectBindingAtoms(c, out);
 }
 
 /** Binding atoms of a param list `(a b . rest)` or let-bindings `((x i) (y j))`. */
@@ -60,11 +111,18 @@ function bindingAtoms(node: Node | undefined): Atom[] {
 
 /** Resolve every bound identifier occurrence (binding + reference) to its JS name. */
 export function resolveNames(forest: Node[], reserved: readonly string[]): Map<Atom, string> {
+  // Pre-pass: the bare name every PLAIN (non-`?`) binding wants. A predicate whose bare
+  // name is in here yields it (see {@link ladder}) so the data binding keeps it.
+  const plainPrimaries = new Set<string>();
+  const allBindings: Atom[] = [];
+  for (const form of forest) collectBindingAtoms(form, allBindings);
+  for (const a of allBindings) if (!a.atom.endsWith("?")) plainPrimaries.add(nameCandidates(a.atom)[0]!);
+
   const postfix = new Map<Atom, string>();
   let counter = 0;
   const entity = (atom: Atom): ScopedEntity<Atom> => {
     postfix.set(atom, String(counter++));
-    return { key: atom, candidates: ladder(atom.atom) };
+    return { key: atom, candidates: ladder(atom.atom, plainPrimaries) };
   };
 
   const refToBinding = new Map<Atom, Atom>();
