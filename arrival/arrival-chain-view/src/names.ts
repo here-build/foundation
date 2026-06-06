@@ -46,6 +46,28 @@ export function cleanName(scheme: string): string {
 }
 
 /**
+ * The friendly-name LADDER for a scheme identifier — preference-ordered JS-name
+ * candidates a collision resolver tries in turn before falling to a `_2` postfix
+ * (the `is<Symbol>` rung of the ladder in `docs/proposals/in-flight/lexical-js-naming.md`).
+ *
+ * Tier 1 is always `cleanName`. A predicate `foo?` gets a 2nd tier `isFoo` — the JS
+ * boolean convention — so when `foo` is already taken (a loop var shadows the
+ * predicate, as `picked` shadows `picked?` in gepa-full) the resolver picks the
+ * readable `isFoo`, not `foo_2`. Pure function of the name; the scope-aware resolver
+ * that consumes it is task #76.
+ */
+export function nameCandidates(scheme: string): string[] {
+  const base = cleanName(scheme);
+  // A predicate whose base doesn't already READ as a boolean → offer `isBase` next.
+  // Skip when it already starts with a boolean verb (`hasChildren`, not `isHasChildren`).
+  const reads = /^(is|has|can|should|will|was|had|are)[A-Z]/.test(base);
+  if (scheme.endsWith("?") && base !== "" && base !== "_" && !reads) {
+    return [base, `is${base.charAt(0).toUpperCase()}${base.slice(1)}`];
+  }
+  return [base];
+}
+
+/**
  * A readable singular element name for a collection node, or null (the caller falls
  * back to a generic `__x`). The "magic" that turns `examples.map((__x) => …)` into
  * `examples.map((example) => …)`. Fires only when the collection name is genuinely

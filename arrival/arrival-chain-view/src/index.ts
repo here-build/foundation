@@ -4,7 +4,7 @@
  */
 export { projectToJs, projectToJsRaw, type ProjectOptions } from "./project.js";
 export { formatJs } from "./format.js";
-export { cleanName } from "./names.js";
+export { cleanName, nameCandidates } from "./names.js";
 export {
   aiClientModule,
   compilePromptToTs,
