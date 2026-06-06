@@ -54,6 +54,15 @@ describe("python emitter", () => {
     expect(p("(define (f x a b) (cons x (list a b)))")).toContain("[x, a, b]"); // literal tail splices
   });
 
+  it("desugars threading + compose + keyword accessors (shared pre-pass)", () => {
+    expect(p("(define state-of (compose :state last :versions))")).toContain(
+      'state_of = lambda it: last(it["versions"])["state"]',
+    );
+    expect(p("(define (f history) (->> history (take 3) (map :score) avg))")).toContain(
+      'avg([x["score"] for x in take(3, history)])',
+    );
+  });
+
   it("run-view drops the infer cache key, keeps the kwargs", () => {
     const src = `(define run-predict (require "predict.prompt"))\n(define (ask a b) (run-predict (list a b) :instruction a :input b))`;
     expect(p(src)).toContain("run_predict([a, b], instruction=a, input=b)"); // read-view: cache key shown

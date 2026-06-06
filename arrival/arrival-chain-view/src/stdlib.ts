@@ -96,6 +96,7 @@ function inlineLambda(lambda: ListNode, argStrs: string[], E: Emit): string {
 /** Apply a function node to already-lowered argument strings (op-as-argument case). */
 function applyFn(fn: Node, argStrs: string[], E: Emit): string {
   if (isList(fn) && head(fn) === "lambda") return inlineLambda(fn, argStrs, E);
+  if (isKeyword(fn)) return `${recv(argStrs[0]!)}.${keywordName(fn)}`; // `:score` as a fn → `x.score`
   if (isAtom(fn) && !fn.str) {
     if (fn.atom === "list") return `[${argStrs.join(", ")}]`; // n-ary; e.g. `(map list xs ys)` → pairs
     const b = BINOP[fn.atom];
@@ -108,9 +109,11 @@ function applyFn(fn: Node, argStrs: string[], E: Emit): string {
 
 /** A function that can be passed by reference to a JS array method (a lambda or a user fn —
  *  not a builtin op). `cut` is expanded to a lambda in the desugar pre-pass, so it never
- *  reaches here as `cut`. */
+ *  reaches here as `cut`. A `:kw` accessor is a first-class function but NOT a JS reference,
+ *  so it's not passable — `applyFn` lowers it to an arrow (`xs.map((x) => x.kw)`). */
 function passableFn(fn: Node): boolean {
   if (isList(fn) && head(fn) === "lambda") return true;
+  if (isKeyword(fn)) return false;
   if (isAtom(fn) && !fn.str && !(fn.atom in BINOP) && !(fn.atom in UNOP) && !(fn.atom in STDLIB)) return true;
   return false;
 }

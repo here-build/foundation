@@ -140,6 +140,7 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
         }
       }
     }
+    if (isKeyword(fn)) return `${v}[${JSON.stringify(keywordName(fn))}]`; // `:score` as a fn → x["score"]
     if (isAtom(fn) && !fn.str) {
       const u = PY_UNOP[fn.atom];
       if (u) return u(v);
