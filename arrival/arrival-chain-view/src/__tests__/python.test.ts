@@ -68,6 +68,10 @@ describe("python emitter", () => {
     expect(p("(define (f n) (when (> n 0) (log n)))")).toContain("log(n) if n > 0 else None");
   });
 
+  it("max-by with a keyword accessor → a key lambda (not a bare keyword)", () => {
+    expect(p("(define (best xs) (max-by :score xs))")).toContain('max(xs, key=lambda x: x["score"])');
+  });
+
   it("run-view drops the infer cache key, keeps the kwargs", () => {
     const src = `(define run-predict (require "predict.prompt"))\n(define (ask a b) (run-predict (list a b) :instruction a :input b))`;
     expect(p(src)).toContain("run_predict([a, b], instruction=a, input=b)"); // read-view: cache key shown

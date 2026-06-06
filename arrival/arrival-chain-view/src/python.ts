@@ -209,6 +209,7 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
         subst.pop();
         return `max(${lower(xs!)}, key=lambda ${p}: ${keyBody})`;
       }
+      if (isKeyword(fn)) return `max(${lower(xs!)}, key=lambda x: ${applyTo(fn, "x")})`; // :score → key=lambda x: x["score"]
       return `max(${lower(xs!)}, key=${lower(fn!)})`;
     },
     apply: (a) => {
