@@ -42,4 +42,14 @@ describe("run-view (async + ax)", () => {
     const out = await run('(define rp (require "p.prompt"))\n(define (a xs) (rp xs))\n(define (b xs) (apply + (a xs)))');
     expect(out).toContain("(await a(xs)).reduce(");
   });
+
+  it("an internal define calling an enclosing fn-param is async (the index-map shape, Bug B)", async () => {
+    // The scope-aware analysis sees `f` as an ENCLOSING param of `each`, so the internal
+    // recursive `loop` that calls it is tainted async — its arrow, its recursion, and the
+    // call site all await. Before W1, `loop` was invisible to the analysis → sync arrow + `await`.
+    const out = await run("(define (each f xs) (define (loop ys) (if (null? ys) (list) (cons (f (car ys)) (loop (cdr ys))))) (loop xs))");
+    expect(out).toContain("const each = async (f, xs) =>");
+    expect(out).toContain("const loop = async (ys) =>");
+    expect(out).toContain("return await loop(xs);");
+  });
 });
