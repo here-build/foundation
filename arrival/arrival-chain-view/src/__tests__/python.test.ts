@@ -63,6 +63,11 @@ describe("python emitter", () => {
     );
   });
 
+  it("cond / when desugar to chained Python ternaries", () => {
+    expect(p('(define (grade n) (cond ((>= n 90) "A") (else "C")))')).toContain('"A" if n >= 90 else "C"');
+    expect(p("(define (f n) (when (> n 0) (log n)))")).toContain("log(n) if n > 0 else None");
+  });
+
   it("run-view drops the infer cache key, keeps the kwargs", () => {
     const src = `(define run-predict (require "predict.prompt"))\n(define (ask a b) (run-predict (list a b) :instruction a :input b))`;
     expect(p(src)).toContain("run_predict([a, b], instruction=a, input=b)"); // read-view: cache key shown

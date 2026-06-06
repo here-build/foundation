@@ -64,6 +64,35 @@ describe("keyword accessor as a first-class function", () => {
   });
 });
 
+describe("conditionals (cond / when / unless → if, a chained ternary in both languages)", () => {
+  it("`cond` with an `else` → a chained ternary", async () => {
+    expect(await p('(define (grade n) (cond ((>= n 90) "A") ((>= n 80) "B") (else "C")))')).toContain(
+      'n >= 90 ? "A" : n >= 80 ? "B" : "C"',
+    );
+  });
+
+  it("`cond` with no `else` falls to undefined", async () => {
+    expect(await p('(define (f n) (cond ((> n 0) "pos")))')).toContain('n > 0 ? "pos" : undefined');
+  });
+
+  it("`when` → a one-armed if (else undefined)", async () => {
+    expect(await p("(define (f n) (when (> n 0) (log n)))")).toContain("n > 0 ? log(n) : undefined");
+  });
+
+  it("`unless` negates the test", async () => {
+    expect(await p("(define (f n) (unless (zero? n) (recip n)))")).toContain("!(n === 0) ? recip(n) : undefined");
+  });
+
+  it("a `cond` reaching infer threads async through the ternary (run-view)", async () => {
+    const out = await projectToJs(
+      '(define rp (require "p.prompt"))\n(define (score x) (rp x))\n(define (f x) (cond ((> x 0) (score x)) (else 0)))',
+      { target: "run" },
+    );
+    expect(out).toContain("const f = async (x) =>");
+    expect(out).toContain("await score(x)");
+  });
+});
+
 describe("desugar runs before async-analysis (threading/compose go async for free)", () => {
   it("a thread-last over an async fn becomes await Promise.all and the caller goes async", async () => {
     const out = await projectToJs(

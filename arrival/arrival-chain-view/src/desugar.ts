@@ -46,8 +46,54 @@ function expand(n: Node): Node {
     case "pipe":
     case "flow":
       return { ...n, list: composeLambda(list.slice(1), "left-to-right") };
+    case "when":
+      return withSpan(n, { list: [SYM.if, list[1]!, body(list.slice(2))] });
+    case "unless":
+      return withSpan(n, { list: [SYM.if, { list: [SYM.not, list[1]!] }, body(list.slice(2))] });
+    case "cond":
+      return withSpan(n, expandCond(list.slice(1)));
+    case "case":
+      // Unused by any example; its datum eqv/quoting semantics are subtle enough that a clean
+      // door beats a possibly-divergent expansion. Desugar to `cond` (or-of-`equal?`) if needed.
+      throw new Error("`case` is not yet desugared — rewrite as `cond`");
   }
   return { ...n, list };
+}
+
+/** Reused atom heads for synthesized forms. */
+const SYM = { if: { atom: "if" } as Atom, not: { atom: "not" } as Atom, begin: { atom: "begin" } as Atom };
+
+/** A clause/`when` body: one expr stays bare; many wrap in `begin` (an IIFE/block downstream). */
+function body(forms: Node[]): Node {
+  return forms.length === 1 ? forms[0]! : { list: [SYM.begin, ...forms] };
+}
+
+const isElse = (n: Node): boolean => isAtom(n) && !n.str && n.atom === "else";
+
+/**
+ * `(cond (t1 e1…) (t2 e2…) (else e…))` → nested `(if t1 e1 (if t2 e2 e))`, built right-to-left.
+ * The lowerer turns nested `if` into a chained ternary (both JS and Python), so a `cond` is an
+ * expression in either language — no statement-position needed. Matches the bootstrap `cond`
+ * macro for the `(test body…)` + `else` clause forms; the rarer `=>` / bare-`(test)` clauses
+ * (used by no example) are a loud door rather than a silent mis-expansion.
+ */
+function expandCond(clauses: Node[]): Node {
+  let acc: Node | undefined;
+  for (let i = clauses.length - 1; i >= 0; i--) {
+    const c = clauses[i];
+    if (!isList(c) || c.list.length === 0) continue;
+    const test = c.list[0]!;
+    if (isElse(test)) {
+      acc = body(c.list.slice(1));
+      continue;
+    }
+    if (c.list.length === 1 || (isAtom(c.list[1]) && !(c.list[1] as Atom).str && (c.list[1] as Atom).atom === "=>")) {
+      throw new Error("`cond` `=>` / bare-test clauses are not yet desugared — use `(test body)`");
+    }
+    const e = body(c.list.slice(1));
+    acc = acc === undefined ? { list: [SYM.if, test, e] } : { list: [SYM.if, test, e, acc] };
+  }
+  return acc ?? { atom: "undefined" };
 }
 
 /** Keep `n`'s span on a replacement node when the replacement is a list; pass atoms through. */

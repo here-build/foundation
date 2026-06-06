@@ -157,11 +157,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
         }
         case "define":
           throw new Error("internal `define` is unsupported in read-view (run-view concern)");
-        case "cond":
-        case "case":
-        case "when":
-        case "unless":
-          throw new Error(`\`${hName}\` is unsupported in read-view (run-view concern)`);
+        // cond / when / unless are expanded to `if` in the desugar pre-pass; `case` doors there.
       }
       const emit = STDLIB[hName];
       if (emit) return emit(n.list.slice(1), E);
