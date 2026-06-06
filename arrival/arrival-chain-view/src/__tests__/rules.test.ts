@@ -219,6 +219,16 @@ describe("arity bridge (§5)", () => {
     expect(out).toContain("items.map((item, i) => [item, others[i]])");
   });
 
+  it("a map returning a dict parenthesizes the object body (not a block)", async () => {
+    // single-list (arrow1) and multi-list paths both wrap the `{…}` so it's an expression.
+    expect(await p("(define (f xs) (map (lambda (x) (dict :id (:id x))) xs))")).toContain(
+      "xs.map((x) => ({ id: x.id }))",
+    );
+    expect(await p("(define (f xs ys) (map (lambda (a b) (dict :x a :y b)) xs ys))")).toContain(
+      "xs.map((x, i) => ({ x, y: ys[i] }))",
+    );
+  });
+
   it("every over two lists → indexed predicate", async () => {
     const out = await p("(define (f scores limits) (every >= scores limits))");
     expect(out).toContain("scores.every((score, i) => score >= limits[i])");

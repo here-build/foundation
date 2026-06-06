@@ -129,11 +129,16 @@ function inlineUnaryLambda(lambda: Node, argStr: string, E: Emit): string {
   return applyFn(lambda, [argStr], E);
 }
 
+/** Parenthesize an object-literal arrow body so `=> { a: 1 }` isn't read as a block:
+ *  `(x) => ({ a: 1 })`. In an arrow-body position a leading `{` is always a dict (a `let`/
+ *  `begin` block would be an IIFE starting with `(`), so wrapping is safe. */
+const objSafe = (body: string): string => (body.startsWith("{") ? `(${body})` : body);
+
 /** A single-param arrow, array-destructuring the param when it's consumed only as a
  *  tuple: `(x) => x[0]` → `([head]) => head`. */
 function arrow1(param: string, body: string): string {
   const d = destructureTuple(param, body);
-  return d ? `(${d.pattern}) => ${d.body}` : `(${param}) => ${body}`;
+  return d ? `(${d.pattern}) => ${objSafe(d.body)}` : `(${param}) => ${objSafe(body)}`;
 }
 
 /** `(map f xs)` → `xs.map(f)`; `(map f xs ys)` → index-driven; async maps → `await Promise.all(…)`. */
@@ -163,9 +168,9 @@ function mapLike(method: "map" | "filter" | "every" | "some"): Emitter {
     const inner = d ? d.body : body;
     if (run && inner.includes("await")) {
       if (method !== "map") throw new Error(`run-view: async \`${method}\` is unsupported`);
-      return `await Promise.all(${list}.map(async (${param}, ${idx}) => ${inner}))`;
+      return `await Promise.all(${list}.map(async (${param}, ${idx}) => ${objSafe(inner)}))`;
     }
-    return `${list}.${method}((${param}, ${idx}) => ${inner})`;
+    return `${list}.${method}((${param}, ${idx}) => ${objSafe(inner)})`;
   };
 }
 
