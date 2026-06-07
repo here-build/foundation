@@ -37,6 +37,20 @@ describe("Rosetta Environment", () => {
       expect(jsArray).toEqual([1, 2, 3, 4]);
     });
 
+    it("should preserve symbol-keyed properties across the JS→LIPS→JS round-trip", () => {
+      // Regression: `Object.entries` in lipsToJs dropped symbol keys, so opaque/private
+      // backing data on objects crossing the membrane was silently lost. String keys must
+      // be unchanged; symbol-keyed slots must survive.
+      const SECRET = Symbol("secret");
+      const original: Record<string | symbol, unknown> = { visible: 1 };
+      original[SECRET] = [4, 5, 6];
+
+      const roundTripped = lipsToJs(jsToLips(original, {}), {}) as Record<string | symbol, unknown>;
+
+      expect(roundTripped.visible).toBe(1); // string key unchanged
+      expect(roundTripped[SECRET]).toEqual([4, 5, 6]); // symbol key survives
+    });
+
     // this one is tricky and will probably require deep rewrite of runtime.
     // what needs to be done to introduce second instance of nil that will be "representing empty array"
     // to preserve metadata on reverse conversion

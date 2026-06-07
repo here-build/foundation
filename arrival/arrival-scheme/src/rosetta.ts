@@ -167,7 +167,16 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
       }
     }
     if (Object.getPrototypeOf(value) === Object.getPrototypeOf({}) || Object.getPrototypeOf(value) === null) {
-      return Object.fromEntries(Object.entries(value).map(([key, value]) => [key, lipsToJs(value, options)]));
+      // Deep-unwrap nested Scheme values while preserving ALL own keys. `Object.entries`
+      // silently drops symbol-keyed properties — string keys are unchanged, but symbol
+      // slots (opaque/private backing data on objects crossing the membrane) were lost on
+      // the Lips→JS round-trip. Enumerate string keys then own symbols so both survive.
+      const out: Record<string | symbol, unknown> = {};
+      for (const key of Object.keys(value)) out[key] = lipsToJs((value as Record<string, unknown>)[key], options);
+      for (const sym of Object.getOwnPropertySymbols(value)) {
+        out[sym] = lipsToJs((value as Record<symbol, unknown>)[sym], options);
+      }
+      return out;
     }
     // Check for Fantasy Land entities BEFORE converting to plain objects
     if (
