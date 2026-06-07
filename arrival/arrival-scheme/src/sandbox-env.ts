@@ -140,6 +140,14 @@ function structuralEqual(a: any, b: any, seen: Map<object, Set<object>>): boolea
   // boxed primitives) and SchemeString's `__string__`.
   if (a === b) return true;
   if (a == null || b == null) return a === b;
+
+  // Setoid (Fantasy Land): a value that defines its own equality OWNS the comparison
+  // — opaque entities (IP/hash/SID) whose canonical match differs from structural key
+  // comparison (and whose sealed #fields make structural comparison meaningless). An
+  // entity compared to a non-entity (a bare literal) returns false. Symmetric.
+  if (typeof a?.["fantasy-land/equals"] === "function") return Boolean(a["fantasy-land/equals"](b));
+  if (typeof b?.["fantasy-land/equals"] === "function") return Boolean(b["fantasy-land/equals"](a));
+
   const av = a?.valueOf?.();
   const bv = b?.valueOf?.();
   if (av === bv && (typeof av !== "object" || av === null)) return true;

@@ -158,6 +158,13 @@ function deepEqual(a: unknown, b: unknown): boolean {
   switch (true) {
     case a === b:
       return true;
+    // Setoid (Fantasy Land): a value that defines its own equality owns the
+    // comparison (opaque entities compared by canonical value; false vs a bare
+    // literal — so an entity can't be grepped by a hardcoded value). Symmetric.
+    case typeof (a as any)?.["fantasy-land/equals"] === "function":
+      return Boolean((a as any)["fantasy-land/equals"](b));
+    case typeof (b as any)?.["fantasy-land/equals"] === "function":
+      return Boolean((b as any)["fantasy-land/equals"](a));
     case a instanceof Pair && b instanceof Pair:
       return deepEqual(a.car, b.car) && deepEqual(a.cdr, b.cdr);
     case a instanceof SchemeExact && b instanceof SchemeExact:
