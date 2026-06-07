@@ -550,6 +550,11 @@ export class Project extends PlexusModel<null> {
        * tweaks here so chosen tuples short-circuit without hitting the LLM.
        */
       tweaks?: Map<string, string>;
+      /** Host hook to inject extra rosettas onto the pipeline env after the
+       *  standard ones are wired and before the program runs — e.g. a bridge into
+       *  another sandbox. Keeps `.prompt`/`require`/trace machinery intact while
+       *  letting a host extend the env's capability surface. */
+      extendEnv?: (env: ReturnType<typeof buildArrivalEnv>) => void;
     } & ExecBudget = {},
   ): Promise<unknown> {
     // The cache-backed infer resolver: find-or-create a task in this project's
@@ -592,6 +597,7 @@ export class Project extends PlexusModel<null> {
     // per-run set onto the loader's defaults; the require rosetta taps this run.
     if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
     const env = buildArrivalEnv({ name: "arrival-chain", infer: inferAndWait, loader, tap: opts.trace, dirname: opts.dirname });
+    opts.extendEnv?.(env);
     const results = await exec(BUILTIN_PREAMBLE + source, {
       env,
       tap: opts.trace,
