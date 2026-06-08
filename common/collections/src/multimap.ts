@@ -64,13 +64,4 @@ export class SetMultimap<K, V> extends DefaultedMap<K, Set<V>> {
     this.get(key).add(value);
     return this;
   }
-
-  /**
-   * Remove a single `value` from this key's set. Returns `true` if the value
-   * was present. Leaves an empty set behind (use `.delete(key)` to drop the
-   * whole bucket) — this is the per-value counterpart to Map's per-key delete.
-   */
-  deleteValue(key: K, value: V): boolean {
-    return this.get(key).delete(value);
-  }
 }
