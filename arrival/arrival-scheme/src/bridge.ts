@@ -520,6 +520,40 @@ function makeTypePredicate(name: string, predicate: (n: SchemeNumeric) => boolea
   return fn;
 }
 
+// Fantasy Land Ord: the comparison operators consult `fantasy-land/lte` when their operands
+// are ordered ENTITIES (a DateTime, a Version, …), exactly as equal? consults a Setoid's
+// `fantasy-land/equals`. All four relations derive from the single `lte`; a chain (< a b c)
+// holds iff each adjacent pair does. Numeric operands take the original numeric/speculative
+// path unchanged — the FL check is one cheap property read, false for every number.
+const isOrd = (x: any): boolean => x != null && typeof x["fantasy-land/lte"] === "function";
+function wrapOrd(numeric: (...a: unknown[]) => unknown, sym: "<" | ">" | "<=" | ">="): (...a: unknown[]) => unknown {
+  const lte = (a: any, b: any): boolean => Boolean(a["fantasy-land/lte"](b));
+  const rel = {
+    "<": (a: any, b: any) => !lte(b, a),
+    ">": (a: any, b: any) => !lte(a, b),
+    "<=": (a: any, b: any) => lte(a, b),
+    ">=": (a: any, b: any) => lte(b, a),
+  }[sym];
+  const fn = (...args: unknown[]): unknown => {
+    // FL-Ord only intercepts ENTITY operands; numeric/HalfBaked args take the wrapped
+    // numeric op untouched, so its speculative early-collapse path is preserved.
+    if (args.length >= 2 && args.some(isOrd)) {
+      for (let i = 0; i < args.length - 1; i++) {
+        if (!isOrd(args[i]) || !isOrd(args[i + 1])) return numeric(...args); // mixed → numeric path's clear error
+        if (!rel(args[i], args[i + 1])) return schemeFalse;
+      }
+      return schemeTrue;
+    }
+    return numeric(...args);
+  };
+  // Preserve the speculation marker + operator name from the wrapped op so the evaluator's
+  // speculative-eval path still engages (it forces HalfBaked args unless __speculate__ is set,
+  // and keys early-collapse on op.name).
+  (fn as { __speculate__?: boolean }).__speculate__ = (numeric as { __speculate__?: boolean }).__speculate__;
+  Object.defineProperty(fn, "name", { value: sym });
+  return fn;
+}
+
 export const wrappedOps = {
   "+": wrapOperator(ops.add),
   "-": wrapOperator(ops.sub),
@@ -588,10 +622,10 @@ export const wrappedOps = {
 
   expt: wrapOperator(ops.expt),
   "=": wrapOperator(ops.numEq),
-  "<": wrapOperator(ops.lt),
-  ">": wrapOperator(ops.gt),
-  "<=": wrapOperator(ops.lte),
-  ">=": wrapOperator(ops.gte),
+  "<": wrapOrd(wrapOperator(ops.lt), "<"),
+  ">": wrapOrd(wrapOperator(ops.gt), ">"),
+  "<=": wrapOrd(wrapOperator(ops.lte), "<="),
+  ">=": wrapOrd(wrapOperator(ops.gte), ">="),
   max: wrapOperator(ops.max),
   min: wrapOperator(ops.min),
   "zero?": wrapOperator(ops.isZero),
