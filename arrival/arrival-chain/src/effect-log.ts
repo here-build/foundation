@@ -49,14 +49,18 @@
  * owns the key algebra and the cone subtraction.
  */
 import type { DataEffect } from "./data-effects.js";
+import type { McpEffect } from "./mcp-effects.js";
 import { InferBinding } from "./infer-store.js";
 import { forwardCone, traceToStatechart, type Statechart } from "./statechart.js";
 import type { EvalTrace } from "./trace.js";
 
 /** Protocol family of an external effect. `infer` is the LLM plane; `http`/`sql`
- *  are the data planes the host-capability builtins (A3) inject. The tag is the
- *  first element of every effect key, keeping the per-kind key spaces disjoint. */
-export type EffectKind = "infer" | "http" | "sql";
+ *  are the data planes the host-capability builtins (A3) inject; `mcp` is the tool
+ *  plane (a client call to an MCP server). The tag is the first element of every
+ *  effect key, keeping the per-kind key spaces disjoint. Note `mcp` keys are
+ *  POSITIONAL (per inference, per server) where infer/http/sql are CONTENT-keyed —
+ *  see {@link mcpEffectKey} for why. */
+export type EffectKind = "infer" | "http" | "sql" | "mcp";
 
 /**
  * The recorded effects of one run: kind-tagged effect key → the JSON of the
@@ -106,12 +110,24 @@ export const httpEffectKey = (method: string, label: string, path: string, bodyO
 export const sqlEffectKey = (label: string, query: string, paramsJson: string): string =>
   effectKey("sql", [label, query, paramsJson]);
 
+/** The mcp effect key — POSITIONAL per (inference, server, nth-call), NOT content-keyed.
+ *  Unlike infer/http/sql (whose result is a pure function of their content), an MCP
+ *  call's result depends on the server's hidden mutable state: the same `{tool,args}`
+ *  read returns different values before vs after an intervening write, and that
+ *  read↔write coupling runs through the server (not the dataflow graph), so it is
+ *  invisible to the content key + the forward-cone. Keying by POSITION within a
+ *  per-(inference, server) tape captures the ordering; the recorded tuple carries the
+ *  `{server,method,request}` so replay can VERIFY alignment and stop on divergence
+ *  rather than silently serve a stale value (see `wrapMcpResolver` in mcp-effects). */
+export const mcpEffectKey = (inferenceId: string, server: string, n: number): string =>
+  effectKey("mcp", [inferenceId, server, n]);
+
 /** Deterministic JSON of a value with object keys sorted recursively — so two
  *  descriptors that differ only in key insertion order mint the SAME key (a
  *  `{city, units}` query equals a `{units, city}` one). Arrays keep order (it is
  *  significant — `params` is positional). Primitives stringify as-is; `undefined`
  *  (a field never set) folds to `null` so a present-but-undefined slot is stable. */
-function stableJson(v: unknown): string {
+export function stableJson(v: unknown): string {
   if (v === undefined) return "null";
   if (v === null || typeof v !== "object") return JSON.stringify(v);
   if (Array.isArray(v)) return `[${v.map(stableJson).join(",")}]`;
@@ -169,6 +185,22 @@ export class DataBinding {
 }
 
 /**
+ * The trace-side record of ONE mcp call (`(mcp …)` / a model-emitted tool call),
+ * bound to its invocation via `trace.bindTask` exactly as `DataBinding`/`InferBinding`
+ * are. Carries the POSITIONAL effect key (`mcpEffectKey`) so the cone/effect-key
+ * machinery resolves an mcp invocation → its key uniformly with the other kinds —
+ * keeping partial-invalidation kind-agnostic. (The binding is created where mcp calls
+ * are dispatched — the agentic loop / `(mcp …)` verb — and consumed here.)
+ */
+export class McpBinding {
+  constructor(
+    readonly effect: McpEffect,
+    /** The positional effect key (`mcpEffectKey(inferenceId, server, n)`). */
+    readonly key: string,
+  ) {}
+}
+
+/**
  * Map every effect-producing invocation id to the kind-tagged effect key it fired
  * — the bridge from cone node ids (invocation ids) to effect-log keys. The link is
  * the trace's `invocationByTask`: each effect binding carries its key AND the list
@@ -190,12 +222,13 @@ export function effectKeysByInvocation(trace: EvalTrace): Map<number, string> {
   return out;
 }
 
-/** The kind-tagged key of an effect binding (`InferBinding` or `DataBinding`), or
- *  undefined for any other bound object (a non-effect task). */
+/** The kind-tagged key of an effect binding (`InferBinding`, `DataBinding`, or
+ *  `McpBinding`), or undefined for any other bound object (a non-effect task). */
 function bindingKey(binding: object): string | undefined {
   if (binding instanceof InferBinding)
     return inferEffectKey(binding.model, binding.prompt, binding.schema, binding.cacheKey);
   if (binding instanceof DataBinding) return binding.key;
+  if (binding instanceof McpBinding) return binding.key;
   return undefined;
 }
 
