@@ -10,8 +10,8 @@
 export { schemeToSweet, type SweetOpts } from "./sweet-render.js";
 // Classic-parse primitives for source-to-source consumers (e.g. arrival-chain-view
 // projecting scheme → JS/Python). Pure analysis — stays inside the runtime-free lens.
-export { parseSexprs, type Node } from "./sweet-render.js";
-export { sweetToScheme } from "./sweet-read.js";
+export { parseSexprs, printScheme, type Node } from "./sweet-render.js";
+export { sweetToScheme, readSweet } from "./sweet-read.js";
 // Parameter inlay hints — pure analysis over the classic parse (imports only
 // `sweet-render`, so it stays inside this runtime-free lens closure).
 export { paramHints, paramHintsSweet, type ParamHint } from "./param-hints.js";
