@@ -15,6 +15,18 @@ export interface OpenAIOptions {
    * `{ max: 0 }` to disable.
    */
   retry?: RetryOptions;
+  /**
+   * OpenRouter `reasoning` control, passed through verbatim on every request.
+   * Not part of the OpenAI API — OpenRouter (and some compatible endpoints)
+   * read it to gate the thinking channel. The materializer use-case: a
+   * reasoning-capable model (qwen3.6-flash, qwen3.5-35b-a3b are served as
+   * reasoning variants) must NOT think when its job is to transcribe intent
+   * into s-expressions — reasoning eats the token budget into an empty
+   * content channel and "reasons its way" into a different formalism. Pass
+   * `{ enabled: false }` to disable thinking entirely, or `{ exclude: true }`
+   * to keep it but drop it from output. Undefined → field omitted (no change).
+   */
+  reasoning?: Record<string, unknown>;
 }
 
 /**
@@ -61,6 +73,9 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
       return {
         model: spec.model,
         messages,
+        // OpenRouter `reasoning` gate (not OpenAI API) — passed through when set.
+        // The SDK's create() params don't type it, so the call sites cast.
+        ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
         ...(schema
           ? {
               response_format: {
