@@ -175,3 +175,94 @@ export function lintRacyReads(program: unknown): RacyReadFinding[] {
   walk(program, null);
   return findings;
 }
+
+// ── Racy MCP-call lint (the server-tape index, G1) ────────────────────────────
+//
+// The MCP server-tape keys each call POSITIONALLY: (inference, server, nth-call-to-that-
+// server). That index is well-defined ONLY in sequential order — it's the read-after-write
+// carrier for a server's hidden state. Inside a PARALLEL HOF arm the arms fire out of order,
+// so the nth-call index is racy: on replay, a recorded reply may bind to the wrong call, and
+// a NON-idempotent call (write/destructive) can be mis-sequenced. This is the same class as
+// the reflective-read lint above (a parallel-arm sequence hazard), reusing its AST walk.
+//
+// Static + conservative: it can't know a tool's idempotency (a runtime `tools/list`
+// annotation), so it flags every taped MCP dispatch in a parallel arm. The message says so —
+// an idempotent read is harmless; a non-idempotent call must be sequenced. Reports, never
+// blocks (enforcement is the author's loop, not a host throw).
+
+/** MCP dispatch forms recorded on the positional server-tape. `mcp/call` is the stateful
+ *  one; `infer/agentic/end-to-end` dispatches calls internally (so a parallel arm of agentic
+ *  runs races their server tapes). `mcp/list` shares the tape but is a read — included so the
+ *  index stays consistent, with the message distinguishing the harmless case. */
+const TAPED_MCP_CALLS: ReadonlySet<string> = new Set(["mcp/call", "mcp/list", "infer/agentic/end-to-end"]);
+
+/** One racy-MCP-call finding: a taped dispatch lexically inside a parallel-HOF arm. */
+export interface RacyMcpCallFinding {
+  /** The MCP dispatch form (`"mcp/call"`). */
+  call: string;
+  /** The enclosing parallel HOF whose arm the call sits in (`"map"`). */
+  enclosingHof: string;
+  /** Source position of the call, if the parser stamped one on the node. */
+  location?: SourceLocation;
+  /** An errors-as-door message: the racy index + how to sequence. */
+  message: string;
+}
+
+const isTapedMcpCall = (form: unknown): { name: string; location?: SourceLocation } | null => {
+  const head = headSymbolOf(form);
+  if (head !== null && TAPED_MCP_CALLS.has(head)) {
+    const loc =
+      isPair(form) && isSymbol((form as { car: unknown }).car)
+        ? (form as { car: { __location__?: SourceLocation } }).car.__location__
+        : undefined;
+    return { name: head, location: loc };
+  }
+  if (isSymbol(form)) {
+    const name = symName(form);
+    if (TAPED_MCP_CALLS.has(name)) return { name, location: form.__location__ };
+  }
+  return null;
+};
+
+const buildMcpMessage = (call: string, hof: string): string =>
+  `\`(${call} …)\` runs inside a parallel \`${hof}\` arm, where the MCP server-tape index is ` +
+  `RACY — the arms fire out of order, so replay can't reconstruct which call was nth to a ` +
+  `server. An idempotent read is harmless; a NON-idempotent call (write/destructive) may bind ` +
+  `to the wrong recorded reply. Sequence the calls — fire them in a \`reduce\`/\`fold\` or a ` +
+  `named-let loop, not a parallel \`${hof}\`.`;
+
+/**
+ * Walk a parsed program and report every taped MCP dispatch nested inside a parallel-HOF
+ * arm — the server-tape's positional index is racy there. Mirrors {@link lintRacyReads}
+ * exactly (same parallel-context dominance: a nested fold does NOT clear the outer parallel
+ * region).
+ */
+export function lintRacyMcpCalls(program: unknown): RacyMcpCallFinding[] {
+  const findings: RacyMcpCallFinding[] = [];
+
+  const walk = (form: unknown, insideParallel: string | null): void => {
+    if (Array.isArray(form)) {
+      for (const f of form) walk(f, insideParallel);
+      return;
+    }
+    if (insideParallel !== null) {
+      const call = isTapedMcpCall(form);
+      if (call !== null) {
+        findings.push({
+          call: call.name,
+          enclosingHof: insideParallel,
+          location: call.location,
+          message: buildMcpMessage(call.name, insideParallel),
+        });
+      }
+    }
+    if (!isPair(form)) return;
+    const head = headSymbolOf(form);
+    const args = toArray((form as { cdr: unknown }).cdr);
+    const nextContext = head !== null && PARALLEL_HOFS.has(head) ? head : insideParallel;
+    for (const arg of args) walk(arg, nextContext);
+  };
+
+  walk(program, null);
+  return findings;
+}

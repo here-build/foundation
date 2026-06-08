@@ -9,7 +9,13 @@ export {
 } from "./projected-cost.js";
 export { type RunCost, runCostSummary, summarizeCosts, type TaskCost } from "./run-cost.js";
 export { RunSpend } from "./run-spend.js";
-export { lintRacyReads, type RacyReadFinding, type SourceLocation } from "./racy-read-lint.js";
+export {
+  lintRacyReads,
+  lintRacyMcpCalls,
+  type RacyReadFinding,
+  type RacyMcpCallFinding,
+  type SourceLocation,
+} from "./racy-read-lint.js";
 export {
   type ModelRouter,
   StaticRouter,
