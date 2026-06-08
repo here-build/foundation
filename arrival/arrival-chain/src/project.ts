@@ -673,6 +673,11 @@ export class Project extends PlexusModel<null> {
        * beyond whatever the file's OTHER top-level forms do.
        */
       onExpose?: OnExpose;
+      /** Host hook to inject extra rosettas onto the pipeline env after the
+       *  standard ones are wired and before the program runs — e.g. a bridge into
+       *  another sandbox. Keeps `.prompt`/`require`/trace machinery intact while
+       *  letting a host extend the env's capability surface. */
+      extendEnv?: (env: ReturnType<typeof buildArrivalEnv>) => void;
     } & ExecBudget = {},
   ): Promise<unknown> {
     // The per-run reflective budget accumulator behind `(infer/spent)`. Folds the
@@ -770,6 +775,7 @@ export class Project extends PlexusModel<null> {
       data,
       onExpose: opts.onExpose,
     });
+    opts.extendEnv?.(env);
     const results = await exec(BUILTIN_PREAMBLE + source, {
       env,
       tap: opts.trace,
