@@ -157,7 +157,14 @@ export interface RegionGraph {
    *  `.prompt`, or when the value was PROJECTED/transformed before it reached the
    *  slot (then `inputs[k] !== producer.value` and the match honestly declines —
    *  attributing a projected input needs provenance-on-value, the v1 follow-up). */
-  edges: { from: number; to: number; field?: string; kind: "data" | "control" }[];
+  /** `fromField` marks a field-PLUCK: the consumer read only a SUBSET of the
+   *  producer's fields (`(:verdict (infer …))`) rather than the whole value. Its
+   *  presence tells the renderer to draw a granular per-field wire into that slot
+   *  instead of absorbing the producer's whole result — the produced value isn't
+   *  what lands in the slot, one of its fields is. Currently un-emitted: the seam
+   *  the field-pluck derivation drops into (a separate follow-up); the consumer
+   *  guards (`if (e.fromField !== undefined) continue`) already honor it. */
+  edges: { from: number; to: number; field?: string; fromField?: string; kind: "data" | "control" }[];
   warnings: string[];
 }
 
@@ -510,7 +517,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
   // before any consumer reads it. `reach[x]` = all ancestors reachable from x.
   const EMPTY: ReadonlySet<number> = new Set();
   const reach = new Map<number, Set<number>>();
-  const edges: { from: number; to: number; field?: string; kind: "data" | "control" }[] = [];
+  const edges: { from: number; to: number; field?: string; fromField?: string; kind: "data" | "control" }[] = [];
   for (const x of [...pointIds].sort((a, b) => a - b)) {
     const up = upstreamOf.get(x) ?? EMPTY;
     const closure = new Set<number>();
