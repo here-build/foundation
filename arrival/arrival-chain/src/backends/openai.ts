@@ -15,6 +15,23 @@ export interface OpenAIOptions {
    * `{ max: 0 }` to disable.
    */
   retry?: RetryOptions;
+  /**
+   * OpenRouter `reasoning` control, passed through verbatim on every request (not
+   * part of the OpenAI API — OpenRouter and some compatible endpoints read it to
+   * gate the thinking channel). The materializer use-case: a reasoning-capable model
+   * must NOT think when transcribing intent into s-expressions — reasoning eats the
+   * token budget into an empty content channel. `{ enabled: false }` disables thinking;
+   * `{ exclude: true }` keeps it but drops it from output. Undefined → field omitted.
+   */
+  reasoning?: Record<string, unknown>;
+  /**
+   * Backend-level cap on completion tokens (`max_tokens`) — a runaway-generation
+   * guard for direct callers (a weak materializer can loop, emitting one ever-growing
+   * unterminated JSON string). Undefined → omitted. NB: the inference plane's per-call
+   * `spec.maxTokens` reservation ceiling applies independently and is the can't-overspend
+   * bound on the charging path; this is the default for direct, non-charging callers.
+   */
+  maxTokens?: number;
 }
 
 /**
@@ -45,6 +62,16 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
     // factory needs only the minimal `chat.completions.create` surface, which the
     // real client satisfies at runtime. Bridge the over-specified external type to
     // that minimal surface here (the one place this file already owns the SDK).
-    return openAICompatBackend(client as unknown as ChatCompletionsClient, { retry: opts.retry });
+    return openAICompatBackend(client as unknown as ChatCompletionsClient, {
+      retry: opts.retry,
+      // Forward the OpenRouter `reasoning` gate + the backend-level `max_tokens` cap
+      // through the shared core's provider-extra-fields seam (`extraBody` is spread
+      // last into the request and stays out of the content cache key). The inference
+      // plane's per-call `spec.maxTokens` reservation still applies independently.
+      extraBody: {
+        ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
+        ...(opts.maxTokens === undefined ? {} : { max_tokens: opts.maxTokens }),
+      },
+    });
   });
 }
