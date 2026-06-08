@@ -8,6 +8,8 @@ export {
   uncachedSumStrategy,
 } from "./projected-cost.js";
 export { type RunCost, runCostSummary, summarizeCosts, type TaskCost } from "./run-cost.js";
+export { RunSpend } from "./run-spend.js";
+export { lintRacyReads, type RacyReadFinding, type SourceLocation } from "./racy-read-lint.js";
 export {
   type ModelRouter,
   StaticRouter,
@@ -28,6 +30,26 @@ export {
 
 export { Run, Hypothesis, RunResult, RunError, formatRunError, type RunStatus } from "./run.js";
 export { Draft } from "./draft.js";
+// Effect-log — the per-run record of every external effect (infer/http/sql) +
+// the replay / partial-invalidation machinery. `effectLogCollector` builds a
+// run's log in one pass (feed `onEffectResult`); `invalidateForwardCone`
+// subtracts a changed node's blast radius for minimal recomputation. The
+// kind-tagged key constructors keep the three effect kinds in one disjoint space.
+export {
+  type EffectKind,
+  type EffectLog,
+  DataBinding,
+  dataEffectKey,
+  effectKey,
+  effectKeysByInvocation,
+  effectLogCollector,
+  httpEffectKey,
+  inferEffectKey,
+  invalidateForwardCone,
+  invalidatedEffectKeys,
+  sqlEffectKey,
+  subtractKeys,
+} from "./effect-log.js";
 // Re-exported from arrival-scheme where AValue lives (L4 collapsed the draft).
 export {
   type AKind,
@@ -49,6 +71,22 @@ export {
 export { lipsToJs } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
 export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
+// Data-effect host capability — the membrane `(http/*)` / `(sql/query)` cross.
+// The SaaS host injects a `DataEffectResolver` (label→credential, egress-safe);
+// the OSS engine ships the verbs inert. Twin of `InferFn`. See `data-effects.ts`.
+export {
+  type DataEffect,
+  type DataEffectContext,
+  type DataEffectResolver,
+  type DataEffectResult,
+  type HttpEffect,
+  type HttpMethod,
+  type SqlEffect,
+  type RosettaHost,
+  defineDataEffectRosettas,
+  describeDataEffect,
+  inertDataResolver,
+} from "./data-effects.js";
 export { ArrivalChain } from "./arrival-chain.js";
 // `runPipeline` (the Node/CLI top-to-bottom entry) is deliberately NOT in this
 // barrel: it lazy-imports yjs + y-websocket for the publish path, which the
@@ -70,6 +108,19 @@ export {
 } from "./loader.js";
 export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "./trace.js";
 export { extractDefines, type DefineInfo } from "./extract-defines.js";
+// `(declare/expose …)` — the sealed-skill form. Static signature extraction
+// (the config-plane sync path; the handler never runs) + the runtime
+// declaration the host registry consumes (`OnExpose`, wired into
+// `buildArrivalEnv`). `SourceLocation` is intentionally NOT re-exported here —
+// the barrel already surfaces a (differently-shaped) one from `racy-read-lint`;
+// import the parse-form location type directly from `./extract-expose.js`.
+export { extractExpose, type ExposeInfo, EXPOSE_FORM } from "./extract-expose.js";
+export { defineExposeRosetta, type ExposeDeclaration, type OnExpose } from "./expose.js";
+// The bridge from static `(declare/expose …)` extraction to the canonical
+// tagged-list signature the registry stores: evaluates ONLY the pure
+// `:input`/`:output` schema slices (never the handler), so a config-plane
+// registry sync can run it on every draft edit safely. Feeds `schemaToZod`.
+export { compileExposeSig, type ExposeSig } from "./compile-expose-sig.js";
 export {
   traceToStatechart,
   forwardCone,
@@ -119,17 +170,36 @@ export { sweetToScheme } from "./sweet-read.js";
 // ── Backend authoring helpers ────────────────────────────────────────
 //
 // Concrete backends live as individual subpath modules:
-//   import { openaiBackend }    from "@here.build/arrival-chain/backends/openai";
-//   import { anthropicBackend } from "@here.build/arrival-chain/backends/anthropic";
+//   import { openaiBackend }     from "@here.build/arrival-chain/backends/openai";
+//   import { anthropicBackend }  from "@here.build/arrival-chain/backends/anthropic";
+//   import { openrouterBackend } from "@here.build/arrival-chain/backends/openrouter";
+//
+// `openrouterBackend` is the OpenAI-compatible backend plus provider-cost capture
+// (`usage.cost` → `providerCostMicroUsd`) — the resale-billing path; direct
+// `openaiBackend`/`anthropicBackend` report tokens only (billing on referenceCost).
 //
 // Compose them into a ModelRouter (StaticRouter / LayeredRouter) and
 // pass to `createInferStore`. The shared helpers below are exported from
-// the kernel for callers writing their own backends.
+// the kernel for callers writing their own backends — `openAICompatBackend`
+// is the request/parse/stream core every OpenAI-protocol endpoint reuses.
 export {
   lazyBackend,
+  openAICompatBackend,
+  openAIRequestBody,
+  parseOpenAICompletion,
   parseChatPrompt,
   renderSchema,
+  tagToJsonSchema,
   specMessages,
   type ChatMessage,
   type JsonSchema,
+  type OpenAICompatUsage,
+  type OpenAICompatBackendOptions,
+  type CostFromUsage,
+  type ParseDiag,
 } from "./backends/_shared.js";
+// schema DSL → zod, routed through the single `tagToJsonSchema` lowering (no
+// parallel recursion). Lets the SaaS validate exposed-fn request bodies against
+// the same `(s/object …)` signature the inference path uses — wire schema and
+// HTTP validator cannot drift.
+export { schemaToZod, schemaSlotToZod } from "./schema-to-zod.js";

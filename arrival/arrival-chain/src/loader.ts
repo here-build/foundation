@@ -346,15 +346,36 @@ function pickResolver(path: string, resolvers: Map<string, ContentResolver>): Co
   return best?.fn;
 }
 
-/** Default loader over a Project's VFS. `read` serves `project.files` (latest
- *  version — TODO: pin to the run's version snapshot for full replay fidelity),
- *  confined to the flat key space. */
-export function makeProjectLoader(project: Project): Loader {
+/** Default loader over a Project's VFS, confined to the flat key space.
+ *
+ *  `versionSet` pins replay fidelity: a `{path → versionIndex}` snapshot captured
+ *  at invoke-start (see `Project.captureVersionSet`). When present, `read` serves
+ *  EXACTLY that version of each file, so a multi-file run binds one coherent
+ *  cut of the project for its whole duration — a concurrent `promoteDraft` on a
+ *  `(require)`d library can't tear an in-flight run, and a hypothesis replays the
+ *  same bytes the original saw. When ABSENT (sandbox / draft / one-shot
+ *  `runSource`), `read` serves the LATEST version — the right default for a
+ *  live-edit loop, which wants the head, not a frozen cut.
+ *
+ *  A path missing from a non-empty `versionSet` is one created AFTER the snapshot:
+ *  it didn't exist for this run, so requiring it is a (legible) error — the run is
+ *  pinned to the world as it was at admission, not to a moving head. */
+export function makeProjectLoader(project: Project, versionSet?: ReadonlyMap<string, number>): Loader {
   return {
     resolve: (specifier, fromDir) => joinPath(fromDir, specifier),
     read: (path) => {
       const file = project.files.get(path);
       invariant(file, `require: file not found in project: ${path}`);
+      if (versionSet) {
+        const idx = versionSet.get(path);
+        invariant(
+          idx !== undefined,
+          `require: "${path}" was created after this run started (not in its pinned version-set) — runs bind the project as of invoke-start`,
+        );
+        const pinned = file.versions[idx];
+        invariant(pinned, `require: "${path}" has no version ${idx} (pinned version-set is stale)`);
+        return pinned.source;
+      }
       const latest = file.versions.at(-1);
       invariant(latest, `require: file has no versions: ${path}`);
       return latest.source;

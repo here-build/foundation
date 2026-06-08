@@ -2,13 +2,41 @@ export interface ModelSpec {
   model: string;
   prompt: string;
   schema: string | null;
+  /**
+   * Hard ceiling on generated (completion) tokens for this call. An EXECUTION
+   * bound, not content: it caps spend so `actual ≤ quote` by construction (the
+   * shared inference plane sets it from the wallet reservation), and it is
+   * DELIBERATELY excluded from the content/cache key — `[model, prompt, schema,
+   * cacheKey]` — so changing a cap never busts a cached result (identical
+   * content yields the identical completion regardless of the ceiling). When a
+   * backend was constructed with its own default cap, the per-call `maxTokens`
+   * overrides it; omit to use the backend default / provider maximum.
+   */
+  maxTokens?: number;
 }
 
 /** Token counts for one inference, as the provider reports them. The stable
- *  fact we persist; dollar cost is derived later via a (volatile) price map. */
+ *  fact we persist; a *reference* dollar cost is derived later via a (volatile)
+ *  price map. Distinct from that derived reference cost is the provider's own
+ *  settled charge for this call (`providerCostMicroUsd`) — an immutable fact
+ *  frozen at call-time, present only when the provider reports it. */
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  /**
+   * The provider's OWN reported dollar charge for this call, in integer
+   * micro-USD (1 USD = 1_000_000), frozen at response time. This is the
+   * settled fact resale billing charges against (charge = cost × 1.05) — NOT
+   * the volatile `referenceCost` derived from `pricing.ts` (that map estimates
+   * "what this would cost hosted" for cost ROI / display; this is what the
+   * provider actually billed). Only OpenRouter-shaped responses carry a cost
+   * (`usage.cost`, a USD float → micro-USD here); direct OpenAI/Anthropic and
+   * local/self-hosted backends omit it (they bill on `referenceCost` or $0).
+   * `number` (not `bigint`) to stay a sibling of the token counts and survive
+   * the `JSON.stringify` the disk cache does on a `Completion`; the host
+   * billing layer narrows to `bigint` at the DB/API edge.
+   */
+  providerCostMicroUsd?: number;
 }
 
 /**

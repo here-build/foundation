@@ -12,8 +12,17 @@ import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
 import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
 
+import {
+  type DataEffectResolver,
+  type DataEffectResult,
+  defineDataEffectRosettas,
+  inertDataResolver,
+} from "./data-effects.js";
 import { Draft } from "./draft.js";
+import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey } from "./effect-log.js";
+import { defineExposeRosetta, type OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "./infer-store.js";
+import { RunSpend } from "./run-spend.js";
 import { Program, ProgramVersion } from "./program.js";
 import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
 import {
@@ -332,6 +341,14 @@ export type InferFn = (
  * without arrival-chain hardcoding where tasks live: `Project.run` passes a
  * cache-backed resolver; host passes a per-File one. The caller execs
  * `BUILTIN_PREAMBLE` (+ its source) against the returned env.
+ *
+ * DATA EFFECTS follow the identical seam: `(http/*)` / `(sql/query)` resolve
+ * through an injected {@link DataEffectResolver} (`opts.data`). Absent it, those
+ * verbs are inert — they exist but throw a teaching error at call time (the
+ * disarmed default {@link inertDataResolver}), never a network/DB call and never
+ * a silent no-op. The OSS engine ships the verbs disarmed; the SaaS host injects
+ * the credentialed resolver. The verb BODIES (`http/get`, `sql/query`, …) are
+ * registered by node A3 over the `data` capability resolved here.
  */
 export function buildArrivalEnv(opts: {
   name: string;
@@ -342,6 +359,34 @@ export function buildArrivalEnv(opts: {
   tap?: EvalTrace;
   /** Base dir for resolving relative `(require …)`. */
   dirname?: string;
+  /**
+   * The per-run reflective budget accumulator backing `(infer/spent)` /
+   * `(infer/calls)`. When the host feeds it (calling `spend.record(...)` as each
+   * cell settles), those forms return the running fold over THIS run's own fresh
+   * inference costs. When absent (back-compat default), the namespace is still
+   * bound but inert — `(infer/spent)` returns 0 — so existing callers are
+   * unaffected and a program that reads it never throws. Reserve level: namespace
+   * present, no runtime trap. See `RunSpend`.
+   */
+  spend?: RunSpend;
+  /**
+   * Host capability for DATA EFFECTS — the membrane `(http/*)` / `(sql/query)`
+   * cross. The data-side twin of `infer`: the engine knows the verbs, the host
+   * binds label→credential. Absent, the verbs are INERT (present but throwing
+   * {@link inertDataResolver}'s teaching error) — the OSS engine never reaches a
+   * network or a database without a host arming it. See `data-effects.ts`.
+   */
+  data?: DataEffectResolver;
+  /**
+   * Host sink for `(declare/expose …)`. Each time the form evaluates, the engine
+   * hands the host a typed {@link OnExpose} declaration (name + the `(s/object …)`
+   * input/output schemas + the handler bridged to plain JS) so host's registry
+   * can gate/invoke it. Absent, the form still evaluates and returns its handler
+   * (usable in-program) — it just registers nowhere. Same "capability optional,
+   * verb always present" posture as `import`/`data`. The static twin is
+   * `extractExpose` (reads the signature without ever running the handler).
+   */
+  onExpose?: OnExpose;
 }): ReturnType<typeof sandboxedEnv.inherit> {
   const env = sandboxedEnv.inherit(opts.name);
   // Every (infer …) yields a list to scheme; the resolver returns the raw value.
@@ -364,6 +409,14 @@ export function buildArrivalEnv(opts: {
     fn: async (ctx, model, messages, schema, cacheKey) =>
       list(await opts.infer(ctx, String(model), canonicalizeMessages(messages), schemaSlot(schema), nullable(cacheKey))),
   });
+  // Reflective budget: `(infer/spent)` folds over the run's OWN prior inference
+  // costs (reference USD, fresh calls only — cache hits are free); `(infer/calls)`
+  // counts them. NOT provenance points — they read the run's history, they don't
+  // produce an inference. Inert (→ 0) when no accumulator is bound. The racy-read
+  // lint flags these reads inside a parallel HOF arm, where the fold is meaningless
+  // (see `racy-read-lint.ts`); here we just vend the value.
+  env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0 });
+  env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0 });
   // Seal a `.prompt` PromptUnit into a provenance-point native proc. The output
   // schema is evaluated ONCE here (the `s/…` rosettas live on this env) and
   // slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)`
@@ -425,6 +478,16 @@ export function buildArrivalEnv(opts: {
       },
     });
   };
+  // Data-effect verbs (http/*, sql/query) over the resolved capability seam.
+  // Disarmed default: with no host resolver they throw the teaching error rather
+  // than reach a network/DB (present-but-inert, never an unbound symbol). Node A3
+  // enriches the per-verb arg coercion inside `defineDataEffectRosettas`.
+  defineDataEffectRosettas(env, opts.data ?? inertDataResolver);
+  // `(declare/expose …)` — the sealed-skill registration form. Reuses the same
+  // `buildDict` keyword folder as `dict`/the `.prompt` proc so `:input`/`:output`/
+  // `:handler` resolve identically; the host's `onExpose` sink receives the typed
+  // declaration. Inert (handler-factory only) when no sink is supplied.
+  defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose });
   defineImportRosetta({ env, loader: opts.loader });
   defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "", compileInferUnit });
   return env;
@@ -513,6 +576,23 @@ export class Project extends PlexusModel<null> {
     return undefined;
   }
 
+  /**
+   * Snapshot every file's CURRENT latest-version index: `{path → versionIndex}`.
+   * Taken at invoke-start and recorded on the Run; the replay loader binds it so
+   * a run sees ONE coherent cut of the project for its whole duration — a
+   * concurrent `promoteDraft` on a `(require)`d library can't tear an in-flight
+   * run, and a hypothesis replays the exact bytes the original saw. Files with no
+   * published version yet (index `-1`) are skipped — there's nothing to pin, and
+   * a require would fail the same way against latest. */
+  captureVersionSet(): Map<string, number> {
+    const set = new Map<string, number>();
+    for (const [path, program] of this.files) {
+      const idx = program.versions.length - 1;
+      if (idx >= 0) set.set(path, idx);
+    }
+    return set;
+  }
+
   // ── Execution ─────────────────────────────────────────────────────
 
   /**
@@ -542,33 +622,100 @@ export class Project extends PlexusModel<null> {
       /** Per-run curated `import` registry — `(import "name")` resolves here.
        *  Merged onto the loader's defaults (per-run entries win). */
       imports?: Map<string, unknown>;
-      /** Called with the canonical tuple-key for every `(infer …)` invocation. */
-      onInfer?: (tupleKey: string) => void;
+      /** Called with the kind-tagged effect key for every EXTERNAL effect (infer,
+       *  http, sql) as it fires, in evaluation order. The Run/Hypothesis recorders
+       *  push these into `.effects` — the per-run effect-log's key sequence. */
+      onEffect?: (effectKey: string) => void;
+      /** Called when an effect SETTLES with its value: `(taggedKey, valueJson)`.
+       *  Feed an `effectLogCollector().record` here to build the run's full
+       *  effect-log in one pass (the source a later replay binds via `effectLog`).
+       *  Fires for fresh AND replayed effects (replay re-records the identical
+       *  value), so the produced log is complete regardless of cache/replay state. */
+      onEffectResult?: (effectKey: string, valueJson: string) => void;
       /**
-       * Override inference resolution by content tuple — keyed by canonical
-       * JSON of `[model, prompt, schema, cacheKey]`. Hypothesis re-runs pass
-       * tweaks here so chosen tuples short-circuit without hitting the LLM.
+       * Override inference resolution by content tuple — keyed by canonical JSON of
+       * the UNTAGGED tuple `[model, prompt, schema, cacheKey]`. The counterfactual
+       * surface: `runHypothesis` passes chosen overrides here so a branched tuple
+       * short-circuits with a NEW value (never hits the LLM). Partial (only the
+       * branched tuples; the rest flow through). Distinct from `effectLog`, which
+       * replays RECORDED values across ALL effect kinds — bind both to replay a run
+       * yet branch one node. Tweaks win over the log (the counterfactual is the point).
        */
       tweaks?: Map<string, string>;
+      /**
+       * Deterministic-replay log: kind-tagged effect key → recorded value JSON (see
+       * `effect-log.ts`). Before any external call the matching kind+payload is
+       * looked up here; a hit short-circuits with the recorded value — so binding a
+       * FULL log makes every effect replay with ZERO external hits, and binding a log
+       * with a changed node's forward-cone subtracted (`invalidateForwardCone`)
+       * re-runs exactly the invalidated effects while the rest replay free. The
+       * cross-kind currency is the tagged key, so http/sql/infer share one map
+       * without collision.
+       */
+      effectLog?: EffectLog;
+      /**
+       * Host capability for DATA EFFECTS (`(http/*)` / `(sql/query)`). Threaded to
+       * `buildArrivalEnv` so the verbs (node A3) reach the credentialed resolver,
+       * wrapped here so each data effect records into `.effects` and replays from
+       * `effectLog` through the SAME seam as infer — one effect membrane, three kinds.
+       */
+      data?: DataEffectResolver;
+      /**
+       * Host sink for `(declare/expose …)` (node D4). Threaded straight to
+       * `buildArrivalEnv` so each declaration that evaluates during the run hands
+       * the host its typed {@link OnExpose} declaration (name + evaluated schemas +
+       * the JS-bridged handler) — the seam host's exposed-function INVOCATION
+       * uses to capture a sealed skill's handler from a run, then call it. Absent
+       * (the default), the form still evaluates + returns its handler; it just
+       * registers nowhere — same "capability optional, verb always present" posture
+       * as `infer`/`data`/`import`. Evaluating the form does NOT call the handler
+       * (it captures the lambda closure), so a registration run is side-effect-free
+       * beyond whatever the file's OTHER top-level forms do.
+       */
+      onExpose?: OnExpose;
     } & ExecBudget = {},
   ): Promise<unknown> {
+    // The per-run reflective budget accumulator behind `(infer/spent)`. Folds the
+    // reference cost of each FRESH inference as its cell settles, in evaluation
+    // order — so a program's ROI/TCO loop can read what it has paid so far. Local
+    // to this run (the `InferStore` is cross-run / shared; "spent THIS run" is not).
+    const spend = new RunSpend();
+
     // The cache-backed infer resolver: find-or-create a task in this project's
     // content-addressed cache, bind the trace, await its result. The rosetta
     // wiring + list-wrapping live in buildArrivalEnv (shared with runTraced +
     // host); this closure is the project-specific seam.
     const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey) => {
-      // Hypothesis tweaks short-circuit before any inference — the whole
-      // point is to NOT consult the LLM for these tuples.
+      // Two short-circuit maps, consulted before any inference — counterfactual
+      // first (it supplies NEW values), then the replay log (RECORDED values):
+      //   - tweaks: keyed by the UNTAGGED content tuple (the legacy hypothesis surface).
+      //   - effectLog: keyed by the kind-TAGGED effect key (the all-kinds replay surface).
+      // A hit on either skips the LLM entirely (the whole point of replay/branch).
       const tweakKey = JSON.stringify([model, prompt, schema, cacheKey]);
       const tweak = opts.tweaks?.get(tweakKey);
       if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
+      const effectKeyStr = inferEffectKey(model, prompt, schema, cacheKey);
+      const replayed = opts.effectLog?.get(effectKeyStr);
+      if (replayed !== undefined) {
+        // Replay still records the effect (the key sequence is part of the run's
+        // identity) and marks the trace node as a cached provenance point — so a
+        // replayed run's trace/graph is shaped identically to the original.
+        opts.onEffect?.(effectKeyStr);
+        opts.onEffectResult?.(effectKeyStr, replayed);
+        const inv = ctx?.currentInvocation;
+        if (inv && opts.trace) {
+          opts.trace.markInferCached(inv as never, true);
+          opts.trace.markProvenancePoint(inv as never);
+        }
+        return JSON.parse(replayed);
+      }
       // Single-flight cell: the first call for this content tuple starts the
       // backend; later identical calls ride the same cell. Acquire keeps it alive;
       // release lets the last holder abort a superseded run.
       const cell = this.infer.get({ model, prompt, schema }, cacheKey);
       const cached = cell.finished(); // already-settled at bind = served from a prior get this run
       cell.acquire();
-      opts.onInfer?.(tweakKey);
+      opts.onEffect?.(effectKeyStr);
       const inv = ctx?.currentInvocation;
       let binding: InferBinding | undefined;
       if (inv && opts.trace) {
@@ -581,6 +728,15 @@ export class Project extends PlexusModel<null> {
       try {
         const completion = await cell.done;
         if (binding) binding.completion = completion; // stamp usage for synchronous cost walk
+        // Fold this inference into the reflective budget — fresh calls only (a
+        // cache hit cost nothing this run, so it's free; `(infer/spent)` sums what
+        // was PAID, never what was saved). Stamped after the await settles, so the
+        // value a later `(infer/spent)` reads is order-correct.
+        spend.record(model, completion.usage, !cached);
+        // Record the settled value into the effect-log sink (its key was already
+        // recorded above). `completion.value` is the raw value the cell resolved;
+        // JSON it to the same shape replay reads back.
+        opts.onEffectResult?.(effectKeyStr, JSON.stringify(completion.value ?? null));
         return completion.value;
       } finally {
         cell.release();
@@ -591,7 +747,29 @@ export class Project extends PlexusModel<null> {
     // `import` is the curated host-capability registry (FS-free). Merge the
     // per-run set onto the loader's defaults; the require rosetta taps this run.
     if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
-    const env = buildArrivalEnv({ name: "arrival-chain", infer: inferAndWait, loader, tap: opts.trace, dirname: opts.dirname });
+    // Data effects cross the same record+replay seam as infer: wrap the host
+    // resolver so each (http/*)/(sql/query) consults `effectLog` (replay) and
+    // records its tagged key into `.effects`. Absent a host resolver the verbs
+    // stay inert (buildArrivalEnv's default), so this is armed only when a `data`
+    // capability was supplied.
+    const data = opts.data
+      ? this.#wrapDataResolver(opts.data, {
+          effectLog: opts.effectLog,
+          onEffect: opts.onEffect,
+          onEffectResult: opts.onEffectResult,
+          trace: opts.trace,
+        })
+      : undefined;
+    const env = buildArrivalEnv({
+      name: "arrival-chain",
+      infer: inferAndWait,
+      loader,
+      tap: opts.trace,
+      dirname: opts.dirname,
+      spend,
+      data,
+      onExpose: opts.onExpose,
+    });
     const results = await exec(BUILTIN_PREAMBLE + source, {
       env,
       tap: opts.trace,
@@ -604,21 +782,98 @@ export class Project extends PlexusModel<null> {
   }
 
   /**
+   * Wrap a host {@link DataEffectResolver} with the effect-log record+replay seam,
+   * so `(http/*)` / `(sql/query)` cross the SAME membrane as `(infer …)`:
+   *   - REPLAY: a kind-tagged key present in `effectLog` short-circuits with the
+   *     recorded value — zero external hits. (The same partial-invalidation a
+   *     subtracted log gives infer applies to data effects for free.)
+   *   - RECORD: the tagged key is reported via `onEffect` (→ `Run.effects`) and the
+   *     settled value via `onEffectResult` (→ the effect-log collector).
+   *   - PROVENANCE: the effect's invocation is marked a provenance point and bound
+   *     to a {@link DataBinding}, so it becomes a node in the causal graph and the
+   *     forward-cone reaches it (A3 registers the verbs without provenance marking;
+   *     we add it HERE, where the effect-log lives, so data effects are first-class
+   *     cone members exactly like infers).
+   *
+   * Inert when no `effectLog` and no recording sinks AND no trace — but we still
+   * mark provenance so the graph is correct; the wrap is cheap.
+   */
+  #wrapDataResolver(
+    inner: DataEffectResolver,
+    seam: {
+      effectLog?: EffectLog;
+      onEffect?: (effectKey: string) => void;
+      onEffectResult?: (effectKey: string, valueJson: string) => void;
+      trace?: EvalTrace;
+    },
+  ): DataEffectResolver {
+    return async (ctx, effect) => {
+      const key = dataEffectKey(effect);
+      const inv = (ctx as { currentInvocation?: unknown } | undefined)?.currentInvocation;
+      // Make the data effect a first-class causal node: a provenance point bound to
+      // a DataBinding, so `effectKeysByInvocation` resolves its id → this key and
+      // the forward-cone reaches it (replay marks the same, so a replayed run's
+      // graph matches the original).
+      const mark = (): void => {
+        if (inv && seam.trace) {
+          seam.trace.bindTask(new DataBinding(effect, key), inv as never);
+          seam.trace.markProvenancePoint(inv as never);
+        }
+      };
+      const replayed = seam.effectLog?.get(key);
+      if (replayed !== undefined) {
+        seam.onEffect?.(key);
+        seam.onEffectResult?.(key, replayed);
+        mark();
+        return JSON.parse(replayed) as DataEffectResult;
+      }
+      seam.onEffect?.(key);
+      mark();
+      const value = await inner(ctx, effect);
+      seam.onEffectResult?.(key, JSON.stringify(value ?? null));
+      return value;
+    };
+  }
+
+  /**
    * Reverse-membrane entry: evaluate a named `(define …)` from `file`
    * with supplied `args`. Mints an apiCall Run under that file's Program,
-   * populated with the version snapshot, input, inference references as
-   * they fire, and final output. Returns the Run synchronously so the
-   * API layer can hand its id back to the client immediately.
+   * populated with the version snapshot, input, effect references as they
+   * fire, and final output. Returns the Run synchronously so the API layer
+   * can hand its id back to the client immediately.
+   *
+   * `data` arms the data-effect verbs with a credentialed host resolver (the
+   * host Runner DO supplies one; absent, `(http/*)`/`(sql/query)` are inert).
+   * `effectLog` replays a recorded log (zero external hits) — re-invoking a past
+   * run deterministically. `onEffectResult` lets the host collect THIS run's
+   * effect-log in one pass (feed `effectLogCollector().record`) to persist for a
+   * future replay.
    */
-  invoke(opts: { id: string; file: string; name: string; args: readonly unknown[] }): Run {
+  invoke(opts: {
+    id: string;
+    file: string;
+    name: string;
+    args: readonly unknown[];
+    data?: DataEffectResolver;
+    effectLog?: EffectLog;
+    onEffectResult?: (effectKey: string, valueJson: string) => void;
+  }): Run {
     const program = this.files.get(opts.file);
     invariant(program, `Project.invoke: file "${opts.file}" not found`);
     invariant(!program.apiCalls.has(opts.id), `Project.invoke: id "${opts.id}" already exists`);
 
+    // Snapshot the WHOLE project's version-set at admission — not just the entry.
+    // The run binds this cut for its duration (the loader reads it), so a
+    // concurrent edit to a `(require)`d library can't tear the in-flight run and
+    // a later hypothesis replays the identical bytes. This is "live draft v1"
+    // done right: latest pinned at invoke-start, the minimal stand-in for a
+    // frozen projectRelease.
+    const versionSet = this.captureVersionSet();
     const run = new Run();
     this.transact(() => {
       program.apiCalls.set(opts.id, run);
       run.versionIndex = program.versions.length - 1;
+      run.versionSetJson = JSON.stringify(Object.fromEntries(versionSet));
       run.hasInput = true;
       run.name = opts.name;
       run.argsJson = JSON.stringify(opts.args);
@@ -626,8 +881,16 @@ export class Project extends PlexusModel<null> {
       run.status = "pending";
     });
 
-    const body = program.versions.at(-1)?.source ?? "";
-    void this.#executeRun(run, body, opts.name, opts.args);
+    // Pin the entry body to the snapshot too (the entry IS in versionSet), so the
+    // body and every transitive require come from the same cut.
+    const body = program.versions[versionSet.get(opts.file)!]?.source ?? "";
+    const loader = makeProjectLoader(this, versionSet);
+    void this.#executeRun(run, body, opts.name, opts.args, {
+      loader,
+      data: opts.data,
+      effectLog: opts.effectLog,
+      onEffectResult: opts.onEffectResult,
+    });
     return run;
   }
 
@@ -722,11 +985,17 @@ export class Project extends PlexusModel<null> {
     body: string,
     name: string,
     args: readonly unknown[],
+    opts: {
+      loader?: Loader;
+      data?: DataEffectResolver;
+      effectLog?: EffectLog;
+      onEffectResult?: (effectKey: string, valueJson: string) => void;
+    } = {},
   ): Promise<void> {
     // Failure is already recorded on the Run by #runIntoRun; swallow here
     // so the void-call from invoke() doesn't produce an unhandled rejection.
     try {
-      await this.#runIntoRun(run, body + "\n" + this.#callForm(name, args));
+      await this.#runIntoRun(run, body + "\n" + this.#callForm(name, args), opts);
     } catch {
       /* recorded on run.output */
     }
@@ -744,15 +1013,23 @@ export class Project extends PlexusModel<null> {
   async #runIntoRun(
     run: Run,
     source: string,
-    opts: { trace?: EvalTrace; resolver?: RequireResolver; tweaks?: Map<string, string> } = {},
+    opts: {
+      trace?: EvalTrace;
+      resolver?: RequireResolver;
+      loader?: Loader;
+      tweaks?: Map<string, string>;
+      effectLog?: EffectLog;
+      onEffectResult?: (effectKey: string, valueJson: string) => void;
+      data?: DataEffectResolver;
+    } = {},
   ): Promise<unknown> {
     try {
       const value = await this.run(source, {
         ...opts,
-        onInfer: (tupleKey) => {
-          // Each inference key appended in its own micro-transact so peers
+        onEffect: (effectKey) => {
+          // Each effect key appended in its own micro-transact so peers
           // see the trace grow as it happens (not just on finish).
-          this.transact(() => run.inferences.push(tupleKey));
+          this.transact(() => run.effects.push(effectKey));
         },
       });
       this.transact(() => {
@@ -777,13 +1054,25 @@ export class Project extends PlexusModel<null> {
    * Counterfactual replay. Re-executes the given Run against a tweak map
    * (canonical-tuple-string → override-value-JSON) and records the result
    * as a Hypothesis child of that Run. Source comes from the Run's pinned
-   * `versionIndex` snapshot — not the file's latest — so hypotheses stay
-   * faithful even if the file has since been edited.
+   * `versionIndex` snapshot — not the file's latest — AND every `(require)`d
+   * file is read at the Run's `versionSet` snapshot, so a MULTI-file hypothesis
+   * stays faithful even if any file (entry OR a transitive library) has since
+   * been edited. (Without the version-set, the entry was pinned but a required
+   * library replayed at latest — the multi-file replay tear A7 closes.)
+   *
+   * Optional `effectLog` replays the original run's RECORDED effects (zero external
+   * hits) while `tweaks` branches chosen ones — together they are deterministic
+   * replay + counterfactual in one pass. Pass a FULL log to reproduce exactly; pass
+   * `invalidateForwardCone(fullLog, run-trace, [changedNode])` to re-run only the
+   * changed node's blast radius and replay the rest (the cheap "what changed if I
+   * edit just here" path).
    */
   runHypothesis(opts: {
     id: string;
     run: Run;
     tweaks: Map<string, string>;
+    /** Recorded-effect replay log (kind-tagged key → value JSON). See above. */
+    effectLog?: EffectLog;
   }): { hypothesis: Hypothesis; finished: Promise<unknown> } {
     const run = opts.run;
     invariant(!run.hypotheses.has(opts.id), `Project.runHypothesis: id "${opts.id}" already exists`);
@@ -808,11 +1097,19 @@ export class Project extends PlexusModel<null> {
     const source = run.hasInput
       ? body + "\n" + this.#callForm(run.name, run.args)
       : body;
+    // Replay every `(require)` at the Run's pinned version-set, so a transitive
+    // library is read at the bytes the original saw. An empty set (a Run minted
+    // before A7, or one with no captured files) falls back to the default loader
+    // — that Run replays exactly as it did before: entry pinned, requires latest.
+    const versionSet = run.versionSet;
+    const loader = versionSet.size > 0 ? makeProjectLoader(this, versionSet) : undefined;
     const finished = (async () => {
       try {
         const value = await this.run(source, {
+          loader,
           tweaks: opts.tweaks,
-          onInfer: (tupleKey) => this.transact(() => hypothesis.inferences.push(tupleKey)),
+          effectLog: opts.effectLog,
+          onEffect: (effectKey) => this.transact(() => hypothesis.effects.push(effectKey)),
         });
         this.transact(() => {
           hypothesis.output = new RunResult({ valueJson: JSON.stringify(value ?? null) });
@@ -870,7 +1167,7 @@ export class Project extends PlexusModel<null> {
     const { userForms, finished } = await this.runTraced(opts.source, {
       trace: opts.trace,
       resolver: opts.resolver,
-      onInfer: (tupleKey) => this.transact(() => run.inferences.push(tupleKey)),
+      onEffect: (effectKey) => this.transact(() => run.effects.push(effectKey)),
     });
 
     const tracked = (async () => {
@@ -925,10 +1222,20 @@ export class Project extends PlexusModel<null> {
       /** Per-run curated `import` registry — `(import "name")` resolves here.
        *  Merged onto the loader's defaults (per-run entries win). */
       imports?: Map<string, unknown>;
-      /** Called with the canonical tuple-key for every `(infer …)` invocation. */
-      onInfer?: (tupleKey: string) => void;
-      /** Hypothesis-style infer-result overrides keyed by canonical tuple JSON. */
+      /** Called with the kind-tagged effect key for every external effect (infer/
+       *  http/sql) as it fires — the `.effects` recorder, same as `run`. */
+      onEffect?: (effectKey: string) => void;
+      /** Called when an effect settles with its value: `(taggedKey, valueJson)`
+       *  — feed an `effectLogCollector().record` to build the run's log. */
+      onEffectResult?: (effectKey: string, valueJson: string) => void;
+      /** Counterfactual infer overrides keyed by the UNTAGGED content tuple. */
       tweaks?: Map<string, string>;
+      /** Deterministic-replay log (kind-tagged key → value JSON); a hit short-
+       *  circuits the external call. See `run`'s `effectLog`. */
+      effectLog?: EffectLog;
+      /** Host data-effect resolver for `(http/*)` / `(sql/query)`; wrapped with the
+       *  same record+replay seam as `run`. Inert when absent. */
+      data?: DataEffectResolver;
     } & ExecBudget,
   ): Promise<{ userForms: unknown[]; finished: Promise<unknown> }> {
     // Reuse the same rosetta wiring as run() by going through run() for the
@@ -938,10 +1245,22 @@ export class Project extends PlexusModel<null> {
       const tupleKey = JSON.stringify([model, prompt, schema, cacheKey]);
       const tweak = opts.tweaks?.get(tupleKey);
       if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
+      const effectKeyStr = inferEffectKey(model, prompt, schema, cacheKey);
+      const replayed = opts.effectLog?.get(effectKeyStr);
+      if (replayed !== undefined) {
+        opts.onEffect?.(effectKeyStr);
+        opts.onEffectResult?.(effectKeyStr, replayed);
+        const inv = ctx?.currentInvocation;
+        if (inv) {
+          opts.trace.markInferCached(inv as never, true);
+          opts.trace.markProvenancePoint(inv as never);
+        }
+        return JSON.parse(replayed);
+      }
       const cell = this.infer.get({ model, prompt, schema }, cacheKey);
       const cached = cell.finished();
       cell.acquire();
-      opts.onInfer?.(tupleKey);
+      opts.onEffect?.(effectKeyStr);
       const inv = ctx?.currentInvocation;
       let binding: InferBinding | undefined;
       if (inv) {
@@ -953,6 +1272,7 @@ export class Project extends PlexusModel<null> {
       try {
         const completion = await cell.done;
         if (binding) binding.completion = completion;
+        opts.onEffectResult?.(effectKeyStr, JSON.stringify(completion.value ?? null));
         return completion.value;
       } finally {
         cell.release();
@@ -964,7 +1284,22 @@ export class Project extends PlexusModel<null> {
     // `require` internals are NOT tapped (tap omitted) so a required library
     // doesn't explode the live trace — the (require …) call still appears as a
     // top-level user form; provenance for library infers rides the plain run().
-    const env = buildArrivalEnv({ name: "arrival-chain-traced", infer: inferAndWait, loader, tap: undefined, dirname: opts.dirname });
+    const data = opts.data
+      ? this.#wrapDataResolver(opts.data, {
+          effectLog: opts.effectLog,
+          onEffect: opts.onEffect,
+          onEffectResult: opts.onEffectResult,
+          trace: opts.trace,
+        })
+      : undefined;
+    const env = buildArrivalEnv({
+      name: "arrival-chain-traced",
+      infer: inferAndWait,
+      loader,
+      tap: undefined,
+      dirname: opts.dirname,
+      data,
+    });
     // Evaluate the builtin preamble first, tap-free, so the records map starts
     // with only user-program forms.
     await exec(BUILTIN_PREAMBLE, { env, signal: opts.signal, budgetMs: opts.budgetMs });

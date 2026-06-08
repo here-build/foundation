@@ -18,7 +18,10 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
   return lazyBackend(async () => {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
-    const maxTokens = opts.maxTokens ?? 4096;
+    // Anthropic ALWAYS requires max_tokens. The per-call ceiling (set by the
+    // inference plane from the wallet reservation) overrides this construction
+    // default when present, so actual ≤ quote by construction.
+    const defaultMaxTokens = opts.maxTokens ?? 4096;
     return {
       async complete(spec: ModelSpec): Promise<Completion> {
         const messages = specMessages(spec);
@@ -37,7 +40,7 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
           () =>
             client.messages.create({
               model: spec.model,
-              max_tokens: maxTokens,
+              max_tokens: spec.maxTokens ?? defaultMaxTokens,
               system: sys,
               messages: convo,
             }),

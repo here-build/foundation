@@ -61,6 +61,10 @@
     "./backends/anthropic": {
       "types": "./dist/backends/anthropic.d.ts",
       "import": "./dist/backends/anthropic.js"
+    },
+    "./backends/openrouter": {
+      "types": "./dist/backends/openrouter.d.ts",
+      "import": "./dist/backends/openrouter.js"
     }
   },
   "main": "./dist/index.js",
@@ -76,7 +80,8 @@
     "jsonrepair": "3.13.0",
     "smol-toml": "1.6.1",
     "tiny-invariant": "1.3.3",
-    "yaml": "2.9.0"
+    "yaml": "2.9.0",
+    "zod": "4.3.6"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.92.0",

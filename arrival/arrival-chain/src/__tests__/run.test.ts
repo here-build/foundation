@@ -82,7 +82,7 @@ describe("Project.invoke — reverse-membrane apiCall Run", () => {
     expect(() => project.invoke({ id: "dup", file: "a.scm", name: "f", args: [] })).toThrow(/already exists/);
   });
 
-  it("records every infer call in run.inferences as the trace", async () => {
+  it("records every infer call in run.effects as the trace (kind-tagged keys)", async () => {
     const { project } = fresh();
     const complete = vi.fn(async (s: { prompt: string }) => ({ value: `seen:${s.prompt}` }));
     project.bindInfer(createInferStore(singletonRouter({ complete })));
@@ -99,9 +99,10 @@ describe("Project.invoke — reverse-membrane apiCall Run", () => {
 
     expect(run.status).toBe("resolved");
     expect((run.output as RunResult).value).toBe("seen:p1/seen:p2");
-    expect(run.inferences.length).toBe(2);
-    expect(run.inferences[0]).toBe(JSON.stringify(["m", "p1", null, null]));
-    expect(run.inferences[1]).toBe(JSON.stringify(["m", "p2", null, null]));
+    expect(run.effects.length).toBe(2);
+    // Effect keys are kind-tagged: ["infer", model, prompt, schema, cacheKey].
+    expect(run.effects[0]).toBe(JSON.stringify(["infer", "m", "p1", null, null]));
+    expect(run.effects[1]).toBe(JSON.stringify(["infer", "m", "p2", null, null]));
   });
 });
 
@@ -122,8 +123,8 @@ describe("Project.sandboxRun — forward-membrane sandbox Run", () => {
     await finished;
     expect(run.status).toBe("resolved");
     expect((run.output as RunResult).value).toBe("ok");
-    expect(run.inferences.length).toBe(1);
-    expect(run.inferences[0]).toBe(JSON.stringify(["m", "hi", null, null]));
+    expect(run.effects.length).toBe(1);
+    expect(run.effects[0]).toBe(JSON.stringify(["infer", "m", "hi", null, null]));
   });
 });
 
@@ -219,9 +220,11 @@ describe("Project.runHypothesis — counterfactual replay", () => {
     const original = project.invoke({ id: "orig", file: "branch.scm", name: "run", args: [] });
     await waitFor(() => original.status !== "pending");
     expect((original.output as RunResult).value).toBe("real:a+real:b");
-    expect(original.inferences.length).toBe(2);
+    expect(original.effects.length).toBe(2);
 
-    // Tweak the FIRST inference: tuple for (model="m", prompt="a", schema=null, cacheKey=null).
+    // Tweak the FIRST inference. The `tweaks` counterfactual surface keys by the
+    // UNTAGGED content tuple (model="m", prompt="a", schema=null, cacheKey=null) —
+    // distinct from the kind-tagged effect key the effect-log uses.
     const aTuple = JSON.stringify(["m", "a", null, null]);
     const tweaks = new Map<string, string>([[aTuple, JSON.stringify("forced-a")]]);
 
@@ -229,10 +232,10 @@ describe("Project.runHypothesis — counterfactual replay", () => {
     const v = await finished;
     expect(v).toBe("forced-a+real:b");
     expect(hypothesis.status).toBe("resolved");
-    // Hypothesis inferences should only contain the non-tweaked cell;
+    // Hypothesis effects should only contain the non-tweaked cell (kind-tagged);
     // the tweaked branch short-circuits before any cache lookup.
-    expect(hypothesis.inferences.length).toBe(1);
-    expect(hypothesis.inferences[0]).toBe(JSON.stringify(["m", "b", null, null]));
+    expect(hypothesis.effects.length).toBe(1);
+    expect(hypothesis.effects[0]).toBe(JSON.stringify(["infer", "m", "b", null, null]));
     expect(original.hypotheses.get("h1")).toBe(hypothesis);
   });
 

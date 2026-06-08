@@ -2,6 +2,7 @@ packages:
   - plexus
   - y-messageport
   - mcp-typescript-lsp
+  - envelope-crypto
   - device-frame
   - css-viewport-transform
   - ios-layout-solver
