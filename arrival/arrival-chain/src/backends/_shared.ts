@@ -338,17 +338,20 @@ export function specMessages(spec: ModelSpec): ChatMessage[] {
  */
 export function openAIRequestBody(spec: ModelSpec, extra: Record<string, unknown> = {}): Record<string, unknown> {
   const schema = renderSchema(spec.schema);
-  const messages: ChatMessage[] = schema
-    ? [
-        {
-          role: "system",
-          content:
-            `Respond with a single JSON value conforming to this JSON Schema. ` +
-            `Output only the JSON — no prose, no markdown code fences.\n${JSON.stringify(schema)}`,
-        },
-        ...specMessages(spec),
-      ]
-    : specMessages(spec);
+  const base = specMessages(spec);
+  const schemaPreamble =
+    `Respond with a single JSON value conforming to this JSON Schema. ` +
+    `Output only the JSON — no prose, no markdown code fences.\n${JSON.stringify(schema)}`;
+  // MERGE the schema preamble into the prompt's existing leading system message rather
+  // than prepending a SECOND one — `[system, system, user]` is rejected by some
+  // OpenRouter providers ("system message must be at the beginning"), while a single
+  // leading system message is universally accepted. Prepend a fresh one only if the
+  // prompt has no leading system message.
+  const messages: ChatMessage[] = !schema
+    ? base
+    : base.length > 0 && base[0]!.role === "system"
+      ? [{ role: "system", content: `${schemaPreamble}\n\n${base[0]!.content}` }, ...base.slice(1)]
+      : [{ role: "system", content: schemaPreamble }, ...base];
   return {
     model: spec.model,
     messages,

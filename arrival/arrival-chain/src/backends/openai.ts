@@ -32,6 +32,14 @@ export interface OpenAIOptions {
    * bound on the charging path; this is the default for direct, non-charging callers.
    */
   maxTokens?: number;
+  /**
+   * Sampling temperature. Undefined → omitted (endpoint default, e.g. LM Studio's 0.6).
+   * A STRUCTURED task — emitting balanced s-expressions — wants this LOW (→0, greedy):
+   * bracket-depth is a discrete counter with no error-cancellation, so a single off-
+   * distribution token sampled at high temperature drops a bracket and derails the rest
+   * of the program. Set 0 for the materializer role.
+   */
+  temperature?: number;
 }
 
 /**
@@ -71,6 +79,7 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
       extraBody: {
         ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
         ...(opts.maxTokens === undefined ? {} : { max_tokens: opts.maxTokens }),
+        ...(opts.temperature === undefined ? {} : { temperature: opts.temperature }),
       },
     });
   });
