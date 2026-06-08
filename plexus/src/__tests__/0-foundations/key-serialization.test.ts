@@ -181,9 +181,15 @@ describe("key-serialization", () => {
   });
 
   describe("PathMap validation", () => {
-    it("throws on plain object key in PathMap", () => {
+    it("keys an object by identity in PathMap (serializability is enforced at serializeKey, not PathMap)", () => {
+      // PathMap is now a general structural-key Map (in @here.build/collections); it keys
+      // objects by reference identity. The synced-map serializability guard ("plain objects
+      // not allowed") lives at serializeKey — see the serializeKey tests above.
       const map = new PathMap<any, string>();
-      expect(() => map.set({ foo: "bar" }, "value")).to.throw(TypeError, /Plain objects are not allowed/);
+      const k = { foo: "bar" };
+      map.set(k, "value");
+      expect(map.get(k)).to.equal("value"); // same reference resolves
+      expect(map.get({ foo: "bar" })).to.equal(undefined); // a distinct object is a distinct key
     });
 
     it("throws on Symbol key in PathMap", () => {
@@ -191,9 +197,12 @@ describe("key-serialization", () => {
       expect(() => map.set(Symbol("test"), "value")).to.throw(TypeError);
     });
 
-    it("throws on Set containing invalid type in PathMap", () => {
+    it("keys Set members by object identity in PathMap (objects allowed)", () => {
       const map = new PathMap<any, string>();
-      expect(() => map.set(new Set([{ bad: true }]), "value")).to.throw(TypeError);
+      const el = { bad: true };
+      map.set(new Set([el]), "value");
+      expect(map.get(new Set([el]))).to.equal("value"); // same element reference
+      expect(map.get(new Set([{ bad: true }]))).to.equal(undefined); // a distinct element is a distinct key
     });
 
     it("allows valid key types in PathMap", () => {
