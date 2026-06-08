@@ -80,7 +80,26 @@ function accessorField(node: Pair): string | null {
  * forms — not here. This function applies the general rule.
  */
 function computeProvenance(inv: Invocation, trace: EvalTrace): ReadonlySet<number> {
-  if (inv.isProvenancePoint) return new Set<number>([inv.id]);
+  if (inv.isProvenancePoint) return trace.markAuthoritativeProvenance(new Set<number>([inv.id]));
+
+  const field = accessorField(inv.node);
+
+  // Forward an already-truncated lineage across a FORWARDING boundary — a
+  // function-call return, a `let`, a tail-recursive pass-through, a control-flow
+  // arm that the evaluator left untouched (empty predicate). When the produced
+  // value's provenance is AUTHORITATIVE (minted by a point or a `(:field …)`
+  // projection, see `markAuthoritativeProvenance`) it is the COMPLETE lineage;
+  // re-unioning the frame's other resolutions here is precisely the
+  // depth-accumulation that flattened a navigable O(1)-per-hop link chain into an
+  // O(history) set (the 2026-06-08 heap dump). Field accessors are EXCLUDED so
+  // they reach the refine branch below and mint their own link; genuine combiners
+  // (string-append, an `if` with a provenance-bearing predicate — whose merged set
+  // the evaluator produced via `withProvenance`, never marked authoritative) are
+  // not authoritative and fall through to the normal union.
+  if (field === null && inv.value instanceof AValue && trace.isAuthoritativeProvenance(inv.value.provenance)) {
+    return inv.value.provenance;
+  }
+
   const distinct = new Set<ReadonlySet<number>>();
   // Pair-children — sub-expressions evaluated within this invocation.
   // Each child's `provenance` was computed by its own exit-tap and
@@ -109,11 +128,10 @@ function computeProvenance(inv: Invocation, trace: EvalTrace): ReadonlySet<numbe
   // per-property flow wire / go-to-source edge. Element-only provenance from
   // `car`/`cdr` (§5.3) already attributes to the right fan-out producer, so a
   // chained `(:verdict (car reactions))` qualifies react[0]'s point specifically.
-  const field = accessorField(inv.node);
   if (field !== null) {
     const refined = new Set<number>();
     for (const s of distinct) for (const p of s) refined.add(trace.fieldPoint(p, field));
-    return refined;
+    return trace.markAuthoritativeProvenance(refined);
   }
 
   if (distinct.size === 1) return distinct.values().next().value!;
@@ -314,6 +332,35 @@ export class EvalTrace implements EvalTap {
     this.#fieldPointIds.set(memo, id);
     this.fieldPointMeta.set(id, { origin, key });
     return id;
+  }
+
+  /**
+   * The provenance sets that are AUTHORITATIVE — minted by a provenance point
+   * (`{self.id}`) or a `(:field …)` projection (`{field-point ids}`). An
+   * authoritative set is the COMPLETE lineage of the value it stamps: upstream is
+   * reached by FOLLOWING the link (the point / field-point resolves back to its
+   * producer), never by carrying the transitive closure. `computeProvenance`
+   * forwards an authoritative set across a forwarding boundary (function-call
+   * return, `let`, tail-recursive pass-through) instead of re-unioning it with the
+   * frame's other resolutions — that re-union is the depth-accumulation that turned
+   * a navigable O(1)-per-hop chain into an O(history) flat set (the 2026-06-08
+   * 1.3 GB heap dump: a loop's tagline carried every prior round's points instead of
+   * one link back). Keyed by Set IDENTITY (WeakSet) so it rides the reference that
+   * `withProvenance` / the size-1 forward share, and is GC'd with it.
+   */
+  readonly #authoritativeProvenance = new WeakSet<ReadonlySet<number>>();
+
+  /** Tag a freshly-minted provenance set as authoritative (point / field-projection),
+   *  returning it so call sites read `return trace.markAuthoritative(set)`. */
+  markAuthoritativeProvenance<T extends ReadonlySet<number>>(set: T): T {
+    if (set.size > 0) this.#authoritativeProvenance.add(set);
+    return set;
+  }
+
+  /** Whether `set` is an authoritative (point / field-projection) lineage — see
+   *  {@link markAuthoritativeProvenance}. */
+  isAuthoritativeProvenance(set: ReadonlySet<number>): boolean {
+    return this.#authoritativeProvenance.has(set);
   }
 
   /** Associate a task with an invocation that created it. Idempotent —
