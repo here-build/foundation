@@ -111,7 +111,9 @@ describe("host globals are unbound in the sandbox", () => {
     // list-shaped value), so a hostile program cannot exfiltrate via it. This guards
     // that a future change doesn't accidentally bind the HOST fetch to this name.
     const onList = await run(`(fetch (list 1 2 3))`);
-    expect(onList).toBeUndefined(); // a list op / no-op — definitely not an HTTP response
+    // `fetch` is Ramda `prop` (a pure, curried property accessor), so applying it
+    // yields a curried fn — never `undefined`, and definitely never an HTTP response.
+    expect(typeof onList).toBe("function");
     // A URL string yields a function (curried bridge), never a Response/promise-of-body.
     const onUrl = await run(`(fetch "http://169.254.169.254/latest/meta-data")`);
     expect(typeof onUrl).toBe("function");
