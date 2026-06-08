@@ -18,10 +18,23 @@ import {
   defineDataEffectRosettas,
   inertDataResolver,
 } from "./data-effects.js";
+import {
+  defineMcpRosettas,
+  inertMcpResolver,
+  isMcpServerValue,
+  type McpEffectContext,
+  type McpEffectResolver,
+  resolveTools,
+  wrapMcpResolver,
+} from "./mcp-effects.js";
+import { runAgenticLoop } from "./agentic-loop.js";
+import type { ChatMessage } from "./backends/_shared.js";
 import { Draft } from "./draft.js";
-import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey } from "./effect-log.js";
+import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey, stableJson } from "./effect-log.js";
 import { defineExposeRosetta, type OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "./infer-store.js";
+import { InferString } from "./infer-string.js";
+import type { Completion, ToolCall, ToolDescriptor } from "./model.js";
 import { RunSpend } from "./run-spend.js";
 import { Program, ProgramVersion } from "./program.js";
 import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
@@ -90,6 +103,19 @@ function canonicalizeMessages(messages: unknown): string {
       return { role: String(m[0]), content: String(m[1]) };
     }),
   );
+}
+
+/** Parse a scheme `(role content)` message list into neutral {@link ChatMessage}s — the
+ *  SEED for `infer/agentic/end-to-end`'s loop. The user supplies plain user/system/
+ *  assistant turns; the loop appends the rich (toolCalls / tool-result) turns itself, and
+ *  each round re-serialises the growing list via `JSON.stringify` (the same wire form
+ *  `parseChatPrompt` reads back), so per-turn cache keys stay stable. */
+function parseSchemeChatMessages(messages: unknown): ChatMessage[] {
+  invariant(Array.isArray(messages), "infer/agentic/end-to-end: messages must be a list");
+  return messages.map((m) => {
+    invariant(Array.isArray(m) && m.length === 2, "infer/agentic/end-to-end: each message must be (role content)");
+    return { role: String(m[0]) as ChatMessage["role"], content: String(m[1]) };
+  });
 }
 
 /**
@@ -330,7 +356,57 @@ export type InferFn = (
   prompt: string,
   schema: string | null,
   cacheKey: string | null,
+  /**
+   * Tools the model may call THIS turn. Optional + additive: a plain `(infer …)` omits
+   * it (one-shot, unchanged); `infer/agentic/end-to-end` passes the resolved tool set so
+   * the backend sends them and the result carries `toolCalls`. When present, the resolver
+   * folds the tools into the cache identity (same messages + different tools = different
+   * inference) and returns an {@link InferString} carrying the turn's `toolCalls`.
+   */
+  tools?: ToolDescriptor[],
 ) => Promise<unknown>;
+
+// ── tool-enabled inference: identity folding + record/replay shape ─────────────
+//
+// A tool-enabled inference (the `infer/agentic/end-to-end` per-turn call) keeps the
+// SAME cell/effect-log/binding/cache machinery as a plain `(infer …)` — these three
+// helpers are the only deltas, all gated on whether tools were passed, so a plain infer
+// is byte-for-byte unchanged.
+
+/** Fold the tool set into the cache identity. Tools are an extra identity dimension
+ *  (same messages + different tools = different inference), so folding them into the
+ *  cacheKey reuses the (model,prompt,schema,cacheKey) key machinery — cell, effect-log,
+ *  binding, AND disk cache — with no new key dimension. Order-preserving (tool order is
+ *  semantically meaningful to the model). */
+export function toolCacheKey(cacheKey: string | null, tools: readonly ToolDescriptor[]): string {
+  return stableJson({ cacheKey, tools });
+}
+
+/** The record shape for a tool-enabled inference: value + the model's tool calls, so
+ *  replay reconstructs the InferString WITH its calls (the loop branches on them). A
+ *  plain infer records the bare value (unchanged). */
+export function recordInfer(completion: Completion, hasTools: boolean): string {
+  return hasTools
+    ? JSON.stringify({ value: completion.value ?? null, toolCalls: completion.toolCalls ?? [] })
+    : JSON.stringify(completion.value ?? null);
+}
+
+/** Revive a recorded/tweaked value. Tool-enabled → reconstruct the InferString (text +
+ *  toolCalls; reasoning/chunks accrue in the loop driver, not here); plain → the bare
+ *  parsed value (unchanged). */
+export function reviveInfer(raw: string, hasTools: boolean): unknown {
+  if (!hasTools) return JSON.parse(raw);
+  const rec = JSON.parse(raw) as { value: unknown; toolCalls?: ToolCall[] };
+  return new InferString(String(rec.value ?? ""), "", [], rec.toolCalls ?? []);
+}
+
+/** The fresh (cache-miss) return for a tool-enabled inference: an InferString carrying
+ *  the turn's text + toolCalls. Plain → the bare value. */
+export function freshInfer(completion: Completion, hasTools: boolean): unknown {
+  return hasTools
+    ? new InferString(String(completion.value ?? ""), "", [], completion.toolCalls ?? [])
+    : completion.value;
+}
 
 /**
  * Build a sandboxed arrival-chain environment with the standard rosettas —
@@ -377,6 +453,13 @@ export function buildArrivalEnv(opts: {
    * network or a database without a host arming it. See `data-effects.ts`.
    */
   data?: DataEffectResolver;
+  /**
+   * Host capability for MCP — the membrane `(mcp/call …)` / `(mcp/list …)` cross.
+   * The client-side twin of `data`/`infer`: the engine knows the verbs, the host
+   * binds server→credentialed transport. Absent, the verbs are INERT (present but
+   * throwing {@link inertMcpResolver}'s teaching error). See `mcp-effects.ts`.
+   */
+  mcp?: McpEffectResolver;
   /**
    * Host sink for `(declare/expose …)`. Each time the form evaluates, the engine
    * hands the host a typed {@link OnExpose} declaration (name + the `(s/object …)`
@@ -483,6 +566,54 @@ export function buildArrivalEnv(opts: {
   // than reach a network/DB (present-but-inert, never an unbound symbol). Node A3
   // enriches the per-verb arg coercion inside `defineDataEffectRosettas`.
   defineDataEffectRosettas(env, opts.data ?? inertDataResolver);
+  // MCP dispatch verbs (mcp/call, mcp/list) over the resolved capability seam. Same
+  // disarmed-default posture: with no host resolver they throw the teaching error
+  // rather than reach a server (present-but-inert, never an unbound symbol).
+  defineMcpRosettas(env, opts.mcp ?? inertMcpResolver);
+  // `(infer/agentic/end-to-end model messages servers)` — the ONE explicit agentic verb
+  // (V's framing: run the loop end-to-end, return the FINAL answer; a single `(infer …)`
+  // never carries tool calls). `servers` is a list of `(mcp …)` handles. We list their
+  // tools once (→ the model's tool set + toolName→server routing), then drive the JS loop:
+  // each turn infers WITH the tools (W1 returns an InferString carrying `__toolCalls__`),
+  // each tool call dispatches across the SAME mcp resolver (middleware [C3] + server tape),
+  // and the loop finalizes on a no-tool turn. The whole run is ONE provenance node — the
+  // per-turn inferences receive `undefined` ctx so they record as effects WITHOUT
+  // re-binding this node's trace; the trajectory rides the final InferString as
+  // external-only `chunks`.
+  const mcpResolve = opts.mcp ?? inertMcpResolver;
+  env.defineRosetta("infer/agentic/end-to-end", {
+    withContext: true,
+    options: { provenancePoint: true },
+    fn: async (ctx, model, messages, servers) => {
+      const serverVals = (Array.isArray(servers) ? servers : [servers]).filter(isMcpServerValue);
+      const { tools, serverOf } = await resolveTools(serverVals, mcpResolve, ctx as McpEffectContext);
+      const result = await runAgenticLoop(parseSchemeChatMessages(messages), {
+        infer: async (msgs) => {
+          // No currentInvocation ⇒ records the effect (replay + cost) without binding the
+          // agentic node's trace. Tools present ⇒ opts.infer returns an InferString.
+          const out = await opts.infer(undefined, String(model), JSON.stringify(msgs), null, null, tools);
+          return out instanceof InferString
+            ? { text: String(out), toolCalls: [...out.__toolCalls__], reasoning: out.__reasoning__ || undefined }
+            : { text: String(out ?? ""), toolCalls: [] }; // empty-tools degenerate (one shot)
+        },
+        dispatch: async (call) => {
+          const server = serverOf.get(call.name);
+          if (server === undefined) {
+            throw new Error(`infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`);
+          }
+          return mcpResolve(ctx as McpEffectContext, {
+            kind: "mcp",
+            server,
+            method: "tools/call",
+            request: { tool: call.name, args: call.arguments },
+          });
+        },
+      });
+      // The final answer: an InferString carrying the full trajectory as external-only
+      // chunks. `list` wraps it the same way `(infer …)` wraps its value.
+      return list(new InferString(result.text, "", result.chunks));
+    },
+  });
   // `(declare/expose …)` — the sealed-skill registration form. Reuses the same
   // `buildDict` keyword folder as `dict`/the `.prompt` proc so `:input`/`:output`/
   // `:handler` resolve identically; the host's `onExpose` sink receives the typed
@@ -661,6 +792,13 @@ export class Project extends PlexusModel<null> {
        */
       data?: DataEffectResolver;
       /**
+       * Host capability for MCP (`(mcp/call …)` / `(mcp/list …)`). Threaded to
+       * `buildArrivalEnv` so the verbs reach the credentialed resolver, wrapped here
+       * (POSITIONAL server-tape) so each mcp call records into the effect-log and
+       * replays HERMETICALLY — the MCP twin of the `data` seam.
+       */
+      mcp?: McpEffectResolver;
+      /**
        * Host sink for `(declare/expose …)` (node D4). Threaded straight to
        * `buildArrivalEnv` so each declaration that evaluates during the run hands
        * the host its typed {@link OnExpose} declaration (name + evaluated schemas +
@@ -690,16 +828,22 @@ export class Project extends PlexusModel<null> {
     // content-addressed cache, bind the trace, await its result. The rosetta
     // wiring + list-wrapping live in buildArrivalEnv (shared with runTraced +
     // host); this closure is the project-specific seam.
-    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey) => {
+    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey, tools) => {
+      // Tools are part of the inference identity (same messages + different tools =
+      // different result) — fold them into the cacheKey so the existing
+      // (model,prompt,schema,cacheKey) machinery distinguishes toolsets with no new key
+      // dimension. Absent tools ⇒ the original key + bare value, byte-for-byte.
+      const hasTools = tools !== undefined && tools.length > 0;
+      const key = hasTools ? toolCacheKey(cacheKey, tools) : cacheKey;
       // Two short-circuit maps, consulted before any inference — counterfactual
       // first (it supplies NEW values), then the replay log (RECORDED values):
       //   - tweaks: keyed by the UNTAGGED content tuple (the legacy hypothesis surface).
       //   - effectLog: keyed by the kind-TAGGED effect key (the all-kinds replay surface).
       // A hit on either skips the LLM entirely (the whole point of replay/branch).
-      const tweakKey = JSON.stringify([model, prompt, schema, cacheKey]);
+      const tweakKey = JSON.stringify([model, prompt, schema, key]);
       const tweak = opts.tweaks?.get(tweakKey);
-      if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
-      const effectKeyStr = inferEffectKey(model, prompt, schema, cacheKey);
+      if (tweak !== undefined) return reviveInfer(tweak, hasTools); // buildArrivalEnv wraps to a list
+      const effectKeyStr = inferEffectKey(model, prompt, schema, key);
       const replayed = opts.effectLog?.get(effectKeyStr);
       if (replayed !== undefined) {
         // Replay still records the effect (the key sequence is part of the run's
@@ -712,19 +856,20 @@ export class Project extends PlexusModel<null> {
           opts.trace.markInferCached(inv as never, true);
           opts.trace.markProvenancePoint(inv as never);
         }
-        return JSON.parse(replayed);
+        return reviveInfer(replayed, hasTools);
       }
       // Single-flight cell: the first call for this content tuple starts the
       // backend; later identical calls ride the same cell. Acquire keeps it alive;
-      // release lets the last holder abort a superseded run.
-      const cell = this.infer.get({ model, prompt, schema }, cacheKey);
+      // release lets the last holder abort a superseded run. `tools` rides on the spec
+      // (the backend sends them); identity is already in `key`.
+      const cell = this.infer.get({ model, prompt, schema, tools }, key);
       const cached = cell.finished(); // already-settled at bind = served from a prior get this run
       cell.acquire();
       opts.onEffect?.(effectKeyStr);
       const inv = ctx?.currentInvocation;
       let binding: InferBinding | undefined;
       if (inv && opts.trace) {
-        binding = new InferBinding(model, prompt, schema, cacheKey, cell);
+        binding = new InferBinding(model, prompt, schema, key, cell);
         opts.trace.bindTask(binding, inv as never);
         opts.trace.markInferCached(inv as never, cached);
         // Every (infer …) is a fresh provenance singleton {self.id}.
@@ -739,10 +884,11 @@ export class Project extends PlexusModel<null> {
         // value a later `(infer/spent)` reads is order-correct.
         spend.record(model, completion.usage, !cached);
         // Record the settled value into the effect-log sink (its key was already
-        // recorded above). `completion.value` is the raw value the cell resolved;
-        // JSON it to the same shape replay reads back.
-        opts.onEffectResult?.(effectKeyStr, JSON.stringify(completion.value ?? null));
-        return completion.value;
+        // recorded above). A tool-enabled turn records {value, toolCalls} so replay
+        // reconstructs the InferString with its calls; a plain infer records the bare
+        // value, the same shape replay reads back.
+        opts.onEffectResult?.(effectKeyStr, recordInfer(completion, hasTools));
+        return freshInfer(completion, hasTools);
       } finally {
         cell.release();
       }
@@ -765,6 +911,17 @@ export class Project extends PlexusModel<null> {
           trace: opts.trace,
         })
       : undefined;
+    // MCP crosses the same record+replay seam, but keyed POSITIONALLY (server-tape) —
+    // see wrapMcpResolver. Anchored to "" (run scope) for program-initiated calls; the
+    // step-2 agentic loop will anchor model-driven calls to the enclosing infer's id.
+    const mcp = opts.mcp
+      ? wrapMcpResolver(opts.mcp, {
+          inferenceId: "",
+          effectLog: opts.effectLog,
+          onEffect: opts.onEffect,
+          onEffectResult: opts.onEffectResult,
+        })
+      : undefined;
     const env = buildArrivalEnv({
       name: "arrival-chain",
       infer: inferAndWait,
@@ -773,6 +930,7 @@ export class Project extends PlexusModel<null> {
       dirname: opts.dirname,
       spend,
       data,
+      mcp,
       onExpose: opts.onExpose,
     });
     opts.extendEnv?.(env);
@@ -861,6 +1019,7 @@ export class Project extends PlexusModel<null> {
     name: string;
     args: readonly unknown[];
     data?: DataEffectResolver;
+    mcp?: McpEffectResolver;
     effectLog?: EffectLog;
     onEffectResult?: (effectKey: string, valueJson: string) => void;
   }): Run {
@@ -894,6 +1053,7 @@ export class Project extends PlexusModel<null> {
     void this.#executeRun(run, body, opts.name, opts.args, {
       loader,
       data: opts.data,
+      mcp: opts.mcp,
       effectLog: opts.effectLog,
       onEffectResult: opts.onEffectResult,
     });
@@ -994,6 +1154,7 @@ export class Project extends PlexusModel<null> {
     opts: {
       loader?: Loader;
       data?: DataEffectResolver;
+      mcp?: McpEffectResolver;
       effectLog?: EffectLog;
       onEffectResult?: (effectKey: string, valueJson: string) => void;
     } = {},
@@ -1027,6 +1188,7 @@ export class Project extends PlexusModel<null> {
       effectLog?: EffectLog;
       onEffectResult?: (effectKey: string, valueJson: string) => void;
       data?: DataEffectResolver;
+      mcp?: McpEffectResolver;
     } = {},
   ): Promise<unknown> {
     try {
@@ -1247,11 +1409,15 @@ export class Project extends PlexusModel<null> {
     // Reuse the same rosetta wiring as run() by going through run() for the
     // preamble half, then parsing and tap-evaluating the user body ourselves.
     // To avoid duplicating the env-setup, we set up the env inline here.
-    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey) => {
-      const tupleKey = JSON.stringify([model, prompt, schema, cacheKey]);
+    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey, tools) => {
+      // Same tool-identity fold + record/replay shape as run()'s resolver (see the
+      // helpers near InferFn); absent tools ⇒ byte-for-byte the original behaviour.
+      const hasTools = tools !== undefined && tools.length > 0;
+      const key = hasTools ? toolCacheKey(cacheKey, tools) : cacheKey;
+      const tupleKey = JSON.stringify([model, prompt, schema, key]);
       const tweak = opts.tweaks?.get(tupleKey);
-      if (tweak !== undefined) return JSON.parse(tweak); // buildArrivalEnv wraps to a list
-      const effectKeyStr = inferEffectKey(model, prompt, schema, cacheKey);
+      if (tweak !== undefined) return reviveInfer(tweak, hasTools); // buildArrivalEnv wraps to a list
+      const effectKeyStr = inferEffectKey(model, prompt, schema, key);
       const replayed = opts.effectLog?.get(effectKeyStr);
       if (replayed !== undefined) {
         opts.onEffect?.(effectKeyStr);
@@ -1261,16 +1427,16 @@ export class Project extends PlexusModel<null> {
           opts.trace.markInferCached(inv as never, true);
           opts.trace.markProvenancePoint(inv as never);
         }
-        return JSON.parse(replayed);
+        return reviveInfer(replayed, hasTools);
       }
-      const cell = this.infer.get({ model, prompt, schema }, cacheKey);
+      const cell = this.infer.get({ model, prompt, schema, tools }, key);
       const cached = cell.finished();
       cell.acquire();
       opts.onEffect?.(effectKeyStr);
       const inv = ctx?.currentInvocation;
       let binding: InferBinding | undefined;
       if (inv) {
-        binding = new InferBinding(model, prompt, schema, cacheKey, cell);
+        binding = new InferBinding(model, prompt, schema, key, cell);
         opts.trace.bindTask(binding, inv as never);
         opts.trace.markInferCached(inv as never, cached);
         opts.trace.markProvenancePoint(inv as never);
@@ -1278,8 +1444,8 @@ export class Project extends PlexusModel<null> {
       try {
         const completion = await cell.done;
         if (binding) binding.completion = completion;
-        opts.onEffectResult?.(effectKeyStr, JSON.stringify(completion.value ?? null));
-        return completion.value;
+        opts.onEffectResult?.(effectKeyStr, recordInfer(completion, hasTools));
+        return freshInfer(completion, hasTools);
       } finally {
         cell.release();
       }
