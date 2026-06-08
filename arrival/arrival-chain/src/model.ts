@@ -13,7 +13,56 @@ export interface ModelSpec {
    * overrides it; omit to use the backend default / provider maximum.
    */
   maxTokens?: number;
+  /**
+   * Tools the model may call during this inference — the neutral, provider-agnostic
+   * shape each {@link ModelBackend} lowers to its provider's tool format. Different
+   * tools can change the completion, so the agentic loop includes them in the
+   * inference's content/effect key (unlike `maxTokens`, which is excluded). Absent ⇒
+   * a plain one-shot completion (no tool-calling).
+   */
+  tools?: ToolDescriptor[];
 }
+
+/**
+ * A tool the model may call — the neutral, provider-agnostic descriptor each
+ * {@link ModelBackend} lowers to its provider's tool format (OpenAI `function`,
+ * Anthropic `tool`). `inputSchema` is JSON Schema (the same `tagToJsonSchema`
+ * lowering the output schema uses, so a tool schema can't drift from the wire). An
+ * MCP `McpToolDescriptor` maps to this, dropping MCP-only annotations (which feed
+ * the non-idempotent lint, not the model).
+ */
+export interface ToolDescriptor {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+}
+
+/**
+ * A tool call the model emitted — neutral across providers. `id` matches the
+ * eventual tool_result back to this call (OpenAI `tool_call_id`, Anthropic
+ * `tool_use` id). `arguments` is the parsed argument object. The agentic loop
+ * dispatches `{name, arguments}` across the MCP membrane and appends the result
+ * keyed by `id`.
+ */
+export interface ToolCall {
+  id?: string;
+  name: string;
+  arguments: unknown;
+}
+
+/**
+ * One unit of an inference's trajectory — the normalized, semantic record that
+ * accumulates on the rich response (`InferString.chunks`, external-only side-data).
+ * Built from the backend's streamed/returned parts: assistant text, reasoning, the
+ * model's tool calls, and the tool results fed back. The drift / what-if research
+ * computes over the `tool_call` chunks (what the model saw); the raw-vs-post-
+ * interception distinction lives in the effect-log, not here.
+ */
+export type Chunk =
+  | { kind: "text"; text: string }
+  | { kind: "reasoning"; text: string }
+  | { kind: "tool_call"; id?: string; server?: string; tool: string; arguments: unknown }
+  | { kind: "tool_result"; id?: string; tool: string; result: unknown };
 
 /** Token counts for one inference, as the provider reports them. The stable
  *  fact we persist; a *reference* dollar cost is derived later via a (volatile)
@@ -48,6 +97,13 @@ export interface TokenUsage {
 export interface Completion {
   value: unknown;
   usage?: TokenUsage;
+  /**
+   * Tool calls the model emitted this turn (neutral shape; each backend lifts them
+   * from its provider format). Present ⇒ the agentic loop dispatches them and
+   * re-infers with the results; absent ⇒ `value` is the final answer. A plain
+   * `(infer …)` with no tools never sees this.
+   */
+  toolCalls?: ToolCall[];
 }
 
 /** Receives each streamed text chunk as it arrives. */
