@@ -1813,9 +1813,17 @@ export function initBridge(): Promise<void> {
   // fails "no matching syntax in macro (50)". Env-specific matcher issue, tracked
   // separately; define-macro (an evaluator special form) is the working path for
   // user macros in the sandbox today.
+  //   • SRFI-1 (the missing third) + safe head accessor first?/first-or — pure list
+  //     procedures. first?/first-or make (car (filter …)) on an empty match — the
+  //     dominant avoidable crash in generated Scheme — unnecessary. `remove` also
+  //     OVERRIDES the broken Ramda `remove` spread into the sandbox env (curated copy
+  //     runs after construction, so it wins).
   bootstrapPromise = exec(BOOTSTRAP_SCHEME).then(async () => {
     const { sandboxedEnv } = await import("./sandbox-env.js");
-    for (const name of ["->", "->>", "~>", "~>>", "cut", "cute", "gensym"]) {
+    for (const name of [
+      "->", "->>", "~>", "~>>", "cut", "cute", "gensym",
+      "first?", "first-or", "iota", "delete-duplicates", "filter-map", "count", "list-index", "append-map", "remove",
+    ]) {
       const value = userEnv.get(name, { throwError: false });
       if (value) sandboxedEnv.set(name, value);
     }

@@ -5,6 +5,7 @@ import { RAMDA_FUNCTIONS } from "./ramda-functions.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
 import { sandboxedAccess, sandboxedHas, sandboxedKeys, NOT_FOUND, SandboxViolationError } from "./sandbox-boundary.js";
 import { fromJS, SchemeJSArray, SchemeJSObject } from "./membrane.js";
+import { is_false } from "./guards.js";
 import { Pair } from "./Pair.js";
 import { AValue } from "./AValue.js";
 import { SchemeString } from "./LString.js";
@@ -265,12 +266,19 @@ export const sandboxedEnv = new Environment(
     // LIPS Pairs implement FL but must use scheme filter/map (FL impl inverts results)
     // LIPS lambdas are async; FL methods are sync. asyncFL* bridges this gap.
     filter: function filter(this: any, arg: any, list: any) {
+      // Nil-tolerant: a `(first? …)`/`(if …)` that yielded #f or void flowing into a
+      // filter resolves to the empty list, not a crash — so a multi-leaf proof can still
+      // ground its OTHER leaves instead of losing the whole program to one absent read.
+      // (Matches the `@` accessor, which already returns nil for a null object. nil/'()
+      // is NOT caught here — it passes through to lipsFilter as a valid empty list.)
+      if (list == null || is_false(list)) return nil;
       if (list && typeof list === "object" && !(list instanceof Pair) && list["fantasy-land/filter"]) {
         return asyncFLFilter(arg, list);
       }
       return lipsFilter.call(this, arg, list);
     },
     map: function map(this: any, fn: any, ...lists: any[]) {
+      if (lists.length === 1 && (lists[0] == null || is_false(lists[0]))) return nil; // nil-tolerant (see filter)
       if (lists.length === 1 && !(lists[0] instanceof Pair) && lists[0]?.["fantasy-land/map"]) {
         return asyncFLMap(fn, lists[0]);
       }

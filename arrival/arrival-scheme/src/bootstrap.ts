@@ -534,4 +534,59 @@ export const BOOTSTRAP_SCHEME = `
 ;; -----------------------------------------------------------------------------
 (define (symbol-append . rest)
    (string->symbol (apply string-append (map symbol->string rest))))
+
+;; -----------------------------------------------------------------------------
+;; SRFI-1 (the missing third) + a blessed safe head accessor
+;; -----------------------------------------------------------------------------
+;; The dominant avoidable crash in generated Scheme is (car (filter …)) on an empty
+;; match — (car '()) throws. These give a head accessor that CANNOT crash, plus the
+;; SRFI-1 procedures that retire the hand-rolled dedupe/member?/index-map helpers.
+;;
+;; first? — head of a list, or #f when empty. (first? '()) => #f, never a crash. The
+;; blessed safe accessor that makes (car (filter …)) unnecessary.
+(define (first? xs) (if (pair? xs) (car xs) #f))
+;; first-or — head of a list, or a supplied default when empty.
+(define (first-or xs default) (if (pair? xs) (car xs) default))
+
+;; iota — (iota count [start step]); a list of count integers from start by step.
+(define (iota count . rest)
+  (let ((start (if (null? rest) 0 (car rest)))
+        (step (if (or (null? rest) (null? (cdr rest))) 1 (cadr rest))))
+    (let loop ((i 0) (acc '()))
+      (if (>= i count) (reverse acc)
+          (loop (+ i 1) (cons (+ start (* i step)) acc))))))
+
+;; delete-duplicates — order-preserving dedup by equal?. Retires the O(n²) hand-rolled
+;; dedupe reinvented across the pipeline.
+(define (delete-duplicates xs)
+  (let loop ((xs xs) (seen '()) (acc '()))
+    (if (null? xs) (reverse acc)
+        (if (member (car xs) seen)
+            (loop (cdr xs) seen acc)
+            (loop (cdr xs) (cons (car xs) seen) (cons (car xs) acc))))))
+
+;; filter-map — map then drop the falsy results, in one pass the model can't mismatch.
+(define (filter-map fn . lists)
+  (filter (lambda (x) x) (apply map fn lists)))
+
+;; count — how many element-tuples satisfy pred.
+(define (count pred . lists)
+  (length (filter (lambda (b) b) (apply map pred lists))))
+
+;; list-index — index of the first element-tuple satisfying pred, or #f.
+(define (list-index pred . lists)
+  (let loop ((i 0) (ls lists))
+    (if (some null? ls) #f
+        (if (apply pred (map car ls)) i
+            (loop (+ i 1) (map cdr ls))))))
+
+;; append-map — map then append the result lists.
+(define (append-map fn . lists)
+  (apply append (apply map fn lists)))
+
+;; remove — SRFI-1: keep elements that DON'T satisfy pred. Defined (and whitelisted) so
+;; it overrides the Ramda remove spread into the sandbox env, whose curried semantics
+;; returned null for this call shape.
+(define (remove pred xs)
+  (filter (lambda (x) (not (pred x))) xs))
 `;
