@@ -113,6 +113,15 @@ export {
 // The rich inference response — a string-transparent value carrying `reasoning` +
 // `chunks` as external-only side-data. See `infer-string.ts`.
 export { InferString } from "./infer-string.js";
+// The agentic-loop driver (the core of `infer/agentic/end-to-end`), exported so a host can
+// run a tool-using agent over its own infer + MCP dispatch without going through project.run.
+export {
+  runAgenticLoop,
+  DEFAULT_AGENTIC_MAX_ROUNDS,
+  type AgenticTurn,
+  type AgenticDeps,
+  type AgenticResult,
+} from "./agentic-loop.js";
 export { ArrivalChain } from "./arrival-chain.js";
 // `runPipeline` (the Node/CLI top-to-bottom entry) is deliberately NOT in this
 // barrel: it lazy-imports yjs + y-websocket for the publish path, which the
