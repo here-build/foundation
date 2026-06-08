@@ -1,5 +1,5 @@
 // ── Core ─────────────────────────────────────────────────────────────
-export { type ModelBackend, type ModelSpec, type Completion, type TokenUsage, type DeltaSink, type NoticeSink, type StreamNotice } from "./model.js";
+export { type ModelBackend, type ModelSpec, type Completion, type TokenUsage, type DeltaSink, type NoticeSink, type StreamNotice, type ToolDescriptor, type ToolCall, type Chunk } from "./model.js";
 export { type ModelPrice, PRICE_MAP, priceFor, referenceCost } from "./pricing.js";
 export {
   type InferCost,
@@ -47,7 +47,10 @@ export {
   inferEffectKey,
   invalidateForwardCone,
   invalidatedEffectKeys,
+  McpBinding,
+  mcpEffectKey,
   sqlEffectKey,
+  stableJson,
   subtractKeys,
 } from "./effect-log.js";
 // Re-exported from arrival-scheme where AValue lives (L4 collapsed the draft).
@@ -87,6 +90,29 @@ export {
   describeDataEffect,
   inertDataResolver,
 } from "./data-effects.js";
+// MCP host capability — the client-side membrane `(mcp/call …)` / `(mcp/list …)`
+// cross. The host injects an `McpEffectResolver` (roster → credentialed SDK client);
+// the OSS engine ships the verbs inert. The SDK + transport live host-side, NEVER
+// here (eject boundary — only the value-only seam + inert/wrap/define). See
+// `mcp-effects.ts`.
+export {
+  type McpCapabilities,
+  type McpEffect,
+  type McpEffectContext,
+  type McpEffectResolver,
+  type McpMethod,
+  type McpRoster,
+  type McpServerSpec,
+  type McpToolAnnotations,
+  type McpToolDescriptor,
+  defineMcpRosettas,
+  describeMcpEffect,
+  inertMcpResolver,
+  wrapMcpResolver,
+} from "./mcp-effects.js";
+// The rich inference response — a string-transparent value carrying `reasoning` +
+// `chunks` as external-only side-data. See `infer-string.ts`.
+export { InferString } from "./infer-string.js";
 export { ArrivalChain } from "./arrival-chain.js";
 // `runPipeline` (the Node/CLI top-to-bottom entry) is deliberately NOT in this
 // barrel: it lazy-imports yjs + y-websocket for the publish path, which the
@@ -179,19 +205,23 @@ export { sweetToScheme } from "./sweet-read.js";
 // (`usage.cost` → `providerCostMicroUsd`) — the resale-billing path; direct
 // `openaiBackend`/`anthropicBackend` report tokens only (billing on referenceCost).
 //
-// Compose them into a ModelRouter (StaticRouter / LayeredRouter) and
-// pass to `createInferStore`. The shared helpers below are exported from
-// the kernel for callers writing their own backends — `openAICompatBackend`
-// is the request/parse/stream core every OpenAI-protocol endpoint reuses.
+// Compose them into a ModelRouter (StaticRouter / LayeredRouter) and pass to
+// `createInferStore`. The shared helpers below are the kernel for callers writing
+// their own backends: a backend is a `ChatProtocol` (five seams — buildBody / call /
+// toolCalls / text / usage, + optional stream) handed to `chatBackend`, which supplies
+// the shared completion arc (retry, tool-vs-text, coercion ladder). `openAICompatBackend`
+// is the OpenAI-protocol instance every chat-completions endpoint reuses.
 export {
+  chatBackend,
   lazyBackend,
   openAICompatBackend,
   openAIRequestBody,
-  parseOpenAICompletion,
+  parseModelValue,
   parseChatPrompt,
   renderSchema,
   tagToJsonSchema,
   specMessages,
+  type ChatProtocol,
   type ChatMessage,
   type JsonSchema,
   type OpenAICompatUsage,

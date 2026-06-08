@@ -1,6 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { coerceModelJson, extractJsonObject, parseChatPrompt, renderSchema, specMessages, withRateLimitRetry } from "../backends/_shared.js";
+import {
+  coerceModelJson,
+  extractJsonObject,
+  messagesToAnthropic,
+  messagesToOpenAI,
+  openAIRequestBody,
+  parseChatPrompt,
+  renderSchema,
+  specMessages,
+  textFromAnthropic,
+  toolCallsFromAnthropic,
+  toolCallsFromOpenAI,
+  toolsToAnthropic,
+  toolsToOpenAI,
+  withRateLimitRetry,
+} from "../backends/_shared.js";
 
 const err = (status: number, headers?: Record<string, string>): Error & { status: number; headers?: Record<string, string> } =>
   Object.assign(new Error(`HTTP ${status}`), { status, headers });
@@ -252,5 +267,180 @@ describe("extractJsonObject", () => {
 
   it("returns undefined when there's no JSON structure", () => {
     expect(extractJsonObject("just thinking out loud")).toBeUndefined();
+  });
+});
+
+describe("tool-calling helpers (OpenAI-compat)", () => {
+  it("toolsToOpenAI lowers neutral ToolDescriptors to the function shape", () => {
+    const out = toolsToOpenAI([
+      {
+        name: "create_issue",
+        description: "File an issue",
+        inputSchema: { type: "object", properties: { title: { type: "string" } } },
+      },
+      { name: "ping" },
+    ]);
+    expect(out).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "create_issue",
+          description: "File an issue",
+          parameters: { type: "object", properties: { title: { type: "string" } } },
+        },
+      },
+      {
+        type: "function",
+        function: { name: "ping", parameters: { type: "object", properties: {}, additionalProperties: false } },
+      },
+    ]);
+  });
+
+  it("messagesToOpenAI expands the tool round-trip (assistant tool_calls + tool result)", () => {
+    const out = messagesToOpenAI([
+      { role: "user", content: "do it" },
+      { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "create_issue", arguments: { title: "Bug" } }] },
+      { role: "tool", content: '{"id":7}', toolCallId: "c1" },
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "do it" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "c1", type: "function", function: { name: "create_issue", arguments: '{"title":"Bug"}' } }],
+      },
+      { role: "tool", tool_call_id: "c1", content: '{"id":7}' },
+    ]);
+  });
+
+  it("toolCallsFromOpenAI lifts raw tool_calls into neutral ToolCalls (arguments parsed)", () => {
+    expect(
+      toolCallsFromOpenAI({
+        tool_calls: [{ id: "c1", type: "function", function: { name: "create_issue", arguments: '{"title":"Bug"}' } }],
+      }),
+    ).toEqual([{ id: "c1", name: "create_issue", arguments: { title: "Bug" } }]);
+  });
+
+  it("toolCallsFromOpenAI returns undefined for a plain (no-tool) turn", () => {
+    expect(toolCallsFromOpenAI({})).toBeUndefined();
+    expect(toolCallsFromOpenAI(null)).toBeUndefined();
+    expect(toolCallsFromOpenAI({ tool_calls: [] })).toBeUndefined();
+  });
+
+  it("openAIRequestBody includes `tools` only when the spec carries them", () => {
+    const withTools = openAIRequestBody({ model: "m", prompt: "hi", schema: null, tools: [{ name: "ping" }] });
+    expect(withTools.tools).toBeDefined();
+    expect((withTools.tools as unknown[]).length).toBe(1);
+    const plain = openAIRequestBody({ model: "m", prompt: "hi", schema: null });
+    expect(plain.tools).toBeUndefined();
+  });
+
+  it("parseChatPrompt round-trips a tool message (role + toolCallId)", () => {
+    const parsed = parseChatPrompt('[{"role":"tool","content":"r","toolCallId":"c1"}]');
+    expect(parsed).toEqual([{ role: "tool", content: "r", toolCallId: "c1" }]);
+  });
+});
+
+describe("tool-calling helpers (Anthropic)", () => {
+  it("toolsToAnthropic lowers neutral ToolDescriptors to the Anthropic shape (input_schema)", () => {
+    expect(
+      toolsToAnthropic([
+        {
+          name: "create_issue",
+          description: "File an issue",
+          inputSchema: { type: "object", properties: { title: { type: "string" } } },
+        },
+        { name: "ping" },
+      ]),
+    ).toEqual([
+      {
+        name: "create_issue",
+        description: "File an issue",
+        input_schema: { type: "object", properties: { title: { type: "string" } } },
+      },
+      // No-arg tool defaults to an object-typed empty schema (Anthropic requires object).
+      { name: "ping", input_schema: { type: "object", properties: {} } },
+    ]);
+  });
+
+  it("messagesToAnthropic expands the tool round-trip (assistant tool_use blocks + user tool_result)", () => {
+    expect(
+      messagesToAnthropic([
+        { role: "system", content: "sys" }, // dropped — rides the top-level `system` param
+        { role: "user", content: "do it" },
+        { role: "assistant", content: "on it", toolCalls: [{ id: "u1", name: "create_issue", arguments: { title: "Bug" } }] },
+        { role: "tool", content: '{"id":7}', toolCallId: "u1" },
+      ]),
+    ).toEqual([
+      { role: "user", content: "do it" },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "on it" },
+          { type: "tool_use", id: "u1", name: "create_issue", input: { title: "Bug" } },
+        ],
+      },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "u1", content: '{"id":7}' }] },
+    ]);
+  });
+
+  it("messagesToAnthropic merges a parallel tool batch into ONE user message", () => {
+    expect(
+      messagesToAnthropic([
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            { id: "a", name: "f", arguments: {} },
+            { id: "b", name: "g", arguments: {} },
+          ],
+        },
+        { role: "tool", content: "ra", toolCallId: "a" },
+        { role: "tool", content: "rb", toolCallId: "b" },
+      ]),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: [
+          // No leading text block when the assistant turn had empty content.
+          { type: "tool_use", id: "a", name: "f", input: {} },
+          { type: "tool_use", id: "b", name: "g", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "a", content: "ra" },
+          { type: "tool_result", tool_use_id: "b", content: "rb" },
+        ],
+      },
+    ]);
+  });
+
+  it("toolCallsFromAnthropic lifts tool_use blocks (input passes through as an object)", () => {
+    expect(
+      toolCallsFromAnthropic([
+        { type: "text", text: "let me" },
+        { type: "tool_use", id: "u1", name: "create_issue", input: { title: "Bug" } },
+      ]),
+    ).toEqual([{ id: "u1", name: "create_issue", arguments: { title: "Bug" } }]);
+  });
+
+  it("toolCallsFromAnthropic returns undefined for a plain (no-tool) turn", () => {
+    expect(toolCallsFromAnthropic([{ type: "text", text: "hi" }])).toBeUndefined();
+    expect(toolCallsFromAnthropic(null)).toBeUndefined();
+    expect(toolCallsFromAnthropic(undefined)).toBeUndefined();
+  });
+
+  it("textFromAnthropic joins text blocks and ignores tool_use / thinking blocks", () => {
+    expect(
+      textFromAnthropic([
+        { type: "thinking" },
+        { type: "text", text: "one " },
+        { type: "tool_use", id: "u1", name: "f", input: {} },
+        { type: "text", text: "two" },
+      ]),
+    ).toBe("one two");
+    expect(textFromAnthropic([{ type: "tool_use", id: "u1", name: "f", input: {} }])).toBe("");
   });
 });
