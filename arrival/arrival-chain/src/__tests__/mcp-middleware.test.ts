@@ -127,3 +127,37 @@ describe("mcp/derive + dispatchThroughChain (scheme middleware)", () => {
     expect(seen).toHaveLength(0); // suppressed — the destructive call never fired
   });
 });
+
+describe("mcp/define — total server fabrication", () => {
+  const neverResolve: McpEffectResolver = async () => {
+    throw new Error("a defined server must NOT reach the resolver");
+  };
+
+  it("fabricates a server whose method IS the handler (no resolver crossing)", async () => {
+    const env = sandboxedEnv.inherit("mcp-define-test");
+    defineMcpRosettas(env, neverResolve);
+    const r = await exec(`(mcp/define "fab" :tools/call (lambda (req) "fabricated-reply"))`, { env });
+    const server = r.at(-1) as McpServerValue;
+    expect(server).toBeInstanceOf(McpServerValue);
+    expect(server.name).toBe("fab");
+    expect(typeof server.defined?.["tools/call"]).toBe("function");
+    const reply = await dispatchThroughChain(server, "tools/call", { tool: "x", args: {} }, neverResolve, ctx);
+    expect(reply).toBe("fabricated-reply"); // the fabricated impl answered; resolver never thrown
+  });
+
+  it("derive layers middleware over a defined server's honest (scheme transform of the reply)", async () => {
+    const env = sandboxedEnv.inherit("mcp-define-derive-test");
+    defineMcpRosettas(env, neverResolve);
+    // defined tools/call → "base"; a derive middleware awaits next + transforms the reply.
+    const r = await exec(
+      `(mcp/derive
+         (mcp/define "fab" :tools/call (lambda (req) "base"))
+         :tools/call
+         (lambda (req next progress) (string-append "wrapped:" (next req))))`,
+      { env },
+    );
+    const server = r.at(-1) as McpServerValue;
+    const reply = await dispatchThroughChain(server, "tools/call", {}, neverResolve, ctx);
+    expect(reply).toBe("wrapped:base"); // proves a scheme middleware can consume next's reply
+  });
+});

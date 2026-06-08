@@ -270,24 +270,32 @@ export interface McpMiddleware {
   handler: (req: unknown, next: (req: unknown) => Promise<unknown>, progress: unknown) => unknown;
 }
 
+/** A method's total implementation for a FABRICATED server (`mcp/define`) — the bottom of
+ *  the chain, no `next`. A scheme λ `(req) → reply`, run instead of the credentialed call. */
+export type McpDefinedMethod = (req: unknown) => unknown;
+
 /**
- * An opaque MCP server VALUE — what `(mcp :name)` returns. Carries the exposed roster
- * NAME (intent) and a middleware chain (empty on the honest path; `mcp/derive` appends).
- * The credentialed transport stays host-side, reached through the {@link McpEffectResolver}
- * at dispatch. A class instance, so it round-trips through scheme untouched —
- * jsToLips/lipsToJs pass exotic objects through as-is (rosetta.ts:281 / :198) — and stays
- * opaque to the program (no `@`-readable structure).
+ * An opaque MCP server VALUE — what `(mcp :name)` / `mcp/derive` / `mcp/define` return.
+ * Carries the exposed roster NAME (intent), a middleware chain (empty on the honest path;
+ * `mcp/derive` appends), and optionally fabricated method impls (`mcp/define` — used as
+ * `honest` INSTEAD of the credentialed resolver, so a defined server needs no backend).
+ * The credentialed transport stays host-side, reached through the {@link McpEffectResolver}.
+ * A class instance, so it round-trips through scheme untouched — jsToLips/lipsToJs pass
+ * exotic objects through as-is (rosetta.ts:281 / :198) — opaque to the program.
  */
 export class McpServerValue {
   constructor(
     readonly name: string,
     readonly middleware: readonly McpMiddleware[] = [],
+    /** Fabricated method impls (`mcp/define`) — when a method is here, it is the chain's
+     *  `honest` bottom (no resolver crossing). Absent ⇒ honest is the credentialed call. */
+    readonly defined?: Partial<Record<McpMethod, McpDefinedMethod>>,
   ) {}
 
   /** Return a NEW server value with `mw` appended (immutable derive — the base is shared,
-   *  never mutated, so two derivations of one base stay independent). */
+   *  never mutated, so two derivations of one base stay independent). Preserves `defined`. */
   withMiddleware(mw: McpMiddleware): McpServerValue {
-    return new McpServerValue(this.name, [...this.middleware, mw]);
+    return new McpServerValue(this.name, [...this.middleware, mw], this.defined);
   }
 }
 
@@ -356,10 +364,14 @@ export function dispatchThroughChain(
   ctx: McpEffectContext,
   progress: unknown = {},
 ): Promise<unknown> {
-  // `lipsToJs(req)` so the credentialed resolver always receives a PLAIN-JS request — a
-  // middleware that passed `req` back through `next` may hand over a scheme-wrapped value.
-  const honest = (req: unknown): Promise<unknown> =>
-    Promise.resolve(resolve(ctx, { kind: "mcp", server: server.name, method, request: lipsToJs(req) }));
+  // The chain's bottom: a FABRICATED impl (mcp/define) when this method has one — run it,
+  // no credentialed call — else the resolver. `lipsToJs(req)` so a defined λ's reply and
+  // the resolver's request are both plain JS (a middleware may have rewrapped `req`).
+  const honest = async (req: unknown): Promise<unknown> => {
+    const fabricated = server.defined?.[method];
+    if (fabricated) return lipsToJs(await fabricated(req));
+    return resolve(ctx, { kind: "mcp", server: server.name, method, request: lipsToJs(req) });
+  };
   return runMiddlewareChain(server.middleware, method, honest, request, progress);
 }
 
@@ -406,6 +418,22 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
         method: serverNameOf(method) as McpMethod,
         handler: handler as McpMiddleware["handler"],
       });
+    },
+  });
+  // (mcp/define name :method handler :method2 handler2 …) — fabricate a server VALUE whose
+  // methods ARE the handlers (a `(req) → reply` λ each; no credentialed backend). TOTAL:
+  // every method you dispatch must be defined. `mcp/derive` can still layer middleware on
+  // top (the defined impl is the chain's honest bottom). The mock/what-if-a-server primitive.
+  env.defineRosetta("mcp/define", {
+    fn: (name: unknown, ...pairs: unknown[]) => {
+      invariant(pairs.length % 2 === 0, "mcp/define: expects a name then :method handler pairs");
+      const defined: Partial<Record<McpMethod, McpDefinedMethod>> = {};
+      for (let i = 0; i < pairs.length; i += 2) {
+        const method = serverNameOf(pairs[i]) as McpMethod;
+        invariant(typeof pairs[i + 1] === "function", `mcp/define: handler for ${method} must be a (req) lambda`);
+        defined[method] = pairs[i + 1] as McpDefinedMethod;
+      }
+      return new McpServerValue(serverNameOf(name), [], defined);
     },
   });
   env.defineRosetta("mcp/call", {
