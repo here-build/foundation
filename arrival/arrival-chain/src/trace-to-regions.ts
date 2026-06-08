@@ -98,6 +98,14 @@ export type Region =
   | {
       kind: "fanout";
       id: number;
+      /** Stable STRUCTURAL identity (`head@line:col`) of the fanout's call site — the
+       *  same string for every iteration of an OUTER container this fanout is nested in,
+       *  exactly as `leaf.scope`/`decision.scope` are. The fanout's `id` is a per-pass
+       *  runtime invocation id, so it CANNOT key the cross-pass fold: a nested `(map …)`
+       *  run once per outer persona gets a fresh `id` each pass and would never
+       *  consolidate. Keying the render fold by `scope` folds all those passes onto one
+       *  container node (the matryoshka fix). */
+      scope: string;
       /** The fused transform breadcrumb, outermost→innermost. ONE entry = a plain
        *  `map`/`filter`/TCO `loop`; SEVERAL = a fused chain (`map ▸ filter ▸ map`)
        *  the cleanup pass collapsed into one frame. Each carries its own invocation
@@ -663,7 +671,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       // Label by the recursive fn name (the call head, e.g. `loop`), not the
       // body form (`let`).
       const label = inv.parent ? headOf(inv.parent) : headOf(inv);
-      return [{ kind: "fanout", id: inv.id, stages: [{ label, id: inv.id }], iterations, incoming, loop: true, inputs: [], outputs: [] }];
+      return [{ kind: "fanout", id: inv.id, scope: scopeId(inv.node), stages: [{ label, id: inv.id }], iterations, incoming, loop: true, inputs: [], outputs: [] }];
     }
 
     if (FANOUT.has(headOf(inv))) {
@@ -675,7 +683,7 @@ export function traceToRegions(trace: EvalTrace): RegionGraph {
       const iterations = applChildren.map((c) => regionsAt(c)).filter((r) => r.length > 0);
       // Degenerate container (mapped/filtered over non-inference data) → drop it.
       if (iterations.length === 0) return [];
-      return [{ kind: "fanout", id: inv.id, stages: [{ label: headOf(inv), id: inv.id }], iterations, incoming: applChildren.length, inputs: [], outputs: [] }];
+      return [{ kind: "fanout", id: inv.id, scope: scopeId(inv.node), stages: [{ label: headOf(inv), id: inv.id }], iterations, incoming: applChildren.length, inputs: [], outputs: [] }];
     }
 
     // A LIVE branch (decided ≥2 ways trace-wide) does NOT box — boxing every `if`
