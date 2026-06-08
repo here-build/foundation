@@ -149,4 +149,34 @@ describe("infer/agentic/end-to-end — honest-tools flow (end to end)", () => {
     // discovery + two honest tools/call (rounds 1,2); round 3 broke BEFORE honest.
     expect(effects.map((e) => e.method)).toEqual(["tools/list", "tools/call", "tools/call"]);
   });
+
+  it("C6: a .prompt with `mcp:` frontmatter runs AGENTICALLY (agent-as-a-file)", async () => {
+    let turns = 0;
+    const backend: ModelBackend = {
+      async complete(): Promise<Completion> {
+        turns += 1;
+        return turns === 1
+          ? { value: "", toolCalls: [{ id: "c1", name: "ping", arguments: { n: 1 } }] }
+          : { value: "agent done" };
+      },
+    };
+    const { resolve, effects } = pingResolver();
+    const root = freshRoot(backend);
+    root.addFile("agent.prompt", `---\nmodel: mock\nmcp: srv\n---\n{{role "user"}}\nping the server then answer`);
+
+    // require the .prompt → a sealed proc; calling it runs the agentic loop, not one infer.
+    const value = await root.run(`(define agent (require "agent.prompt")) (agent "k")`, { mcp: resolve });
+
+    expect(value).toBe("agent done"); // the final answer (loop ran to completion)
+    expect(turns).toBe(2); // call turn + finalize turn
+    expect(effects.map((e) => e.method)).toEqual(["tools/list", "tools/call"]); // discovery + dispatch
+  });
+
+  it("C6: a .prompt combining mcp: with output: (schema) is a legible v1 error", async () => {
+    const root = freshRoot({ complete: vi.fn(async () => ({ value: "x" })) });
+    root.addFile("bad.prompt", `---\nmodel: mock\nmcp: srv\noutput:\n  answer: string\n---\n{{role "user"}}\nhi`);
+    await expect(root.run(`(define a (require "bad.prompt")) (a "k")`, { mcp: pingResolver().resolve })).rejects.toThrow(
+      /structured agentic output is not supported/,
+    );
+  });
 });

@@ -27,6 +27,7 @@ import {
   MCP_BREAK,
   type McpEffectContext,
   type McpEffectResolver,
+  McpServerValue,
   resolveTools,
   wrapMcpResolver,
 } from "./mcp-effects.js";
@@ -412,6 +413,52 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
 }
 
 /**
+ * Drive `infer/agentic/end-to-end`'s loop and return the final {@link InferString}. SHARED
+ * by the verb AND the `.prompt mcp:` sealed proc — resolve the servers' tools, then loop
+ * infer↔dispatch via {@link runAgenticLoop}:
+ *   - each turn through the cached infer seam with `ctx=undefined`, so per-turn inferences
+ *     record as effects WITHOUT re-binding the agentic node's trace (one provenance node);
+ *   - each dispatch through the server's middleware chain + positional tape, break-aware
+ *     ({@link isMcpBreak}), with the loop's `{round,maxRounds}` handed in as `progress`.
+ * The full trajectory rides the result's external-only `chunks`.
+ */
+async function runAgenticInfer(
+  infer: InferFn,
+  mcpResolve: McpEffectResolver,
+  ctx: unknown,
+  model: string,
+  messages: ChatMessage[],
+  servers: McpServerValue[],
+): Promise<InferString> {
+  const mcpCtx = ctx as McpEffectContext;
+  const { tools, serverOf } = await resolveTools(servers, mcpResolve, mcpCtx);
+  const result = await runAgenticLoop(messages, {
+    infer: async (msgs) => {
+      const out = await infer(undefined, model, JSON.stringify(msgs), null, null, tools);
+      return out instanceof InferString
+        ? { text: String(out), toolCalls: [...out.__toolCalls__], reasoning: out.__reasoning__ || undefined }
+        : { text: String(out ?? ""), toolCalls: [] };
+    },
+    dispatch: async (call, progress) => {
+      const server = serverOf.get(call.name);
+      if (server === undefined) {
+        throw new Error(`infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`);
+      }
+      return dispatchThroughChain(
+        server,
+        "tools/call",
+        { tool: call.name, args: call.arguments },
+        mcpResolve,
+        mcpCtx,
+        progress,
+      );
+    },
+    isHalt: isMcpBreak,
+  });
+  return new InferString(result.text, "", result.chunks);
+}
+
+/**
  * Build a sandboxed arrival-chain environment with the standard rosettas —
  * `infer`, `infer/chat`, `json/parse`, `dict`, `template/handlebars`, plus
  * `require`/`import` — EXCEPT inference resolution, which is injected via `infer`.
@@ -560,6 +607,22 @@ export function buildArrivalEnv(opts: {
           else inv.metadata = nodeMeta;
         }
         const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
+        // `mcp:` frontmatter ⇒ an AGENTIC prompt: list those servers' tools and loop
+        // infer↔dispatch through the shared engine, returning the final answer. (Schema'd
+        // agentic output isn't supported in v1 — error rather than silently drop the schema.)
+        if (unit.mcpServers) {
+          if (schemaSlotStr !== null) {
+            throw new Error(
+              `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
+            );
+          }
+          const servers = unit.mcpServers.map((name) => new McpServerValue(name));
+          const chatMessages: ChatMessage[] = messages.map(([role, content]) => ({
+            role: String(role) as ChatMessage["role"],
+            content: String(content),
+          }));
+          return runAgenticInfer(opts.infer, opts.mcp ?? inertMcpResolver, ctx, model, chatMessages, servers);
+        }
         return opts.infer(ctx, model, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
       },
     });
@@ -593,39 +656,10 @@ export function buildArrivalEnv(opts: {
     options: { provenancePoint: true },
     fn: async (ctx, model, messages, servers) => {
       const serverVals = (Array.isArray(servers) ? servers : [servers]).filter(isMcpServerValue);
-      const { tools, serverOf } = await resolveTools(serverVals, mcpResolve, ctx as McpEffectContext);
-      const result = await runAgenticLoop(parseSchemeChatMessages(messages), {
-        infer: async (msgs) => {
-          // No currentInvocation ⇒ records the effect (replay + cost) without binding the
-          // agentic node's trace. Tools present ⇒ opts.infer returns an InferString.
-          const out = await opts.infer(undefined, String(model), JSON.stringify(msgs), null, null, tools);
-          return out instanceof InferString
-            ? { text: String(out), toolCalls: [...out.__toolCalls__], reasoning: out.__reasoning__ || undefined }
-            : { text: String(out ?? ""), toolCalls: [] }; // empty-tools degenerate (one shot)
-        },
-        dispatch: async (call, progress) => {
-          const server = serverOf.get(call.name);
-          if (server === undefined) {
-            throw new Error(`infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`);
-          }
-          // Through the server's middleware chain (honest = the credentialed resolver +
-          // server tape); `progress` lets a budget middleware decide next vs mcp/break. A
-          // MCP_BREAK return halts the loop (isHalt below).
-          return dispatchThroughChain(
-            server,
-            "tools/call",
-            { tool: call.name, args: call.arguments },
-            mcpResolve,
-            ctx as McpEffectContext,
-            progress,
-          );
-        },
-        // A middleware returning mcp/break (without next) halts the loop — flow 4.
-        isHalt: isMcpBreak,
-      });
-      // The final answer: an InferString carrying the full trajectory as external-only
-      // chunks. `list` wraps it the same way `(infer …)` wraps its value.
-      return list(new InferString(result.text, "", result.chunks));
+      // The loop, dispatch, break-handling + trajectory all live in the shared
+      // `runAgenticInfer` (reused by the `.prompt mcp:` proc). `list` wraps the final
+      // InferString the same way `(infer …)` wraps its value.
+      return list(await runAgenticInfer(opts.infer, mcpResolve, ctx, String(model), parseSchemeChatMessages(messages), serverVals));
     },
   });
   // `(declare/expose …)` — the sealed-skill registration form. Reuses the same

@@ -71,6 +71,11 @@ export interface PromptUnit {
    *  template rendered per-call against the kwargs dict (boundaries fixed HERE,
    *  pre-interpolation — a rendered hole can't forge a new turn). */
   sections: { role: string; source: string }[];
+  /** Server names from the frontmatter `mcp:` (a name or a list), or null. When present,
+   *  the sealed proc runs AGENTICALLY — it lists those servers' tools, loops infer↔dispatch
+   *  via `infer/agentic/end-to-end`'s engine, and returns the final answer. The defining
+   *  surface for "an agent as a `.prompt`". Null ⇒ an ordinary single inference. */
+  mcpServers: string[] | null;
 }
 
 /** What an extension resolver produces; the require rosetta executes it.
@@ -276,6 +281,19 @@ function parsePromptFile(src: string): { fm: Record<string, unknown>; body: stri
   return { fm, body: src.slice(m[0].length) };
 }
 
+/** Normalise the frontmatter `mcp:` to a server-name list (or null). Accepts a single name
+ *  (`mcp: linear`) or a list (`mcp: [linear, github]`); every entry must be a string. */
+function parsePromptMcp(raw: unknown, path: string): string[] | null {
+  if (raw === undefined || raw === null) return null;
+  const names = Array.isArray(raw) ? raw : [raw];
+  for (const n of names) {
+    if (typeof n !== "string") {
+      throw new Error(`.prompt: "${path}" frontmatter \`mcp:\` must be a server name or a list of names`);
+    }
+  }
+  return names as string[];
+}
+
 /** The default extension registry: `.scm` loads (spill), data files parse to a
  *  value (bound explicitly via `(define x (require …))`), `.txt` to a string,
  *  `.hbs` evaluates to a render lambda. */
@@ -327,7 +345,10 @@ export function defaultResolvers(): Map<string, ContentResolver> {
         }
         const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
         const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
-        return { kind: "infer-unit", unit: { path, model, schemaSrc, sections } };
+        // `mcp:` (a name or a list of names) makes this an AGENTIC prompt. Normalise to a
+        // string[] | null; each entry is a roster server name resolved at run time.
+        const mcpServers = parsePromptMcp(fm.mcp, path);
+        return { kind: "infer-unit", unit: { path, model, schemaSrc, sections, mcpServers } };
       },
     ],
   ]);
