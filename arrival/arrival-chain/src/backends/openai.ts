@@ -27,6 +27,15 @@ export interface OpenAIOptions {
    * to keep it but drop it from output. Undefined → field omitted (no change).
    */
   reasoning?: Record<string, unknown>;
+  /**
+   * Cap on completion tokens (`max_tokens`). Undefined → omitted (provider
+   * default). Bounds a RUNAWAY generation: a weak materializer can loop, emitting
+   * one ever-growing unterminated JSON string until it hits the ceiling — without a
+   * cap that ceiling is huge, the stream is enormous, and the truncated JSON throws.
+   * A tight cap (scheme programs are <1 KB) turns a runaway into a small bounded
+   * truncation that the caller can re-roll, instead of a giant one that crashes.
+   */
+  maxTokens?: number;
 }
 
 /**
@@ -73,6 +82,7 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
       return {
         model: spec.model,
         messages,
+        ...(opts.maxTokens !== undefined ? { max_tokens: opts.maxTokens } : {}),
         // OpenRouter `reasoning` gate (not OpenAI API) — passed through when set.
         // The SDK's create() params don't type it, so the call sites cast.
         ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
