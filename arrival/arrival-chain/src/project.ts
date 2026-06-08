@@ -20,8 +20,11 @@ import {
 } from "./data-effects.js";
 import {
   defineMcpRosettas,
+  dispatchThroughChain,
   inertMcpResolver,
+  isMcpBreak,
   isMcpServerValue,
+  MCP_BREAK,
   type McpEffectContext,
   type McpEffectResolver,
   resolveTools,
@@ -570,6 +573,10 @@ export function buildArrivalEnv(opts: {
   // disarmed-default posture: with no host resolver they throw the teaching error
   // rather than reach a server (present-but-inert, never an unbound symbol).
   defineMcpRosettas(env, opts.mcp ?? inertMcpResolver);
+  // `mcp/break` — the bare halt sentinel a middleware returns to stop the agentic loop
+  // without calling next (flow 4). Bound as a VALUE (not a verb) so scheme references it
+  // bare; the JS chain runner compares the same global symbol `===`.
+  env.set("mcp/break", MCP_BREAK);
   // `(infer/agentic/end-to-end model messages servers)` — the ONE explicit agentic verb
   // (V's framing: run the loop end-to-end, return the FINAL answer; a single `(infer …)`
   // never carries tool calls). `servers` is a list of `(mcp …)` handles. We list their
@@ -601,13 +608,18 @@ export function buildArrivalEnv(opts: {
           if (server === undefined) {
             throw new Error(`infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`);
           }
-          return mcpResolve(ctx as McpEffectContext, {
-            kind: "mcp",
+          // Through the server's middleware chain (honest = the credentialed resolver +
+          // server tape). A MCP_BREAK return halts the loop (isHalt below).
+          return dispatchThroughChain(
             server,
-            method: "tools/call",
-            request: { tool: call.name, args: call.arguments },
-          });
+            "tools/call",
+            { tool: call.name, args: call.arguments },
+            mcpResolve,
+            ctx as McpEffectContext,
+          );
         },
+        // A middleware returning mcp/break (without next) halts the loop — flow 4.
+        isHalt: isMcpBreak,
       });
       // The final answer: an InferString carrying the full trajectory as external-only
       // chunks. `list` wraps it the same way `(infer …)` wraps its value.

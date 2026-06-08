@@ -45,18 +45,24 @@ export interface AgenticDeps {
   infer(messages: ChatMessage[]): Promise<AgenticTurn>;
   /** Dispatch ONE tool call across the MCP membrane (middleware chain + server tape). */
   dispatch(call: ToolCall): Promise<unknown>;
+  /** Does a dispatch result mean "halt the loop now"? (A middleware returned `mcp/break`
+   *  without calling next — flow 4's force-halt.) Kept as a predicate so the driver stays
+   *  MCP-agnostic; the wiring passes `isMcpBreak`. The call is suppressed (no tool result
+   *  fed back), and the trajectory's tail is the triggering `tool_call` chunk. */
+  isHalt?: (result: unknown) => boolean;
   /** Round backstop; defaults to {@link DEFAULT_AGENTIC_MAX_ROUNDS}. */
   maxRounds?: number;
 }
 
 /** The loop's outcome: the final assistant text, the full trajectory (the external-only
- *  `chunks` the rich response carries), the rounds taken, and whether the backstop —
- *  rather than a natural no-tool-call turn — ended it. */
+ *  `chunks` the rich response carries), the rounds taken, and how it ended — a natural
+ *  no-tool-call turn (both flags false), the round backstop, or a middleware `mcp/break`. */
 export interface AgenticResult {
   text: string;
   chunks: Chunk[];
   rounds: number;
   haltedByBackstop: boolean;
+  haltedByBreak: boolean;
 }
 
 /** Render a tool result into the `tool` message's string content (the model reads text).
@@ -92,7 +98,7 @@ export async function runAgenticLoop(initial: readonly ChatMessage[], deps: Agen
     if (turn.text) chunks.push({ kind: "text", text: turn.text });
     if (turn.toolCalls.length === 0) {
       // No tool calls ⇒ this turn's text is the final answer.
-      return { text: turn.text, chunks, rounds: round, haltedByBackstop: false };
+      return { text: turn.text, chunks, rounds: round, haltedByBackstop: false, haltedByBreak: false };
     }
     // Record the assistant tool-call turn, then dispatch each call in order and feed the
     // results back as `tool` messages keyed by call id.
@@ -100,11 +106,17 @@ export async function runAgenticLoop(initial: readonly ChatMessage[], deps: Agen
     for (const call of turn.toolCalls) {
       chunks.push(toolCallChunk(call));
       const result = await deps.dispatch(call);
+      if (deps.isHalt?.(result)) {
+        // A middleware broke the chain (mcp/break): suppress the call (no tool_result,
+        // nothing fed back) and halt. The trajectory's tail is this `tool_call` chunk —
+        // flow 4's artifact.
+        return { text: lastText, chunks, rounds: round, haltedByBackstop: false, haltedByBreak: true };
+      }
       chunks.push(toolResultChunk(call, result));
       messages.push({ role: "tool", content: toMessageContent(result), toolCallId: call.id });
     }
   }
   // Backstop: the generous round cap was hit without a natural final turn. The partial
   // trajectory is in `chunks`; `lastText` is the most recent assistant text.
-  return { text: lastText, chunks, rounds: maxRounds, haltedByBackstop: true };
+  return { text: lastText, chunks, rounds: maxRounds, haltedByBackstop: true, haltedByBreak: false };
 }

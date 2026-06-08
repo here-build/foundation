@@ -98,4 +98,29 @@ describe("infer/agentic/end-to-end — honest-tools flow (end to end)", () => {
       ),
     ).rejects.toThrow(/unknown tool "not_a_tool"/);
   });
+
+  it("flow 4: a derived mcp/break middleware HALTS the loop, suppressing the call", async () => {
+    let turns = 0;
+    const backend: ModelBackend = {
+      async complete(): Promise<Completion> {
+        turns += 1;
+        // Turn 1 calls the tool; the break middleware suppresses it + halts (no turn 2).
+        return { value: "let me check", toolCalls: [{ id: "c1", name: "ping", arguments: {} }] };
+      },
+    };
+    const { resolve, effects } = pingResolver();
+
+    // derive a tools/call middleware that returns mcp/break (capture + suppress + halt).
+    const value = await freshRoot(backend).run(
+      `(car (infer/agentic/end-to-end "mock"
+              (list (list "user" "ping then stop"))
+              (list (mcp/derive (mcp "srv") :tools/call (lambda (req next progress) mcp/break)))))`,
+      { mcp: resolve },
+    );
+
+    expect(value).toBe("let me check"); // the assistant text on the breaking turn (lastText)
+    expect(turns).toBe(1); // loop halted after the break — no second inference
+    // tools/list fired (discovery), but tools/call NEVER reached the honest resolver (break suppressed it).
+    expect(effects.map((e) => e.method)).toEqual(["tools/list"]);
+  });
 });

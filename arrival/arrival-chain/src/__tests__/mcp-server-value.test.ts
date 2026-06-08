@@ -91,15 +91,15 @@ describe("resolveTools — :tools desugar", () => {
       { name: "create_issue", description: "file one", inputSchema: { type: "object" } },
       { name: "search" },
     ]);
-    expect(serverOf.get("create_issue")).toBe("linear");
-    expect(serverOf.get("search")).toBe("linear");
+    expect(serverOf.get("create_issue")?.name).toBe("linear"); // serverOf now carries the handle
+    expect(serverOf.get("search")?.name).toBe("linear");
   });
 
   it("tolerates a bare-array tools/list reply (no { tools } envelope)", async () => {
     const resolve = rosterResolver({ gh: [{ name: "pr_create" }] });
     const { tools, serverOf } = await resolveTools([new McpServerValue("gh")], resolve, ctx);
     expect(tools).toEqual([{ name: "pr_create" }]);
-    expect(serverOf.get("pr_create")).toBe("gh");
+    expect(serverOf.get("pr_create")?.name).toBe("gh");
   });
 
   it("unions across servers; FIRST server wins a name collision (deterministic routing)", async () => {
@@ -111,7 +111,7 @@ describe("resolveTools — :tools desugar", () => {
     // one `search` (a's), plus only_a + only_b
     expect(tools.map((t) => t.name)).toEqual(["search", "only_a", "only_b"]);
     expect(tools.find((t) => t.name === "search")?.description).toBe("from-a"); // a won
-    expect(serverOf.get("search")).toBe("a"); // routed to the first server
-    expect(serverOf.get("only_b")).toBe("b");
+    expect(serverOf.get("search")?.name).toBe("a"); // routed to the first server
+    expect(serverOf.get("only_b")?.name).toBe("b");
   });
 });

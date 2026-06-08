@@ -25,7 +25,9 @@
  * silently serving a stale value.
  */
 
-import { Nil } from "@here.build/arrival-scheme";
+import invariant from "tiny-invariant";
+
+import { lipsToJs, Nil } from "@here.build/arrival-scheme";
 
 import type { RosettaHost } from "./data-effects.js";
 import { mcpEffectKey, stableJson } from "./effect-log.js";
@@ -257,22 +259,108 @@ function serverNameOf(raw: unknown): string {
 }
 
 /**
- * An opaque MCP server VALUE — what `(mcp :name)` returns. Carries only the exposed
- * roster NAME (intent); the credentialed transport stays host-side, reached through the
- * {@link McpEffectResolver} at dispatch. A class instance, so it round-trips through
- * scheme untouched — jsToLips/lipsToJs pass exotic objects through as-is (rosetta.ts:281
- * / :198) — and stays opaque to the program (no `@`-readable structure beyond the name).
- * The `mcp/derive` / `mcp/define` forms (C3) extend this with a middleware chain; on the
- * honest path it is just the name.
+ * A middleware installed on a server for one method — a scheme λ `(req next progress) →
+ * value | mcp/break`, arriving at JS as a callable function (the spike proved the
+ * crossing). `next` re-enters the chain (eventually the honest, credentialed call); the
+ * λ may pass through (`(next req)`), transform the request/reply, short-circuit with a
+ * canned value, or return `mcp/break` to halt.
+ */
+export interface McpMiddleware {
+  method: McpMethod;
+  handler: (req: unknown, next: (req: unknown) => Promise<unknown>, progress: unknown) => unknown;
+}
+
+/**
+ * An opaque MCP server VALUE — what `(mcp :name)` returns. Carries the exposed roster
+ * NAME (intent) and a middleware chain (empty on the honest path; `mcp/derive` appends).
+ * The credentialed transport stays host-side, reached through the {@link McpEffectResolver}
+ * at dispatch. A class instance, so it round-trips through scheme untouched —
+ * jsToLips/lipsToJs pass exotic objects through as-is (rosetta.ts:281 / :198) — and stays
+ * opaque to the program (no `@`-readable structure).
  */
 export class McpServerValue {
-  constructor(readonly name: string) {}
+  constructor(
+    readonly name: string,
+    readonly middleware: readonly McpMiddleware[] = [],
+  ) {}
+
+  /** Return a NEW server value with `mw` appended (immutable derive — the base is shared,
+   *  never mutated, so two derivations of one base stay independent). */
+  withMiddleware(mw: McpMiddleware): McpServerValue {
+    return new McpServerValue(this.name, [...this.middleware, mw]);
+  }
 }
 
 /** Narrow an unknown scheme value to an {@link McpServerValue} — what a `:tools` entry
  *  must be (a server handle from `(mcp …)` / derive / define). */
 export function isMcpServerValue(v: unknown): v is McpServerValue {
   return v instanceof McpServerValue;
+}
+
+// ── the middleware chain: derive's interception primitive ─────────────────────
+
+/**
+ * The halt sentinel a middleware returns (bare `mcp/break` in scheme) to stop the loop
+ * WITHOUT calling next — the call is suppressed (flow 4's force-halt; "the call is already
+ * on the tape, break only stops the loop"). A GLOBAL registered symbol so scheme's bound
+ * `mcp/break` and the JS chain runner compare `===` across the membrane (spike-verified).
+ */
+export const MCP_BREAK: unique symbol = Symbol.for("@here.build/arrival-chain/mcp-break");
+
+/** Is a value the {@link MCP_BREAK} sentinel? (The agentic loop's halt signal from dispatch.) */
+export function isMcpBreak(v: unknown): boolean {
+  return v === MCP_BREAK;
+}
+
+/**
+ * Run the middleware chain for `method` over `honest` (the credentialed resolver call):
+ * composes `mw1(req, r⇒mw2(r, …honest), progress)` — outermost-first. Only middlewares
+ * matching `method` participate. Returns the (possibly transformed) reply, or
+ * {@link MCP_BREAK} if a middleware returned the sentinel without calling next.
+ *
+ * Membrane: `honest`/`next` return a JS reply that auto-wraps for the scheme λ; the λ's
+ * return crosses back, so each stage `lipsToJs`-es it (MCP_BREAK passes through untouched).
+ */
+export async function runMiddlewareChain(
+  middleware: readonly McpMiddleware[],
+  method: McpMethod,
+  honest: (req: unknown) => Promise<unknown>,
+  req: unknown,
+  progress: unknown,
+): Promise<unknown> {
+  const chain = middleware.filter((m) => m.method === method);
+  if (chain.length === 0) return honest(req);
+  let next = honest;
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const handler = chain[i]!.handler;
+    const downstream = next;
+    next = async (r: unknown) => {
+      const out = await handler(r, downstream, progress);
+      return out === MCP_BREAK ? MCP_BREAK : lipsToJs(out);
+    };
+  }
+  return next(req);
+}
+
+/**
+ * Dispatch one MCP `method` to a server VALUE through its middleware chain — `honest` is
+ * the credentialed {@link McpEffectResolver} call (which also records the server tape). The
+ * agentic loop calls this for `tools/call`, and {@link resolveTools} for `tools/list`, so
+ * derive's interceptions apply uniformly. A {@link MCP_BREAK} return signals "halt".
+ */
+export function dispatchThroughChain(
+  server: McpServerValue,
+  method: McpMethod,
+  request: unknown,
+  resolve: McpEffectResolver,
+  ctx: McpEffectContext,
+  progress: unknown = {},
+): Promise<unknown> {
+  // `lipsToJs(req)` so the credentialed resolver always receives a PLAIN-JS request — a
+  // middleware that passed `req` back through `next` may hand over a scheme-wrapped value.
+  const honest = (req: unknown): Promise<unknown> =>
+    Promise.resolve(resolve(ctx, { kind: "mcp", server: server.name, method, request: lipsToJs(req) }));
+  return runMiddlewareChain(server.middleware, method, honest, request, progress);
 }
 
 // ── scheme-facing dispatch verbs ─────────────────────────────────────────────
@@ -306,6 +394,20 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   env.defineRosetta("mcp", {
     fn: (name: unknown) => new McpServerValue(serverNameOf(name)),
   });
+  // (mcp/derive base :method handler) — install a middleware on `base` for `:method`,
+  // returning a NEW server value (immutable derive). The handler is a scheme λ
+  // `(req next progress) → value | mcp/break` run in the chain at dispatch. THIS is the
+  // MITM / budget / mock / break primitive (flows 2-4); `next` is the credential membrane.
+  env.defineRosetta("mcp/derive", {
+    fn: (base: unknown, method: unknown, handler: unknown) => {
+      invariant(base instanceof McpServerValue, "mcp/derive: first arg must be an (mcp …) server value");
+      invariant(typeof handler === "function", "mcp/derive: handler must be a (req next progress) lambda");
+      return base.withMiddleware({
+        method: serverNameOf(method) as McpMethod,
+        handler: handler as McpMiddleware["handler"],
+      });
+    },
+  });
   env.defineRosetta("mcp/call", {
     withContext: true,
     fn: (ctx: McpEffectContext, server: unknown, tool: unknown, args?: unknown): Promise<unknown> =>
@@ -326,11 +428,12 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
 // ── :tools desugar — server values → the model's tool set + dispatch routing ──
 
 /** The resolved tool set for an agentic run: the neutral descriptors the model sees, plus
- *  the toolName→serverName routing the loop's dispatch uses to send a call back to the
- *  server that owns it. */
+ *  the toolName→server-VALUE routing the loop's dispatch uses to send a call back to the
+ *  server that owns it (the VALUE, not just the name, so dispatch runs that server's
+ *  middleware chain). */
 export interface ResolvedTools {
   tools: ToolDescriptor[];
-  serverOf: Map<string, string>;
+  serverOf: Map<string, McpServerValue>;
 }
 
 /** Pull the tool array out of a `tools/list` reply — tolerant of the MCP spec's
@@ -344,25 +447,29 @@ function toolListOf(reply: unknown): McpToolDescriptor[] {
 
 /**
  * Resolve `:tools` server values into the model's neutral tool set + the dispatch routing.
- * For each server, `tools/list` through the resolver, map each MCP descriptor to the
+ * For each server, `tools/list` THROUGH ITS MIDDLEWARE CHAIN (so a derived `tools/list`
+ * middleware — flow 2's description rewrite — applies), map each MCP descriptor to the
  * neutral {@link ToolDescriptor} (dropping MCP-only annotations, which feed the lint, not
- * the model), and record toolName→serverName so the loop's dispatch routes a call to the
- * server that owns it.
+ * the model), and record toolName→server-value so the loop's dispatch routes a call back
+ * through the right server's chain.
  *
  * FIRST-server-wins on a name collision (deterministic — the model sees ONE tool of that
  * name, routed to the first server). Cross-server name namespacing is a future refinement.
  * The `tools/list` calls cross the same resolver (and server tape) as a dispatch, so an
- * agentic run's tool discovery is recorded + replayed like any other MCP effect.
+ * agentic run's tool discovery is recorded + replayed like any other MCP effect. A server
+ * whose `tools/list` middleware returns `mcp/break` contributes no tools (skipped).
  */
 export async function resolveTools(
   servers: readonly McpServerValue[],
   resolve: McpEffectResolver,
   ctx: McpEffectContext,
+  progress: unknown = {},
 ): Promise<ResolvedTools> {
   const tools: ToolDescriptor[] = [];
-  const serverOf = new Map<string, string>();
+  const serverOf = new Map<string, McpServerValue>();
   for (const server of servers) {
-    const reply = await resolve(ctx, { kind: "mcp", server: server.name, method: "tools/list", request: {} });
+    const reply = await dispatchThroughChain(server, "tools/list", {}, resolve, ctx, progress);
+    if (reply === MCP_BREAK) continue; // a tools/list break → this server exposes no tools
     for (const t of toolListOf(reply)) {
       if (serverOf.has(t.name)) continue; // first server wins on a name collision (deterministic)
       tools.push({
@@ -370,7 +477,7 @@ export async function resolveTools(
         ...(t.description === undefined ? {} : { description: t.description }),
         ...(t.inputSchema === undefined ? {} : { inputSchema: t.inputSchema }),
       });
-      serverOf.set(t.name, server.name);
+      serverOf.set(t.name, server);
     }
   }
   return { tools, serverOf };

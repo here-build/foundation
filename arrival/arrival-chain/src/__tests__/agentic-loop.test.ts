@@ -30,7 +30,13 @@ describe("runAgenticLoop", () => {
       infer,
       dispatch: async (c) => (dispatched.push(c), null),
     });
-    expect(res).toEqual({ text: "done", chunks: [{ kind: "text", text: "done" }], rounds: 1, haltedByBackstop: false });
+    expect(res).toEqual({
+      text: "done",
+      chunks: [{ kind: "text", text: "done" }],
+      rounds: 1,
+      haltedByBackstop: false,
+      haltedByBreak: false,
+    });
     expect(dispatched).toEqual([]); // nothing dispatched
     expect(seen).toHaveLength(1);
   });
