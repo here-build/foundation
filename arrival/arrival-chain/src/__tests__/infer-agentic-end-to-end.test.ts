@@ -123,4 +123,30 @@ describe("infer/agentic/end-to-end — honest-tools flow (end to end)", () => {
     // tools/list fired (discovery), but tools/call NEVER reached the honest resolver (break suppressed it).
     expect(effects.map((e) => e.method)).toEqual(["tools/list"]);
   });
+
+  it("a budget-terminator middleware reads progress.round and halts past a threshold", async () => {
+    let turns = 0;
+    const backend: ModelBackend = {
+      async complete(): Promise<Completion> {
+        turns += 1;
+        return { value: "still going", toolCalls: [{ id: "c", name: "ping", arguments: {} }] }; // never stops on its own
+      },
+    };
+    const { resolve, effects } = pingResolver();
+
+    // derive a tools/call middleware that breaks once round > 2 (reads the loop's progress).
+    const value = await freshRoot(backend).run(
+      `(car (infer/agentic/end-to-end "mock"
+              (list (list "user" "loop forever"))
+              (list (mcp/derive (mcp "srv") :tools/call
+                      (lambda (req next progress)
+                        (if (> (@ progress "round") 2) mcp/break (next req)))))))`,
+      { mcp: resolve },
+    );
+
+    expect(value).toBe("still going");
+    expect(turns).toBe(3); // rounds 1,2 dispatched honestly; round 3 the budget broke
+    // discovery + two honest tools/call (rounds 1,2); round 3 broke BEFORE honest.
+    expect(effects.map((e) => e.method)).toEqual(["tools/list", "tools/call", "tools/call"]);
+  });
 });

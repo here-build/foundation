@@ -603,19 +603,21 @@ export function buildArrivalEnv(opts: {
             ? { text: String(out), toolCalls: [...out.__toolCalls__], reasoning: out.__reasoning__ || undefined }
             : { text: String(out ?? ""), toolCalls: [] }; // empty-tools degenerate (one shot)
         },
-        dispatch: async (call) => {
+        dispatch: async (call, progress) => {
           const server = serverOf.get(call.name);
           if (server === undefined) {
             throw new Error(`infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`);
           }
           // Through the server's middleware chain (honest = the credentialed resolver +
-          // server tape). A MCP_BREAK return halts the loop (isHalt below).
+          // server tape); `progress` lets a budget middleware decide next vs mcp/break. A
+          // MCP_BREAK return halts the loop (isHalt below).
           return dispatchThroughChain(
             server,
             "tools/call",
             { tool: call.name, args: call.arguments },
             mcpResolve,
             ctx as McpEffectContext,
+            progress,
           );
         },
         // A middleware returning mcp/break (without next) halts the loop — flow 4.

@@ -37,14 +37,24 @@ export interface AgenticTurn {
   reasoning?: string;
 }
 
+/** The loop's live budget state, handed to the middleware chain as `progress` so a
+ *  budget-terminator middleware can read it and `mcp/break` past a threshold. (v1 carries
+ *  the round counters; `(infer/spent)` is reflective-impure and read in scheme directly.) */
+export interface AgenticProgress {
+  round: number;
+  maxRounds: number;
+}
+
 /** The two seams the driver is parameterised over — kept abstract so the loop logic is
  *  unit-testable without an LLM or the MCP transport. The rosetta wiring supplies the
  *  real ones (cached infer over the cell machinery; dispatch over the MCP resolver). */
 export interface AgenticDeps {
   /** Run ONE tool-enabled inference turn over the running message list. */
   infer(messages: ChatMessage[]): Promise<AgenticTurn>;
-  /** Dispatch ONE tool call across the MCP membrane (middleware chain + server tape). */
-  dispatch(call: ToolCall): Promise<unknown>;
+  /** Dispatch ONE tool call across the MCP membrane (middleware chain + server tape).
+   *  `progress` ({round, maxRounds}) is handed to the chain so a budget-terminator
+   *  middleware can read it and decide `next` vs `mcp/break`. */
+  dispatch(call: ToolCall, progress: AgenticProgress): Promise<unknown>;
   /** Does a dispatch result mean "halt the loop now"? (A middleware returned `mcp/break`
    *  without calling next — flow 4's force-halt.) Kept as a predicate so the driver stays
    *  MCP-agnostic; the wiring passes `isMcpBreak`. The call is suppressed (no tool result
@@ -105,7 +115,7 @@ export async function runAgenticLoop(initial: readonly ChatMessage[], deps: Agen
     messages.push({ role: "assistant", content: turn.text, toolCalls: turn.toolCalls });
     for (const call of turn.toolCalls) {
       chunks.push(toolCallChunk(call));
-      const result = await deps.dispatch(call);
+      const result = await deps.dispatch(call, { round, maxRounds });
       if (deps.isHalt?.(result)) {
         // A middleware broke the chain (mcp/break): suppress the call (no tool_result,
         // nothing fed back) and halt. The trajectory's tail is this `tool_call` chunk —
