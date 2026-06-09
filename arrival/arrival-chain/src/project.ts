@@ -40,7 +40,7 @@ import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey, stableJson 
 import { defineExposeRosetta, type OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "./infer-store.js";
 import { InferString } from "./infer-string.js";
-import type { Completion, ToolCall, ToolDescriptor } from "./model.js";
+import type { Completion, LlmParams, ToolCall, ToolDescriptor } from "./model.js";
 import { RunSpend } from "./run-spend.js";
 import { Program, ProgramVersion } from "./program.js";
 import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
@@ -370,6 +370,14 @@ export type InferFn = (
    * inference) and returns an {@link InferString} carrying the turn's `toolCalls`.
    */
   tools?: ToolDescriptor[],
+  /**
+   * Content-affecting model params from an `(llm/with …)` entity (temperature, system).
+   * Optional + additive (like `tools`): absent ⇒ byte-identical to today. When present, the
+   * resolver folds them into the cache identity (a different temperature is a different
+   * completion) AND sends them on the {@link ModelSpec} to the backend. Distinct from
+   * `maxTokens` (execution-only, never folded).
+   */
+  params?: LlmParams,
 ) => Promise<unknown>;
 
 // ── tool-enabled inference: identity folding + record/replay shape ─────────────
@@ -379,13 +387,27 @@ export type InferFn = (
 // helpers are the only deltas, all gated on whether tools were passed, so a plain infer
 // is byte-for-byte unchanged.
 
-/** Fold the tool set into the cache identity. Tools are an extra identity dimension
- *  (same messages + different tools = different inference), so folding them into the
- *  cacheKey reuses the (model,prompt,schema,cacheKey) key machinery — cell, effect-log,
- *  binding, AND disk cache — with no new key dimension. Order-preserving (tool order is
- *  semantically meaningful to the model). */
-export function toolCacheKey(cacheKey: string | null, tools: readonly ToolDescriptor[]): string {
-  return stableJson({ cacheKey, tools });
+/** Fold the extra inference-identity dimensions (tools + content params) into the cacheKey.
+ *  Both CHANGE the completion (a different toolset / a different temperature = a different
+ *  result), so folding them into the cacheKey reuses the (model,prompt,schema,cacheKey) key
+ *  machinery — cell, effect-log, binding, AND disk cache — with no new key dimension. This
+ *  is the SOLE mechanism keeping a content param cache-honest: `keyOf` (infer-store) only
+ *  whitelists [model,prompt,schema,cacheKey], so a param NOT folded here would silently
+ *  serve a stale completion. Gated to byte-identity: no tools AND no params ⇒ the cacheKey
+ *  is returned untouched, so plain `(infer …)` and every existing cache entry are unchanged.
+ *  Tools stay an ORDERED array (order is semantically meaningful); params is a record
+ *  (`stableJson` sorts its keys, so the same params key identically regardless of literal order). */
+export function inferIdentityKey(
+  cacheKey: string | null,
+  tools?: readonly ToolDescriptor[],
+  params?: LlmParams,
+): string | null {
+  const hasTools = tools !== undefined && tools.length > 0;
+  const hasParams = params !== undefined && Object.keys(params).length > 0;
+  if (!hasTools && !hasParams) return cacheKey;
+  // When only tools are present this is byte-identical to the prior `toolCacheKey`
+  // (`{ cacheKey, tools }`), so existing tool-cached entries survive.
+  return stableJson({ cacheKey, ...(hasTools ? { tools } : {}), ...(hasParams ? { params } : {}) });
 }
 
 /** The record shape for a tool-enabled inference: value + the model's tool calls, so
@@ -421,18 +443,19 @@ const BREAK_ON_SINGLE_INFER =
   "infer: an (llm …) middleware returned mcp/break on a single (infer …) — break only halts an agentic run (infer/agentic/end-to-end …)";
 
 /** Coerce an infer `model` argument that may be a bare string OR an `(llm …)` entity. An
- *  llm entity contributes its NAME — which IS the cache identity, because observe-only
- *  middleware cannot change the request that reaches the model, so the effective model is
- *  the bare name (the cache-neutral guarantee of the D3 observe-only direction) — plus its
- *  middleware chain. A non-llm entity (e.g. an `(mcp …)` server) in model position is a
- *  misuse → legible error rather than a silent `[object Object]` model name. */
-function asLlmModel(model: unknown): { name: string; middleware: readonly EntityMiddleware[] } {
+ *  llm entity contributes its NAME, its observe-only `middleware` chain, and its content
+ *  `params` (`llm/with` tweaks). Two distinct identity stories: middleware is cache-NEUTRAL
+ *  (observe-only — it cannot change the request reaching the model), while `params` ARE
+ *  cache-affecting (the infer path folds them into the key + sends them to the backend). A
+ *  non-llm entity (e.g. an `(mcp …)` server) in model position is a misuse → legible error
+ *  rather than a silent `[object Object]` model name. */
+function asLlmModel(model: unknown): { name: string; middleware: readonly EntityMiddleware[]; params?: LlmParams } {
   if (model instanceof DerivableEntity) {
     invariant(
       model.kind === "llm",
       `infer: a derivable entity in model position must be an (llm …), got kind "${model.kind}"`,
     );
-    return { name: model.name, middleware: model.middleware };
+    return { name: model.name, middleware: model.middleware, params: model.params };
   }
   return { name: String(model), middleware: [] };
 }
@@ -481,7 +504,7 @@ async function runAgenticInfer(
   // through lipsToJs, which would demote the InferString and drop its toolCalls; a turn's
   // response is loop-control, not a value to reshape). So response-transform is ignored in
   // the agentic context by design; observe + budget/break are the meaningful powers.
-  const { name, middleware } = asLlmModel(model);
+  const { name, middleware, params } = asLlmModel(model);
   const { tools, serverOf } = await resolveTools(servers, mcpResolve, mcpCtx);
   const result = await runAgenticLoop(messages, {
     infer: async (msgs, progress) => {
@@ -491,7 +514,7 @@ async function runAgenticInfer(
       // (A box, not a flag, so it survives the closure without tripping flow analysis.)
       const captured: unknown[] = [];
       const honest = async (): Promise<unknown> => {
-        const v = await infer(undefined, name, JSON.stringify(msgs), null, null, tools);
+        const v = await infer(undefined, name, JSON.stringify(msgs), null, null, tools, params);
         captured.push(v);
         return v;
       };
@@ -594,8 +617,8 @@ export function buildArrivalEnv(opts: {
     withContext: true,
     options: { provenancePoint: true },
     fn: async (ctx, model, prompt, schema, cacheKey) => {
-      const { name, middleware } = asLlmModel(model);
-      const honest = () => opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey));
+      const { name, middleware, params } = asLlmModel(model);
+      const honest = () => opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey), undefined, params);
       const out = await inferThroughChain(honest, middleware, String(prompt), {});
       if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
       return list(out);
@@ -610,9 +633,9 @@ export function buildArrivalEnv(opts: {
     withContext: true,
     options: { provenancePoint: true },
     fn: async (ctx, model, messages, schema, cacheKey) => {
-      const { name, middleware } = asLlmModel(model);
+      const { name, middleware, params } = asLlmModel(model);
       const prompt = canonicalizeMessages(messages);
-      const honest = () => opts.infer(ctx, name, prompt, schemaSlot(schema), nullable(cacheKey));
+      const honest = () => opts.infer(ctx, name, prompt, schemaSlot(schema), nullable(cacheKey), undefined, params);
       const out = await inferThroughChain(honest, middleware, prompt, {});
       if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
       return list(out);
@@ -956,13 +979,13 @@ export class Project extends PlexusModel<null> {
     // content-addressed cache, bind the trace, await its result. The rosetta
     // wiring + list-wrapping live in buildArrivalEnv (shared with runTraced +
     // host); this closure is the project-specific seam.
-    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey, tools) => {
+    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey, tools, params) => {
       // Tools are part of the inference identity (same messages + different tools =
       // different result) — fold them into the cacheKey so the existing
       // (model,prompt,schema,cacheKey) machinery distinguishes toolsets with no new key
       // dimension. Absent tools ⇒ the original key + bare value, byte-for-byte.
       const hasTools = tools !== undefined && tools.length > 0;
-      const key = hasTools ? toolCacheKey(cacheKey, tools) : cacheKey;
+      const key = inferIdentityKey(cacheKey, tools, params);
       // Two short-circuit maps, consulted before any inference — counterfactual
       // first (it supplies NEW values), then the replay log (RECORDED values):
       //   - tweaks: keyed by the UNTAGGED content tuple (the legacy hypothesis surface).
@@ -990,7 +1013,7 @@ export class Project extends PlexusModel<null> {
       // backend; later identical calls ride the same cell. Acquire keeps it alive;
       // release lets the last holder abort a superseded run. `tools` rides on the spec
       // (the backend sends them); identity is already in `key`.
-      const cell = this.infer.get({ model, prompt, schema, tools }, key);
+      const cell = this.infer.get({ model, prompt, schema, tools, ...params }, key);
       const cached = cell.finished(); // already-settled at bind = served from a prior get this run
       cell.acquire();
       opts.onEffect?.(effectKeyStr);
@@ -1537,11 +1560,11 @@ export class Project extends PlexusModel<null> {
     // Reuse the same rosetta wiring as run() by going through run() for the
     // preamble half, then parsing and tap-evaluating the user body ourselves.
     // To avoid duplicating the env-setup, we set up the env inline here.
-    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey, tools) => {
+    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey, tools, params) => {
       // Same tool-identity fold + record/replay shape as run()'s resolver (see the
       // helpers near InferFn); absent tools ⇒ byte-for-byte the original behaviour.
       const hasTools = tools !== undefined && tools.length > 0;
-      const key = hasTools ? toolCacheKey(cacheKey, tools) : cacheKey;
+      const key = inferIdentityKey(cacheKey, tools, params);
       const tupleKey = JSON.stringify([model, prompt, schema, key]);
       const tweak = opts.tweaks?.get(tupleKey);
       if (tweak !== undefined) return reviveInfer(tweak, hasTools); // buildArrivalEnv wraps to a list
@@ -1557,7 +1580,7 @@ export class Project extends PlexusModel<null> {
         }
         return reviveInfer(replayed, hasTools);
       }
-      const cell = this.infer.get({ model, prompt, schema, tools }, key);
+      const cell = this.infer.get({ model, prompt, schema, tools, ...params }, key);
       const cached = cell.finished();
       cell.acquire();
       opts.onEffect?.(effectKeyStr);

@@ -1,4 +1,20 @@
-export interface ModelSpec {
+/**
+ * The CONTENT-affecting model parameters an author binds to an `(llm …)` entity via
+ * `(llm/with … :temperature … :system …)`. Distinct from `maxTokens` (an EXECUTION bound,
+ * excluded from the cache key): each of these CHANGES the completion, so it folds into the
+ * inference's content/cache key (the agentic + cache layers include them, like `tools`).
+ * Cross-provider + semantic by design — provider-specific knobs (`frequency_penalty`,
+ * `top_k`) are deliberately out of scope. The typed key set is also what the `llm/with`
+ * validator checks against (an unknown `:keyword` is a legible error, not a silent no-op).
+ */
+export interface LlmParams {
+  /** Sampling temperature. Lower = more deterministic; omitted ⇒ the endpoint default. */
+  temperature?: number;
+  /** A model-bound system instruction (the `persona` tier of the merged system prompt). */
+  system?: string;
+}
+
+export interface ModelSpec extends LlmParams {
   model: string;
   prompt: string;
   schema: string | null;

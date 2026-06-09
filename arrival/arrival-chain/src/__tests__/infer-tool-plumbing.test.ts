@@ -9,29 +9,53 @@ import { describe, expect, it } from "vitest";
 
 import { InferString } from "../infer-string.js";
 import type { Completion, ToolDescriptor } from "../model.js";
-import { freshInfer, recordInfer, reviveInfer, toolCacheKey } from "../project.js";
+import { freshInfer, inferIdentityKey, recordInfer, reviveInfer } from "../project.js";
 
 const tools: ToolDescriptor[] = [
   { name: "create_issue", description: "file one", inputSchema: { type: "object" } },
   { name: "search", inputSchema: { type: "object" } },
 ];
 
-describe("toolCacheKey — tools fold into the inference identity", () => {
+describe("inferIdentityKey — tools + content params fold into the inference identity", () => {
   it("is stable for the same inputs", () => {
-    expect(toolCacheKey("k", tools)).toBe(toolCacheKey("k", tools));
+    expect(inferIdentityKey("k", tools)).toBe(inferIdentityKey("k", tools));
   });
 
   it("distinguishes different toolsets (same base key)", () => {
-    expect(toolCacheKey("k", tools)).not.toBe(toolCacheKey("k", [tools[0]!]));
+    expect(inferIdentityKey("k", tools)).not.toBe(inferIdentityKey("k", [tools[0]!]));
   });
 
   it("distinguishes tool ORDER (order is semantically meaningful to the model)", () => {
-    expect(toolCacheKey("k", tools)).not.toBe(toolCacheKey("k", [tools[1]!, tools[0]!]));
+    expect(inferIdentityKey("k", tools)).not.toBe(inferIdentityKey("k", [tools[1]!, tools[0]!]));
   });
 
   it("folds the base cacheKey (different base ⇒ different identity)", () => {
-    expect(toolCacheKey("a", tools)).not.toBe(toolCacheKey("b", tools));
-    expect(toolCacheKey(null, tools)).not.toBe(toolCacheKey("a", tools));
+    expect(inferIdentityKey("a", tools)).not.toBe(inferIdentityKey("b", tools));
+    expect(inferIdentityKey(null, tools)).not.toBe(inferIdentityKey("a", tools));
+  });
+
+  it("BYTE-IDENTITY gate: no tools AND no params ⇒ the cacheKey is returned untouched", () => {
+    expect(inferIdentityKey("k")).toBe("k"); // plain infer — unchanged
+    expect(inferIdentityKey("k", [], {})).toBe("k"); // empty tools + empty params — still untouched
+    expect(inferIdentityKey(null)).toBeNull();
+  });
+
+  it("a content param busts the key (a different temperature is a different completion)", () => {
+    expect(inferIdentityKey("k", undefined, { temperature: 0.7 })).not.toBe(
+      inferIdentityKey("k", undefined, { temperature: 0.9 }),
+    );
+    // and a present param keys distinctly from no param at all
+    expect(inferIdentityKey("k", undefined, { temperature: 0.7 })).not.toBe(inferIdentityKey("k"));
+  });
+
+  it("params is order-independent (a record, sorted by stableJson); tools + params compose", () => {
+    expect(inferIdentityKey("k", undefined, { temperature: 0.7, system: "s" })).toBe(
+      inferIdentityKey("k", undefined, { system: "s", temperature: 0.7 }), // same params, different literal order
+    );
+    // tools + params together is distinct from either alone
+    const both = inferIdentityKey("k", tools, { temperature: 0.7 });
+    expect(both).not.toBe(inferIdentityKey("k", tools));
+    expect(both).not.toBe(inferIdentityKey("k", undefined, { temperature: 0.7 }));
   });
 });
 

@@ -31,7 +31,7 @@ import { lipsToJs, Nil } from "@here.build/arrival-scheme";
 
 import type { RosettaHost } from "./data-effects.js";
 import { mcpEffectKey, stableJson } from "./effect-log.js";
-import type { ToolDescriptor } from "./model.js";
+import type { LlmParams, ToolDescriptor } from "./model.js";
 
 /** The MCP protocol methods the runner invokes. `tools/list` + `tools/call` are the v1
  *  surface; the rest are reserved so the membrane's method namespace is complete and
@@ -305,12 +305,24 @@ export class DerivableEntity {
     /** Fabricated method impls (`mcp/define`) — when a method is here, it is the chain's
      *  `honest` bottom (no resolver crossing). Absent ⇒ honest is the credentialed call. */
     readonly defined?: Partial<Record<McpMethod, McpDefinedMethod>>,
+    /** Content-affecting model params bound to an `(llm …)` entity (`llm/with`). Distinct
+     *  from `middleware` (observe-only, cache-NEUTRAL): params are IDENTITY — they change
+     *  the completion, so the infer path folds them into the cache key + sends them to the
+     *  backend. Carried generically (only the llm kind interprets them today). */
+    readonly params?: LlmParams,
   ) {}
 
   /** Return a NEW entity with `mw` appended (immutable derive — the base is shared, never
-   *  mutated, so two derivations of one base stay independent). Preserves `kind`+`defined`. */
+   *  mutated, so two derivations of one base stay independent). Preserves kind/defined/params. */
   withMiddleware(mw: EntityMiddleware): DerivableEntity {
-    return new DerivableEntity(this.kind, this.name, [...this.middleware, mw], this.defined);
+    return new DerivableEntity(this.kind, this.name, [...this.middleware, mw], this.defined, this.params);
+  }
+
+  /** Return a NEW entity with `patch` shallow-merged over the existing params (immutable;
+   *  later keys win). Mirror of {@link withMiddleware} — preserves kind/name/middleware/defined,
+   *  so params and middleware compose order-independently on one entity. */
+  withParams(patch: Partial<LlmParams>): DerivableEntity {
+    return new DerivableEntity(this.kind, this.name, this.middleware, this.defined, { ...this.params, ...patch });
   }
 }
 

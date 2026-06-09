@@ -523,7 +523,11 @@ export function openAIRequestBody(spec: ModelSpec, extra: Record<string, unknown
   // turns (never `[system,system,user]`, never a dropped/non-leading system). A single
   // leading system message is universally accepted; multiple / mid-array ones are rejected
   // by some OpenRouter providers.
-  const { systemText, messagesWithoutSystem } = mergeSystem({ messages: specMessages(spec), schemaPreamble });
+  const { systemText, messagesWithoutSystem } = mergeSystem({
+    messages: specMessages(spec),
+    persona: spec.system, // the (llm/with … :system …) tweak — the persona tier
+    schemaPreamble,
+  });
   const messages: ChatMessage[] = systemText
     ? [{ role: "system", content: systemText }, ...messagesWithoutSystem]
     : messagesWithoutSystem;
@@ -549,6 +553,10 @@ export function openAIRequestBody(spec: ModelSpec, extra: Record<string, unknown
         ? {}
         : { response_format: { type: "json_object" as const } }),
     ...extra,
+    // Per-call sampling temperature (the `(llm/with … :temperature …)` tweak), written
+    // AFTER `extra` so it WINS over a construction-time `opts.temperature` (which rides
+    // `extra`). Precedence: per-call spec.temperature ?? backend default ?? endpoint default.
+    ...(spec.temperature === undefined ? {} : { temperature: spec.temperature }),
   };
 }
 

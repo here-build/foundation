@@ -54,7 +54,11 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
           schemaPreamble = schema ? `${base}\nShape:\n${JSON.stringify(schema, null, 2)}` : base;
         }
         // ONE top-level system, composed persona·call·format, collecting ALL system turns.
-        const { systemText, messagesWithoutSystem } = mergeSystem({ messages: specMessages(spec), schemaPreamble });
+        const { systemText, messagesWithoutSystem } = mergeSystem({
+          messages: specMessages(spec),
+          persona: spec.system, // the (llm/with … :system …) tweak — the persona tier
+          schemaPreamble,
+        });
         return {
           model: spec.model,
           max_tokens: spec.maxTokens ?? defaultMaxTokens,
@@ -63,6 +67,8 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
           // (the system turns are already removed — they ride `system` above).
           messages: messagesToAnthropic(messagesWithoutSystem),
           ...(spec.tools && spec.tools.length > 0 ? { tools: toolsToAnthropic(spec.tools) } : {}),
+          // Per-call sampling temperature (the `(llm/with … :temperature …)` tweak).
+          ...(spec.temperature === undefined ? {} : { temperature: spec.temperature }),
         };
       },
       // Non-streamed body ⇒ a `Message`; cast through unknown to the structural raw

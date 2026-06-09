@@ -397,6 +397,35 @@ describe("mergeSystem — one system, persona·call·format, collect-all", () =>
     expect(messages.filter((m) => m.role === "system")).toHaveLength(1);
     expect(messages[0]).toEqual({ role: "system", content: "late" }); // hoisted to the front, not left mid-array
   });
+
+  it("spec.system is the PERSONA tier — leads the merged system (before call + format)", () => {
+    const body = openAIRequestBody({
+      model: "m",
+      prompt: '[{"role":"system","content":"call"},{"role":"user","content":"u"}]',
+      schema: null,
+      system: "persona",
+    });
+    const messages = body.messages as Array<{ role: string; content: string }>;
+    expect(messages[0]).toEqual({ role: "system", content: "persona\n\ncall" }); // persona · call
+  });
+});
+
+describe("param lowering — temperature (OpenAI)", () => {
+  it("spec.temperature lowers to the body; absent when unset", () => {
+    expect(openAIRequestBody({ model: "m", prompt: "hi", schema: null, temperature: 0.7 }).temperature).toBe(0.7);
+    expect(openAIRequestBody({ model: "m", prompt: "hi", schema: null }).temperature).toBeUndefined();
+  });
+
+  it("per-call spec.temperature WINS over a construction-time opts.temperature (the collision fix)", () => {
+    // `extra` carries the backend's opts.temperature and is spread before spec.temperature.
+    const body = openAIRequestBody({ model: "m", prompt: "hi", schema: null, temperature: 0.7 }, { temperature: 0.2 });
+    expect(body.temperature).toBe(0.7); // per-call wins, not the backend default (0.2)
+  });
+
+  it("falls back to the backend opts.temperature (via extra) when no per-call temperature", () => {
+    const body = openAIRequestBody({ model: "m", prompt: "hi", schema: null }, { temperature: 0.2 });
+    expect(body.temperature).toBe(0.2);
+  });
 });
 
 describe("tool-calling helpers (Anthropic)", () => {
