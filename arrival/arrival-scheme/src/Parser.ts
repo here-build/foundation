@@ -473,7 +473,9 @@ export class Parser {
       const is_symbol = is_symbol_extension(token);
       const was_close_paren = this.is_close(await this.peek());
       const object = is_symbol ? undefined : await this._read_object();
-      Unterminated.invariant(object !== eof, "Expecting expression eof found");
+      if (object === eof) {
+        throw new Unterminated("Expecting expression, eof found");
+      }
       if (!builtin) {
         extension = this.__env__!.get(special.symbol);
         if (typeof extension === "function") {
@@ -525,7 +527,7 @@ export class Parser {
     const ref = this.match_datum_ref(token);
     if (ref !== null) {
       this.skip();
-      invariant(this._refs[+ref], `Parse Error: invalid datum label #${ref}#`);
+      invariant(+ref in this._refs, `Parse Error: invalid datum label #${ref}#`);
       return new DatumReference(ref, this._refs[+ref] as SchemeValue);
     }
     const ref_label = this.match_datum_label(token);

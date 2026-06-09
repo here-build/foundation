@@ -142,7 +142,7 @@ export class Lexer {
     [/"/, null, null, null, Lexer.string],
     [/"/, null, null, Lexer.string_escape, Lexer.string],
     [/\\/, null, null, Lexer.string, Lexer.string_escape],
-    [/./, /\\/, null, Lexer.string_escape, Lexer.string],
+    [/./s, /\\/, null, Lexer.string_escape, Lexer.string],
 
     // hash special symbols, lexer don't need to distinguish those
     // we only care if it's not pick up by vectors literals
@@ -453,6 +453,43 @@ export class Lexer {
         }
       }
       start = false;
+      // Nested block comments `#| ... #| ... |# ... |#`. The declarative rule
+      // table cannot count nesting depth, so handle the whole (possibly nested)
+      // block comment here with an explicit depth counter and return it as a
+      // single token (the same contract the rule table uses for the non-nested
+      // case). R7RS 2.2 requires block comments to nest.
+      if (this._state === null && char === "#" && next_char === "|") {
+        let depth = 1;
+        let j = i + 2;
+        const len2 = this.__input__.length;
+        while (j < len2 && depth > 0) {
+          const c = this.__input__[j];
+          const n = this.__input__[j + 1];
+          if (c === "#" && n === "|") {
+            depth++;
+            j += 2;
+          } else if (c === "|" && n === "#") {
+            depth--;
+            j += 2;
+          } else {
+            if (c === "\n") {
+              ++this._line;
+            }
+            j++;
+          }
+        }
+        if (depth > 0) {
+          // ran off the end without closing — fall through to the unterminated
+          // handling below by leaving the lexer in the b_comment state.
+          this._state = Lexer.b_comment;
+          break loop;
+        }
+        // `j` now points just past the final `|#`
+        this._next = j;
+        this._col = this._i - this._newline;
+        this._state = null;
+        return true;
+      }
       for (const rule of Lexer.rules!) {
         if (this.match_rule(rule, { prev_char, char, next_char })) {
           // change state to null if end of the token

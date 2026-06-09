@@ -107,7 +107,7 @@ export function unpromise_object(
         if (Object.isFrozen(object)) {
           Object.freeze(result);
         }
-        return result;
+        return fn(result);
       },
       error,
     );

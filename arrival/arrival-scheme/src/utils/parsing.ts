@@ -152,17 +152,6 @@ export function parse_big_int(str: string): {
 
 // ----------------------------------------------------------------------
 export function string_to_float(str: string): number {
-  if (/e/i.test(str)) {
-    const [coefficient, exponent] = str.split("e");
-    const decimal_places = Math.abs(Number.parseInt(exponent));
-    if (decimal_places < 7 && Number.parseInt(exponent) < 0) {
-      const zeros = "0".repeat(decimal_places - 1);
-      const sign = coefficient[0] === "-" ? "-" : "+";
-      const digits = coefficient.replaceAll(/(^[-+])|\./g, "");
-      const float_str = `${sign}0.${zeros}${digits}`;
-      return Number.parseFloat(float_str);
-    }
-  }
   return Number.parseFloat(str);
 }
 
@@ -293,7 +282,16 @@ export function parse_string(string: string): SchemeString {
   // handle non JSON escapes and skip unicode escape \u (even partial)
   string = string
     .replaceAll(/\\x([0-9a-f]+);/gi, function (_, hex) {
-      return String.raw`\u` + hex.padStart(4, "0");
+      // Emit the real codepoint as JSON \uXXXX escape(s). For astral codepoints
+      // (> U+FFFF) String.fromCodePoint yields a UTF-16 surrogate pair, which we
+      // re-emit as two \uXXXX units so JSON.parse reconstructs the true char.
+      const codepoint = Number.parseInt(hex, 16);
+      const utf16 = String.fromCodePoint(codepoint);
+      let out = "";
+      for (let i = 0; i < utf16.length; i++) {
+        out += String.raw`\u` + utf16.charCodeAt(i).toString(16).padStart(4, "0");
+      }
+      return out;
     })
     .replaceAll("\n", String.raw`\n`); // in LIPS strings can be multiline
   const m = string.match(/(\\*)(\\x[0-9A-F])/i);
