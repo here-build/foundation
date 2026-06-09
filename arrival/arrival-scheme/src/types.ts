@@ -149,8 +149,17 @@ export class SchemeCharacter extends AValue {
   static readonly __names__: Record<string, string> = characters;
   static readonly __rev_names__: Record<string, string> = (() => {
     const rev: Record<string, string> = {};
+    // First-write-wins: R7RS § 6.6 canonical names (alarm, backspace, delete,
+    // escape, newline, null, return, space, tab) are registered FIRST in the
+    // `characters` table, before their later SRFI-175 aliases (bel, bs, del,
+    // esc, lf, cr, ht). Iterating in source order and skipping codepoints that
+    // already have a reverse name keeps the canonical R7RS name as the winner —
+    // so `(integer->char 7)` resolves to #\alarm, not #\bel.
     for (const key of Object.keys(characters)) {
-      rev[characters[key]] = key;
+      const codepoint = characters[key];
+      if (!(codepoint in rev)) {
+        rev[codepoint] = key;
+      }
     }
     return rev;
   })();

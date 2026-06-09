@@ -132,7 +132,7 @@ describe("r7rs unicode — known bugs (it.fails — flipping to green = regressi
     },
   );
 
-  it.fails(
+  it(
     "character at code point 7 names as 'alarm' (R7RS-canonical, not 'bel')",
     async () => {
       // R7RS § 6.6 lists `alarm` as the canonical name for U+0007; `bel` is

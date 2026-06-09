@@ -44,7 +44,9 @@ export class SchemeString extends AValue {
   }
 
   get length(): number {
-    return this.__string__.length;
+    // R7RS strings are sequences of Unicode code points, not UTF-16 code units.
+    // Spread iterates by code point so astral chars (emoji, U+10000+) count once.
+    return [...this.__string__].length;
   }
 
   static isString(x: unknown): x is SchemeString | string {
@@ -67,7 +69,12 @@ export class SchemeString extends AValue {
     delete (this as Partial<SchemeString>).__string__;
     Object.defineProperty(this, "__string__", {
       value: string,
-      configurable: true,
+      // Non-configurable + non-writable so a later re-defineProperty or
+      // assignment can't defeat the freeze — frozen string literals are
+      // immutable per R7RS § 6.7 (string-set!/string-fill! on a literal is an
+      // error). `configurable: true` previously left the door open.
+      configurable: false,
+      writable: false,
       enumerable: true,
     });
   }
@@ -103,10 +110,11 @@ export class SchemeString extends AValue {
     typecheck("SchemeString::set", char, ["string", "character"]);
     const idx = typeof n === "number" ? n : n.valueOf();
     const charValue = char instanceof SchemeCharacter ? char.__char__ : char.valueOf();
-    // Rebuild string with character at idx replaced
-    const before = idx > 0 ? this.__string__.slice(0, idx) : "";
-    const after = idx < this.__string__.length - 1 ? this.__string__.slice(idx + 1) : "";
-    this.__string__ = before + charValue + after;
+    // Rebuild by code point, not UTF-16 unit, so replacing index k in a string
+    // containing astral chars doesn't split a surrogate pair (R7RS § 6.7).
+    const codepoints = [...this.__string__];
+    codepoints[idx] = charValue;
+    this.__string__ = codepoints.join("");
   }
 
   clone(): SchemeString {
@@ -116,7 +124,9 @@ export class SchemeString extends AValue {
   fill(char: CharLike): void {
     typecheck("SchemeString::fill", char, ["string", "character"]);
     const charValue = char instanceof SchemeCharacter ? char.valueOf() : char.valueOf();
-    const len = this.__string__.length;
+    // Fill must preserve the code-point length, not the UTF-16 unit length —
+    // a string of N astral chars stays N chars after string-fill! (R7RS § 6.7).
+    const len = [...this.__string__].length;
     this.__string__ = charValue.repeat(len);
   }
 
