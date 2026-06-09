@@ -1,106 +1,16 @@
 /**
- * Atomic Binding System for Scheme Environment
+ * Module & resolver contracts for the Scheme environment.
  *
- * Each binding is a self-contained, typed object that describes
- * a single name in the environment. This enables:
- * - Separation of function/macro/syntax/value bindings
- * - Extensible fallback resolution (keywords, dot notation, etc.)
- * - Future type annotations
- * - Better testability and modularity
+ * Defines the two interfaces the environment-composition layer
+ * (`Environment.fromModules`) consumes:
+ * - `FallbackResolver` — extensible lazy lookup (keyword accessors, dot
+ *   notation, auto-imports) tried when a direct binding lookup misses.
+ * - `EnvironmentModule` — a composable unit of bindings + resolver +
+ *   bootstrap code, layered into the environment chain.
  */
 
 import type { Environment } from "./Environment.js";
-import type { Pair } from "./Pair.js";
 import type { SchemeValue } from "./types.js";
-
-// ============================================
-// Evaluation Context
-// ============================================
-
-/**
- * Context passed through the evaluation chain.
- * Available as `this` in function bindings.
- */
-export interface EvalContext {
-  /** Current lexical environment */
-  env: Environment;
-  /** Current dynamic environment (for dynamic scoping) */
-  dynamic_env: Environment;
-  /** Whether to use dynamic scoping */
-  use_dynamic: boolean;
-  /** Error handler */
-  error?: (e: Error, code?: SchemeValue) => void;
-}
-
-// ============================================
-// Base Binding Interface
-// ============================================
-
-/**
- * Common interface for all binding types.
- */
-export interface Binding {
-  /** The Scheme name this binding is registered under */
-  readonly name: string;
-  /** Documentation string */
-  readonly doc?: string;
-  /** Binding type discriminator */
-  readonly kind: "function" | "macro" | "syntax" | "value";
-}
-
-// ============================================
-// Function Binding
-// ============================================
-
-/**
- * A regular Scheme function.
- * Arguments are evaluated before the function is called.
- */
-export class FunctionBinding implements Binding {
-  readonly kind = "function" as const;
-
-  constructor(
-    readonly name: string,
-    readonly fn: (this: EvalContext, ...args: any[]) => any,
-    readonly doc?: string,
-  ) {}
-
-  call(args: SchemeValue[], ctx: EvalContext): SchemeValue {
-    return this.fn.call(ctx, ...args);
-  }
-}
-
-/**
- * A Scheme macro (define-macro style).
- * Receives unevaluated code and returns expanded code.
- */
-export class MacroBinding implements Binding {
-  readonly kind = "macro" as const;
-
-  constructor(
-    readonly name: string,
-    readonly transform: (this: EvalContext, code: Pair) => SchemeValue,
-    readonly doc?: string,
-  ) {}
-
-  expand(code: Pair, ctx: EvalContext): SchemeValue {
-    return this.transform.call(ctx, code);
-  }
-}
-
-/**
- * A simple value binding (constants, parameters, etc.)
- */
-export class ValueBinding implements Binding {
-  readonly kind = "value" as const;
-
-  constructor(
-    readonly name: string,
-    readonly value: SchemeValue,
-    readonly doc?: string,
-    readonly constant: boolean = false,
-  ) {}
-}
 
 /**
  * Called when normal symbol lookup fails.
@@ -125,28 +35,6 @@ export interface FallbackResolver {
    * @returns Resolved value, or undefined if this resolver doesn't handle it
    */
   resolve(name: string, env: Environment): SchemeValue | undefined;
-}
-
-/**
- * Create a FunctionBinding from a plain function definition.
- */
-export function fn(
-  name: string,
-  impl: (this: EvalContext, ...args: any[]) => any,
-  doc?: string,
-): FunctionBinding {
-  return new FunctionBinding(name, impl, doc);
-}
-
-/**
- * Create a MacroBinding from a plain macro definition.
- */
-export function macro(
-  name: string,
-  transform: (this: EvalContext, code: Pair) => SchemeValue,
-  doc?: string,
-): MacroBinding {
-  return new MacroBinding(name, transform, doc);
 }
 
 /**

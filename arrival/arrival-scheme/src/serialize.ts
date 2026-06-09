@@ -68,35 +68,8 @@ const serialization_map = {
 export const available_class = Object.keys(serialization_map);
 export const class_map = {};
 
-function mangle_name(name) {
-  return class_map[name];
-}
-
 function resolve_name(i) {
   return available_class[i];
-}
-
-// -------------------------------------------------------------------------
-export function serialize(data) {
-  return JSON.stringify(data, function (key, value) {
-    const v0 = this[key];
-    if (v0) {
-      if (v0 instanceof RegExp) {
-        return {
-          "@": mangle_name("regex"),
-          "#": [v0.source, v0.flags],
-        };
-      }
-      const cls = mangle_name(v0.constructor.__class__);
-      if (!is_undef(cls)) {
-        return {
-          "@": cls,
-          "#": v0.serialize(),
-        };
-      }
-    }
-    return value;
-  });
 }
 
 // -------------------------------------------------------------------------

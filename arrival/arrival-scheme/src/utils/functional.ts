@@ -7,14 +7,6 @@ import { typecheck } from "./typecheck.js";
 
 type AnyFunction = (...args: unknown[]) => unknown;
 
-// -------------------------------------------------------------------------
-export function guard_math_call(fn: AnyFunction, ...args: unknown[]): unknown {
-  for (const arg of args) {
-    typecheck("", arg, "number");
-  }
-  return fn(...args);
-}
-
 // ----------------------------------------------------------------------
 export function pipe(...fns: AnyFunction[]): AnyFunction {
   for (const [i, fn] of fns.entries()) {
@@ -62,28 +54,6 @@ export function fold(
 }
 
 // -------------------------------------------------------------------------
-export function limit_math_op(n: number, fn: AnyFunction): AnyFunction {
-  // + 1 so it includes function in guard_math_call
-  return limit(n + 1, curry(guard_math_call as AnyFunction, fn));
-}
-
-// -------------------------------------------------------------------------
-// :: some functional magic
-// -------------------------------------------------------------------------
-export const single_math_op = curry(limit_math_op as AnyFunction, 1);
-export const binary_math_op = curry(limit_math_op as AnyFunction, 2);
-
-// -------------------------------------------------------------------------
-export function reduce_math_op(fn: AnyFunction, init: unknown = null): AnyFunction {
-  return function (...args: unknown[]): unknown {
-    if (init !== null) {
-      args = [init, ...args];
-    }
-    return args.reduce(binary_math_op(fn) as (acc: unknown, val: unknown) => unknown);
-  };
-}
-
-// -------------------------------------------------------------------------
 export function curry(fn: AnyFunction, ...init_args: unknown[]): AnyFunction {
   typecheck("curry", fn, "function");
   const len = fn.length;
@@ -100,14 +70,5 @@ export function curry(fn: AnyFunction, ...init_args: unknown[]): AnyFunction {
       };
     })();
     return curried(...call_args);
-  };
-}
-
-// -------------------------------------------------------------------------
-// return function with limited number of arguments
-export function limit(n: number, fn: AnyFunction): AnyFunction {
-  typecheck("limit", fn, "function", 2);
-  return function (...args: unknown[]): unknown {
-    return fn(...args.slice(0, n));
   };
 }
