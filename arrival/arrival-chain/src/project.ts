@@ -22,6 +22,7 @@ import {
   DerivableEntity,
   defineMcpRosettas,
   dispatchThroughChain,
+  type EntityMiddleware,
   inertMcpResolver,
   isDerivableEntity,
   isMcpBreak,
@@ -29,6 +30,7 @@ import {
   type McpEffectContext,
   type McpEffectResolver,
   resolveTools,
+  runMiddlewareChain,
   wrapMcpResolver,
 } from "./mcp-effects.js";
 import { runAgenticLoop } from "./agentic-loop.js";
@@ -412,6 +414,48 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
     : completion.value;
 }
 
+/** A single `(infer …)` has no loop to halt, so an `(llm …)` middleware returning
+ *  `mcp/break` here is a category error (break belongs to the agentic loop). Named so the
+ *  two single-shot infer verbs share one legible message. */
+const BREAK_ON_SINGLE_INFER =
+  "infer: an (llm …) middleware returned mcp/break on a single (infer …) — break only halts an agentic run (infer/agentic/end-to-end …)";
+
+/** Coerce an infer `model` argument that may be a bare string OR an `(llm …)` entity. An
+ *  llm entity contributes its NAME — which IS the cache identity, because observe-only
+ *  middleware cannot change the request that reaches the model, so the effective model is
+ *  the bare name (the cache-neutral guarantee of the D3 observe-only direction) — plus its
+ *  middleware chain. A non-llm entity (e.g. an `(mcp …)` server) in model position is a
+ *  misuse → legible error rather than a silent `[object Object]` model name. */
+function asLlmModel(model: unknown): { name: string; middleware: readonly EntityMiddleware[] } {
+  if (model instanceof DerivableEntity) {
+    invariant(
+      model.kind === "llm",
+      `infer: a derivable entity in model position must be an (llm …), got kind "${model.kind}"`,
+    );
+    return { name: model.name, middleware: model.middleware };
+  }
+  return { name: String(model), middleware: [] };
+}
+
+/** Run one inference through an `(llm …)` entity's OBSERVE-ONLY middleware chain (or
+ *  directly when there is no middleware). `honest` is the cached `opts.infer` call, closed
+ *  over the ORIGINAL request — so whatever a middleware passes to `next`, the model is
+ *  always called with the original request. That is the observe-only contract: a middleware
+ *  may observe the request (`reqView`), observe/transform the response, log, or `mcp/break`
+ *  to halt, but a request rewrite cannot reach the model (which keeps the cache key — the
+ *  bare model name — honest). `progress` feeds a budget/terminator middleware (the agentic
+ *  loop hands its round state; a single infer hands `{}`). Returns the infer result, or
+ *  {@link MCP_BREAK} if a middleware halted without calling `next`. */
+function inferThroughChain(
+  honest: () => Promise<unknown>,
+  middleware: readonly EntityMiddleware[],
+  reqView: unknown,
+  progress: unknown,
+): Promise<unknown> {
+  if (middleware.length === 0) return honest();
+  return runMiddlewareChain(middleware, "infer", () => honest(), reqView, progress);
+}
+
 /**
  * Drive `infer/agentic/end-to-end`'s loop and return the final {@link InferString}. SHARED
  * by the verb AND the `.prompt mcp:` sealed proc — resolve the servers' tools, then loop
@@ -528,8 +572,13 @@ export function buildArrivalEnv(opts: {
   env.defineRosetta("infer", {
     withContext: true,
     options: { provenancePoint: true },
-    fn: async (ctx, model, prompt, schema, cacheKey) =>
-      list(await opts.infer(ctx, String(model), String(prompt), schemaSlot(schema), nullable(cacheKey))),
+    fn: async (ctx, model, prompt, schema, cacheKey) => {
+      const { name, middleware } = asLlmModel(model);
+      const honest = () => opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey));
+      const out = await inferThroughChain(honest, middleware, String(prompt), {});
+      if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
+      return list(out);
+    },
   });
   env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)) });
   env.defineRosetta("dict", { fn: (...args: unknown[]) => buildDict(args) });
@@ -539,8 +588,14 @@ export function buildArrivalEnv(opts: {
   env.defineRosetta("infer/chat", {
     withContext: true,
     options: { provenancePoint: true },
-    fn: async (ctx, model, messages, schema, cacheKey) =>
-      list(await opts.infer(ctx, String(model), canonicalizeMessages(messages), schemaSlot(schema), nullable(cacheKey))),
+    fn: async (ctx, model, messages, schema, cacheKey) => {
+      const { name, middleware } = asLlmModel(model);
+      const prompt = canonicalizeMessages(messages);
+      const honest = () => opts.infer(ctx, name, prompt, schemaSlot(schema), nullable(cacheKey));
+      const out = await inferThroughChain(honest, middleware, prompt, {});
+      if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
+      return list(out);
+    },
   });
   // Reflective budget: `(infer/spent)` folds over the run's OWN prior inference
   // costs (reference USD, fresh calls only — cache hits are free); `(infer/calls)`
