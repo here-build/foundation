@@ -15,7 +15,8 @@ import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
 import { HalfBaked, is_half_baked, type Interval } from "./HalfBaked.js";
 import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./LBool.js";
-import { global_env as lipsGlobalEnv, env as userEnv, evaluate, exec } from "./lips.js";
+import { global_env as lipsGlobalEnv, env as userEnv, exec } from "./lips.js";
+import { exec as generatorExec } from "./evaluator.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import type { Operator, Codec } from "./membrane.js";
@@ -25,7 +26,7 @@ import * as ops from "./operators/index.js";
 // Import directly from source files to avoid circular dependency during init
 import { Pair } from "./Pair.js";
 import { structuralEqual } from "./structural-equal.js";
-import { Nil, SchemeCharacter, nil } from "./types.js";
+import { Nil, SchemeCharacter, nil, type SchemeValue } from "./types.js";
 import { type } from "./utils/typecheck.js";
 import { Values } from "./Values.js";
 import invariant from "tiny-invariant";
@@ -1632,7 +1633,15 @@ export const wrappedOps = {
   // ============================================================================
 
   eval(expr: unknown, env?: Environment): unknown {
-    return evaluate(expr, { env: env || lipsGlobalEnv });
+    // Generator evaluator (evaluator.ts). `exec` returns a Promise<SchemeValue>;
+    // unlike the legacy `evaluate` (which could return a settled value for pure
+    // synchronous code), this builtin now ALWAYS returns a thenable. Both
+    // evaluator paths unpromise a builtin's return — the legacy path via
+    // `resolve_promises`/`unpromise` in `call_function`/`apply`, the generator
+    // path via the `is_promise(value)` yield in `evaluatePair`/`evaluateArgs`,
+    // and even the operator-position case `((eval (quote +)) 2 3)` awaits the
+    // promise before applying — so the Scheme-level result is unchanged.
+    return generatorExec(expr as SchemeValue, { env: env || lipsGlobalEnv });
   },
 
   // ============================================================================

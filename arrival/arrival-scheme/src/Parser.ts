@@ -26,7 +26,8 @@ import { Lexer } from "./Lexer.js";
 // :: Runtime dependencies - ES6 live bindings resolve the cycle
 // :: (these are only used inside methods, not at module evaluation time)
 // -------------------------------------------------------------------------
-import { call_function, evaluate as lipsEvaluate, global_env, lips, unpromise } from "./lips.js";
+import { call_function, global_env, lips, unpromise } from "./lips.js";
+import { exec as generatorExec } from "./evaluator.js";
 import { parse_argument } from "./utils/parsing.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
@@ -347,14 +348,15 @@ export class Parser {
   }
 
   async evaluate(code: SchemeValue): Promise<SchemeValue> {
-    const result = lipsEvaluate(code, {
-      env: this.__env__,
-      error: (e: Error) => {
-        throw e;
-      },
-    });
-    // Await to normalize both sync and async returns
-    return (await result) as SchemeValue;
+    // Generator evaluator (evaluator.ts). `exec` drives the flat trampoline and
+    // resolves to a settled SchemeValue; this method is already async and its
+    // sole caller (`_read_object`'s parser-extension macro path) awaits it, so
+    // the Promise boundary is honored. The legacy `error: throw` callback is
+    // unneeded — `run()` rejects the returned Promise on evaluation error, which
+    // surfaces identically through the `await` here.
+    return (await generatorExec(code, {
+      env: this.__env__!,
+    })) as SchemeValue;
   }
 
   // public API that handle R7RS datum labels
