@@ -119,3 +119,15 @@ export {
   execExpr as execGeneratorExpr,
   type ExecOptions,
 } from "./generator-exec.js";
+
+// LX (audit Action 4): the PUBLIC bare `exec`/`parse` resolve to the stack-safe,
+// budget-bounded GENERATOR path — not the legacy lips.ts evaluator. These explicit
+// named re-exports shadow the `exec`/`parse` that ride `export * from "./lips.js"`
+// (ESM: an explicit export wins over a star-exported name of the same name). The
+// generator `ExecOptions` is a strict superset of the legacy options
+// ({env, dynamic_env, use_dynamic} shared, + signal/budgetMs/tap), so existing
+// bare-`exec` callers are source-compatible — they just gain a killable, bounded
+// evaluator. The legacy evaluator stays internal lips.ts machinery (its own special
+// forms still call it) until the syntax-rules/HOF drain removes its last users; at
+// that point legacy exec/evaluate/call_function get deleted (the rest of LX/LD).
+export { exec, parse } from "./generator-exec.js";
