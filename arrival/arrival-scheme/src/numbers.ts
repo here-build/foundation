@@ -27,6 +27,25 @@ import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 
 export type SchemeNumeric = SchemeExact | SchemeInexact;
 
+/**
+ * Integer square root of a non-negative bigint via Newton's method.
+ * Math.sqrt(Number(n)) loses precision for n ≥ 2^53 and misclassifies large
+ * perfect squares; bigint Newton is exact at every scale. Returns r with
+ * r*r ≤ n < (r+1)*(r+1).
+ */
+export function bigintISqrt(n: bigint): bigint {
+  invariant(n >= 0n, "isqrt: negative");
+  if (n < 2n) return n;
+  let r = 1n << ((BigInt(n.toString(2).length) + 1n) / 2n);
+  while (true) {
+    const next = (r + n / r) / 2n;
+    if (next >= r) break;
+    r = next;
+  }
+  while (r * r > n) r -= 1n;
+  return r;
+}
+
 // ============================================================================
 // ExactNumber - Arbitrary Precision (integers and rationals)
 // ============================================================================
@@ -386,12 +405,17 @@ export class SchemeInexact extends AValue {
     return `${rStr}${sign}${iStr}`;
   }
 
-  // Comparison (only valid for reals)
-  cmp(other: SchemeInexact): -1 | 0 | 1 {
+  // Comparison (only valid for reals). Returns NaN when either operand is a
+  // NaN inexact: R7RS § 6.2.6 — every numeric comparison against +nan.0 is #f,
+  // so callers using `cmp(b) === 0` / `< 0` / `> 0` all correctly yield #f
+  // (NaN compares false against every relation), instead of the old `return 0`
+  // which made `(= +nan.0 x)` spuriously #t.
+  cmp(other: SchemeInexact): -1 | 0 | 1 | number {
     invariant(this.imag === 0 && other.imag === 0, "Cannot compare complex numbers");
     if (this.real < other.real) return -1;
     if (this.real > other.real) return 1;
-    return 0;
+    if (this.real === other.real) return 0;
+    return Number.NaN; // a NaN operand → incomparable
   }
 
   equals(other: SchemeInexact): boolean {
@@ -513,7 +537,12 @@ export class SchemeInexact extends AValue {
   pow(exponent: SchemeInexact): SchemeInexact {
     // z^w = e^(w * log(z))
     if (this.isZero) {
-      invariant(exponent.real <= 0, "0 raised to non-positive power");
+      // R7RS § 6.2.6: 0^0 = 1; 0^positive = 0; 0^negative is undefined
+      // (division by zero). The old guard had the direction inverted, erroring
+      // on the well-defined positive case and silently returning 0 for the
+      // error case.
+      if (exponent.isZero) return new SchemeInexact(1);
+      invariant(exponent.real > 0, "expt: 0 raised to a negative power (division by zero)");
       return new SchemeInexact(0);
     }
     return exponent.mul(this.log()).exp();
@@ -564,7 +593,7 @@ export const RationalExact: ExactBehavior = {
     }
     if (a.isInteger) {
       const n = a.num;
-      const root = BigInt(Math.floor(Math.sqrt(Number(n))));
+      const root = bigintISqrt(n);
       if (root * root === n) {
         return new SchemeExact(root);
       }
@@ -593,7 +622,7 @@ export const IntegerExact: ExactBehavior = {
     }
     if (a.isInteger) {
       const n = a.num;
-      const root = BigInt(Math.floor(Math.sqrt(Number(n))));
+      const root = bigintISqrt(n);
       if (root * root === n) {
         return new SchemeExact(root);
       }
@@ -755,7 +784,9 @@ export class NumberRegistry {
   // Comparison
   // ──────────────────────────────────────────────────────────────────────────
 
-  compare(a: SchemeNumeric, b: SchemeNumeric): -1 | 0 | 1 {
+  // May return NaN when an operand is a NaN inexact (incomparable) — callers
+  // here use `< 0` / `> 0` which correctly yield #f for NaN.
+  compare(a: SchemeNumeric, b: SchemeNumeric): number {
     const c = this.coerce(a, b);
     return c.kind === "exact" ? c.a.cmp(c.b) : c.a.cmp(c.b);
   }
@@ -924,12 +955,19 @@ export function parseNumber(str: string, registry: NumberRegistry = schemeNumber
     return new SchemeInexact(value);
   }
 
-  // Handle integer
-  const value = Number.parseInt(str, radix);
+  // Handle integer. Parse the magnitude via BigInt so digits beyond 2^53 are
+  // preserved — `parseInt` would round to a lossy double before we ever reach
+  // `BigInt(...)`. BigInt accepts radix prefixes (0x/0o/0b) but not a trailing
+  // sign on them, so split the sign off first.
+  const neg = str.startsWith("-");
+  const digits = neg || str.startsWith("+") ? str.slice(1) : str;
+  const prefix = radix === 16 ? "0x" : radix === 8 ? "0o" : radix === 2 ? "0b" : "";
+  const magnitude = BigInt(prefix + digits);
+  const exact = new SchemeExact(neg ? -magnitude : magnitude);
   if (forceInexact) {
-    return new SchemeInexact(value);
+    return exact.toInexact();
   }
-  return new SchemeExact(BigInt(value));
+  return exact;
 }
 
 /**
