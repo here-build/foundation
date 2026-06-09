@@ -642,8 +642,22 @@ function env_get(env: Environment, sym: SchemeSymbol): SchemeValue {
   }
 
   const value = env._lookupWithResolvers(name);
-  invariant(value !== undefined, `Unbound variable \`${String(name)}'`);
-  return value;
+  if (value !== undefined) {
+    return value;
+  }
+
+  // Direct lookup missed. Dot-notation symbols — `foo.bar.baz` source sugar, or the
+  // syntax-rules gensyms that carry their property path on SchemeSymbol.object — are
+  // resolved by Environment.get's property-splitting path, which _lookupWithResolvers
+  // does not implement. Delegate ONLY after the direct miss (matching Environment.get's
+  // "dot notation only after direct lookup fails" ordering), so the hot path is unchanged.
+  const hasObjectParts =
+    (sym as unknown as { [key: symbol]: unknown })[SchemeSymbol.object] != null;
+  if (hasObjectParts || (typeof name === "string" && name.includes("."))) {
+    return env.get(sym);
+  }
+
+  invariant(false, `Unbound variable \`${String(name)}'`);
 }
 
 // ============================================================================
