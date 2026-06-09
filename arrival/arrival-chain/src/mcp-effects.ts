@@ -265,8 +265,11 @@ function serverNameOf(raw: unknown): string {
  * λ may pass through (`(next req)`), transform the request/reply, short-circuit with a
  * canned value, or return `mcp/break` to halt.
  */
-export interface McpMiddleware {
-  method: McpMethod;
+export interface EntityMiddleware {
+  /** The method this middleware intercepts. A `string` (not the closed {@link McpMethod})
+   *  because the method namespace is per-KIND: an mcp entity's `tools/call`, an llm entity's
+   *  `infer`. The chain runner filters by `===`, so any kind's method name works uniformly. */
+  method: string;
   handler: (req: unknown, next: (req: unknown) => Promise<unknown>, progress: unknown) => unknown;
 }
 
@@ -275,34 +278,46 @@ export interface McpMiddleware {
 export type McpDefinedMethod = (req: unknown) => unknown;
 
 /**
- * An opaque MCP server VALUE — what `(mcp :name)` / `mcp/derive` / `mcp/define` return.
- * Carries the exposed roster NAME (intent), a middleware chain (empty on the honest path;
- * `mcp/derive` appends), and optionally fabricated method impls (`mcp/define` — used as
- * `honest` INSTEAD of the credentialed resolver, so a defined server needs no backend).
- * The credentialed transport stays host-side, reached through the {@link McpEffectResolver}.
+ * An opaque DERIVABLE ENTITY — what `(mcp :name)` / `(llm :name)` / `derive` / `mcp/define`
+ * return. The kind-agnostic unit the `derive` algebra operates on: a connection-like value
+ * of some KIND (mcp · llm · sql · http) that carries an intent NAME, a middleware chain
+ * (empty on the honest path; `derive` appends), and optionally fabricated method impls
+ * (`mcp/define` — used as `honest` INSTEAD of the credentialed call, so a defined entity
+ * needs no backend).
+ *
+ * `kind` is the discriminant: the GETTER `(mcp …)` / `(llm …)` binds it (it picks the
+ * honest bottom at dispatch — mcp's credentialed transport vs llm's model call), while
+ * `derive` is kind-AGNOSTIC (it just appends a middleware; the kind rides the value). That
+ * split is the whole point: one `derive` verb, N kinds — because the honest is needed only
+ * at dispatch, never at derive time (which is why {@link runMiddlewareChain} takes `honest`
+ * as a parameter rather than baking it in).
+ *
  * A class instance, so it round-trips through scheme untouched — jsToLips/lipsToJs pass
  * exotic objects through as-is (rosetta.ts:281 / :198) — opaque to the program.
  */
-export class McpServerValue {
+export class DerivableEntity {
   constructor(
+    /** The entity kind — the dispatch discriminant (`"mcp"` | `"llm"` | …). Set by the
+     *  getter, carried by the value, read at dispatch to pick the honest bottom. */
+    readonly kind: string,
     readonly name: string,
-    readonly middleware: readonly McpMiddleware[] = [],
+    readonly middleware: readonly EntityMiddleware[] = [],
     /** Fabricated method impls (`mcp/define`) — when a method is here, it is the chain's
      *  `honest` bottom (no resolver crossing). Absent ⇒ honest is the credentialed call. */
     readonly defined?: Partial<Record<McpMethod, McpDefinedMethod>>,
   ) {}
 
-  /** Return a NEW server value with `mw` appended (immutable derive — the base is shared,
-   *  never mutated, so two derivations of one base stay independent). Preserves `defined`. */
-  withMiddleware(mw: McpMiddleware): McpServerValue {
-    return new McpServerValue(this.name, [...this.middleware, mw], this.defined);
+  /** Return a NEW entity with `mw` appended (immutable derive — the base is shared, never
+   *  mutated, so two derivations of one base stay independent). Preserves `kind`+`defined`. */
+  withMiddleware(mw: EntityMiddleware): DerivableEntity {
+    return new DerivableEntity(this.kind, this.name, [...this.middleware, mw], this.defined);
   }
 }
 
-/** Narrow an unknown scheme value to an {@link McpServerValue} — what a `:tools` entry
- *  must be (a server handle from `(mcp …)` / derive / define). */
-export function isMcpServerValue(v: unknown): v is McpServerValue {
-  return v instanceof McpServerValue;
+/** Narrow an unknown scheme value to a {@link DerivableEntity} — what `derive`'s base and a
+ *  `:tools` entry must be (a handle from `(mcp …)` / `(llm …)` / derive / define). */
+export function isDerivableEntity(v: unknown): v is DerivableEntity {
+  return v instanceof DerivableEntity;
 }
 
 // ── the middleware chain: derive's interception primitive ─────────────────────
@@ -330,8 +345,8 @@ export function isMcpBreak(v: unknown): boolean {
  * return crosses back, so each stage `lipsToJs`-es it (MCP_BREAK passes through untouched).
  */
 export async function runMiddlewareChain(
-  middleware: readonly McpMiddleware[],
-  method: McpMethod,
+  middleware: readonly EntityMiddleware[],
+  method: string,
   honest: (req: unknown) => Promise<unknown>,
   req: unknown,
   progress: unknown,
@@ -357,7 +372,7 @@ export async function runMiddlewareChain(
  * derive's interceptions apply uniformly. A {@link MCP_BREAK} return signals "halt".
  */
 export function dispatchThroughChain(
-  server: McpServerValue,
+  server: DerivableEntity,
   method: McpMethod,
   request: unknown,
   resolve: McpEffectResolver,
@@ -399,31 +414,46 @@ function mcpArgs(raw: unknown): unknown {
  * teaching error rather than reach a server (present-but-inert, never an unbound symbol).
  */
 export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver): void {
-  // (mcp :name) / (mcp "name") — the opaque server getter (server-as-value). A PURE
+  // (mcp :name) / (mcp "name") — the opaque mcp-entity getter (connection-as-value). A PURE
   // name→handle constructor: no resolver crossing, no roster validation (the handle is
   // lazy; a bad name surfaces at dispatch). Keyword or string name. The handle is what
-  // `:tools` and (later) `mcp/derive` consume.
+  // `:tools` and `derive` consume. The getter is the ONLY kind-specific verb — it binds
+  // `kind`, which picks the honest bottom at dispatch (here: the credentialed mcp resolver).
   env.defineRosetta("mcp", {
-    fn: (name: unknown) => new McpServerValue(serverNameOf(name)),
+    fn: (name: unknown) => new DerivableEntity("mcp", serverNameOf(name)),
   });
-  // (mcp/derive base :method handler) — install a middleware on `base` for `:method`,
-  // returning a NEW server value (immutable derive). The handler is a scheme λ
-  // `(req next progress) → value | mcp/break` run in the chain at dispatch. THIS is the
-  // MITM / budget / mock / break primitive (flows 2-4); `next` is the credential membrane.
-  env.defineRosetta("mcp/derive", {
+  // (llm :name) / (llm "name") — the opaque llm-entity getter, the SECOND kind. Same shape
+  // as `mcp`: a pure name→handle constructor, `kind` = "llm" so dispatch picks the model
+  // call as the honest bottom (wired in the infer path). Proves the getter is the only
+  // kind-aware verb; everything downstream (`derive`, the chain) is kind-agnostic.
+  env.defineRosetta("llm", {
+    fn: (name: unknown) => new DerivableEntity("llm", serverNameOf(name)),
+  });
+  // (derive base :method handler) — the KIND-AGNOSTIC derive verb. Install a middleware on
+  // `base` (ANY derivable entity — mcp, llm, …) for `:method`, returning a NEW entity
+  // (immutable derive). The handler is a scheme λ `(req next progress) → value | mcp/break`
+  // run in the chain at dispatch. THIS is the MITM / budget / mock / break / tweak primitive;
+  // `next` is the honest membrane. Generic because the honest bottom is supplied at dispatch
+  // by the entity's kind — `derive` never needs it, it only appends.
+  env.defineRosetta("derive", {
     fn: (base: unknown, method: unknown, handler: unknown) => {
-      invariant(base instanceof McpServerValue, "mcp/derive: first arg must be an (mcp …) server value");
-      invariant(typeof handler === "function", "mcp/derive: handler must be a (req next progress) lambda");
+      invariant(
+        base instanceof DerivableEntity,
+        "derive: first arg must be a derivable entity (from (mcp …) / (llm …))",
+      );
+      invariant(typeof handler === "function", "derive: handler must be a (req next progress) lambda");
       return base.withMiddleware({
-        method: serverNameOf(method) as McpMethod,
-        handler: handler as McpMiddleware["handler"],
+        method: serverNameOf(method),
+        handler: handler as EntityMiddleware["handler"],
       });
     },
   });
-  // (mcp/define name :method handler :method2 handler2 …) — fabricate a server VALUE whose
+  // (mcp/define name :method handler :method2 handler2 …) — fabricate an mcp entity whose
   // methods ARE the handlers (a `(req) → reply` λ each; no credentialed backend). TOTAL:
-  // every method you dispatch must be defined. `mcp/derive` can still layer middleware on
-  // top (the defined impl is the chain's honest bottom). The mock/what-if-a-server primitive.
+  // every method you dispatch must be defined. `derive` can still layer middleware on top
+  // (the defined impl is the chain's honest bottom). The mock/what-if-a-server primitive.
+  // STAYS kind-prefixed (unlike `derive`): fabrication makes an entity from nothing, so it
+  // must DECLARE its kind — there's no base value to carry it.
   env.defineRosetta("mcp/define", {
     fn: (name: unknown, ...pairs: unknown[]) => {
       invariant(pairs.length % 2 === 0, "mcp/define: expects a name then :method handler pairs");
@@ -433,7 +463,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
         invariant(typeof pairs[i + 1] === "function", `mcp/define: handler for ${method} must be a (req) lambda`);
         defined[method] = pairs[i + 1] as McpDefinedMethod;
       }
-      return new McpServerValue(serverNameOf(name), [], defined);
+      return new DerivableEntity("mcp", serverNameOf(name), [], defined);
     },
   });
   env.defineRosetta("mcp/call", {
@@ -461,7 +491,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
  *  middleware chain). */
 export interface ResolvedTools {
   tools: ToolDescriptor[];
-  serverOf: Map<string, McpServerValue>;
+  serverOf: Map<string, DerivableEntity>;
 }
 
 /** Pull the tool array out of a `tools/list` reply — tolerant of the MCP spec's
@@ -488,13 +518,13 @@ function toolListOf(reply: unknown): McpToolDescriptor[] {
  * whose `tools/list` middleware returns `mcp/break` contributes no tools (skipped).
  */
 export async function resolveTools(
-  servers: readonly McpServerValue[],
+  servers: readonly DerivableEntity[],
   resolve: McpEffectResolver,
   ctx: McpEffectContext,
   progress: unknown = {},
 ): Promise<ResolvedTools> {
   const tools: ToolDescriptor[] = [];
-  const serverOf = new Map<string, McpServerValue>();
+  const serverOf = new Map<string, DerivableEntity>();
   for (const server of servers) {
     const reply = await dispatchThroughChain(server, "tools/list", {}, resolve, ctx, progress);
     if (reply === MCP_BREAK) continue; // a tools/list break → this server exposes no tools

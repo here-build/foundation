@@ -1,5 +1,5 @@
 /**
- * C3 — the middleware chain: `mcp/derive` (install-middleware) + the chain runner +
+ * C3 — the middleware chain: `derive` (install-middleware) + the chain runner +
  * `mcp/break`. The interception primitive behind flows 2-4 (rewrite tool descriptions /
  * re-encode responses / force-halt). The membrane crossing (scheme λ ↔ JS next ↔ break
  * sentinel) is exercised through real scheme middlewares.
@@ -11,15 +11,18 @@ import {
   defineMcpRosettas,
   dispatchThroughChain,
   MCP_BREAK,
-  McpServerValue,
+  DerivableEntity,
   runMiddlewareChain,
   type McpEffect,
   type McpEffectResolver,
-  type McpMiddleware,
+  type EntityMiddleware,
 } from "../mcp-effects.js";
 
 const ctx = {};
-const tc = (method: McpMiddleware["method"], handler: McpMiddleware["handler"]): McpMiddleware => ({ method, handler });
+const tc = (method: EntityMiddleware["method"], handler: EntityMiddleware["handler"]): EntityMiddleware => ({
+  method,
+  handler,
+});
 
 describe("runMiddlewareChain — composition + break (JS middlewares)", () => {
   const honest = async (req: unknown): Promise<unknown> => ({ reply: req });
@@ -50,7 +53,7 @@ describe("runMiddlewareChain — composition + break (JS middlewares)", () => {
 
   it("composes outermost-first (mw1 wraps mw2 wraps honest)", async () => {
     const order: string[] = [];
-    const wrap = (tag: string): McpMiddleware =>
+    const wrap = (tag: string): EntityMiddleware =>
       tc("tools/call", async (req, next) => {
         order.push(`${tag}-in`);
         const r = await next(req);
@@ -70,7 +73,7 @@ describe("runMiddlewareChain — composition + break (JS middlewares)", () => {
   });
 });
 
-describe("mcp/derive + dispatchThroughChain (scheme middleware)", () => {
+describe("derive + dispatchThroughChain (scheme middleware)", () => {
   /** Build an env with the mcp verbs over a resolver that echoes the request. */
   function harness(): { env: ReturnType<typeof sandboxedEnv.inherit>; seen: McpEffect[]; resolve: McpEffectResolver } {
     const seen: McpEffect[] = [];
@@ -82,15 +85,15 @@ describe("mcp/derive + dispatchThroughChain (scheme middleware)", () => {
     defineMcpRosettas(env, resolve);
     return { env, seen, resolve };
   }
-  const derive = async (env: ReturnType<typeof sandboxedEnv.inherit>, scm: string): Promise<McpServerValue> => {
+  const derive = async (env: ReturnType<typeof sandboxedEnv.inherit>, scm: string): Promise<DerivableEntity> => {
     const r = await exec(scm, { env });
-    return r.at(-1) as McpServerValue;
+    return r.at(-1) as DerivableEntity;
   };
 
   it("derive appends middleware IMMUTABLY (base untouched) + carries the method", async () => {
     const { env } = harness();
-    const derived = await derive(env, `(mcp/derive (mcp "s") :tools/call (lambda (req next progress) (next req)))`);
-    expect(derived).toBeInstanceOf(McpServerValue);
+    const derived = await derive(env, `(derive (mcp "s") :tools/call (lambda (req next progress) (next req)))`);
+    expect(derived).toBeInstanceOf(DerivableEntity);
     expect(derived.name).toBe("s");
     expect(derived.middleware).toHaveLength(1);
     expect(derived.middleware[0]!.method).toBe("tools/call");
@@ -103,7 +106,7 @@ describe("mcp/derive + dispatchThroughChain (scheme middleware)", () => {
 
   it("a pass-through scheme middleware reaches the honest resolver", async () => {
     const { env, seen, resolve } = harness();
-    const derived = await derive(env, `(mcp/derive (mcp "s") :tools/call (lambda (req next progress) (next req)))`);
+    const derived = await derive(env, `(derive (mcp "s") :tools/call (lambda (req next progress) (next req)))`);
     const reply = await dispatchThroughChain(derived, "tools/call", { tool: "ping", args: { a: 1 } }, resolve, ctx);
     expect(reply).toEqual({ from: "honest", request: { tool: "ping", args: { a: 1 } } });
     expect(seen).toHaveLength(1); // honest fired (pass-through)
@@ -111,7 +114,7 @@ describe("mcp/derive + dispatchThroughChain (scheme middleware)", () => {
 
   it("a short-circuit scheme middleware never reaches honest", async () => {
     const { env, seen, resolve } = harness();
-    const derived = await derive(env, `(mcp/derive (mcp "s") :tools/call (lambda (req next progress) "mocked-reply"))`);
+    const derived = await derive(env, `(derive (mcp "s") :tools/call (lambda (req next progress) "mocked-reply"))`);
     const reply = await dispatchThroughChain(derived, "tools/call", { tool: "ping", args: {} }, resolve, ctx);
     expect(reply).toBe("mocked-reply");
     expect(seen).toHaveLength(0); // honest never fired
@@ -121,7 +124,7 @@ describe("mcp/derive + dispatchThroughChain (scheme middleware)", () => {
     const { env, seen, resolve } = harness();
     // mcp/break is bound only in buildArrivalEnv; expose it here so the λ can reference it.
     env.set("mcp/break", MCP_BREAK);
-    const derived = await derive(env, `(mcp/derive (mcp "s") :tools/call (lambda (req next progress) mcp/break))`);
+    const derived = await derive(env, `(derive (mcp "s") :tools/call (lambda (req next progress) mcp/break))`);
     const reply = await dispatchThroughChain(derived, "tools/call", { tool: "danger", args: {} }, resolve, ctx);
     expect(reply).toBe(MCP_BREAK);
     expect(seen).toHaveLength(0); // suppressed — the destructive call never fired
@@ -137,8 +140,8 @@ describe("mcp/define — total server fabrication", () => {
     const env = sandboxedEnv.inherit("mcp-define-test");
     defineMcpRosettas(env, neverResolve);
     const r = await exec(`(mcp/define "fab" :tools/call (lambda (req) "fabricated-reply"))`, { env });
-    const server = r.at(-1) as McpServerValue;
-    expect(server).toBeInstanceOf(McpServerValue);
+    const server = r.at(-1) as DerivableEntity;
+    expect(server).toBeInstanceOf(DerivableEntity);
     expect(server.name).toBe("fab");
     expect(typeof server.defined?.["tools/call"]).toBe("function");
     const reply = await dispatchThroughChain(server, "tools/call", { tool: "x", args: {} }, neverResolve, ctx);
@@ -150,13 +153,13 @@ describe("mcp/define — total server fabrication", () => {
     defineMcpRosettas(env, neverResolve);
     // defined tools/call → "base"; a derive middleware awaits next + transforms the reply.
     const r = await exec(
-      `(mcp/derive
+      `(derive
          (mcp/define "fab" :tools/call (lambda (req) "base"))
          :tools/call
          (lambda (req next progress) (string-append "wrapped:" (next req))))`,
       { env },
     );
-    const server = r.at(-1) as McpServerValue;
+    const server = r.at(-1) as DerivableEntity;
     const reply = await dispatchThroughChain(server, "tools/call", {}, neverResolve, ctx);
     expect(reply).toBe("wrapped:base"); // proves a scheme middleware can consume next's reply
   });

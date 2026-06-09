@@ -1,7 +1,7 @@
 /**
  * C2-minimal — the `(mcp :name)` getter (server-as-value) + the `:tools` desugar.
  *
- *   - `(mcp …)` returns an opaque {@link McpServerValue} (string OR keyword name).
+ *   - `(mcp …)` returns an opaque {@link DerivableEntity} (string OR keyword name).
  *   - the handle round-trips through scheme UNTOUCHED (rosetta return → bound → passed to
  *     another rosetta's args), the property "server-as-value" rests on.
  *   - `resolveTools` lists each server's tools → the neutral model tool set + the
@@ -13,8 +13,8 @@ import { describe, expect, it } from "vitest";
 import {
   defineMcpRosettas,
   inertMcpResolver,
-  isMcpServerValue,
-  McpServerValue,
+  isDerivableEntity,
+  DerivableEntity,
   resolveTools,
   type McpEffect,
   type McpEffectResolver,
@@ -32,33 +32,33 @@ async function runScm(scm: string, resolve: McpEffectResolver = inertMcpResolver
 }
 
 describe("(mcp :name) getter — server-as-value", () => {
-  it("returns an opaque McpServerValue for a string name", async () => {
+  it("returns an opaque DerivableEntity for a string name", async () => {
     const v = await runScm(`(mcp "linear")`);
-    expect(v).toBeInstanceOf(McpServerValue);
-    expect((v as McpServerValue).name).toBe("linear");
-    expect(isMcpServerValue(v)).toBe(true);
+    expect(v).toBeInstanceOf(DerivableEntity);
+    expect((v as DerivableEntity).name).toBe("linear");
+    expect(isDerivableEntity(v)).toBe(true);
   });
 
   it("accepts a keyword name (:linear → \"linear\")", async () => {
     const v = await runScm(`(mcp :linear)`);
-    expect(v).toBeInstanceOf(McpServerValue);
-    expect((v as McpServerValue).name).toBe("linear");
+    expect(v).toBeInstanceOf(DerivableEntity);
+    expect((v as DerivableEntity).name).toBe("linear");
   });
 
   it("is a PURE constructor — never crosses the resolver (works under the inert default)", async () => {
     // inertMcpResolver throws on any crossing; the getter resolving fine proves it doesn't cross.
-    await expect(runScm(`(mcp "anything")`)).resolves.toBeInstanceOf(McpServerValue);
+    await expect(runScm(`(mcp "anything")`)).resolves.toBeInstanceOf(DerivableEntity);
   });
 
   it("round-trips opaque through scheme: getter return → bound → another rosetta's arg", async () => {
     const env = sandboxedEnv.inherit("mcp-roundtrip-test");
     defineMcpRosettas(env, inertMcpResolver);
-    // A probe rosetta that reads the handle's name — proves the McpServerValue survived
+    // A probe rosetta that reads the handle's name — proves the DerivableEntity survived
     // the scheme round-trip (lipsToJs/jsToLips pass it through untouched).
-    env.defineRosetta("server-name", { fn: (s: unknown) => (s instanceof McpServerValue ? s.name : "NOT-A-SERVER") });
+    env.defineRosetta("server-name", { fn: (s: unknown) => (s instanceof DerivableEntity ? s.name : "NOT-A-SERVER") });
     const out = await exec(`(server-name (let ((s (mcp :github))) s))`, { env });
     // server-name returns a JS string → wrapped as a SchemeString on the way out; unwrap.
-    // "github" (not "NOT-A-SERVER") proves the McpServerValue survived the round-trip.
+    // "github" (not "NOT-A-SERVER") proves the DerivableEntity survived the round-trip.
     expect(String(out.at(-1))).toBe("github");
   });
 });
@@ -86,7 +86,7 @@ describe("resolveTools — :tools desugar", () => {
         ],
       },
     });
-    const { tools, serverOf } = await resolveTools([new McpServerValue("linear")], resolve, ctx);
+    const { tools, serverOf } = await resolveTools([new DerivableEntity("mcp", "linear")], resolve, ctx);
     expect(tools).toEqual([
       { name: "create_issue", description: "file one", inputSchema: { type: "object" } },
       { name: "search" },
@@ -97,7 +97,7 @@ describe("resolveTools — :tools desugar", () => {
 
   it("tolerates a bare-array tools/list reply (no { tools } envelope)", async () => {
     const resolve = rosterResolver({ gh: [{ name: "pr_create" }] });
-    const { tools, serverOf } = await resolveTools([new McpServerValue("gh")], resolve, ctx);
+    const { tools, serverOf } = await resolveTools([new DerivableEntity("mcp", "gh")], resolve, ctx);
     expect(tools).toEqual([{ name: "pr_create" }]);
     expect(serverOf.get("pr_create")?.name).toBe("gh");
   });
@@ -107,7 +107,11 @@ describe("resolveTools — :tools desugar", () => {
       a: { tools: [{ name: "search", description: "from-a" }, { name: "only_a" }] },
       b: { tools: [{ name: "search", description: "from-b" }, { name: "only_b" }] },
     });
-    const { tools, serverOf } = await resolveTools([new McpServerValue("a"), new McpServerValue("b")], resolve, ctx);
+    const { tools, serverOf } = await resolveTools(
+      [new DerivableEntity("mcp", "a"), new DerivableEntity("mcp", "b")],
+      resolve,
+      ctx,
+    );
     // one `search` (a's), plus only_a + only_b
     expect(tools.map((t) => t.name)).toEqual(["search", "only_a", "only_b"]);
     expect(tools.find((t) => t.name === "search")?.description).toBe("from-a"); // a won

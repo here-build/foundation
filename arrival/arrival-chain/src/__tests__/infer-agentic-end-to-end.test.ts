@@ -114,7 +114,7 @@ describe("infer/agentic/end-to-end — honest-tools flow (end to end)", () => {
     const value = await freshRoot(backend).run(
       `(car (infer/agentic/end-to-end "mock"
               (list (list "user" "ping then stop"))
-              (list (mcp/derive (mcp "srv") :tools/call (lambda (req next progress) mcp/break)))))`,
+              (list (derive (mcp "srv") :tools/call (lambda (req next progress) mcp/break)))))`,
       { mcp: resolve },
     );
 
@@ -138,7 +138,7 @@ describe("infer/agentic/end-to-end — honest-tools flow (end to end)", () => {
     const value = await freshRoot(backend).run(
       `(car (infer/agentic/end-to-end "mock"
               (list (list "user" "loop forever"))
-              (list (mcp/derive (mcp "srv") :tools/call
+              (list (derive (mcp "srv") :tools/call
                       (lambda (req next progress)
                         (if (> (@ progress "round") 2) mcp/break (next req)))))))`,
       { mcp: resolve },

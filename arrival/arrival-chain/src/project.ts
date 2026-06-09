@@ -19,15 +19,15 @@ import {
   inertDataResolver,
 } from "./data-effects.js";
 import {
+  DerivableEntity,
   defineMcpRosettas,
   dispatchThroughChain,
   inertMcpResolver,
+  isDerivableEntity,
   isMcpBreak,
-  isMcpServerValue,
   MCP_BREAK,
   type McpEffectContext,
   type McpEffectResolver,
-  McpServerValue,
   resolveTools,
   wrapMcpResolver,
 } from "./mcp-effects.js";
@@ -428,7 +428,7 @@ async function runAgenticInfer(
   ctx: unknown,
   model: string,
   messages: ChatMessage[],
-  servers: McpServerValue[],
+  servers: DerivableEntity[],
 ): Promise<InferString> {
   const mcpCtx = ctx as McpEffectContext;
   const { tools, serverOf } = await resolveTools(servers, mcpResolve, mcpCtx);
@@ -616,7 +616,7 @@ export function buildArrivalEnv(opts: {
               `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
             );
           }
-          const servers = unit.mcpServers.map((name) => new McpServerValue(name));
+          const servers = unit.mcpServers.map((name) => new DerivableEntity("mcp", name));
           const chatMessages: ChatMessage[] = messages.map(([role, content]) => ({
             role: String(role) as ChatMessage["role"],
             content: String(content),
@@ -655,7 +655,7 @@ export function buildArrivalEnv(opts: {
     withContext: true,
     options: { provenancePoint: true },
     fn: async (ctx, model, messages, servers) => {
-      const serverVals = (Array.isArray(servers) ? servers : [servers]).filter(isMcpServerValue);
+      const serverVals = (Array.isArray(servers) ? servers : [servers]).filter(isDerivableEntity);
       // The loop, dispatch, break-handling + trajectory all live in the shared
       // `runAgenticInfer` (reused by the `.prompt mcp:` proc). `list` wraps the final
       // InferString the same way `(infer …)` wraps its value.
