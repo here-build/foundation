@@ -232,7 +232,21 @@ export function toSExpr(obj: any, visited_ = new Set()): SExpr {
     return ["set", ...[...obj].map((item) => toSExpr(item, visited))];
   }
 
-  // Plain object → Scheme-style record with &
+  // AValue with empty provenance carries no lineage to show — serialize its
+  // plain value (`toJs()`), not the internal {provenance, kind, source}
+  // envelope. (A non-empty provenance keeps the envelope, by design.)
+  if (
+    typeof obj === "object" &&
+    obj !== null &&
+    obj.provenance instanceof Set &&
+    obj.provenance.size === 0 &&
+    typeof obj.toJs === "function" &&
+    typeof obj.kind === "string"
+  ) {
+    return toSExpr(obj.toJs(), visited);
+  }
+
+  // Plain object → dict literal `(dict :k v …)`
   if (typeof obj === "object" && obj !== null) {
     const entries: SExpr[] = [];
     for (const [key, value] of Object.entries(obj)) {
