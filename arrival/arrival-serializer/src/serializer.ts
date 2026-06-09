@@ -379,38 +379,35 @@ export function formatSExpr(sexpr: SExpr, indent = 0): string {
       const strTail = tail.map((item) => formatSExpr(item, 0)).join(" ");
       return strTail ? `(${strHead} ${strTail})` : `(${strHead})`;
     } else {
-      // Multi-line for complex expressions
+      // Multi-line for complex expressions.
       const spaces = " ".repeat(indent);
+      const isKey = (x: unknown): boolean => typeof x === "string" && (x as string).startsWith(":");
       const strTail = tail
         .map((item, index) => {
           const formatted = formatSExpr(item, indent + 2);
 
-          // For lists of structured data, check if we should group key-value pairs
-          if (typeof item === "string" && item.startsWith(":") && index + 1 < tail.length) {
+          // A `:key` groups with the NEXT item only when that item is a real VALUE
+          // (not another keyword). Consecutive keywords are standalone flags — e.g.
+          // ParamView's `:text :writable :property` — and must NOT be skipped, or the
+          // leading flags get silently dropped (the value-pairing never fires for them).
+          if (isKey(item) && index + 1 < tail.length) {
             const nextItem = tail[index + 1];
             const nextFormatted = formatSExpr(nextItem, 0);
-
-            // If next item is simple (not an array), keep on same line
-            if (!Array.isArray(nextItem) && nextFormatted.length < 40) {
-              return null; // Skip this item, it will be handled with the next
+            if (!isKey(nextItem) && !Array.isArray(nextItem) && nextFormatted.length < 40) {
+              return null; // the value (next item) carries this key on its own line, below
             }
           }
 
-          // Handle the previous item if it was a key
-          if (index > 0 && typeof tail[index - 1] === "string") {
-            const prevItem = tail[index - 1] as string;
-            if (prevItem.startsWith(":") && !Array.isArray(item) && formatted.length < 40) {
-              return `${spaces}  ${formatSExpr(prevItem, 0)} ${formatted}`;
-            }
+          // Emit a `:key value` pair: the preceding key was skipped above, so the
+          // value carries it — but only when THIS item is a value (not itself a keyword).
+          if (index > 0 && isKey(tail[index - 1]) && !isKey(item) && !Array.isArray(item) && formatted.length < 40) {
+            return `${spaces}  ${formatSExpr(tail[index - 1], 0)} ${formatted}`;
           }
 
-          // If it's a list that starts on same line, don't add extra indent
+          // A list that starts on the same line: no extra indent.
           if (Array.isArray(item) && formatted.startsWith("(")) {
             return `${spaces}  ${formatted}`;
           }
-
-          // Skip if this was handled as part of a key-value pair
-          if (formatted === null) return null;
 
           return `${spaces}  ${formatted}`;
         })
