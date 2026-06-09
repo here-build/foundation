@@ -4392,9 +4392,6 @@ export const lips = {
 };
 global_env.set("lips", lips);
 
-export { nil as nil, Nil as Nil, characters as characters, SchemeCharacter as SchemeCharacter } from "./types.js";
-export { SchemeSymbol as SchemeSymbol } from "./LSymbol.js";
-
 // Additional exports needed by Environment.ts
 export { eof as eof };
 setLipsRuntime({
@@ -4407,7 +4404,3 @@ setLipsRuntime({
   evaluate,
   global_env,
 });
-
-export { SchemeString as SchemeString } from "./LString.js";
-
-export { Pair as Pair } from "./Pair.js";

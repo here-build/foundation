@@ -38,6 +38,15 @@ export { SchemeSymbol as ASymbol } from "./LSymbol.js";
 export { Pair as APair } from "./Pair.js";
 export { Nil as ANil, SchemeCharacter as AChar } from "./types.js";
 
+// Canonical core-type re-exports. These used to ride the `export * from
+// "./lips.js"` barrel via a re-export block at the bottom of lips.ts; that
+// block was removed (barrel-ectomy) so these names are re-surfaced from their
+// real home modules to keep the public API identical.
+export { nil, Nil, characters, SchemeCharacter } from "./types.js";
+export { SchemeSymbol } from "./LSymbol.js";
+export { SchemeString } from "./LString.js";
+export { Pair } from "./Pair.js";
+
 // Scheme namespace - canonical API for Scheme types
 // Usage: import { Scheme } from 'arrival-scheme'
 //        const s = new Scheme.String("hello")

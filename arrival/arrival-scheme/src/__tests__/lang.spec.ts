@@ -11,7 +11,8 @@
 
 import fs from "fs";
 import { describe, expect, test } from "vitest";
-import { env, exec, nil } from "../lips";
+import { env, exec } from "../lips";
+import { nil } from "../types.js";
 import { initBridge } from "../bridge";
 import * as path from "node:path";
 

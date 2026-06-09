@@ -2,7 +2,9 @@
 import * as R from "ramda";
 import * as RA from "ramda-adjunct";
 
-import { env as globalEnv, Nil, nil, Pair } from "./lips.js";
+import { env as globalEnv } from "./lips.js";
+import { Nil, nil } from "./types.js";
+import { Pair } from "./Pair.js";
 import { structuralEqual } from "./structural-equal.js";
 
 type Fn = (...args: any[]) => any;

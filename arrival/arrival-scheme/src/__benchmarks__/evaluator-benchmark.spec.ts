@@ -4,7 +4,10 @@
  */
 
 import { beforeAll, describe, expect, it } from "vitest";
-import { exec as lipsExec, env as lipsEnv, SchemeSymbol, nil, Pair, parse } from "../lips";
+import { exec as lipsExec, env as lipsEnv, parse } from "../lips";
+import { nil } from "../types.js";
+import { Pair } from "../Pair.js";
+import { SchemeSymbol } from "../LSymbol.js";
 import { initBridge } from "../bridge";
 import { exec as genExec } from "../evaluator";
 import type { SchemeValue } from "../types";

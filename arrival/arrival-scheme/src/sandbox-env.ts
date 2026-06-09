@@ -1,6 +1,7 @@
 import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
-import { global_env as lipsGlobalEnv, Nil, nil } from "./lips.js";
+import { global_env as lipsGlobalEnv } from "./lips.js";
+import { Nil, nil } from "./types.js";
 import { RAMDA_FUNCTIONS } from "./ramda-functions.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
 import { sandboxedAccess, sandboxedHas, sandboxedKeys, NOT_FOUND, SandboxViolationError } from "./sandbox-boundary.js";
