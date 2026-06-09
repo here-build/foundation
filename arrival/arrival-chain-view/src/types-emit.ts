@@ -57,6 +57,9 @@ export interface EmitTypesResult {
 /** A TS-identifier name (used unbracketed). Anything else is a bracketed string key. */
 const TS_IDENT = /^[A-Z_$][\w$]*$/i;
 
+/** Shared empty host-member set — the default when no host roster is injected. */
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
 /** `__arr.car` for an identifier-safe builtin, `__arr["string-append"]` otherwise. */
 const arrMember = (name: string): string => (TS_IDENT.test(name) ? `__arr.${name}` : `__arr[${JSON.stringify(name)}]`);
 
@@ -131,6 +134,16 @@ interface Ctx {
   buf: Buf;
   nameOf: NameOf;
   setVars: Set<string>;
+  /**
+   * Host-injected ambient members (sift's rosetta tools). A head in this set lowers
+   * to `__arr["<name>"](…)` exactly like a builtin — so `typeof __arr["<name>"]`
+   * resolves against the host's `ArrShape` leaf and `Parameters<…>` of the call
+   * narrows the argument slot. The runtime evaluator is unaffected (this emitter is
+   * the type-lens only); host tools are conceptually the same category as builtins —
+   * ambient functions resolved through `__arr` — so this is the third head case, not
+   * a special-case hack. Empty by default → behavior identical to pre-roster emit.
+   */
+  hostMembers: ReadonlySet<string>;
 }
 
 /** Emit a single TS expression for `n` into `ctx.buf`. */
@@ -220,7 +233,8 @@ function emitList(n: ListNode, ctx: Ctx): void {
         ctx.buf.spanned("(undefined as unknown)", n);
         return;
     }
-    if (isBuiltin(hName)) return emitBuiltinCall(hName, n, ctx);
+    // A builtin OR a host-injected rosetta tool → ambient `__arr` member call.
+    if (isBuiltin(hName) || ctx.hostMembers.has(hName)) return emitBuiltinCall(hName, n, ctx);
   }
 
   // A non-builtin head: a local binding / free fn → direct call `f(a, b)`; an
@@ -649,7 +663,13 @@ function decodeString(raw: string): string {
  * diagnostics. The module ends with `export {};` so top-level `const` bindings
  * are module-scoped and never collide across files in a shared program.
  */
-export function emitTypes(scheme: string): EmitTypesResult {
+export interface EmitTypesOptions {
+  /** Host-injected ambient member names (sift rosetta tools) — heads lowered via
+   *  `__arr[...]` so the type-lens resolves their signatures. See `Ctx.hostMembers`. */
+  hostMembers?: ReadonlySet<string>;
+}
+
+export function emitTypes(scheme: string, opts?: EmitTypesOptions): EmitTypesResult {
   const buf = new Buf();
   const droppedForms: number[] = [];
 
@@ -663,7 +683,7 @@ export function emitTypes(scheme: string): EmitTypesResult {
 
   const nameOf = resolveNames(forest, []);
   const setVars = collectSetBangNames(forest, nameOf);
-  const ctxBase: Ctx = { buf, nameOf, setVars };
+  const ctxBase: Ctx = { buf, nameOf, setVars, hostMembers: opts?.hostMembers ?? EMPTY_SET };
 
   for (const [idx, form] of forest.entries()) {
     const checkpoint = buf.offset;
