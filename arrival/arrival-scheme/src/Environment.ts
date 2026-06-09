@@ -403,11 +403,19 @@ export class Environment {
   }
 
   clone(): Environment {
-    // duplicate refs
-    const env: Record<string, EnvironmentValue> = {};
-    // TODO: duplicated Symbols
-    for (const key of Object.keys(this.__env__)) {
-      env[key] = this.__env__[key];
+    // Duplicate refs while faithfully preserving BOTH:
+    //   - symbol-keyed bindings (Object.keys drops them — Reflect.ownKeys does not),
+    //   - the read-only attribute installed by `constant()` (a non-writable property
+    //     descriptor — a plain `env[key] = …` would silently re-create the slot writable).
+    // OracleSession.clone() relies on this snapshot being lossless: a clone that
+    // dropped symbol keys or stripped constancy would yield a too-narrow valid-symbol
+    // set and let writes land on slots that must stay constant.
+    const env: Record<string | symbol, EnvironmentValue> = {};
+    for (const key of Reflect.ownKeys(this.__env__)) {
+      const descriptor = Object.getOwnPropertyDescriptor(this.__env__, key);
+      if (descriptor) {
+        Object.defineProperty(env, key, descriptor);
+      }
     }
     return new Environment(this.__name__, env, this.__parent__);
   }
