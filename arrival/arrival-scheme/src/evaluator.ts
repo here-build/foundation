@@ -1150,9 +1150,33 @@ function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number):
   // Process list elements, handling unquote-splicing
   const results: SchemeValue[] = [];
   let node: SchemeValue = expr;
+  // Improper-tail unquote: the reader represents `(a . ,x)` as the proper list
+  // `(a . (unquote x))`. R7RS quasiquote treats that trailing `(unquote x)` as
+  // the dotted tail — `(cons a x-value)` — NOT as two more list elements
+  // `unquote` and `x`. Capture it here so the fold below threads it as `tail`.
+  let tail: SchemeValue = nil;
 
   while (is_pair(node)) {
     const item = node.car;
+
+    // Detect the trailing dotted-unquote `(unquote <expr>)` at level 1 (only
+    // when it is the WHOLE remaining node — i.e. `,x` sat in the cdr position).
+    // `quasiquote`/`unquote` at the same level outside the tail keep recursing
+    // as normal elements via the regular-element branch below.
+    if (
+      level === 1 &&
+      node.car instanceof SchemeSymbol &&
+      symbol_name(node.car) === "unquote" &&
+      is_pair(node.cdr) &&
+      is_nil(node.cdr.cdr)
+    ) {
+      tail = yield { call: evaluate(node.cdr.car, ctx) };
+      if (is_promise(tail)) {
+        tail = yield tail;
+      }
+      node = nil;
+      break;
+    }
 
     // Check for unquote-splicing in list
     if (
@@ -1187,14 +1211,20 @@ function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number):
     node = node.cdr;
   }
 
-  // Handle improper list tail
-  let tail: SchemeValue = nil;
+  // Handle improper list tail (a non-pair atom, e.g. `(1 2 . 3)`). The
+  // dotted-unquote tail `(a . ,x)` was already captured inside the loop, which
+  // sets `node = nil` on capture — so this branch only fires for atom tails.
   if (!is_nil(node)) {
     tail = yield { call: processQuasiquote(node, ctx, level) };
   }
 
-  // Build result list - Pair.fromArray returns Pair or nil
-  const result = Pair.fromArray(results, false);
+  // Build result list, threading the (possibly improper) tail through so
+  // `(a . ,x)` keeps x as the final cdr rather than nil-terminating (Q9).
+  // Pair.fromArray always nil-terminates, so fold manually onto `tail`.
+  let result: SchemeValue = tail;
+  for (let i = results.length; i--; ) {
+    result = new Pair(results[i], result);
+  }
   return result;
 }
 
@@ -1272,8 +1302,12 @@ function* evalSet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   if (ref) {
     ref.set(name, value);
   } else {
-    // Variable not found - set in current env (or throw?)
-    ctx.env.set(name, value);
+    // R7RS §5.3.1: assigning to an unbound variable is an error. `set!` must
+    // NOT create a fresh binding (that is `define`'s job) — mirror the
+    // unbound-variable error shape used on lookup (Environment::get).
+    throw Object.assign(new Error(`Unbound variable \`${symbol_name(name).toString()}'`), {
+      publicMessage: `symbol ${symbol_name(name).toString()} does not exist - look at list of available functions at tool description`,
+    });
   }
   return value;
 }
@@ -1736,6 +1770,83 @@ function* evalOr(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 }
 
 /**
+ * Apply an already-evaluated procedure to one already-evaluated argument,
+ * routing the call through the SAME trampoline tail path `evaluatePair` uses
+ * for a normal application.
+ *
+ * This is the `=>` arm of `cond`/`case`: R7RS §3.5 places the `(proc test-value)`
+ * application in tail position when the enclosing form is in tail position. The
+ * previous implementation applied `proc` via a direct synchronous JS call, which
+ * routed a Scheme lambda body through the legacy `run(...)`-per-call path —
+ * growing the host stack and overflowing on a self-recursive `=>` loop (the
+ * "outside the TCO surface" war story). Mirroring `evaluatePair`'s bounce
+ * protocol here brings `=>` onto the TCO surface: a Scheme lambda hands back a
+ * Bounce, which collapses the tail tower (tail) or threads through a
+ * pass-through `{ call, tail:true }` (non-tail). Non-lambda callables (builtins,
+ * `SchemeJSFunction`) can't tail-recurse into Scheme, so they keep the direct
+ * apply.
+ *
+ * Provenance: this helper does NOT stamp control-flow provenance itself. The
+ * caller wraps the `{ call: applyArrowProc(...) }` yield with
+ * `onResolve: controlFlowResolve(predicate)`. Because this generator's slot is
+ * pass-through (`return yield`), the trampoline's tailCall collapse picks up
+ * that caller-supplied `onResolve` from the popped slot and composes it onto
+ * the replacement — so the predicate's lineage rides BOTH the collapsed (bounce)
+ * and resumed (plain-value) paths, exactly like the non-`=>` arms.
+ */
+function* applyArrowProc(proc: SchemeValue, arg: SchemeValue, ctx: EvalContext): EvalGenerator {
+  invariant(is_callable(proc), "=> requires a procedure");
+
+  // Lambdas (and named-let loop fns) speak the bounce protocol; route them
+  // through the trampoline so a tail `=>` collapses instead of overflowing.
+  if (is_function(proc) && (proc as LambdaFunction).__lambda__ === true) {
+    const dynSite = ctx.currentInvocation;
+    const __savedDynamicCallSite = _dynamicCallSite;
+    _dynamicCallSite = dynSite;
+    const __savedCanBounce = _canBounce;
+    _canBounce = true;
+    const __savedSpeculate = _speculate;
+    _speculate = ctx.speculate === true;
+    const wrappedArgs = wrapLambdaArgs([arg], dynSite);
+    let result: SchemeValue;
+    try {
+      result = (proc as LambdaFunction)(...wrappedArgs);
+    } finally {
+      _dynamicCallSite = __savedDynamicCallSite;
+      _canBounce = __savedCanBounce;
+      _speculate = __savedSpeculate;
+    }
+
+    if (is_bounce(result)) {
+      if (ctx.tail) {
+        // Collapse the whole tail tower (the caller's onResolve rides via the
+        // popped pass-through slot — see this helper's provenance note).
+        return yield { tailCall: { generator: result.generator } } as unknown as SchemeValue;
+      }
+      return yield { call: result.generator, tail: true };
+    }
+    if (is_promise(result)) {
+      result = yield result;
+    }
+    return result;
+  }
+
+  // Builtins / SchemeJSFunction: direct apply (no Scheme body to tail into).
+  let result: SchemeValue;
+  if (proc instanceof SchemeJSFunction) {
+    result = proc.call(arg);
+  } else if (is_function(proc)) {
+    result = proc(arg);
+  } else {
+    invariant(false, "=> requires a procedure");
+  }
+  if (is_promise(result)) {
+    result = yield result;
+  }
+  return result;
+}
+
+/**
  * Handle 'cond' special form: (cond (test expr...) ... (else expr...)?)
  */
 function* evalCond(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
@@ -1762,10 +1873,11 @@ function* evalCond(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     }
 
     if (!is_false(testResult)) {
-      // Check for => syntax: (test => proc). The (proc testResult) call is a
-      // direct JS apply, not a Scheme-to-Scheme tail dispatch, so it does NOT
-      // collapse — `=>` is outside the TCO surface (acceptable; rare in tight
-      // loops). The provenance transform applies synchronously as before.
+      // Check for => syntax: (test => proc). Per R7RS §3.5 the `(proc testResult)`
+      // application is in tail position when cond is — route it through
+      // applyArrowProc so a self-recursive `=>` loop collapses on the trampoline
+      // instead of overflowing the host stack. The control-flow provenance rides
+      // as `onResolve` (pass-through, same as the non-`=>` arms below).
       if (is_pair(exprs)) {
         const firstExpr = exprs.car;
         if (firstExpr instanceof SchemeSymbol && symbol_name(firstExpr) === "=>") {
@@ -1777,18 +1889,11 @@ function* evalCond(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
             proc = yield proc;
           }
           invariant(is_callable(proc), "cond: => requires a procedure");
-          let result: SchemeValue;
-          if (proc instanceof SchemeJSFunction) {
-            result = proc.call(testResult);
-          } else if (is_function(proc)) {
-            result = proc(testResult);
-          } else {
-            invariant(false, "cond: => requires a procedure");
-          }
-          if (is_promise(result)) {
-            result = yield result;
-          }
-          return restrictControlFlowProvenance(testResult, result);
+          return yield {
+            call: applyArrowProc(proc, testResult, ctx),
+            tail: ctx.tail === true,
+            onResolve: controlFlowResolve(testResult),
+          };
         }
       }
 
@@ -1835,6 +1940,16 @@ function* evalCase(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 
     // Check for else clause — pass-through (tail-collapsible).
     if (datums instanceof SchemeSymbol && symbol_name(datums) === "else") {
+      // R7RS §6.3 also allows `(else => proc)`: apply proc to the key in tail
+      // position (mirrors cond's `=>`).
+      const arrowProc = yield* evalCaseArrowProc(exprs, nonTailCtx);
+      if (arrowProc !== undefined) {
+        return yield {
+          call: applyArrowProc(arrowProc, key, ctx),
+          tail: ctx.tail === true,
+          onResolve: controlFlowResolve(key),
+        };
+      }
       return yield { call: evalBegin(exprs, ctx), tail: ctx.tail === true };
     }
 
@@ -1854,6 +1969,16 @@ function* evalCase(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     }
 
     if (matched) {
+      // R7RS §6.3 `=>` arm: `((d1 ...) => proc)` applies proc to the key. Route
+      // through applyArrowProc so a tail `=>` collapses on the trampoline.
+      const arrowProc = yield* evalCaseArrowProc(exprs, nonTailCtx);
+      if (arrowProc !== undefined) {
+        return yield {
+          call: applyArrowProc(arrowProc, key, ctx),
+          tail: ctx.tail === true,
+          onResolve: controlFlowResolve(key),
+        };
+      }
       // Pass-through (tail-collapsible). Per spec §5.3 the dispatching value
       // (the case key) plays the predicate role — its lineage was consulted
       // to pick this arm. Provenance restriction rides as onResolve so it
@@ -1865,6 +1990,26 @@ function* evalCase(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   }
 
   return undefined;
+}
+
+/**
+ * Detect and evaluate a `case` clause's `=> proc` form. Returns the evaluated
+ * procedure if `exprs` is `(=> proc)`, else `undefined` (a normal body). The
+ * procedure is evaluated in non-tail context; the application itself is routed
+ * through applyArrowProc by the caller so it stays on the TCO surface.
+ */
+function* evalCaseArrowProc(exprs: SchemeValue, nonTailCtx: EvalContext): EvalGenerator {
+  if (!is_pair(exprs)) return undefined;
+  const first = exprs.car;
+  if (!(first instanceof SchemeSymbol) || symbol_name(first) !== "=>") return undefined;
+  const exprsCdr = exprs.cdr;
+  invariant(is_pair(exprsCdr), "case: missing procedure after =>");
+  let proc = yield { call: evaluate(exprsCdr.car, nonTailCtx) };
+  if (is_promise(proc)) {
+    proc = yield proc;
+  }
+  invariant(is_callable(proc), "case: => requires a procedure");
+  return proc;
 }
 
 /**
@@ -1915,51 +2060,6 @@ function* evalUnless(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   }
 
   return undefined;
-}
-
-/**
- * Handle 'raise' special form: (raise message)
- * Raises a user error with the given message.
- */
-function* evalRaise(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
-  invariant(is_pair(rest), "raise: missing message");
-
-  // Non-tail — we throw after evaluating, so the message must return here.
-  let message = yield { call: evaluate(rest.car, ctx.tail ? { ...ctx, tail: false } : ctx) };
-  if (is_promise(message)) {
-    message = yield message;
-  }
-
-  throw new Error(typeof message === "string" ? message : String(message));
-}
-
-/**
- * Handle 'error' special form: (error who message . irritants)
- * R6RS-style error with who, message, and optional irritants.
- */
-function* evalError(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
-  invariant(is_pair(rest), "error: missing who");
-
-  // Non-tail — we throw after evaluating who/message; they must return here.
-  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
-
-  let who = yield { call: evaluate(rest.car, nonTailCtx) };
-  if (is_promise(who)) {
-    who = yield who;
-  }
-
-  const restAfterWho = rest.cdr;
-  invariant(is_pair(restAfterWho), "error: missing message");
-
-  let message = yield { call: evaluate(restAfterWho.car, nonTailCtx) };
-  if (is_promise(message)) {
-    message = yield message;
-  }
-
-  const whoStr = who === false ? "" : `${who}: `;
-  const msgStr = typeof message === "string" ? message : String(message);
-
-  throw new Error(`${whoStr}${msgStr}`);
 }
 
 /**
@@ -2188,9 +2288,40 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       // Create catch environment with error bound
       const catchEnv = ctx.env.inherit("catch");
 
-      // Bind the error - unwrap SchemeError to get the original message/error
-      let errorValue: SchemeValue;
-      errorValue = caughtError instanceof SchemeError && caughtError.cause ? caughtError.cause : caughtError;
+      // Bind the error - unwrap SchemeError to get the original raised value.
+      let errorValue: SchemeValue =
+        caughtError instanceof SchemeError && caughtError.cause ? caughtError.cause : caughtError;
+      // X3 (conformance + security): a value that reaches here as a RAW host
+      // `Error` (a JS TypeError from a primitive, the wrapping SchemeError, etc.)
+      // would (a) make `error-object?` return #f — non-conformant per §6.11 — and
+      // (b) leak host file paths, since `.stack`/`.fileName` are OWN properties on
+      // V8 Errors and the membrane's own-property fast path hands them across.
+      // Re-present such errors as an R7RS error object carrying only the message
+      // (no `.stack`/`.cause`/`.fileName`). Deliberately raised Scheme values —
+      // already-conformant `R7RSError`s and arbitrary non-Error objects (R7RS
+      // allows `(raise <any>)`) — pass through untouched.
+      //
+      // `R7RSError` is loaded LAZILY (dynamic import) rather than at the top of
+      // this module: a static `import ... from "./bridge.js"` pulls bridge's
+      // eager `set_interaction_env` into evaluator init and breaks the
+      // SchemePromise circular-init ordering (bridge.ts documents that it must
+      // not be imported during lips.ts init). By the time a `try` body has
+      // actually thrown, every module is fully initialized, so the dynamic
+      // import resolves synchronously from the registry.
+      if (errorValue instanceof Error) {
+        const { R7RSError } = await import("./bridge.js");
+        if (!(errorValue instanceof R7RSError)) {
+          errorValue = new R7RSError(errorValue.message);
+        }
+        // Even a freshly-minted R7RSError carries an OWN `.stack` (V8 sets it on
+        // construction) plus any inherited `.cause`/`.fileName`. The membrane's
+        // own-property fast path would hand those host frames to Scheme code, so
+        // strip them — the message is the only datum a §6.11 handler needs.
+        const errObj = errorValue as { stack?: unknown; cause?: unknown; fileName?: unknown };
+        delete errObj.stack;
+        delete errObj.cause;
+        delete errObj.fileName;
+      }
       catchEnv.set(varName, errorValue);
 
       try {
@@ -2328,8 +2459,11 @@ const SPECIAL_FORMS: Record<string, (rest: SchemeValue, ctx: EvalContext) => Eva
   delay: evalDelay,
   force: evalForce,
   // Error handling
-  raise: evalRaise,
-  error: evalError,
+  // NOTE: `raise` and `error` are deliberately NOT special forms. They are
+  // defined in bootstrap.ts as R7RS procedures that walk
+  // *current-exception-handlers* (§6.11). Special-form dispatch precedes env
+  // lookup, so shadowing them here made the entire exception tower inert
+  // (with-exception-handler / guard / raise-continuable never saw the value).
   try: evalTry,
   // Dynamic parameters
   parameterize: evalParameterize,

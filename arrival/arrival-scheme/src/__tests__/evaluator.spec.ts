@@ -637,43 +637,12 @@ describe("Generator Evaluator with Real LIPS Types", () => {
       });
     });
 
-    describe("raise/error", () => {
-      it("should raise an error with message", async () => {
-        // (raise "something went wrong")
-        const code = list(sym("raise"), "something went wrong");
-        await expect(exec(code, { env })).rejects.toThrow("something went wrong");
-      });
-
-      it("should raise SchemeError with stack trace", async () => {
-        // (define (foo) (raise "error in foo"))
-        // (define (bar) (foo))
-        // (bar)
-        await exec(list(sym("define"), list(sym("foo")), list(sym("raise"), "error in foo")), { env });
-        await exec(list(sym("define"), list(sym("bar")), list(sym("foo"))), { env });
-
-        try {
-          await exec(list(sym("bar")), { env });
-          expect.fail("should have thrown");
-        } catch (error) {
-          expect(error).toBeInstanceOf(SchemeError);
-          const schemeError = error as SchemeError;
-          expect(schemeError.message).toBe("error in foo");
-          expect(schemeError.schemeStack.length).toBeGreaterThan(0);
-        }
-      });
-
-      it("should format error with R6RS style", async () => {
-        // (error "my-proc" "invalid argument")
-        const code = list(sym("error"), "my-proc", "invalid argument");
-        await expect(exec(code, { env })).rejects.toThrow("my-proc: invalid argument");
-      });
-
-      it("should handle #f as who in error", async () => {
-        // (error #f "something bad")
-        const code = list(sym("error"), false, "something bad");
-        await expect(exec(code, { env })).rejects.toThrow("something bad");
-      });
-    });
+    // NOTE: the former describe("raise/error") block was removed with audit Action 1
+    // (X1): `raise`/`error` are no longer evaluator special forms — they resolve to the
+    // R7RS bootstrap procedures (which walk *current-exception-handlers*). Those tests
+    // asserted the old R6RS `(error who message)` arity and string-coerced `raise`
+    // against a minimal env without bootstrap; correct R7RS exception coverage now lives
+    // in generator-exec.spec.ts against a bootstrap-loaded env.
 
     describe("delay/force", () => {
       it("should delay evaluation", async () => {

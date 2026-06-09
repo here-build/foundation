@@ -42,18 +42,17 @@
  *     measured ~130MB, i.e. the signal inverted. Any fixed MB floor/ceiling is
  *     therefore flaky here.)
  *
- *   • cond's `=>` arm is the one deliberately-non-tail position (evaluator.ts:
- *     1648 "outside the TCO surface"): it applies the proc via a nested `run()`,
- *     so a deep `=>` loop grows the HOST stack and overflows. That overflow is
- *     NOT cleanly catchable — the RangeError fires from inside the nested-run()
- *     Promise chain (PromiseRejectCallback) and Node surfaces it as an UNHANDLED
- *     rejection that crashes the vitest worker. Worse, even a SHALLOW functional
- *     `=>` loop (returns in ~7ms standalone) reproducibly HANGS the vitest
- *     worker when run as a sibling after the other cases. So `=>` is documented
- *     as a non-tail boundary at the negative block (no executable assertion) —
- *     the TCO proof for cond bodies comes from the non-`=>` cond-arm positives
- *     ("cond else arm" + "cond non-else arm"), both reaching 50k. See the long
- *     comment in the negative block for the full rationale.
+ *   • cond's `=>` arm USED to be a deliberately-non-tail position — it applied
+ *     the proc via a nested `run()`, so a deep `=>` loop grew the HOST stack and
+ *     overflowed (the "outside the TCO surface" war story). That is FIXED: the
+ *     `=>` application now routes through `applyArrowProc`, which speaks the same
+ *     bounce protocol as a normal `evaluatePair` application, so a self-recursive
+ *     `=>` loop collapses on the trampoline exactly like the other tail arms. The
+ *     positive below ("cond => arm — the (proc test) application is tail") proves
+ *     it at 50k. `case`'s `=>` arm rides the same helper. (Historical note: the
+ *     OLD nested-`run()` path also destabilized the vitest worker — a flaky
+ *     UNHANDLED rejection / hang. The bounce path eliminates the nested `run()`
+ *     entirely, so the case is now stable as a sibling.)
  *
  * `run()` helper: same path as evaluator.spec.ts's tail-recursion test
  * (generator-exec `exec`, full default env for `if`/`=`/`-`/`+`), returning the
@@ -128,6 +127,27 @@ describe("tail-call optimization (R7RS §3.5)", () => {
     it("case arm — matched clause body inherits case's tail flag (§3.5)", async () => {
       const r = await run(
         `(define (loop n) (case n ((0) 'done) (else (loop (- n 1))))) (loop ${DEPTH})`,
+      );
+      expect(String(r)).toBe("done");
+    }, T);
+
+    it("cond => arm — the (proc test-value) application is tail (§3.5)", async () => {
+      // R7RS §3.5 puts the `(proc test)` application of a `(test => proc)` clause
+      // in tail position. Previously this evaluator applied proc via a nested
+      // `run()` (host-stack growth → overflow at depth); applyArrowProc now routes
+      // it through the trampoline bounce protocol, so reaching 50k proves the
+      // application collapses. The proc tail-calls `loop`, so BOTH the `=>` apply
+      // and the proc body must stay flat.
+      const r = await run(
+        `(define (loop n) (cond ((> n 0) => (lambda (_) (loop (- n 1)))) (else 'done))) (loop ${DEPTH})`,
+      );
+      expect(String(r)).toBe("done");
+    }, T);
+
+    it("case => arm — the (proc key) application is tail (§3.5; R7RS §6.3)", async () => {
+      // case's `(datums => proc)` mirrors cond's `=>` through the same helper.
+      const r = await run(
+        `(define (loop n) (case (> n 0) ((#t) => (lambda (_) (loop (- n 1)))) (else 'done))) (loop ${DEPTH})`,
       );
       expect(String(r)).toBe("done");
     }, T);
@@ -242,35 +262,17 @@ describe("tail-call optimization (R7RS §3.5)", () => {
       expect(String(r)).toBe("after");
     }, T);
 
-    // ── cond `=>` arm: DELIBERATELY NOT tail-optimized, and DELIBERATELY UNTESTED here ──
+    // ── cond/case `=>` arm: NOW tail-optimized (was the lone non-tail gap) ──
     //
-    // R7RS §3.5 technically puts the `(proc test-value)` application of a
-    // `(test => proc)` clause in tail position. This evaluator does NOT optimize
-    // it: evalCond (evaluator.ts:1648) applies `proc` via a direct JS call and
-    // returns `restrictControlFlowProvenance(...)`, with the explicit comment
-    // "`=>` is outside the TCO surface (acceptable; rare in tight loops)". That
-    // direct apply routes the callee's body through the legacy `run(...)`-per-
-    // call path, so a self-recursive `=>` loop grows the HOST stack and
-    // overflows — the pre-TCO failure mode (confirmed in a standalone Node
-    // process: a deep `=>` loop throws "Maximum call stack size exceeded").
-    //
-    // We deliberately DO NOT encode that as a test. Two independent reasons:
-    //   1. The deep overflow is not cleanly catchable — the RangeError fires
-    //      from inside the orphaned nested-run() Promise chain
-    //      (PromiseRejectCallback), surfacing as an UNHANDLED rejection that
-    //      crashes the vitest worker before `expect().rejects` can intercept it.
-    //   2. Even a SHALLOW (functional, depth-500) `=>` loop — which returns
-    //      `'done` in ~7ms in a standalone Node process — reproducibly HANGS the
-    //      vitest worker when run as a sibling after the preceding cases (the
-    //      worker's promise/event-loop instrumentation deadlocks on the nested-
-    //      run() promise fan-out). It does NOT hang outside vitest.
-    // Either way, a `cond =>` case here jeopardizes "the full suite stays green"
-    // for zero added optimization signal: the cond-arm POSITIVES above ("cond
-    // else arm" + "cond non-else arm", both reaching 50k) already prove cond
-    // bodies ARE tail-optimized. The `=>` non-optimization is documented at the
-    // implementation site; duplicating it as a flaky/worker-crashing test would
-    // be net-negative. If `=>` is ever pulled into the TCO surface, add a 50k
-    // completion positive for it here.
+    // R7RS §3.5 puts the `(proc test-value)` application of a `(test => proc)`
+    // clause in tail position. This evaluator USED to apply `proc` via a nested
+    // `run()` (host-stack growth → overflow at depth; the flaky vitest-worker
+    // UNHANDLED-rejection / hang documented in this block's prior revision). That
+    // is fixed: `applyArrowProc` routes the application through the same bounce
+    // protocol as a normal application, so the `=>` apply collapses on the
+    // trampoline. The POSITIVES above ("cond => arm" + "case => arm", both
+    // reaching 50k) now assert it directly — and because the nested `run()` is
+    // gone, they are stable siblings rather than worker-crashers.
   });
 
   describe("composition", () => {
