@@ -3,6 +3,7 @@ import * as R from "ramda";
 import * as RA from "ramda-adjunct";
 
 import { env as globalEnv, Nil, nil, Pair } from "./lips.js";
+import { structuralEqual } from "./structural-equal.js";
 
 type Fn = (...args: any[]) => any;
 
@@ -275,7 +276,11 @@ export const RAMDA_FUNCTIONS = {
   fromPairs: R.fromPairs,
 
   // Logic and predicates
-  equals: R.equals,
+  // `equals` is Scheme `equal?` — route to the unified cycle-safe structural
+  // walker, NOT `R.equals` (which knows no Scheme numeric/char/provenance type
+  // and would mis-compare SchemeExact, SchemeCharacter, and AValue-stamped
+  // values).
+  equals: (a: unknown, b: unknown) => structuralEqual(a, b),
   is: R.is,
   "is-nil": R.isNil,
   "is-empty": R.isEmpty,

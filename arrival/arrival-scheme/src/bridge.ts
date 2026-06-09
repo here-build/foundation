@@ -24,6 +24,7 @@ import { SchemeExact, SchemeInexact } from "./numbers.js";
 import * as ops from "./operators/index.js";
 // Import directly from source files to avoid circular dependency during init
 import { Pair } from "./Pair.js";
+import { structuralEqual } from "./structural-equal.js";
 import { Nil, SchemeCharacter, nil } from "./types.js";
 import { type } from "./utils/typecheck.js";
 import { Values } from "./Values.js";
@@ -133,6 +134,11 @@ function asBytevector(obj: unknown, fnName: string): Uint8Array {
 
 /**
  * eqv? comparison - identity plus numeric value equality
+ *
+ * R7RS § 6.1: eqv? is #t for two characters with the same `char=?` value
+ * (`(eqv? #\a #\a)` → #t) even across distinct heap instances — so `(memv #\a
+ * (list #\a))` must succeed. SchemeCharacter heap-distinct copies would fail the
+ * `a === b` line, so compare `__char__` explicitly.
  */
 function eqv(a: unknown, b: unknown): boolean {
   switch (true) {
@@ -146,46 +152,8 @@ function eqv(a: unknown, b: unknown): boolean {
       return a.cmp(b) === 0;
     case a instanceof SchemeBool && b instanceof SchemeBool:
       return a.value === b.value;
-    default:
-      return false;
-  }
-}
-
-/**
- * Deep structural equality for Scheme values (equal?)
- */
-function deepEqual(a: unknown, b: unknown): boolean {
-  switch (true) {
-    case a === b:
-      return true;
-    // Setoid (Fantasy Land): a value that defines its own equality owns the
-    // comparison (opaque entities compared by canonical value; false vs a bare
-    // literal — so an entity can't be grepped by a hardcoded value). Symmetric.
-    case typeof (a as any)?.["fantasy-land/equals"] === "function":
-      return Boolean((a as any)["fantasy-land/equals"](b));
-    case typeof (b as any)?.["fantasy-land/equals"] === "function":
-      return Boolean((b as any)["fantasy-land/equals"](a));
-    case a instanceof Pair && b instanceof Pair:
-      return deepEqual(a.car, b.car) && deepEqual(a.cdr, b.cdr);
-    case a instanceof SchemeExact && b instanceof SchemeExact:
-      return a.cmp(b) === 0;
-    case a instanceof SchemeInexact && b instanceof SchemeInexact:
-      return a.cmp(b) === 0;
-    // SchemeBool cross-instance: schemeTrue/schemeFalse singletons would short-circuit
-    // at the `a === b` line above, but provenance-stamped copies wouldn't.
-    case a instanceof SchemeBool && b instanceof SchemeBool:
-      return a.value === b.value;
-    case (typeof a === "string" || a instanceof SchemeString) && (typeof b === "string" || b instanceof SchemeString):
-      return String(a) === String(b);
-    case a instanceof SchemeSymbol && b instanceof SchemeSymbol:
-      return a.__name__ === b.__name__;
-    case Array.isArray(a) && Array.isArray(b): {
-      if (a.length !== b.length) return false;
-      for (const [i, element] of a.entries()) {
-        if (!deepEqual(element, b[i])) return false;
-      }
-      return true;
-    }
+    case a instanceof SchemeCharacter && b instanceof SchemeCharacter:
+      return a.__char__ === b.__char__;
     default:
       return false;
   }
@@ -1356,7 +1324,7 @@ export const wrappedOps = {
 
   // member uses equal? (deep structural equality)
   member(obj: unknown, list: unknown, compare?: (a: unknown, b: unknown) => boolean): unknown {
-    const cmp = compare || deepEqual;
+    const cmp = compare || ((a: unknown, b: unknown) => structuralEqual(a, b));
     let current = list;
     while (current instanceof Pair) {
       if (cmp(obj, current.car)) return current;
@@ -1367,7 +1335,7 @@ export const wrappedOps = {
 
   // assoc uses equal? (deep structural equality)
   assoc(obj: unknown, alist: unknown, compare?: (a: unknown, b: unknown) => boolean): unknown {
-    const cmp = compare || deepEqual;
+    const cmp = compare || ((a: unknown, b: unknown) => structuralEqual(a, b));
     let current = alist;
     while (current instanceof Pair) {
       const pair = current.car;
@@ -1386,7 +1354,7 @@ export const wrappedOps = {
   },
 
   "equal?"(a: unknown, b: unknown): boolean {
-    return deepEqual(a, b);
+    return structuralEqual(a, b);
   },
 
   // ============================================================================
