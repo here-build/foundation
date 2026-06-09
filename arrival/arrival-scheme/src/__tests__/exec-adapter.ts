@@ -16,7 +16,7 @@ import type { Environment } from "../Environment";
 import type { SchemeValue } from "../types";
 
 // Import both evaluator implementations
-import * as lips from "../lips";
+import { exec as lipsExec, env as lipsEnv } from "../lips";
 import { exec as generatorExec, ExecOptions } from "../generator-exec";
 
 // Check environment variable at module load time
@@ -36,7 +36,7 @@ export async function exec(
     return generatorExec(code, options);
   } else {
     // LIPS exec returns Promise<SchemeValue[]>
-    return lips.exec(code, options);
+    return lipsExec(code, options);
   }
 }
 
@@ -46,14 +46,9 @@ export async function exec(
 export { generatorExec as execGenerator };
 
 /**
- * Direct access to LIPS exec (for tests that need it)
- */
-export { lips as lips };
-
-/**
  * Default environment - LIPS user_env
  */
-export const env = lips.env;
+export const env = lipsEnv;
 
 /**
  * Flag indicating which evaluator is active

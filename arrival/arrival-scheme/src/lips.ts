@@ -336,7 +336,7 @@ export function doc(name: string | null, fn: SchemeValue, docstring?: string) {
  * interval) instead of receiving a settled value. Only `length` and the
  * comparison ops are marked; everything else gets force-on-unknown-boundary.
  */
-export function speculative<T>(fn: T): T {
+function speculative<T>(fn: T): T {
   (fn as { __speculate__?: boolean }).__speculate__ = true;
   return fn;
 }
@@ -372,7 +372,7 @@ function to_array(name: string, deep = false): SchemeFunction {
 
 // Old Pair prototype methods are now in the Pair class above
 
-export const repr = new Map();
+const repr = new Map();
 
 // ----------------------------------------------------------------------
 const props = Object.getOwnPropertyNames(Array.prototype);
