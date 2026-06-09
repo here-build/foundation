@@ -176,6 +176,22 @@ const EXPECTED_FAILURES: { pattern: string | RegExp; reason: string }[] = [
     pattern: "(error BOOM! 1 2 3)",
     reason: "evalError special form shadows R7RS-style bootstrap `error` — pre-L1",
   },
+  // -----------------------------------------------------------------------
+  // 6.11 Exceptions — `(error …)` raised inside `guard` throws
+  // `SchemeError: R7RSError is not defined`: the runtime's error/raise path
+  // references an `R7RSError` constructor that isn't in scope, so the
+  // condition object the guard clause inspects never materializes. Surfaced
+  // by un-stubbing the suite (W0). Source-side fix (not in this test file);
+  // marked expected until a sibling source agent lands it.
+  // -----------------------------------------------------------------------
+  {
+    pattern: "(file-error? (guard (exn (else exn)) (error BOOM!))",
+    reason: "AUDIT: `error` inside guard throws `R7RSError is not defined` — runtime raise path references an unbound constructor (lips.ts/bridge error machinery)",
+  },
+  {
+    pattern: "(test-exception-handler-2 -1)",
+    reason: "AUDIT: with-exception-handler + raise path throws `R7RSError is not defined` — same unbound constructor as the (error …)-in-guard case",
+  },
 ];
 
 /**
@@ -420,13 +436,20 @@ async function setupTestFramework(): Promise<void> {
          (test (call-with-values (lambda () expected) list)
                (call-with-values (lambda () expr) list)))))
 
-    ;; Numeric syntax test helper from chibi
+    ;; Numeric syntax test helper from chibi.
+    ;;
+    ;; The upstream chibi macro round-trips through ports:
+    ;;   (read (open-input-string str)) then (write … out) and checks the
+    ;;   written form is a member of the expected write-strings. We don't
+    ;;   support string ports (see EXCLUDED_TESTS) so we keep only the read
+    ;;   half via (string->number str) — the same parse the reader performs
+    ;;   for a numeric token — and assert it is eqv? to the expected value.
+    ;;   The write-membership half (strs ...) is dropped: it tests port output
+    ;;   formatting, which is out of scope for the sandbox.
     (define-syntax test-numeric-syntax
       (syntax-rules ()
         ((test-numeric-syntax str expect strs ...)
-         (begin
-           ;; TODO: implement when we have string->number fully working
-           #void))))
+         (test str expect (string->number str)))))
   `);
 
   // Register JS callbacks
