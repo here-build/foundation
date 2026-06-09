@@ -17,3 +17,4 @@ export {
 export { projectToPy, pyName, type PyOptions } from "./python.js";
 export type { PromptDoc, PromptInput } from "./prompt-ir.js";
 export { compileProject, type CompileTarget, type EmittedFile } from "./compile-project.js";
+export { emitTypes, type EmitTypesResult, type Mapping } from "./types-emit.js";
