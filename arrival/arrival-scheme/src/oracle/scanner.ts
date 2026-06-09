@@ -41,6 +41,7 @@ import type {
   TokenClass,
   TypeTag,
 } from "./contract.js";
+import { computeValidSymbols, type OracleEnvΣ } from "./sigma.js";
 
 const OPEN = new Set(["(", "[", "{"]);
 const CLOSE = new Set([")", "]", "}"]);
@@ -266,8 +267,18 @@ export function validNextClasses(s: ScanResult): Set<TokenClass> {
   return out;
 }
 
-/** Build the immutable OracleState verdict from a structural scan. Σ/T degrade per the contract. */
-function makeState(s: ScanResult): OracleState {
+/**
+ * Build the immutable OracleState verdict from a structural scan.
+ *
+ * Layer Σ (bound-symbol masking) is LIVE iff an `env` is injected: `validSymbols()` then returns
+ * `boundSymbols() ∪ scope-locals`, position-filtered (operator ⇒ callables, argument ⇒ any). With no
+ * env it degrades to null — the Layer-S contract ("Σ not modelled, do not constrain symbols"). T
+ * (expectedType/produces) stays null/true until O3.
+ *
+ * `prefix` is the accepted source the scan came from — Σ re-derives its lexical scope from it (a pure
+ * function of the prefix, like every other field).
+ */
+function makeState(s: ScanResult, prefix: string, env: OracleEnvΣ | null): OracleState {
   const classes = validNextClasses(s);
   return {
     depth: s.depth,
@@ -280,8 +291,10 @@ function makeState(s: ScanResult): OracleState {
     closeable: s.closeable,
     closeSuffix: s.closeSuffix,
     overClosed: s.overClosed,
-    // Layer S: Σ/T not modelled — graceful degradation (contract OracleState docs).
-    validSymbols: (): ReadonlySet<string> | null => null,
+    // Σ — live when an env is injected, null (graceful) otherwise.
+    validSymbols: (): ReadonlySet<string> | null =>
+      computeValidSymbols(prefix, s.position, s.formKind, env),
+    // T — not modelled until O3 (graceful per the contract).
     expectedType: (): TypeTag | null => null,
     produces: (_id: string, _type: TypeTag): boolean => true,
     validClasses: (): Set<TokenClass> => new Set(classes),
@@ -300,9 +313,11 @@ function makeState(s: ScanResult): OracleState {
  */
 class StructuralSession implements OracleSession {
   private prefix: string;
+  private readonly env: OracleEnvΣ | null;
 
-  constructor(prefix = "") {
+  constructor(prefix = "", env: OracleEnvΣ | null = null) {
     this.prefix = prefix;
+    this.env = env;
   }
 
   advance(text: string): void {
@@ -310,11 +325,13 @@ class StructuralSession implements OracleSession {
   }
 
   clone(): OracleSession {
-    return new StructuralSession(this.prefix);
+    // Carry the env into the branch — Σ must stay live on cloned sessions (the per-candidate masking
+    // path), and the env is read-only here so sharing the reference is safe.
+    return new StructuralSession(this.prefix, this.env);
   }
 
   get state(): OracleState {
-    return makeState(scan(this.prefix));
+    return makeState(scan(this.prefix), this.prefix, this.env);
   }
 
   get lastClosed(): null {
@@ -334,7 +351,7 @@ class StructuralSession implements OracleSession {
  */
 export const structuralScanner: OracleScanner = {
   analyze(prefix: string): OracleState {
-    return makeState(scan(prefix));
+    return makeState(scan(prefix), prefix, null);
   },
   feasible(prefix: string): boolean {
     const s = scan(prefix);
@@ -346,3 +363,23 @@ export const structuralScanner: OracleScanner = {
     return new StructuralSession(prefix ?? "");
   },
 };
+
+/**
+ * Build a Σ-LIVE scanner backed by a discovery `env`. Identical to {@link structuralScanner} for
+ * every structural field (S is unchanged), but `validSymbols()` now returns the position-filtered
+ * bound set instead of null. Sessions opened from it carry the env into clones, so the per-candidate
+ * masking path stays Σ-live. `feasible` is unchanged — structural feasibility is env-independent.
+ */
+export function makeSigmaScanner(env: OracleEnvΣ): OracleScanner {
+  return {
+    analyze(prefix: string): OracleState {
+      return makeState(scan(prefix), prefix, env);
+    },
+    feasible(prefix: string): boolean {
+      return !scan(prefix).overClosed;
+    },
+    session(prefix?: string): OracleSession {
+      return new StructuralSession(prefix ?? "", env);
+    },
+  };
+}

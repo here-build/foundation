@@ -26,7 +26,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { scan, structuralScanner } from "../oracle/index.js";
+import { scan, structuralScanner, makeOracle, makeOracleEnv } from "../oracle/index.js";
+import { Environment } from "../Environment.js";
+import type { EnvironmentValue } from "../Environment.js";
 
 // ---------------------------------------------------------------------------------------------
 // CANONICAL REFERENCE — verbatim copy of sift/src/sampler/prefix-oracle.ts `analyzePrefix`.
@@ -327,5 +329,123 @@ describe("oracle Layer-S — formKind / strict (arrival-only contract additions)
     const st = structuralScanner.analyze("(");
     expect(st.position).toBe("operator");
     expect(st.formKind).toBe("application");
+  });
+});
+
+// =================================================================================================
+// Layer Σ (O2) — bound-symbol masking.
+//
+// Σ refines the `atom` class into the SET OF BOUND IDENTIFIERS legal at the cursor: boundSymbols()
+// (from the injected discovery env) ∪ scope-locals (the prefix's own let/lambda/define binders),
+// position-filtered (operator ⇒ callables, argument ⇒ any). With no env, Σ degrades to null — the
+// Layer-S contract — which the 109 cases above already prove holds (validSymbols()=null there).
+// =================================================================================================
+
+/** A tiny discovery env with a callable builtin (`car`), a callable operator (`+`), and a
+ *  non-callable value (`flows`). Σ sources boundSymbols()/isCallable() from this via makeOracleEnv. */
+function sigmaEnv(): Environment {
+  const fn = (x: unknown): unknown => x;
+  return new Environment(
+    "sigma-test",
+    {
+      car: fn as unknown as EnvironmentValue,
+      "+": fn as unknown as EnvironmentValue,
+      flows: 42 as unknown as EnvironmentValue,
+    },
+    null,
+  );
+}
+
+describe("oracle Layer-Σ — graceful degradation when no env is injected", () => {
+  it("makeOracle() (no env) keeps Σ null on every shape — identical to the Layer-S scanner", () => {
+    const oracle = makeOracle();
+    for (const prefix of ["", "(", "(car ", "(let ((x 1)) (+ x ", "'(a "]) {
+      expect(oracle.analyze(prefix).validSymbols(), `Σ @ ${JSON.stringify(prefix)}`).toBeNull();
+    }
+  });
+});
+
+describe("oracle Layer-Σ — env-backed validSymbols (live when an env is given)", () => {
+  it("an env-bound builtin (car) appears at OPERATOR position; a non-callable (flows) does not", () => {
+    const oracle = makeOracle(sigmaEnv());
+    const st = oracle.analyze("(");
+    expect(st.position).toBe("operator");
+    const valid = st.validSymbols();
+    expect(valid).not.toBeNull();
+    expect(valid!.has("car")).toBe(true); // callable ⇒ legal operator
+    expect(valid!.has("+")).toBe(true);
+    expect(valid!.has("flows")).toBe(false); // non-callable ⇒ illegal operator head
+  });
+
+  it("at ARGUMENT position any bound symbol is valid (callable or not)", () => {
+    const oracle = makeOracle(sigmaEnv());
+    const valid = oracle.analyze("(car ").validSymbols();
+    expect(valid).not.toBeNull();
+    expect(valid!.has("flows")).toBe(true); // a value is a fine argument
+    expect(valid!.has("car")).toBe(true);
+  });
+
+  it("a NEVER-bound name is never in the valid set (operator or argument)", () => {
+    const oracle = makeOracle(sigmaEnv());
+    expect(oracle.analyze("(").validSymbols()!.has("nonesuch")).toBe(false);
+    expect(oracle.analyze("(car ").validSymbols()!.has("nonesuch")).toBe(false);
+  });
+
+  it("makeOracleEnv enumerates the parent chain and resolves nearest-binding callability", () => {
+    const root = new Environment("root", { car: ((x: unknown) => x) as unknown as EnvironmentValue }, null);
+    const child = root.inherit("child", { y: 7 as unknown as EnvironmentValue });
+    const oe = makeOracleEnv(child);
+    expect(oe.boundSymbols().has("car")).toBe(true); // inherited from parent
+    expect(oe.boundSymbols().has("y")).toBe(true); // own frame
+    expect(oe.isCallable("car")).toBe(true);
+    expect(oe.isCallable("y")).toBe(false);
+  });
+});
+
+describe("oracle Layer-Σ — lexical scope: a let-bound name is in scope inside BODY, absent outside", () => {
+  it("in (let ((x …)) BODY), x ∈ validSymbols() inside BODY", () => {
+    const oracle = makeOracle(sigmaEnv());
+    const inBody = oracle.analyze("(let ((x 1)) (+ x ").validSymbols();
+    expect(inBody).not.toBeNull();
+    expect(inBody!.has("x")).toBe(true);
+  });
+
+  it("x ∉ validSymbols() once the let form has CLOSED (outside its body)", () => {
+    const oracle = makeOracle(sigmaEnv());
+    const outside = oracle.analyze("(let ((x 1)) (+ x)) (+ ").validSymbols();
+    expect(outside).not.toBeNull();
+    expect(outside!.has("x")).toBe(false);
+  });
+
+  it("a lambda parameter is in scope inside the lambda body", () => {
+    const oracle = makeOracle(sigmaEnv());
+    const st = oracle.analyze("(lambda (y) (+ y ").validSymbols();
+    expect(st!.has("y")).toBe(true);
+  });
+
+  it("a curried define binds the function name AND its parameters in the body", () => {
+    const oracle = makeOracle(sigmaEnv());
+    const st = oracle.analyze("(define (f a b) (+ a ").validSymbols();
+    expect(st!.has("f")).toBe(true);
+    expect(st!.has("a")).toBe(true);
+    expect(st!.has("b")).toBe(true);
+  });
+
+  it("a top-level (define name …) is visible to following sibling forms", () => {
+    const oracle = makeOracle(sigmaEnv());
+    const st = oracle.analyze("(define foo 1) (+ foo ").validSymbols();
+    expect(st!.has("foo")).toBe(true);
+  });
+
+  it("inside a quote, Σ is disabled (quoted data may name any symbol)", () => {
+    const oracle = makeOracle(sigmaEnv());
+    expect(oracle.analyze("'(a ").validSymbols()).toBeNull();
+    expect(oracle.analyze("(quote (a ").validSymbols()).toBeNull();
+  });
+
+  it("at TOP level Σ is null (a free-standing datum head is unconstrained by the bound set)", () => {
+    const oracle = makeOracle(sigmaEnv());
+    expect(oracle.analyze("").validSymbols()).toBeNull();
+    expect(oracle.analyze("(a) ").validSymbols()).toBeNull();
   });
 });

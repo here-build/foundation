@@ -21,15 +21,33 @@ export type {
   TypeTag,
 } from "./contract.js";
 
-export { scan, structuralScanner, validNextClasses } from "./scanner.js";
+export { scan, structuralScanner, makeSigmaScanner, validNextClasses } from "./scanner.js";
+export { computeValidSymbols, scanScope } from "./sigma.js";
+export type { OracleEnvΣ, ScopeState } from "./sigma.js";
+export { makeOracleEnv } from "./env.js";
 
-import { structuralScanner } from "./scanner.js";
+import { structuralScanner, makeSigmaScanner } from "./scanner.js";
+import { makeOracleEnv } from "./env.js";
 import type { OracleScanner } from "./contract.js";
+import type { OracleEnvΣ } from "./sigma.js";
+import type { Environment } from "../Environment.js";
 
 /**
- * The assembled Layer-S oracle. Today this is the structural scanner; as O2/O3 land they wrap this
- * with Σ/T refinement behind the same `OracleScanner` surface, so consumers never change.
+ * The assembled oracle. Given an `env` (a live {@link Environment} or a pre-built {@link OracleEnvΣ})
+ * it is Σ-LIVE: `validSymbols()` returns the position-filtered bound set. Given nothing it is the
+ * Layer-S structural scanner — Σ/T degrade to null/true per the contract (graceful degradation).
+ *
+ * This preserves the existing contract: `makeOracle()` with no argument is byte-identical to the
+ * Layer-S scanner; Σ attaches only when an env is supplied, and T (O3) lands behind the same surface.
  */
-export function makeOracle(): OracleScanner {
-  return structuralScanner;
+export function makeOracle(env?: Environment | OracleEnvΣ): OracleScanner {
+  if (!env) return structuralScanner;
+  const oracleEnv: OracleEnvΣ = isOracleEnv(env) ? env : makeOracleEnv(env);
+  return makeSigmaScanner(oracleEnv);
+}
+
+/** Discriminate a pre-built {@link OracleEnvΣ} from a raw {@link Environment} (which has no
+ *  `boundSymbols`/`isCallable` methods). */
+function isOracleEnv(env: Environment | OracleEnvΣ): env is OracleEnvΣ {
+  return typeof (env as OracleEnvΣ).boundSymbols === "function" && typeof (env as OracleEnvΣ).isCallable === "function";
 }
