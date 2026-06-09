@@ -56,19 +56,19 @@ const HANGING_SPECS: Record<string, string> = {
  * skipped file are temporarily dormant — recovered at re-baseline.
  */
 const FAILING_SPECS: Record<string, string> = {
-  "dynamic.scm": "AUDIT(W0): Unbound variable `x` in dynamic-wind/scope tests — source gap, sibling-owned",
-  "env.scm": "AUDIT(W0): environment-introspection assertion failure — source gap, sibling-owned",
-  "formatter.scm": "AUDIT(W0): formatter/repr output mismatches (8 cases) — source gap, sibling-owned",
-  "list.scm": "AUDIT(W0): list-primitive assertion failures (2 cases) — source gap, sibling-owned",
-  "macroexpand.scm": "AUDIT(W0): uses AVA-only `t.snapshot` (no vitest equivalent) + macroexpand gaps",
-  "numbers.scm": "AUDIT(W0): numeric tower failures (10 cases, e.g. Unbound `i`) — numeric.ts/source, sibling-owned",
-  "parametrize.scm": "AUDIT(W0): `Unknown parameter location` — make-parameter/parameterize source gap, sibling-owned",
-  "parent.frames.scm": "AUDIT(W0): `cadr` on nil in parent-frame walk — source gap, sibling-owned",
-  "quotation.scm": "AUDIT(W0): `unquote-splicing: invalid context` (21 cases) — quasiquote engine, sibling-owned",
-  "scope.scm": "AUDIT(W0): lexical-scope assertion failures (4 cases) — source gap, sibling-owned",
-  "std.scm": "AUDIT(W0): `vector-map: expected vector, got object` (9 cases) — bridge/stdlib, sibling-owned",
-  "strings.scm": "AUDIT(W0): string-primitive assertion failures (2 cases) — source gap, sibling-owned",
-  "syntax-parameters.scm": "AUDIT(W0): uses AVA-only `s.__name__` dot-access + syntax-parameterize gaps (8 cases)",
+  "dynamic.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access, same class as chibi 6.5 Symbols) + Unbound `x`, sibling-owned",
+  "env.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access in symbol introspection), sibling-owned",
+  "formatter.scm": "REBASELINE(W2): harness-compat — uses AVA-only `t.snapshot` (no vitest equivalent); needs a harness shim, not a source fix",
+  "list.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access), sibling-owned",
+  "macroexpand.scm": "REBASELINE(W2): harness-compat — uses AVA-only `t.snapshot` (no vitest equivalent); needs a harness shim, not a source fix",
+  "numbers.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` + Unbound `i` in numeric tower (numeric.ts/source), sibling-owned",
+  "parametrize.scm": "REBASELINE(W2): still red — `Unknown parameter location` / `Not callable: object` — make-parameter/parameterize source gap, sibling-owned",
+  "parent.frames.scm": "REBASELINE(W2): still red — `cadr` on nil in parent-frame walk + `reading 'inherit' of undefined` — source gap, sibling-owned",
+  "quotation.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` + `unquote-splicing: invalid context` (quasiquote engine), sibling-owned",
+  "scope.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access), sibling-owned",
+  "std.scm": "REBASELINE(W2): still red — `vector-map: expected vector, got object` + `s.__name__` (bridge/stdlib), sibling-owned",
+  "strings.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access), sibling-owned",
+  "syntax-parameters.scm": "REBASELINE(W2): harness-compat — uses AVA-only `s.__name__` dot-access + syntax-parameterize gaps; needs a harness shim, not a source fix",
 };
 
 const SKIPPED_SPECS: Record<string, string> = { ...HANGING_SPECS, ...FAILING_SPECS };

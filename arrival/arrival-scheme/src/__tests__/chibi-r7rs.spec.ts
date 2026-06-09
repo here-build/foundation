@@ -126,10 +126,6 @@ const EXPECTED_FAILURES: { pattern: string | RegExp; reason: string }[] = [
   // Macro engine gaps — pre-L1, separate from AValue work.
   // -----------------------------------------------------------------------
   {
-    pattern: /\(case .* => \(lambda/,
-    reason: "case clauses don't support `=>` continuation (evalCase in evaluator.ts) — pre-L1 gap",
-  },
-  {
     pattern: "(let-syntax",
     reason: "let-syntax + nested syntax-rules don't bind cleanly — pre-L1 macro engine gap",
   },
@@ -162,35 +158,6 @@ const EXPECTED_FAILURES: { pattern: string | RegExp; reason: string }[] = [
   {
     pattern: /symbol->string|string->symbol/,
     reason: "bootstrap.ts uses JS dot-access (s.__name__, lips.SchemeSymbol) that no longer resolves — pre-L1",
-  },
-  // -----------------------------------------------------------------------
-  // 6.11 Exceptions — `error` is registered as an R6RS-style special form
-  // in evaluator.ts (`(error who message . irritants)`) which shadows the
-  // bootstrap R7RS definition (`(error message . irritants)`). The wrong-
-  // arity dispatch produces `Error("BOOM!: 1")` instead of a R7RSError
-  // carrying message+irritants. Fix is to delete the special form and let
-  // bootstrap own `error`; pre-L1, scope of L1 doesn't cover it.
-  // -----------------------------------------------------------------------
-  {
-    // Test names render without string quotes — `(error "BOOM!" 1 2 3)` -> `(error BOOM! 1 2 3)`.
-    pattern: "(error BOOM! 1 2 3)",
-    reason: "evalError special form shadows R7RS-style bootstrap `error` — pre-L1",
-  },
-  // -----------------------------------------------------------------------
-  // 6.11 Exceptions — `(error …)` raised inside `guard` throws
-  // `SchemeError: R7RSError is not defined`: the runtime's error/raise path
-  // references an `R7RSError` constructor that isn't in scope, so the
-  // condition object the guard clause inspects never materializes. Surfaced
-  // by un-stubbing the suite (W0). Source-side fix (not in this test file);
-  // marked expected until a sibling source agent lands it.
-  // -----------------------------------------------------------------------
-  {
-    pattern: "(file-error? (guard (exn (else exn)) (error BOOM!))",
-    reason: "AUDIT: `error` inside guard throws `R7RSError is not defined` — runtime raise path references an unbound constructor (lips.ts/bridge error machinery)",
-  },
-  {
-    pattern: "(test-exception-handler-2 -1)",
-    reason: "AUDIT: with-exception-handler + raise path throws `R7RSError is not defined` — same unbound constructor as the (error …)-in-guard case",
   },
 ];
 
