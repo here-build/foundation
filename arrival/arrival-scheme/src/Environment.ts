@@ -129,6 +129,14 @@ export class Environment {
   };
   __docs__: Map<string | symbol, string> = new Map();
   __resolvers__: FallbackResolver[] = [];
+  /**
+   * Harvest surface for the type-lens: the TS signature string each rosetta was
+   * registered with (`defineRosetta(name, { type })`). Inert at runtime; read only
+   * by `arrival-chain`'s rosetta-type harvester to assemble the `ArrShape` leaf.
+   * Keyed by the registered name; populated on each `defineRosetta` that carries a
+   * `type`. Local to the env the rosetta was defined on (not chained).
+   */
+  __rosettaTypes__: Map<string, string> = new Map();
 
   // -------------------------------------------------------------------------
   // :: Fallback Resolver Management
@@ -281,6 +289,7 @@ export class Environment {
   defineRosetta(name: string, config: RosettaFunction): void {
     const wrapper = createRosettaWrapper(config);
     this.set(name, wrapper);
+    if (config.type !== undefined) this.__rosettaTypes__.set(name, config.type);
   }
 
   list(): (string | symbol)[] {

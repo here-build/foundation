@@ -60,6 +60,19 @@ export interface RosettaFunction {
    * and appends `ctx` at call time. Off by default — back-compat.
    */
   withContext?: boolean;
+  /**
+   * The rosetta's TS signature, as an ambient `.d.ts` member-body fragment — e.g.
+   * `"(ip: SchemeIP): SBool"` or `"(): List<Connection>"`. INERT at runtime (this
+   * module never reads it; `arrival-scheme` has no TS compiler). It is harvested
+   * by the node-only type-lens, which assembles `interface ArrShape { "<name>":
+   * <type> }` leaves from every registered rosetta's `type` — so the type knowledge
+   * lives WITH the rosetta (colocated with `fn`), not in a parallel `.d.ts` that
+   * drifts. Same trust model as the builtin leaves: a faithful AUTHOR ASSERTION
+   * over the `any` impl, checkable by eye, not mechanically derived from `fn`.
+   * Base types (`List`, `SNum`, `SBool`, `SStr`, `Dict`) come from the lens prelude;
+   * host entity types (`SchemeIP`, row shapes) come from the env's type-preamble.
+   */
+  type?: string;
 }
 
 /**
