@@ -5,6 +5,10 @@ import { applyFantasyLandPatches } from "./fantasy-land-lips.js";
 export * from "./lips.js";
 export * from "./safe_builtins.js";
 export { sandboxedEnv as sandboxedEnv } from "./sandbox-env.js";
+// Sandbox-boundary sealing — `@arrival.private` (+ the underlying markAsSandboxBoundary), the
+// correct, exported way to mark a host class opaque to Scheme. Previously unexported, which forced
+// consumers to forge the wrong (registry-global, forgeable) boundary symbol — see the decorator doc.
+export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "./sandbox-boundary.js";
 export {
   lipsToJs as lipsToJs,
   jsToLips as jsToLips,

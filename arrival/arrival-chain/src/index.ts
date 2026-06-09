@@ -78,6 +78,9 @@ export {
 // values (Pair / cons cells captured in trace.Invocation.value) into plain JS
 // without taking a direct dep on arrival-scheme.
 export { lipsToJs } from "@here.build/arrival-scheme";
+// `@arrival.private` — seal a host class opaque to Scheme (re-exported so `@here.build/arrival`
+// consumers like sift can brand entities with the correct boundary symbol, not the forgeable hack).
+export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
 export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
 // Data-effect host capability — the membrane `(http/*)` / `(sql/query)` cross.

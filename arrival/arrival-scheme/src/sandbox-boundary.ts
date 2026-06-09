@@ -253,6 +253,28 @@ export function markAsSandboxBoundary(target: object | Function): void {
 }
 
 /**
+ * `@arrival.private` — the declarative way to seal a host class as a sandbox boundary, so Scheme
+ * cannot reach its prototype members (`(:field x)` / `(@ x :field)` return nil). Wraps
+ * {@link markAsSandboxBoundary}, which uses the MODULE-PRIVATE boundary symbol — the only correct
+ * one. (Do NOT brand with `Symbol.for("scheme:sandbox-boundary")`: that registry-global symbol is
+ * a DIFFERENT symbol the boundary check never reads, and is forgeable from sandbox code. That hack
+ * — used because this function wasn't exported — silently failed to seal anything.)
+ *
+ * Usable as a TC39/legacy class decorator OR a plain call (both supported; the call form matches
+ * the existing `seal(Cls)` style and needs no decorator tsconfig):
+ *
+ *   @arrival.private class Ip { #bytes; get bytes() { … } }   // decorator
+ *   arrival.private(Ip)                                        // equivalent call
+ */
+export function markSandboxPrivate<T extends Function>(target: T, _context?: unknown): T {
+  markAsSandboxBoundary(target);
+  return target;
+}
+
+/** The `arrival` namespace surface for the decorator ergonomic — `@arrival.private`. */
+export const arrival = { private: markSandboxPrivate };
+
+/**
  * Add a custom blocked property name.
  */
 export function blockPropertyName(name: string): void {
