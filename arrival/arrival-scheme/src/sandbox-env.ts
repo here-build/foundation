@@ -147,7 +147,12 @@ async function asyncFLReduce(fn: Function, init: any, structure: any): Promise<a
 // future wrappedOps additions could re-expose other escape vectors. The set
 // below is the canonical block list — each entry's specific escape vector
 // is documented inline.
-const FORBIDDEN_IN_SANDBOX = new Set([
+// The SINGLE, enforced block list (S8-CORE unification). Exported so the public
+// sandbox entry point (sandbox.ts via modules/pure-scheme.ts) re-exports THIS
+// Set rather than maintaining a parallel advisory array that nothing consulted.
+// Adding/removing a name here is the one lever that changes what the sandbox
+// strips from `wrappedOps`.
+export const FORBIDDEN_IN_SANDBOX = new Set([
   // The primary escape vector this fix closes. With `env || lipsGlobalEnv`
   // fallback, `(eval (quote name))` reaches any global LIPS binding —
   // including `+`, `load`, `set-obj!`, the whole surface. Eval-with-explicit-

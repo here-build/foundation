@@ -1,295 +1,64 @@
 /**
  * Pure Scheme Module
  *
- * Provides a minimal, sandboxed Scheme environment with:
- * - Core primitives (car, cdr, cons, list)
- * - Arithmetic operations
- * - Predicates and comparisons
- * - List operations (map, filter, fold)
- * - Core special forms (if, lambda, define, let, cond)
+ * Builds a minimal Scheme environment module from the SINGLE unified allowlist
+ * (`SAFE_BUILTINS`, ../safe_builtins.ts) — the same list that drives the
+ * production `sandboxedEnv` (../sandbox-env.ts). This is the auto-load base
+ * `Environment.fromModules` uses for general callers.
  *
- * No I/O, no JavaScript interop, no side effects beyond local mutation.
+ * ============================================================================
+ * UNIFICATION (S8-CORE, 2026-06-09)
+ * ============================================================================
+ * The audit found two divergent allowlists. This module used to own a SECOND,
+ * hand-maintained `PURE_SCHEME_BINDINGS` array plus a dead, ADVISORY
+ * `FORBIDDEN_IN_SANDBOX` array that nothing consulted. Both are gone:
+ *
+ *   • The allowlist is now `SAFE_BUILTINS` (one list). `createPureSchemeModule`
+ *     projects exactly those names off the source env.
+ *   • `FORBIDDEN_IN_SANDBOX` (the ENFORCED Set) and `PURE_SCHEME_BINDINGS` (now
+ *     DERIVED from the live `sandboxedEnv` surface) are exported from
+ *     ../sandbox.ts, which can safely import ../sandbox-env.ts (it is a leaf,
+ *     outside the Environment↔pure-scheme module cycle). Re-exporting them from
+ *     HERE would pull the heavy sandbox-env graph into that cycle and break
+ *     class initialization — so they live next to `createSandbox` instead.
+ *
+ * The SANDBOX itself has one source of truth: `sandboxedEnv`. `createSandbox`
+ * projects it directly (see ../sandbox.ts); this module is the general-purpose
+ * base for non-sandbox `fromModules` callers, sharing the same allowlist.
  */
 
 import type { EnvironmentModule, FallbackResolver } from "../bindings.js";
 import { BOOTSTRAP_SCHEME } from "../bootstrap.js";
 import { nil, type SchemeValue } from "../types.js";
+import { SAFE_BUILTINS } from "../safe_builtins.js";
 
 /**
- * List of pure Scheme binding names.
- * These are the core R7RS-like bindings without any I/O or JS interop.
+ * The unified allowlist of names a pure Scheme base may expose. There is no
+ * second list: this is `SAFE_BUILTINS`, the same array `sandboxedEnv` is built
+ * from. `nil` (a constant, not in any source env) is always added on top.
  */
-export const PURE_SCHEME_BINDINGS = [
-  // Core constants
-  "nil",
-
-  // Core primitives
-  "cons",
-  "car",
-  "cdr",
-  "list",
-  "length",
-  "append",
-  "reverse",
-  "list-ref",
-  "list-tail",
-  "list-copy",
-  "make-list",
-  "caar",
-  "cadr",
-  "cdar",
-  "cddr",
-  "caaar",
-  "caadr",
-  "cadar",
-  "caddr",
-  "cdaar",
-  "cdadr",
-  "cddar",
-  "cdddr",
-
-  // Predicates
-  "pair?",
-  "null?",
-  "list?",
-  "boolean?",
-  "symbol?",
-  "number?",
-  "string?",
-  "char?",
-  "vector?",
-  "procedure?",
-  "eq?",
-  "eqv?",
-  "equal?",
-  "zero?",
-  "positive?",
-  "negative?",
-  "odd?",
-  "even?",
-  "exact?",
-  "inexact?",
-  "integer?",
-  "real?",
-  "rational?",
-  "complex?",
-
-  // Arithmetic
-  "+",
-  "-",
-  "*",
-  "/",
-  "modulo",
-  "remainder",
-  "quotient",
-  "abs",
-  "floor",
-  "ceiling",
-  "truncate",
-  "round",
-  "min",
-  "max",
-  "gcd",
-  "lcm",
-  "expt",
-  "sqrt",
-  "exp",
-  "log",
-  "sin",
-  "cos",
-  "tan",
-  "asin",
-  "acos",
-  "atan",
-  "exact->inexact",
-  "inexact->exact",
-  "number->string",
-  "string->number",
-
-  // Comparisons
-  "=",
-  "<",
-  ">",
-  "<=",
-  ">=",
-
-  // Logic
-  "not",
-  "and",
-  "or",
-
-  // Higher-order
-  "map",
-  "for-each",
-  "filter",
-  "apply",
-  "fold-left",
-  "fold-right",
-  "memq",
-  "memv",
-  "member",
-  "assq",
-  "assv",
-  "assoc",
-
-  // Vector operations
-  "vector",
-  "make-vector",
-  "vector-length",
-  "vector-ref",
-  "vector-set!",
-  "vector->list",
-  "list->vector",
-  "vector-map",
-  "vector-for-each",
-  "vector-copy",
-  "vector-copy!",
-  "vector-fill!",
-
-  // String operations (pure, no I/O)
-  "string",
-  "make-string",
-  "string-length",
-  "string-ref",
-  "string-set!",
-  "string-append",
-  "substring",
-  "string->list",
-  "list->string",
-  "string=?",
-  "string<?",
-  "string>?",
-  "string<=?",
-  "string>=?",
-  "string-ci=?",
-  "string-ci<?",
-  "string-ci>?",
-  "string-ci<=?",
-  "string-ci>=?",
-  "string-upcase",
-  "string-downcase",
-  "string-foldcase",
-  "string-map",
-  "string-for-each",
-
-  // Character operations
-  "char->integer",
-  "integer->char",
-  "char=?",
-  "char<?",
-  "char>?",
-  "char<=?",
-  "char>=?",
-  "char-ci=?",
-  "char-ci<?",
-  "char-ci>?",
-  "char-ci<=?",
-  "char-ci>=?",
-  "char-alphabetic?",
-  "char-numeric?",
-  "char-whitespace?",
-  "char-upper-case?",
-  "char-lower-case?",
-  "char-upcase",
-  "char-downcase",
-  "char-foldcase",
-
-  // Symbol operations
-  "symbol->string",
-  "string->symbol",
-  "symbol=?",
-
-  // Control flow / special forms (these are macros/syntax)
-  "if",
-  "cond",
-  "case",
-  "and",
-  "or",
-  "when",
-  "unless",
-  "let",
-  "let*",
-  "letrec",
-  "letrec*",
-  "let-values",
-  "let*-values",
-  "begin",
-  "do",
-  "lambda",
-  "define",
-  "set!",
-  "quote",
-  "quasiquote",
-  "unquote",
-  "unquote-splicing",
-  "define-values",
-
-  // Delayed evaluation
-  "delay",
-  "force",
-  "delay-force",
-  "make-promise",
-  "promise?",
-
-  // Multiple values
-  "values",
-  "call-with-values",
-
-  // Exceptions (pure part - no I/O)
-  "error",
-  "raise",
-  "raise-continuable",
-  "with-exception-handler",
-  "guard",
-
-  // Continuations
-  "call-with-current-continuation",
-  "call/cc",
-  "dynamic-wind",
-
-  // ============================================================================
-  // INTENTIONALLY OMITTED: `eval`
-  // ============================================================================
-  // War story (2026-05-28 audit): `bridge.ts:1342` implements `eval(expr, env?)`
-  // as `evaluate(expr, { env: env || lipsGlobalEnv })`. When sandbox code calls
-  // `(eval x)` with no second argument, `env` is `undefined`, so eval falls
-  // back to `lipsGlobalEnv` — the FULLY UNSANDBOXED global env containing every
-  // wrappedOp (`set-obj!`, `new`, `instanceof`, `load`, the whole LIPS surface).
-  // `(eval (quote +))` returns the unwrapped JS function; `(eval (quote set-obj!))`
-  // hands the sandbox arbitrary host-property-write capability.
-  //
-  // Forbidding `eval` here is the correct fix — eval-with-an-env still works
-  // for non-sandbox callers (eval stays in lipsGlobalEnv), but the sandbox
-  // resolver can never hand it to user code. A "fix eval to default to
-  // caller env" alternative would require threading caller context through
-  // every JS-callable, which is what removing it from the sandbox sidesteps.
-  // ============================================================================
-
-  // Type conversion
-  "list->array",
-  "array->list",
-] as const;
+export const PURE_SCHEME_ALLOWLIST: readonly string[] = SAFE_BUILTINS;
 
 /**
- * Create a resolver that pulls pure Scheme bindings from a source environment.
- * This is used to create a sandbox from an existing fully-loaded environment.
+ * Create a resolver that pulls the allowlisted Scheme bindings from a source
+ * environment. Used to create a pure base from an existing loaded environment.
  */
 export function createPureSchemeResolver(sourceEnv: {
   get(name: string, opts?: { throwError?: boolean }): SchemeValue | undefined;
 }): FallbackResolver {
+  const allow = new Set<string>(SAFE_BUILTINS);
   return {
     id: "pure-scheme",
     resolve(name: string): SchemeValue | undefined {
-      if (PURE_SCHEME_BINDINGS.includes(name as (typeof PURE_SCHEME_BINDINGS)[number])) {
-        return sourceEnv.get(name, { throwError: false });
-      }
-      return undefined;
+      if (name === "nil") return nil;
+      return allow.has(name) ? sourceEnv.get(name, { throwError: false }) : undefined;
     },
   };
 }
 
 /**
- * Create a pure Scheme module that pulls bindings from a source environment.
+ * Create a pure Scheme module that pulls allowlisted bindings from a source
+ * environment.
  *
  * @example
  * ```typescript
@@ -301,14 +70,13 @@ export function createPureSchemeResolver(sourceEnv: {
 export function createPureSchemeModule(sourceEnv: {
   get(name: string, opts?: { throwError?: boolean }): unknown;
 }): EnvironmentModule {
-  // Pre-populate bindings from source environment
   const bindings: Record<string, SchemeValue> = {
-    // nil is a constant, not in global_env
+    // nil is a constant, not in source env.
     nil,
   };
 
-  for (const name of PURE_SCHEME_BINDINGS) {
-    if (name === "nil") continue; // Already added above
+  for (const name of SAFE_BUILTINS) {
+    if (name === "nil") continue;
     const value = sourceEnv.get(name, { throwError: false });
     if (value !== undefined) {
       bindings[name] = value as SchemeValue;
@@ -321,56 +89,3 @@ export function createPureSchemeModule(sourceEnv: {
     bootstrap: BOOTSTRAP_SCHEME,
   };
 }
-
-/**
- * Names that should NOT be available in a pure sandbox.
- * Used for validation/security auditing.
- */
-export const FORBIDDEN_IN_SANDBOX = [
-  // I/O
-  "read",
-  "write",
-  "display",
-  "newline",
-  "print",
-  "read-char",
-  "write-char",
-  "peek-char",
-  "read-line",
-  "read-string",
-  "open-input-file",
-  "open-output-file",
-  "close-input-port",
-  "close-output-port",
-  "current-input-port",
-  "current-output-port",
-  "current-error-port",
-  "call-with-input-file",
-  "call-with-output-file",
-  "with-input-from-file",
-  "with-output-to-file",
-  "load",
-  "include",
-  "include-ci",
-
-  // System
-  "exit",
-  "emergency-exit",
-  "command-line",
-  "get-environment-variable",
-  "get-environment-variables",
-
-  // JavaScript interop
-  "-->",
-  "..",
-  "new",
-  "instanceof",
-  "typeof",
-  "set-obj!",
-  "get-obj",
-
-  // LIPS-specific I/O
-  "timer",
-  "promisify",
-  "fetch",
-] as const;

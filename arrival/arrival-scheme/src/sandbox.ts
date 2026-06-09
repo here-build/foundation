@@ -4,6 +4,12 @@
  * A minimal entry point for creating sandboxed Scheme environments.
  * Use packs to add capabilities - only imported packs are bundled.
  *
+ * UNIFICATION (S8-CORE, 2026-06-09): `createSandbox` and the production
+ * `sandboxedEnv` (../sandbox-env.ts, used by arrival-chain/mcp) now share ONE
+ * binding set. The auto-loaded `pure-scheme` base module (modules/pure-scheme.ts)
+ * projects `sandboxedEnv.__env__`, so the discovery surface here is exactly the
+ * surface production runs — the prerequisite for the oracle's Σ layer (O2).
+ *
  * @example
  * ```typescript
  * import { createSandbox } from '@here.build/arrival-scheme/sandbox';
@@ -18,12 +24,60 @@
  */
 
 import type { EnvironmentModule } from "./bindings.js";
+import type { SchemeValue } from "./types.js";
 import { Environment } from "./Environment.js";
+import { sandboxedEnv, FORBIDDEN_IN_SANDBOX } from "./sandbox-env.js";
+import { nil } from "./types.js";
 
 // Re-export types needed for sandbox usage
 export { Environment as Environment } from "./Environment.js";
 export type { EnvironmentModule as EnvironmentModule, FallbackResolver as FallbackResolver } from "./bindings.js";
 export type { SchemeValue as SchemeValue } from "./types.js";
+
+/**
+ * The SINGLE enforced block list — re-exported from the production sandbox
+ * (sandbox-env.ts). One Set decides what a sandbox may NOT see; the old
+ * advisory array in modules/pure-scheme.ts is gone.
+ */
+export { FORBIDDEN_IN_SANDBOX as FORBIDDEN_IN_SANDBOX };
+
+/**
+ * The names a sandbox exposes, DERIVED from the production `sandboxedEnv` — the
+ * single source of truth both entry points share. Read lazily (getter) so it
+ * reflects the live surface, including bootstrap-injected extras (threading
+ * macros, SRFI-1 helpers) that land on `sandboxedEnv` after construction.
+ *
+ * Exposed via a Proxy so the historical array surface (`.includes`, `.length`,
+ * indexing, `.toContain`) keeps working with no second list to drift.
+ */
+export const PURE_SCHEME_BINDINGS: readonly string[] = new Proxy([] as string[], {
+  get(_t, prop, receiver) {
+    const snapshot = Object.keys(sandboxedEnv.__env__);
+    const value = Reflect.get(snapshot, prop, receiver);
+    return typeof value === "function" ? value.bind(snapshot) : value;
+  },
+  has(_t, prop) {
+    return Reflect.has(Object.keys(sandboxedEnv.__env__), prop);
+  },
+  ownKeys() {
+    return Reflect.ownKeys(Object.keys(sandboxedEnv.__env__));
+  },
+  getOwnPropertyDescriptor(_t, prop) {
+    return Reflect.getOwnPropertyDescriptor(Object.keys(sandboxedEnv.__env__), prop);
+  },
+});
+
+/**
+ * Build the base module a sandbox runs on, projected from the SINGLE source of
+ * truth (`sandboxedEnv`). Id is `"pure-scheme"` so `Environment.fromModules`
+ * auto-load dedup is suppressed and the env-chain naming contract holds.
+ */
+function sandboxBaseModule(): EnvironmentModule {
+  return {
+    id: "pure-scheme",
+    bindings: { ...(sandboxedEnv.__env__ as Record<string, SchemeValue>), nil },
+  };
+}
 
 /**
  * Options for creating a sandbox environment.
@@ -80,7 +134,11 @@ export async function createSandbox(options: SandboxOptions = {}): Promise<Envir
   // Dynamically import the main module to ensure full initialization
   await import("./index.js");
 
-  const modules: EnvironmentModule[] = [];
+  // The base is the production `sandboxedEnv` surface — ONE construction path,
+  // ONE binding set shared with arrival-chain/mcp. We pass it explicitly (id
+  // "pure-scheme") so `fromModules` does NOT auto-load the divergent
+  // global-env-sourced base.
+  const modules: EnvironmentModule[] = [sandboxBaseModule()];
 
   // Add packs
   if (options.packs) {
@@ -93,15 +151,5 @@ export async function createSandbox(options: SandboxOptions = {}): Promise<Envir
     bindings: (options.bindings ?? {}) as Record<string, never>,
   });
 
-  // Create environment with auto-loaded pure scheme as base
   return Environment.fromModules(modules);
 }
-
-/**
- * List of all pure Scheme bindings available in sandboxes.
- * Re-exported for documentation and validation purposes.
- */
-export {
-  PURE_SCHEME_BINDINGS as PURE_SCHEME_BINDINGS,
-  FORBIDDEN_IN_SANDBOX as FORBIDDEN_IN_SANDBOX,
-} from "./modules/pure-scheme.js";
