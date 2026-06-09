@@ -56,20 +56,38 @@ const HANGING_SPECS: Record<string, string> = {
  * green) as the underlying source fix lands. A few passing tests inside a
  * skipped file are temporarily dormant — recovered at re-baseline.
  */
+// W6 (2026-06-09): the `s.__name__` blocker is FIXED at root — `symbol->string`
+// in bootstrap.ts no longer uses the broken `obj.prop` reader sugar (it uses the
+// explicit `(. s '__name__)` accessor). That sugar resolved a symbol literally
+// named "s.__name__" and reached the trampoline evaluator's `env_get`, which calls
+// `_lookupWithResolvers` directly and (unlike `Environment.get`) does NOT split
+// dot-notation/gensym-object refs → `Unbound variable s.__name__`. Fixing it
+// UNMASKED a deeper, distinct blocker behind every one of these specs:
+//
+//   DOMINANT (≥6 specs): `--> … is not a function` / `Unbound variable #:obj`.
+//   The `-->` / `t.is` harness macros expand to `(. ,gensym 'method)`; evaluating
+//   the gensym arg goes through the SAME `env_get` → `_lookupWithResolvers` path,
+//   which cannot resolve a macro-hygiene gensym (`#:obj`) the way `Environment.get`
+//   does (it honors `SchemeSymbol.object` + dot-splitting at Environment.ts:495-512;
+//   `_lookupWithResolvers` at Environment.ts:383-399 does not). Root fix is in the
+//   FENCED `src/evaluator.ts` `env_get` (line 635-646): route gensym/dot-notation
+//   symbols through `Environment.get` instead of bare `_lookupWithResolvers`.
+//   Until that lands, the AVA-shaped `t.is`/`pass`/`fail`/`commit` harness cannot
+//   run, so NO harness shim in helpers.scm can green these specs.
 const FAILING_SPECS: Record<string, string> = {
-  "dynamic.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access, same class as chibi 6.5 Symbols) + Unbound `x`, sibling-owned",
-  "env.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access in symbol introspection), sibling-owned",
-  "formatter.scm": "REBASELINE(W2): harness-compat — uses AVA-only `t.snapshot` (no vitest equivalent); needs a harness shim, not a source fix",
-  "list.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access), sibling-owned",
-  "macroexpand.scm": "REBASELINE(W2): harness-compat — uses AVA-only `t.snapshot` (no vitest equivalent); needs a harness shim, not a source fix",
-  "numbers.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` + Unbound `i` in numeric tower (numeric.ts/source), sibling-owned",
-  "parametrize.scm": "REBASELINE(W2): still red — `Unknown parameter location` / `Not callable: object` — make-parameter/parameterize source gap, sibling-owned",
-  "parent.frames.scm": "REBASELINE(W2): still red — `cadr` on nil in parent-frame walk + `reading 'inherit' of undefined` — source gap, sibling-owned",
-  "quotation.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` + `unquote-splicing: invalid context` (quasiquote engine), sibling-owned",
-  "scope.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access), sibling-owned",
-  "std.scm": "REBASELINE(W2): still red — `vector-map: expected vector, got object` + `s.__name__` (bridge/stdlib), sibling-owned",
-  "strings.scm": "REBASELINE(W2): still red — `Unbound variable s.__name__` (bootstrap JS dot-access), sibling-owned",
-  "syntax-parameters.scm": "REBASELINE(W2): harness-compat — uses AVA-only `s.__name__` dot-access + syntax-parameterize gaps; needs a harness shim, not a source fix",
+  "dynamic.scm": "REBASELINE(W6): s.__name__ FIXED; now red on `--> is not a function`/`#:obj` (evaluator env_get bypasses Environment.get gensym resolution) + Unbound `x` — FENCED evaluator.ts",
+  "env.scm": "REBASELINE(W6): s.__name__ FIXED; now red on `Unbound variable lips.env.__parent__` (lips.* namespace dot-access) — FENCED lips.ts/evaluator.ts",
+  "formatter.scm": "REBASELINE(W6): harness-compat — uses AVA-only `t.snapshot` (no vitest equivalent); needs a harness shim, not a source fix",
+  "list.scm": "REBASELINE(W6): s.__name__ FIXED; now red on `--> fail is not a function`/`#:obj` (evaluator env_get gensym resolution) — FENCED evaluator.ts",
+  "macroexpand.scm": "REBASELINE(W6): harness-compat — uses AVA-only `t.snapshot` (no vitest equivalent); needs a harness shim, not a source fix",
+  "numbers.scm": "REBASELINE(W6): s.__name__ FIXED; now red on Unbound `i` (numeric tower) + `lips.parse` (lips.* dot-access) — FENCED numeric.ts/lips.ts",
+  "parametrize.scm": "REBASELINE(W6): still red — `Unknown parameter location` / `Not callable: object` — make-parameter/parameterize source gap, sibling-owned",
+  "parent.frames.scm": "REBASELINE(W6): still red — `cadr` on nil in parent-frame walk + `reading 'inherit' of undefined` — source gap, sibling-owned",
+  "quotation.scm": "REBASELINE(W6): s.__name__ FIXED; now red on `unquote-splicing: invalid context` (quasiquote engine) — FENCED evaluator.ts/lips.ts",
+  "scope.scm": "REBASELINE(W6): s.__name__ FIXED; now red on `--> pass/fail is not a function`/`#:obj` (evaluator env_get gensym resolution) — FENCED evaluator.ts",
+  "std.scm": "REBASELINE(W6): s.__name__ FIXED; now red on `vector-map: expected vector, got object` + Unbound `type` (bridge/stdlib) — sibling-owned",
+  "strings.scm": "REBASELINE(W6): s.__name__ FIXED; now red on `--> pass is not a function`/`#:obj` + a string=? comparator mismatch — FENCED evaluator.ts + harness",
+  "syntax-parameters.scm": "REBASELINE(W6): harness-compat — uses AVA-only `t.snapshot`/syntax-parameterize gaps; needs a harness shim, not a source fix",
 };
 
 const SKIPPED_SPECS: Record<string, string> = { ...HANGING_SPECS, ...FAILING_SPECS };

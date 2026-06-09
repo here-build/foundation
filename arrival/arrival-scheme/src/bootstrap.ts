@@ -341,12 +341,17 @@ export const BOOTSTRAP_SCHEME = `
 ;; -----------------------------------------------------------------------------
 (define (symbol->string s)
   (typecheck "symbol->string" s "symbol")
-  (let ((name s.__name__))
-    (let ((str (if (string? name)
-                   name
-                   (name.toString))))
-      (str.freeze)
-      str)))
+  ;; Use the explicit (. obj prop) accessor, NOT the obj.prop reader sugar.
+  ;; The sugar resolves a symbol literally named "s.__name__" and reaches the
+  ;; trampoline evaluator's env_get -> _lookupWithResolvers, which (unlike
+  ;; Environment::get) does not split dot-notation, so the sugar throws
+  ;; "Unbound variable s.__name__". The (. ...) special form goes through the
+  ;; get resolver directly and works. symbol->string is foundational (-->,
+  ;; .., the test harness macros all call it), so this unblocks ~8 lang specs.
+  (let ((name (. s '__name__)))
+    (if (string? name)
+        name
+        ((. name 'toString)))))
 
 (define (%as.data obj)
   (if (object? obj)
