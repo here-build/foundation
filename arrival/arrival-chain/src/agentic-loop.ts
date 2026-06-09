@@ -35,6 +35,10 @@ export interface AgenticTurn {
   text: string;
   toolCalls: ToolCall[];
   reasoning?: string;
+  /** An `(llm …)` entity's observe-only middleware returned `mcp/break` for THIS turn's
+   *  inference (e.g. a budget terminator past a threshold): halt the loop immediately, no
+   *  dispatch. Flow-4 force-halt, but at the inference seam rather than the dispatch seam. */
+  halt?: boolean;
 }
 
 /** The loop's live budget state, handed to the middleware chain as `progress` so a
@@ -49,8 +53,10 @@ export interface AgenticProgress {
  *  unit-testable without an LLM or the MCP transport. The rosetta wiring supplies the
  *  real ones (cached infer over the cell machinery; dispatch over the MCP resolver). */
 export interface AgenticDeps {
-  /** Run ONE tool-enabled inference turn over the running message list. */
-  infer(messages: ChatMessage[]): Promise<AgenticTurn>;
+  /** Run ONE tool-enabled inference turn over the running message list. `progress`
+   *  ({round, maxRounds}) is handed through so an `(llm …)` entity's observe-only middleware
+   *  can read it and `mcp/break` past a budget (surfaced as a turn with `halt: true`). */
+  infer(messages: ChatMessage[], progress: AgenticProgress): Promise<AgenticTurn>;
   /** Dispatch ONE tool call across the MCP membrane (middleware chain + server tape).
    *  `progress` ({round, maxRounds}) is handed to the chain so a budget-terminator
    *  middleware can read it and decide `next` vs `mcp/break`. */
@@ -102,7 +108,12 @@ export async function runAgenticLoop(initial: readonly ChatMessage[], deps: Agen
   const chunks: Chunk[] = [];
   let lastText = "";
   for (let round = 1; round <= maxRounds; round++) {
-    const turn = await deps.infer(messages);
+    const turn = await deps.infer(messages, { round, maxRounds });
+    if (turn.halt) {
+      // An (llm …) middleware broke this turn's inference (e.g. a budget terminator): halt
+      // with the PRIOR assistant text as the final answer (this turn produced none).
+      return { text: lastText, chunks, rounds: round, haltedByBackstop: false, haltedByBreak: true };
+    }
     lastText = turn.text;
     if (turn.reasoning) chunks.push({ kind: "reasoning", text: turn.reasoning });
     if (turn.text) chunks.push({ kind: "text", text: turn.text });

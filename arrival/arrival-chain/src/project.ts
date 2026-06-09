@@ -470,18 +470,39 @@ async function runAgenticInfer(
   infer: InferFn,
   mcpResolve: McpEffectResolver,
   ctx: unknown,
-  model: string,
+  model: unknown,
   messages: ChatMessage[],
   servers: DerivableEntity[],
 ): Promise<InferString> {
   const mcpCtx = ctx as McpEffectContext;
+  // The model may be a bare string or an (llm …) entity. Its observe-only middleware runs
+  // around EACH turn's inference; the chain's return decides break-vs-proceed ONLY — the
+  // loop is always driven by the RAW InferString (a scheme middleware's return round-trips
+  // through lipsToJs, which would demote the InferString and drop its toolCalls; a turn's
+  // response is loop-control, not a value to reshape). So response-transform is ignored in
+  // the agentic context by design; observe + budget/break are the meaningful powers.
+  const { name, middleware } = asLlmModel(model);
   const { tools, serverOf } = await resolveTools(servers, mcpResolve, mcpCtx);
   const result = await runAgenticLoop(messages, {
-    infer: async (msgs) => {
-      const out = await infer(undefined, model, JSON.stringify(msgs), null, null, tools);
-      return out instanceof InferString
-        ? { text: String(out), toolCalls: [...out.__toolCalls__], reasoning: out.__reasoning__ || undefined }
-        : { text: String(out ?? ""), toolCalls: [] };
+    infer: async (msgs, progress) => {
+      // Capture the RAW infer result in a box: a scheme middleware's return round-trips
+      // through lipsToJs (demoting an InferString → bare string, dropping toolCalls), so the
+      // chain return drives break-vs-proceed only — the loop runs on the captured raw value.
+      // (A box, not a flag, so it survives the closure without tripping flow analysis.)
+      const captured: unknown[] = [];
+      const honest = async (): Promise<unknown> => {
+        const v = await infer(undefined, name, JSON.stringify(msgs), null, null, tools);
+        captured.push(v);
+        return v;
+      };
+      const out = await inferThroughChain(honest, middleware, msgs, progress);
+      if (isMcpBreak(out)) return { text: "", toolCalls: [], halt: true };
+      // honest ran ⇒ use the raw InferString (toolCalls intact); a middleware that
+      // short-circuited (never called next) ⇒ its value is a canned, text-only turn.
+      const turn = captured.length > 0 ? captured[0] : out;
+      return turn instanceof InferString
+        ? { text: String(turn), toolCalls: [...turn.__toolCalls__], reasoning: turn.__reasoning__ || undefined }
+        : { text: String(turn ?? ""), toolCalls: [] };
     },
     dispatch: async (call, progress) => {
       const server = serverOf.get(call.name);
@@ -710,11 +731,15 @@ export function buildArrivalEnv(opts: {
     withContext: true,
     options: { provenancePoint: true },
     fn: async (ctx, model, messages, servers) => {
-      const serverVals = (Array.isArray(servers) ? servers : [servers]).filter(isDerivableEntity);
+      // `servers` are tool sources → mcp entities only (an (llm …) is a model, not a server).
+      const serverVals = (Array.isArray(servers) ? servers : [servers])
+        .filter(isDerivableEntity)
+        .filter((s) => s.kind === "mcp");
       // The loop, dispatch, break-handling + trajectory all live in the shared
-      // `runAgenticInfer` (reused by the `.prompt mcp:` proc). `list` wraps the final
+      // `runAgenticInfer` (reused by the `.prompt mcp:` proc). `model` is passed RAW so an
+      // (llm …) entity's observe-only middleware runs per turn; `list` wraps the final
       // InferString the same way `(infer …)` wraps its value.
-      return list(await runAgenticInfer(opts.infer, mcpResolve, ctx, String(model), parseSchemeChatMessages(messages), serverVals));
+      return list(await runAgenticInfer(opts.infer, mcpResolve, ctx, model, parseSchemeChatMessages(messages), serverVals));
     },
   });
   // `(declare/expose …)` — the sealed-skill registration form. Reuses the same

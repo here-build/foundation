@@ -180,3 +180,65 @@ describe("infer/agentic/end-to-end — honest-tools flow (end to end)", () => {
     );
   });
 });
+
+describe("D3 incr 2b — an (llm …) entity as the agentic model (observe-only per turn)", () => {
+  it("a pass-through (llm …) middleware PRESERVES the loop's toolCalls (InferString not demoted)", async () => {
+    // THE correctness test: if a scheme middleware's return drove the loop, turn 1's
+    // InferString would round-trip through lipsToJs, demote to a bare string, and lose its
+    // toolCalls — the loop would finalize on turn 1. Driving on the captured raw InferString
+    // keeps the calls, so the tool turn still dispatches.
+    let turn = 0;
+    const backend: ModelBackend = {
+      async complete(): Promise<Completion> {
+        turn += 1;
+        return turn === 1
+          ? { value: "", toolCalls: [{ id: "c1", name: "ping", arguments: { x: 1 } }] }
+          : { value: "done" };
+      },
+    };
+    const { resolve, effects } = pingResolver();
+    const value = await freshRoot(backend).run(
+      `(car (infer/agentic/end-to-end
+              (derive (llm "mock") :infer (lambda (req next progress) (next req)))
+              (list (list "user" "ping then answer"))
+              (list (mcp "srv"))))`,
+      { mcp: resolve },
+    );
+    expect(value).toBe("done");
+    expect(turn).toBe(2); // tool turn + finalize — the toolCalls survived the middleware
+    expect(effects.map((e) => e.method)).toEqual(["tools/list", "tools/call"]);
+  });
+
+  it("an (llm …) budget middleware reads progress.round and halts the loop (per-inference break)", async () => {
+    let turn = 0;
+    const backend: ModelBackend = {
+      async complete(): Promise<Completion> {
+        turn += 1;
+        return { value: `round ${turn}`, toolCalls: [{ id: "c", name: "ping", arguments: {} }] }; // never stops itself
+      },
+    };
+    const { resolve } = pingResolver();
+    // Break the INFERENCE once round > 2 — before the model is called on round 3.
+    const value = await freshRoot(backend).run(
+      `(car (infer/agentic/end-to-end
+              (derive (llm "mock") :infer
+                (lambda (req next progress) (if (> (@ progress "round") 2) mcp/break (next req))))
+              (list (list "user" "loop"))
+              (list (mcp "srv"))))`,
+      { mcp: resolve },
+    );
+    expect(turn).toBe(2); // rounds 1,2 inferred; round 3 broke before the model call
+    expect(value).toBe("round 2"); // the prior turn's text (the broken round produced none)
+  });
+
+  it("a bare (llm …) model in the agentic verb works (= string model)", async () => {
+    const backend: ModelBackend = { complete: vi.fn(async () => ({ value: "no tools needed" })) };
+    const { resolve, effects } = pingResolver();
+    const value = await freshRoot(backend).run(
+      `(car (infer/agentic/end-to-end (llm "mock") (list (list "user" "answer")) (list (mcp "srv"))))`,
+      { mcp: resolve },
+    );
+    expect(value).toBe("no tools needed");
+    expect(effects.map((e) => e.method)).toEqual(["tools/list"]); // discovery only
+  });
+});
