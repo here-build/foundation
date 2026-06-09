@@ -27,7 +27,11 @@ import invariant from "tiny-invariant";
  * }
  * ```
  */
-export const SANDBOX_BOUNDARY = Symbol.for("scheme:sandbox-boundary");
+// Module-local (NOT Symbol.for): a registry-global symbol is forgeable from
+// sandbox via `(make-symbol ...)` / Symbol.for("scheme:sandbox-boundary"),
+// which would let hostile code stamp its own boundary markers or strip ours.
+// A module-private Symbol is unreachable from outside this module's closure.
+export const SANDBOX_BOUNDARY = Symbol("scheme:sandbox-boundary");
 
 const isProduction: boolean = process.env.NODE_ENV === "production";
 const prefix: string = "Invariant failed";
@@ -263,7 +267,10 @@ export function blockPropertyName(name: string): void {
  * Sentinel value indicating a property was not found.
  * This is distinct from `undefined` (which could be a valid property value).
  */
-export const NOT_FOUND = Symbol.for("scheme:not-found");
+// Module-local (NOT Symbol.for): the not-found sentinel must be unforgeable.
+// If it lived in the global registry, sandbox code could mint the same symbol
+// and inject it as a "real" property value to spoof the NOT_FOUND signal.
+export const NOT_FOUND = Symbol("scheme:not-found");
 
 export type AccessResult<T> = T | typeof NOT_FOUND;
 
@@ -434,8 +441,17 @@ export function sandboxedSet(data: unknown, key: string | symbol, value: unknown
     );
   }
 
-  // Setting always creates/updates an OWN property - safe
-  (data as Record<string | symbol, unknown>)[keyStr] = value;
+  // Bracket assignment (`data[keyStr] = value`) WALKS the prototype chain and
+  // fires inherited setters — so a poisoned `Object.prototype` setter or a
+  // `__proto__` assignment escapes the sandbox. `defineProperty` installs an
+  // OWN data property unconditionally: no proto-chain walk, no setter invoked,
+  // genuinely "own property only" as the contract claims.
+  Object.defineProperty(data as object, keyStr, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
 }
 
 /**

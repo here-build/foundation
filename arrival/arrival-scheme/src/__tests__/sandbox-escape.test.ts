@@ -446,3 +446,65 @@ describe("registry poisoning vectors", () => {
     expect(Object.isFrozen(AValue)).toBe(false);
   });
 });
+
+// ============================================================================
+// CRITICAL: write-side prototype pollution (S6)
+// ============================================================================
+//
+// Audit finding (S6): the READ side (sandboxedAccess) is boundary-guarded, but
+// the WRITE side was RAW. Two holes:
+//   - sandbox-boundary.ts sandboxedSet: `data[keyStr] = value` walks the proto
+//     chain and fires inherited setters → defineProperty installs OWN only.
+//   - LSymbol.ts `SchemeSymbol.list` was a plain `{}` (inherits Object.proto),
+//     so `(string->symbol "__proto__")` could pollute Object.prototype.
+// ============================================================================
+
+describe("CRITICAL: write-side prototype pollution (S6)", () => {
+  it("string->symbol of '__proto__' does not pollute Object.prototype", async () => {
+    const { SchemeSymbol } = await import("../LSymbol");
+    // Minting symbols named after dangerous keys must touch only the intern
+    // table as own keys — never reach Object.prototype.
+    for (const name of ["__proto__", "constructor", "prototype"]) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      new SchemeSymbol(name);
+    }
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    // Object.prototype must remain a clean baseline (no foreign own keys added).
+    expect(Object.prototype.hasOwnProperty.call(Object.prototype, "__proto__sentinel__")).toBe(false);
+    // The intern table itself must have a null prototype (no inherited keys).
+    expect(Object.getPrototypeOf(SchemeSymbol.list)).toBeNull();
+  });
+
+  it("sandboxedSet('__proto__', ...) is rejected as a blocked key", async () => {
+    const { sandboxedSet, SandboxViolationError } = await import("../sandbox-boundary");
+    const target: Record<string, unknown> = {};
+    expect(() => sandboxedSet(target, "__proto__", { evil: true })).toThrow(SandboxViolationError);
+    expect(() => sandboxedSet(target, "constructor", 1)).toThrow(SandboxViolationError);
+    expect(() => sandboxedSet(target, "prototype", 1)).toThrow(SandboxViolationError);
+  });
+
+  it("sandboxedSet installs an OWN data property without firing inherited setters", async () => {
+    const { sandboxedSet } = await import("../sandbox-boundary");
+    let setterFired = false;
+    // A poisoned setter on a prototype must NOT fire on assignment.
+    const proto = {};
+    Object.defineProperty(proto, "danger", {
+      set() {
+        setterFired = true;
+      },
+      configurable: true,
+    });
+    const target: Record<string, unknown> = Object.create(proto);
+    sandboxedSet(target, "danger", 42);
+    expect(setterFired).toBe(false);
+    // The value landed as an OWN data property on the target.
+    expect(Object.prototype.hasOwnProperty.call(target, "danger")).toBe(true);
+    expect(target.danger).toBe(42);
+  });
+
+  it("SANDBOX_BOUNDARY sentinel is not forgeable from the global Symbol registry", async () => {
+    const { SANDBOX_BOUNDARY } = await import("../sandbox-boundary");
+    // A module-local Symbol() is never equal to a registry symbol of any key.
+    expect(SANDBOX_BOUNDARY).not.toBe(Symbol.for("scheme:sandbox-boundary"));
+  });
+});

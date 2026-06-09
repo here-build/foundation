@@ -20,8 +20,12 @@ const UNINTERNED = Symbol("UNINTERNED");
 export class SchemeSymbol extends AValue {
   static __class__ = "symbol";
   readonly kind = "symbol" as const;
-  // Interning table for string-named symbols
-  static readonly list: Record<string, SchemeSymbol> = {};
+  // Interning table for string-named symbols.
+  // `Object.create(null)` (NOT `{}`): a plain object inherits Object.prototype,
+  // so `(string->symbol "__proto__")` — string->symbol is sandbox-exposed —
+  // would assign through the inherited setter and pollute Object.prototype.
+  // A null-prototype map has no inherited keys/setters to walk into.
+  static readonly list: Record<string, SchemeSymbol> = Object.create(null);
   // Note: gensyms store their literal name at this[SchemeSymbol.literal]
   // We can't declare the index signature with esbuild
   // Special symbol markers
