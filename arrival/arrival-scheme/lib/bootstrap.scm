@@ -1144,7 +1144,7 @@
 
    Returns a promisified version of a fs function or throws an exception
    if fs is not available."
-  (let ((fs (--> lips.env (get '**internal-env**) (get 'fs &(:throwError false)))))
+  (let ((fs (--> lips.env (get '**internal-env**) (get 'fs (dict :throwError false)))))
     (if (null? fs)
         (throw (new Error (string-append message ": fs not defined")))
         (promisify (. fs fn)))))

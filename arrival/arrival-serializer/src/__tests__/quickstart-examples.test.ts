@@ -10,7 +10,7 @@ describe("Quick Start Examples", () => {
   it("Simple object serialization", () => {
     const result = toSExprString({ name: "Alice", age: 30 });
     // Strings without special chars are unquoted (AI-readable format)
-    expect(result).toBe(`&(:name Alice :age 30)`);
+    expect(result).toBe(`(dict :name Alice :age 30)`);
   });
 
   it("Array serialization", () => {

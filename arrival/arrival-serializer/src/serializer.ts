@@ -240,7 +240,7 @@ export function toSExpr(obj: any, visited_ = new Set()): SExpr {
       if (typeof value === "function") continue;
       entries.push(`:${key}`, toSExpr(value, visited));
     }
-    return ["&", ...entries];
+    return ["dict", ...entries];
   }
 
   // Primitives (string, number, boolean)
@@ -256,9 +256,10 @@ export function formatSExpr(sexpr: SExpr, indent = 0): string {
 
     const [head, ...tail] = sexpr;
 
-    // Special handling for Scheme-style objects with &
-    if (head === "&") {
-      if (tail.length === 0) return "&()";
+    // Special handling for dict literals — the canonical open-key map form
+    // `(dict :k v …)` (homoiconic, round-trips via the `dict` constructor).
+    if (head === "dict") {
+      if (tail.length === 0) return "(dict)";
 
       const pairs: string[] = [];
       for (let i = 0; i < tail.length; i += 2) {
@@ -269,7 +270,7 @@ export function formatSExpr(sexpr: SExpr, indent = 0): string {
         }
       }
 
-      return `&(${pairs.join(" ")})`;
+      return `(dict ${pairs.join(" ")})`;
     }
 
     // First element (operator) is never quoted, even if it's a string
@@ -530,7 +531,7 @@ export function sexpr(tag: string, ...args: any[]): SExprDefinition {
  * Helper to create a map from object
  */
 export function smap(obj: Record<string, any>): SExprDefinition {
-  return [SEXPR_TAG, "&", ...Object.entries(obj).flatMap(([k, v]) => [`:${k}`, v])];
+  return [SEXPR_TAG, "dict", ...Object.entries(obj).flatMap(([k, v]) => [`:${k}`, v])];
 }
 
 /**

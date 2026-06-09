@@ -108,13 +108,13 @@ describe("S-Expression Serializer", () => {
 
     it("handles mixed content arrays", () => {
       const mixed = ["text", 42, true, null, { key: "value" }];
-      expect(toSExprString(mixed)).toBe("(list text 42 true nil &(:key value))"); // AI-readable format
+      expect(toSExprString(mixed)).toBe("(list text 42 true nil (dict :key value))"); // AI-readable format
     });
   });
 
   describe("object serialization as Scheme records", () => {
-    it("serializes plain objects with & notation", () => {
-      expect(toSExprString({ name: "LIPS", version: "1.0" })).toBe('&(:name LIPS :version "1.0")'); // AI-readable: symbols not quoted unless needed
+    it("serializes plain objects with dict notation", () => {
+      expect(toSExprString({ name: "LIPS", version: "1.0" })).toBe('(dict :name LIPS :version "1.0")'); // AI-readable: symbols not quoted unless needed
     });
 
     it("handles nested objects", () => {
@@ -125,11 +125,11 @@ describe("S-Expression Serializer", () => {
           timeout: 5000
         }
       };
-      expect(toSExprString(obj)).toBe("&(:name test :config &(:enabled true :timeout 5000))"); // AI-readable format
+      expect(toSExprString(obj)).toBe("(dict :name test :config (dict :enabled true :timeout 5000))"); // AI-readable format
     });
 
     it("handles empty objects", () => {
-      expect(toSExprString({})).toBe("&()");
+      expect(toSExprString({})).toBe("(dict)");
     });
   });
 
@@ -171,9 +171,9 @@ describe("S-Expression Serializer", () => {
       expect(toSExpr(["a", "b", "c"])).toEqual(["list", "a", "b", "c"]);
     });
 
-    it("converts objects to Scheme records", () => {
-      expect(toSExpr({ a: 1, b: 2 })).toEqual(["&", ":a", 1, ":b", 2]);
-      expect(toSExpr({ name: "test", value: 42 })).toEqual(["&", ":name", "test", ":value", 42]);
+    it("converts objects to dicts", () => {
+      expect(toSExpr({ a: 1, b: 2 })).toEqual(["dict", ":a", 1, ":b", 2]);
+      expect(toSExpr({ name: "test", value: 42 })).toEqual(["dict", ":name", "test", ":value", 42]);
     });
 
     it("handles nested structures", () => {
@@ -184,13 +184,13 @@ describe("S-Expression Serializer", () => {
       };
 
       expect(toSExpr(obj)).toEqual([
-        "&",
+        "dict",
         ":name",
         "test",
         ":items",
         ["list", 1, 2, 3],
         ":meta",
-        ["&", ":count", 3, ":active", true]
+        ["dict", ":count", 3, ":active", true]
       ]);
     });
   });
@@ -210,14 +210,14 @@ describe("S-Expression Serializer", () => {
       expect(result).toContain("DataNode");
       expect(result).toContain(":type data-node"); // AI-readable format
       expect(result).toContain(":value");
-      expect(result).toContain("&(:x 10 :y 20)");
+      expect(result).toContain("(dict :x 10 :y 20)");
     });
   });
 
   describe("formatting with new representations", () => {
     it("formats objects as maps", () => {
       const obj = { name: "test", value: 42 };
-      expect(toSExprString(obj)).toBe("&(:name test :value 42)"); // AI-readable format
+      expect(toSExprString(obj)).toBe("(dict :name test :value 42)"); // AI-readable format
     });
 
     it("formats custom objects with proper indentation", () => {
@@ -239,7 +239,7 @@ describe("S-Expression Serializer", () => {
       expect(result).toContain(":variants");
       expect(result).toContain("(list base hover active)"); // AI-readable: symbols not quoted
       expect(result).toContain(":styles");
-      expect(result).toContain("&(:background blue :padding 10)"); // AI-readable format
+      expect(result).toContain("(dict :background blue :padding 10)"); // AI-readable format
       expect(result).toContain(":children");
       expect(result).toContain("(list 1 2 3)");
     });
@@ -253,7 +253,7 @@ describe("S-Expression Serializer", () => {
 
     it("smap creates map expressions", () => {
       const map = smap({ x: 10, y: 20 });
-      expect(toSExprString(map)).toBe("&(:x 10 :y 20)");
+      expect(toSExprString(map)).toBe("(dict :x 10 :y 20)");
     });
 
     it("slist creates list expressions", () => {
