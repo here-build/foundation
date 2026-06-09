@@ -14,6 +14,16 @@ export interface LlmParams {
   system?: string;
 }
 
+/** Runtime descriptor of {@link LlmParams} keys → their expected value type, for the
+ *  `(llm/with …)` validator: an unknown `:keyword` or a wrong-typed value is a legible
+ *  error, not a silent no-op (the typed-not-bag guarantee). `satisfies` keeps this table in
+ *  lockstep with `LlmParams` — add a param to the interface without listing it here and the
+ *  compiler complains, so the validator can never drift from the type. */
+export const LLM_PARAM_TYPES = {
+  temperature: "number",
+  system: "string",
+} as const satisfies Record<keyof LlmParams, "number" | "string">;
+
 export interface ModelSpec extends LlmParams {
   model: string;
   prompt: string;

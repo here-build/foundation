@@ -91,3 +91,54 @@ describe("derive is KIND-AGNOSTIC — one verb across kinds", () => {
     );
   });
 });
+
+describe("llm/with — bind content params to an (llm …) entity (the tweaks op)", () => {
+  it("binds params, carrying kind/name through", async () => {
+    const v = (await run(`(llm/with (llm "gpt-4") :temperature 0.7)`)) as DerivableEntity;
+    expect(v.kind).toBe("llm");
+    expect(v.name).toBe("gpt-4");
+    expect(v.params).toEqual({ temperature: 0.7 });
+    expect(v.middleware).toHaveLength(0);
+  });
+
+  it("shallow-merges across calls; a later key wins", async () => {
+    const v = (await run(
+      `(llm/with (llm/with (llm "x") :temperature 0.7 :system "a") :temperature 0.2)`,
+    )) as DerivableEntity;
+    expect(v.params).toEqual({ temperature: 0.2, system: "a" }); // system kept, temperature overridden
+  });
+
+  it("composes with derive — params AND middleware coexist, order-independent (G3)", async () => {
+    const a = (await run(
+      `(derive (llm/with (llm "x") :temperature 0.7) :infer (lambda (req next progress) (next req)))`,
+    )) as DerivableEntity;
+    const b = (await run(
+      `(llm/with (derive (llm "x") :infer (lambda (req next progress) (next req))) :temperature 0.7)`,
+    )) as DerivableEntity;
+    for (const v of [a, b]) {
+      expect(v.params).toEqual({ temperature: 0.7 });
+      expect(v.middleware).toHaveLength(1);
+    }
+  });
+
+  it("base is never mutated", async () => {
+    // build a base, then `llm/with` it inside scheme and return BOTH to prove independence
+    const v = (await run(`(define base (llm "x")) (llm/with base :temperature 0.7) base`)) as DerivableEntity;
+    expect(v.params).toBeUndefined(); // the returned `base` is untouched
+  });
+
+  it("typed-not-bag: an unknown :keyword is a legible error naming the allowed set", async () => {
+    await expect(run(`(llm/with (llm "x") :temperatrue 0.7)`)).rejects.toThrow(
+      /unknown param ":temperatrue".*temperature, system/s,
+    );
+  });
+
+  it("rejects a wrong-typed value (no silent coerce)", async () => {
+    await expect(run(`(llm/with (llm "x") :temperature "hot")`)).rejects.toThrow(/:temperature must be a number/);
+    await expect(run(`(llm/with (llm "x") :system 5)`)).rejects.toThrow(/:system must be a string/);
+  });
+
+  it("rejects a non-llm base (an (mcp …) server)", async () => {
+    await expect(run(`(llm/with (mcp "s") :temperature 0.7)`)).rejects.toThrow(/must be an \(llm …\)/);
+  });
+});

@@ -24,13 +24,20 @@ const rootWith = (backend: ModelBackend) => {
   return root;
 };
 
-/** A backend that echoes a fixed answer and records every (model, prompt) it is called with
- *  — so a test can assert WHAT reached the model (the observe-only contract is about that). */
-function recordingBackend(answer = "ANSWER"): { backend: ModelBackend; calls: { model: string; prompt: string }[] } {
-  const calls: { model: string; prompt: string }[] = [];
+interface RecordedCall {
+  model: string;
+  prompt: string;
+  temperature?: number;
+  system?: string;
+}
+
+/** A backend that echoes a fixed answer and records what reached it on the ModelSpec —
+ *  model/prompt (the observe-only contract) plus temperature/system (the tweaks contract). */
+function recordingBackend(answer = "ANSWER"): { backend: ModelBackend; calls: RecordedCall[] } {
+  const calls: RecordedCall[] = [];
   const backend: ModelBackend = {
     async complete(spec: ModelSpec): Promise<Completion> {
-      calls.push({ model: spec.model, prompt: spec.prompt });
+      calls.push({ model: spec.model, prompt: spec.prompt, temperature: spec.temperature, system: spec.system });
       return { value: answer };
     },
   };
@@ -84,5 +91,39 @@ describe("(llm …) in the infer path — observe-only", () => {
     expect(await rootWith(backend).run(scm)).toBe("chat-answer");
     expect(calls).toHaveLength(1);
     expect(calls[0]!.model).toBe("mock");
+  });
+});
+
+describe("llm/with tweaks reach the model + the cache key (end to end)", () => {
+  it("temperature + system land on the ModelSpec the backend sees", async () => {
+    const { backend, calls } = recordingBackend();
+    const scm = `(car (infer (llm/with (llm "mock") :temperature 0.7 :system "be terse") "hi"))`;
+    expect(await rootWith(backend).run(scm)).toBe("ANSWER");
+    expect(calls).toEqual([{ model: "mock", prompt: "hi", temperature: 0.7, system: "be terse" }]);
+  });
+
+  it("a different temperature busts the cache key (a different completion) — two backend calls", async () => {
+    const { backend, calls } = recordingBackend();
+    // two infers in one run: same prompt+model, different temperature ⇒ distinct keys ⇒ 2 calls.
+    const scm = `(begin
+      (infer (llm/with (llm "mock") :temperature 0.2) "hi")
+      (infer (llm/with (llm "mock") :temperature 0.9) "hi"))`;
+    await rootWith(backend).run(scm);
+    expect(calls.map((c) => c.temperature)).toEqual([0.2, 0.9]);
+  });
+
+  it("the SAME temperature is one cache key — a single backend call (params are cache-honest)", async () => {
+    const { backend, calls } = recordingBackend();
+    const scm = `(begin
+      (infer (llm/with (llm "mock") :temperature 0.2) "hi")
+      (infer (llm/with (llm "mock") :temperature 0.2) "hi"))`;
+    await rootWith(backend).run(scm);
+    expect(calls).toHaveLength(1); // identical identity ⇒ single-flight cell ⇒ one call
+  });
+
+  it("a plain (infer …) with no params is unchanged — no temperature/system on the spec", async () => {
+    const { backend, calls } = recordingBackend();
+    await rootWith(backend).run(`(car (infer "mock" "hi"))`);
+    expect(calls).toEqual([{ model: "mock", prompt: "hi", temperature: undefined, system: undefined }]);
   });
 });

@@ -31,7 +31,7 @@ import { lipsToJs, Nil } from "@here.build/arrival-scheme";
 
 import type { RosettaHost } from "./data-effects.js";
 import { mcpEffectKey, stableJson } from "./effect-log.js";
-import type { LlmParams, ToolDescriptor } from "./model.js";
+import { LLM_PARAM_TYPES, type LlmParams, type ToolDescriptor } from "./model.js";
 
 /** The MCP protocol methods the runner invokes. `tools/list` + `tools/call` are the v1
  *  surface; the rest are reserved so the membrane's method namespace is complete and
@@ -258,6 +258,23 @@ function serverNameOf(raw: unknown): string {
   return String(raw);
 }
 
+/** Validate + coerce one `(llm/with …)` value to its declared param type. A `number` param
+ *  rejects a non-number; a `string` param rejects the clearly-non-string scheme values
+ *  (number / boolean / λ / nil) and coerces the rest (a scheme string may cross as a
+ *  SchemeString wrapper, so `String(…)` it). A wrong type is a legible throw — never a silent
+ *  coerce of `:temperature "hot"`, never storing `:system #f`. */
+function coerceLlmParam(key: string, value: unknown, expected: "number" | "string"): unknown {
+  if (expected === "number") {
+    invariant(typeof value === "number" && Number.isFinite(value), `llm/with: :${key} must be a number`);
+    return value;
+  }
+  invariant(
+    value != null && typeof value !== "number" && typeof value !== "boolean" && typeof value !== "function",
+    `llm/with: :${key} must be a string`,
+  );
+  return String(value);
+}
+
 /**
  * A middleware installed on a server for one method — a scheme λ `(req next progress) →
  * value | mcp/break`, arriving at JS as a callable function (the spike proved the
@@ -440,6 +457,30 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   // kind-aware verb; everything downstream (`derive`, the chain) is kind-agnostic.
   env.defineRosetta("llm", {
     fn: (name: unknown) => new DerivableEntity("llm", serverNameOf(name)),
+  });
+  // (llm/with base :temperature 0.7 :system "…") — bind CONTENT params to an (llm …) entity
+  // (the tweaks op). Kind-prefixed (like mcp/define): params are llm-specific, and unlike
+  // `derive`'s observe-only middleware they are IDENTITY (cache-affecting — the infer path
+  // folds them into the key + sends them to the backend). Typed-not-bag: an unknown :keyword
+  // or a wrong-typed value is a legible error (validated against LLM_PARAM_TYPES), never a
+  // silent no-op. Returns a NEW entity (immutable, via withParams; params shallow-merge).
+  env.defineRosetta("llm/with", {
+    fn: (base: unknown, ...pairs: unknown[]) => {
+      invariant(base instanceof DerivableEntity, "llm/with: first arg must be an (llm …) entity");
+      invariant(base.kind === "llm", `llm/with: base must be an (llm …), got kind "${base.kind}"`);
+      invariant(pairs.length % 2 === 0, "llm/with: expects an (llm …) then :key value pairs");
+      const patch: Record<string, unknown> = {};
+      for (let i = 0; i < pairs.length; i += 2) {
+        const key = serverNameOf(pairs[i]);
+        const expected = (LLM_PARAM_TYPES as Record<string, "number" | "string" | undefined>)[key];
+        invariant(
+          expected !== undefined,
+          `llm/with: unknown param ":${key}" — allowed: ${Object.keys(LLM_PARAM_TYPES).join(", ")}`,
+        );
+        patch[key] = coerceLlmParam(key, pairs[i + 1], expected);
+      }
+      return base.withParams(patch as Partial<LlmParams>);
+    },
   });
   // (derive base :method handler) — the KIND-AGNOSTIC derive verb. Install a middleware on
   // `base` (ANY derivable entity — mcp, llm, …) for `:method`, returning a NEW entity
