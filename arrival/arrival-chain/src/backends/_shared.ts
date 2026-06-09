@@ -319,6 +319,38 @@ export function specMessages(spec: ModelSpec): ChatMessage[] {
 }
 
 /**
+ * Compose the ONE system instruction for a request from its sources, in the canonical
+ * order **persona · call · format**, and return the messages with all system turns removed.
+ *
+ * COLLECTS ALL `role:"system"` turns (concatenated in document order) — it never `.find()`s
+ * the first and drops the rest (the Anthropic data-loss bug) and never leaves a non-leading
+ * system mid-array (the OpenAI `[system,system,user]` bug). Provider-agnostic: each backend
+ * passes its OWN `schemaPreamble` (the wording differs per provider) and lowers the result
+ * its own way — OpenAI → a single leading `system` message; Anthropic → the top-level
+ * `system` param.
+ *
+ *   - `persona`: a model-bound system (the `(llm/with … :system …)` tweak; wired by the
+ *     tweaks slice — `undefined` until then)
+ *   - call:      every `role:"system"` turn in the message list, in order
+ *   - `schemaPreamble`: the format instruction, when the spec is schema'd (closest to the task)
+ */
+export function mergeSystem(opts: { messages: readonly ChatMessage[]; persona?: string; schemaPreamble?: string }): {
+  systemText: string;
+  messagesWithoutSystem: ChatMessage[];
+} {
+  const call = opts.messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .filter((c) => c.length > 0)
+    .join("\n\n");
+  const systemText = [opts.persona, call, opts.schemaPreamble]
+    .filter((s): s is string => s !== undefined && s.length > 0)
+    .join("\n\n");
+  const messagesWithoutSystem = opts.messages.filter((m) => m.role !== "system");
+  return { systemText, messagesWithoutSystem };
+}
+
+/**
  * Lower neutral {@link ToolDescriptor}s into OpenAI's `tools` array (the `function`
  * shape). `parameters` is the tool's JSON-Schema `inputSchema` (already lowered via
  * the shared `tagToJsonSchema`, so it can't drift from the wire schema).
@@ -483,20 +515,18 @@ export interface RawAnthropicResponse {
  */
 export function openAIRequestBody(spec: ModelSpec, extra: Record<string, unknown> = {}): Record<string, unknown> {
   const schema = renderSchema(spec.schema);
-  const base = specMessages(spec);
-  const schemaPreamble =
-    `Respond with a single JSON value conforming to this JSON Schema. ` +
-    `Output only the JSON — no prose, no markdown code fences.\n${JSON.stringify(schema)}`;
-  // MERGE the schema preamble into the prompt's existing leading system message rather
-  // than prepending a SECOND one — `[system, system, user]` is rejected by some
-  // OpenRouter providers ("system message must be at the beginning"), while a single
-  // leading system message is universally accepted. Prepend a fresh one only if the
-  // prompt has no leading system message.
-  const messages: ChatMessage[] = !schema
-    ? base
-    : base.length > 0 && base[0]!.role === "system"
-      ? [{ role: "system", content: `${schemaPreamble}\n\n${base[0]!.content}` }, ...base.slice(1)]
-      : [{ role: "system", content: schemaPreamble }, ...base];
+  const schemaPreamble = schema
+    ? `Respond with a single JSON value conforming to this JSON Schema. ` +
+      `Output only the JSON — no prose, no markdown code fences.\n${JSON.stringify(schema)}`
+    : undefined;
+  // ONE leading system message, composed persona·call·format and collecting ALL system
+  // turns (never `[system,system,user]`, never a dropped/non-leading system). A single
+  // leading system message is universally accepted; multiple / mid-array ones are rejected
+  // by some OpenRouter providers.
+  const { systemText, messagesWithoutSystem } = mergeSystem({ messages: specMessages(spec), schemaPreamble });
+  const messages: ChatMessage[] = systemText
+    ? [{ role: "system", content: systemText }, ...messagesWithoutSystem]
+    : messagesWithoutSystem;
   return {
     model: spec.model,
     messages: messagesToOpenAI(messages),

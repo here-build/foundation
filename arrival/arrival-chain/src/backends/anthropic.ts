@@ -2,6 +2,7 @@ import type { ModelBackend } from "../model.js";
 import {
   chatBackend,
   lazyBackend,
+  mergeSystem,
   messagesToAnthropic,
   renderSchema,
   specMessages,
@@ -44,24 +45,23 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
     type CreateBody = Parameters<typeof client.messages.create>[0];
     const proto: ChatProtocol<RawAnthropicResponse> = {
       buildBody: (spec) => {
-        const messages = specMessages(spec);
-        const systemMessage = messages.find((m) => m.role === "system")?.content ?? "";
         const schema = renderSchema(spec.schema);
         // No native json_schema flag — embed the rendered shape in the system text and
         // recover the reply via the shared coercion ladder (in chatBackend).
-        const system =
-          spec.schema !== null
-            ? `${systemMessage}\nReply with valid JSON only — no prose, no fences.${
-                schema ? `\nShape:\n${JSON.stringify(schema, null, 2)}` : ""
-              }`
-            : systemMessage;
+        let schemaPreamble: string | undefined;
+        if (spec.schema !== null) {
+          const base = "Reply with valid JSON only — no prose, no fences.";
+          schemaPreamble = schema ? `${base}\nShape:\n${JSON.stringify(schema, null, 2)}` : base;
+        }
+        // ONE top-level system, composed persona·call·format, collecting ALL system turns.
+        const { systemText, messagesWithoutSystem } = mergeSystem({ messages: specMessages(spec), schemaPreamble });
         return {
           model: spec.model,
           max_tokens: spec.maxTokens ?? defaultMaxTokens,
-          system,
-          // messagesToAnthropic drops system turns (they ride `system` above) and
-          // serializes the tool round-trip to Anthropic's block shape.
-          messages: messagesToAnthropic(messages),
+          system: systemText,
+          // messagesToAnthropic serializes the tool round-trip to Anthropic's block shape
+          // (the system turns are already removed — they ride `system` above).
+          messages: messagesToAnthropic(messagesWithoutSystem),
           ...(spec.tools && spec.tools.length > 0 ? { tools: toolsToAnthropic(spec.tools) } : {}),
         };
       },

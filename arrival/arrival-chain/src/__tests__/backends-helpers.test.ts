@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   coerceModelJson,
   extractJsonObject,
+  mergeSystem,
   messagesToAnthropic,
   messagesToOpenAI,
   openAIRequestBody,
@@ -338,6 +339,63 @@ describe("tool-calling helpers (OpenAI-compat)", () => {
   it("parseChatPrompt round-trips a tool message (role + toolCallId)", () => {
     const parsed = parseChatPrompt('[{"role":"tool","content":"r","toolCallId":"c1"}]');
     expect(parsed).toEqual([{ role: "tool", content: "r", toolCallId: "c1" }]);
+  });
+});
+
+describe("mergeSystem — one system, persona·call·format, collect-all", () => {
+  it("collects ALL system turns (in order), never just the first", () => {
+    const { systemText, messagesWithoutSystem } = mergeSystem({
+      messages: [
+        { role: "system", content: "A" },
+        { role: "user", content: "u" },
+        { role: "system", content: "B" }, // a non-leading system — must NOT be dropped or left mid-array
+      ],
+    });
+    expect(systemText).toBe("A\n\nB");
+    expect(messagesWithoutSystem).toEqual([{ role: "user", content: "u" }]); // all system turns removed
+  });
+
+  it("orders persona · call · format", () => {
+    expect(
+      mergeSystem({
+        messages: [
+          { role: "system", content: "CALL" },
+          { role: "user", content: "u" },
+        ],
+        persona: "PERSONA",
+        schemaPreamble: "FORMAT",
+      }).systemText,
+    ).toBe("PERSONA\n\nCALL\n\nFORMAT");
+  });
+
+  it("drops empty tiers — no leading/trailing separators", () => {
+    expect(mergeSystem({ messages: [{ role: "user", content: "u" }] }).systemText).toBe(""); // nothing → empty
+    expect(mergeSystem({ messages: [{ role: "user", content: "u" }], schemaPreamble: "F" }).systemText).toBe("F");
+  });
+
+  it("openAIRequestBody emits ONE leading system message, order call·format (schema + a system turn)", () => {
+    const body = openAIRequestBody({
+      model: "m",
+      prompt: '[{"role":"system","content":"sys"},{"role":"user","content":"u"}]',
+      schema: '{"type":"string"}',
+    });
+    const messages = body.messages as Array<{ role: string; content: string }>;
+    expect(messages.filter((m) => m.role === "system")).toHaveLength(1); // exactly one leading system
+    expect(messages[0]!.role).toBe("system");
+    expect(messages[0]!.content.startsWith("sys\n\n")).toBe(true); // call (user's "sys") FIRST
+    expect(messages[0]!.content).toMatch(/JSON Schema/); // format (preamble) folded in after
+    expect(messages[1]).toEqual({ role: "user", content: "u" });
+  });
+
+  it("openAIRequestBody folds a NON-leading system into the single leading system (the [system,system,user] bugfix)", () => {
+    const body = openAIRequestBody({
+      model: "m",
+      prompt: '[{"role":"user","content":"u"},{"role":"system","content":"late"}]',
+      schema: null,
+    });
+    const messages = body.messages as Array<{ role: string; content: string }>;
+    expect(messages.filter((m) => m.role === "system")).toHaveLength(1);
+    expect(messages[0]).toEqual({ role: "system", content: "late" }); // hoisted to the front, not left mid-array
   });
 });
 
