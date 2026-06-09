@@ -6,7 +6,7 @@
  */
 import invariant from "tiny-invariant";
 import { AValue, unionProvenance } from "./AValue.js";
-import { Environment, setLipsRuntime } from "./Environment.js";
+import { Environment, KEYWORD_ACCESSOR_FIELD, setLipsRuntime } from "./Environment.js";
 import { eof } from "./EOF.js";
 import { HalfBaked, is_half_baked } from "./HalfBaked.js";
 import { IgnoreException } from "./IgnoreException.js";
@@ -2196,6 +2196,25 @@ export const global_env = new Environment(
     cdr: doc("cdr", function cdr(list) {
       typecheck("cdr", list, "pair");
       return withInputProvenance([list.cdr], list.cdr);
+    }),
+    // ------------------------------------------------------------------
+    // `(dict :k v …)` — the canonical open-key map form, companion to the
+    // `(:key d)` accessor. A keyword in argument position evaluates to its
+    // property accessor, branded with the bare key via KEYWORD_ACCESSOR_FIELD;
+    // read that to build a plain object. The serializer prints `(dict …)`, and
+    // arrival-chain-view transpiles it to a JS/Python object literal.
+    dict: doc("dict", function dict(...args: SchemeValue[]) {
+      const obj: Record<string, SchemeValue> = {};
+      for (let i = 0; i + 1 < args.length; i += 2) {
+        const k = args[i] as { [KEYWORD_ACCESSOR_FIELD]?: string } | null;
+        const key =
+          (k != null &&
+            (typeof k === "function" || typeof k === "object") &&
+            k[KEYWORD_ACCESSOR_FIELD]) ||
+          String(args[i]).replace(/^:/, "");
+        obj[key] = args[i + 1];
+      }
+      return obj;
     }),
     // ------------------------------------------------------------------
     "set!": doc(
