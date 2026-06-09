@@ -2217,6 +2217,40 @@ function* evalDo(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 }
 
 /**
+ * Handle 'while' special form: (while test body...)
+ *
+ * Iterate the body while `test` evaluates truthy; returns unspecified (nil).
+ * Like `do`, the whole loop runs inside ONE generator's `while (true)` so the
+ * host stack stays flat no matter how many iterations execute — this is what
+ * makes `while` stack-safe (the legacy Macro recursed on the JS stack).
+ */
+function* evalWhile(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
+  invariant(is_pair(rest), "while: missing test");
+
+  const test = rest.car;
+  const body = rest.cdr;
+
+  // test is a predicate; body's value is discarded each iteration — both
+  // strictly non-tail (nothing here is in while's tail position).
+  const nonTailCtx: EvalContext = ctx.tail ? { ...ctx, tail: false } : ctx;
+
+  while (true) {
+    let testResult = yield { call: evaluate(test, nonTailCtx) };
+    if (is_promise(testResult)) {
+      testResult = yield testResult;
+    }
+
+    if (is_false(testResult)) {
+      return undefined;
+    }
+
+    if (is_pair(body)) {
+      yield { call: evalBegin(body, nonTailCtx) };
+    }
+  }
+}
+
+/**
  * Handle 'try' special form: (try body (catch (var) handler...) [(finally expr...)])
  *
  * Exception handling with optional catch and finally clauses.
@@ -2455,6 +2489,7 @@ const SPECIAL_FORMS: Record<string, (rest: SchemeValue, ctx: EvalContext) => Eva
   when: evalWhen,
   unless: evalUnless,
   do: evalDo,
+  while: evalWhile,
   // Lazy evaluation
   delay: evalDelay,
   force: evalForce,

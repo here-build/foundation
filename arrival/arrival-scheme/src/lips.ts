@@ -2426,19 +2426,13 @@ export const global_env = new Environment(
     }),
     // ------------------------------------------------------------------
     while: doc(
-      null,
-      new Macro("while", function (this: Environment, code: SchemeValue, args: SchemeValue) {
-        const test = code.car;
-        const eval_args = { ...args, env: this };
-        const body = new Pair(new SchemeSymbol("begin"), code.cdr);
-        return (function loop() {
-          return unpromise(evaluate(test, eval_args), (test) => {
-            if (test) {
-              return unpromise(evaluate(body, eval_args), loop);
-            }
-          });
-        })();
-      }),
+      "while",
+      genMacroWrapper("while"),
+      `(while cond body...)
+
+        Iterate the body while cond evaluates to a truthy value. Returns
+        unspecified. Runs stack-safe through the generator evaluator, so a
+        deeply-iterating loop never overflows the host stack.`,
     ),
     // ------------------------------------------------------------------
     do: genMacroWrapper("do"),
