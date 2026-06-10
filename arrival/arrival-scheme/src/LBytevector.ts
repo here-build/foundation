@@ -10,8 +10,15 @@
 //
 // Boxing track: docs/plan-2026-06-10-boxing-track.md (S1 — pilot, unused).
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { TO_JS } from "./membrane.js";
 import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+
+// The membrane's TO_JS protocol key, resolved from the global symbol registry
+// rather than imported from membrane.js. `Symbol.for` returns the SAME symbol as
+// membrane's `export const TO_JS = Symbol.for("scheme.toJS")`, so the protocol is
+// identical — but importing it would make membrane.js → LBytevector.ts (added in
+// S3 so the membrane recognizes boxed bytevectors) a cycle, and `[TO_JS]()` is a
+// class-definition-time computed key (TDZ hazard). Local resolution breaks the edge.
+const TO_JS = Symbol.for("scheme.toJS");
 
 /**
  * Anything that can seed a bytevector. Coerced to a Uint8Array payload in the

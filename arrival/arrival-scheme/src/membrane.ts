@@ -18,6 +18,7 @@
 import invariant from "tiny-invariant";
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import { SchemeBool } from "./LBool.js";
+import { SchemeBytevector } from "./LBytevector.js";
 import { Environment as SchemeEnvironment } from "./Environment.js";
 import { SchemePromise } from "./evaluator.js";
 import { LambdaContext } from "./LambdaContext.js";
@@ -95,6 +96,7 @@ export function isSchemeValue(value: unknown): boolean {
   if (value instanceof Pair) return true;
   if (value instanceof SchemeSymbol) return true;
   if (value instanceof SchemeString) return true;
+  if (value instanceof SchemeBytevector) return true;
   if (value instanceof SchemeCharacter) return true;
   if (value instanceof SchemeExact) return true;
   if (value instanceof SchemeInexact) return true;
