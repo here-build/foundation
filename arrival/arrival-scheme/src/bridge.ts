@@ -1386,12 +1386,12 @@ export const wrappedOps = {
   },
 
   "vector?"(obj: unknown): boolean {
-    // Transition shim (S6): accept boxed OR raw arrays so raw vectors (pre-S7)
-    // still answer #t. S10 settles the final form — likely instanceof-only, since
-    // a raw JS array is an R7RS list at the membrane, NOT a vector (unlike a raw
-    // Uint8Array, which genuinely IS bytevector-like; that asymmetry is why
-    // bytevector? stays polymorphic but vector? need not).
-    return obj instanceof SchemeVector || Array.isArray(obj);
+    // instanceof-only (S10): a vector is exactly a boxed SchemeVector. Unlike a
+    // raw Uint8Array (which genuinely IS bytevector-like, so bytevector? stays
+    // polymorphic), a raw JS array is an R7RS *list* / FFI array at the membrane,
+    // NOT a vector — so it correctly answers #f here. asVector still coerces a
+    // raw array defensively for any value that bypasses producers.
+    return obj instanceof SchemeVector;
   },
 
   "vector-length"(vec: unknown): number {

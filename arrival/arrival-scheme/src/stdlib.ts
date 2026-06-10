@@ -65,7 +65,9 @@ import { promise_all, unpromise } from "./utils/promises.js";
 import { compose, curry, fold, pipe } from "./utils/functional.js";
 
 import { SchemeBool } from "./LBool.js";
+import { SchemeBytevector } from "./LBytevector.js";
 import { SchemeString } from "./LString.js";
+import { SchemeVector } from "./LVector.js";
 import { NOT_FOUND, SandboxViolationError, SchemeJSFunction, SchemeJSObject, sandboxedAccess } from "./membrane.js";
 import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./evaluator.js";
 
@@ -651,6 +653,12 @@ function unbox(object) {
     object instanceof SchemeInexact;
   if (lips_type) {
     return object.valueOf();
+  }
+  if (object instanceof SchemeVector) {
+    return object.__vector__.map(unbox);
+  }
+  if (object instanceof SchemeBytevector) {
+    return object.__bytevector__;
   }
   if (Array.isArray(object)) {
     return object.map(unbox);

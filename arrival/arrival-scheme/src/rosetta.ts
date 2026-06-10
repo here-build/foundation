@@ -9,6 +9,8 @@ import invariant from "tiny-invariant";
 
 import { AValue, EMPTY_PROVENANCE, pointProvenance, unionProvenance } from "./AValue.js";
 import { SchemeBool } from "./LBool.js";
+import { SchemeBytevector } from "./LBytevector.js";
+import { SchemeVector } from "./LVector.js";
 import { SchemeJSArray, SchemeJSObject } from "./membrane.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";
@@ -116,6 +118,18 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
   // Handle JS arrays (convert elements recursively)
   if (Array.isArray(value)) {
     return value.map((record) => lipsToJs(record, options));
+  }
+
+  // Boxed vector → raw JS array (elements converted recursively); boxed
+  // bytevector → its raw Uint8Array. Without these, a boxed value leaks its
+  // {kind,__vector__/__bytevector__,provenance} object shape to JS callers
+  // (the MCP/trace serialization path). Mirrors the raw-array branch above and
+  // the raw-Uint8Array fall-through.
+  if (value instanceof SchemeVector) {
+    return value.__vector__.map((record) => lipsToJs(record, options));
+  }
+  if (value instanceof SchemeBytevector) {
+    return value.__bytevector__;
   }
 
   // Handle ExactNumber and InexactNumber
@@ -264,6 +278,14 @@ export function jsToLips(
         provenance,
       );
     }
+    if (value instanceof SchemeVector) {
+      // Deep-stamp elements (parallel to Pair), keep it a vector. The container
+      // also carries the provenance via the constructor arg.
+      return new SchemeVector(
+        value.__vector__.map((el) => jsToLips(el, options, provenance, seen)),
+        provenance,
+      );
+    }
     return value.withProvenance(provenance);
   }
 
@@ -313,6 +335,10 @@ function deepProvenance(value: unknown): ReadonlySet<number> {
       if (v instanceof Pair) {
         walk(v.car);
         walk(v.cdr);
+      } else if (v instanceof SchemeVector) {
+        // A vector's element provenance lives on the elements (the container is
+        // provenance-transparent, like a packed list's spine), so walk them.
+        for (const el of v.__vector__) walk(el);
       }
     } else if (Array.isArray(v)) {
       for (const el of v) walk(el);

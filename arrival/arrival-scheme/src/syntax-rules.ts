@@ -236,6 +236,17 @@ export function extract_patterns(
         return !ref || ref === define || ref === globalEnv;
       }
     }
+    // KNOWN LIMITATION (boxing track S9, deferred — docs/plan-2026-06-10-boxing-track.md
+    // R8): vector PATTERNS in syntax-rules reach this array branch. Since the
+    // boxing track, a `#(...)` literal parses to a boxed SchemeVector, NOT a raw
+    // array — so `Array.isArray` is false for it and a vector-pattern macro fails
+    // to match (loud "no matching syntax in macro (#<SchemeVector>)", not silent
+    // corruption). This path is orphaned by boxing. The fix (unwrap SchemeVector →
+    // raw array here AND re-box at the template-output sites, which are deeply
+    // interleaved with the ellipsis machinery) is high-risk in this fragile
+    // matcher and the feature is untested/unused (no chibi/lang vector-pattern
+    // test), so it is deferred to a focused session with vector-pattern tests
+    // written first. Lists are Pairs (unaffected); only vector patterns regress.
     if (Array.isArray(pattern) && Array.isArray(code)) {
       if (pattern.length === 0 && code.length === 0) {
         return true;
