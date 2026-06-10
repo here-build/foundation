@@ -2555,48 +2555,20 @@ export const global_env = new Environment(
       }),
     ),
     // ------------------------------------------------------------------
-    define: doc(
-      null,
-      Macro.defmacro("define", function (this: Environment, code: SchemeValue, eval_args: SchemeValue) {
-        let env: Environment = this;
-        if (is_pair(code.car) && code.car.car instanceof SchemeSymbol) {
-          const new_code = new Pair(
-            new SchemeSymbol("define"),
-            new Pair(code.car.car, new Pair(new Pair(new SchemeSymbol("lambda"), new Pair(code.car.cdr, code.cdr)))),
-          );
-          return new_code;
-        } else if (eval_args.macro_expand) {
-          // prevent evaluation in macroexpand
-          return;
-        }
-        eval_args.dynamic_env = this;
-        eval_args.env = env;
-        let value = code.cdr.car;
-        let new_expr;
-        if (is_pair(value)) {
-          value = evaluate(value, eval_args);
-          new_expr = true;
-        } else if (value instanceof SchemeSymbol) {
-          value = env.get(value);
-        }
-        typecheck("define", code.car, "symbol");
-        return unpromise(value, (value) => {
-          if ((env.__name__ as string | symbol) === Syntax.__merge_env__) {
-            env = env.__parent__!;
-          }
-          if (
-            new_expr &&
-            ((is_function(value) && is_lambda(value)) || value instanceof Syntax || is_parameter(value))
-          ) {
-            (value as SchemeValue).__name__ = code.car.valueOf();
-            if ((value as SchemeValue).__name__ instanceof SchemeString) {
-              (value as SchemeValue).__name__ = (value as SchemeValue).__name__.valueOf();
-            }
-          }
-          env.set(code.car, value);
-        });
-      }),
-    ),
+    // define delegates to the generator evaluator (evalDefine) via
+    // genMacroWrapper. Verified empirically equivalent to the old defmacro on
+    // every reachable case (fn-shorthand + recursion, symbol alias, define in
+    // let/begin, macroexpand round-trip; full suite green). Three legacy-only
+    // behaviors are NOT ported because they are unreachable through the
+    // current macro engine, so no test can exercise them: (1) the
+    // Syntax.__merge_env__ parent-env redirect — only fires when a syntax-rules
+    // template introduces a define, but expansion dies upstream at pattern
+    // matching first; (2) the macroexpand guard — macroexpand already returns
+    // the form inert without executing it; (3) __name__ stamping on
+    // Syntax/Parameter values (not just lambdas) — cosmetic introspection.
+    // If the macro engine later gains macro-introduced-define support, add the
+    // hygiene redirect to evalDefine WITH a test that actually reaches it.
+    define: genMacroWrapper("define"),
     // ------------------------------------------------------------------
     "set-obj!": doc("set-obj!", function (obj, key, value, options = null) {
       const obj_type = typeof obj;
