@@ -609,51 +609,6 @@ function toString(obj: unknown, quote = false, skip_cycles = false, ...pair_args
 }
 
 // ----------------------------------------------------------------------
-function equal(x, y) {
-  if (is_function(x)) {
-    return is_function(y) && unbind(x) === unbind(y);
-  } else if (x instanceof SchemeExact) {
-    // Exact numbers - must both be exact for equal?
-    return y instanceof SchemeExact && x.equals(y);
-  } else if (x instanceof SchemeInexact) {
-    // Inexact numbers - must both be inexact for equal?
-    return y instanceof SchemeInexact && x.equals(y);
-  } else if (typeof x === "number") {
-    if (typeof y !== "number") {
-      return false;
-    }
-    if (Number.isNaN(x)) {
-      return Number.isNaN(y);
-    }
-    if (x === Number.NEGATIVE_INFINITY) {
-      return y === Number.NEGATIVE_INFINITY;
-    }
-    if (x === Number.POSITIVE_INFINITY) {
-      return y === Number.POSITIVE_INFINITY;
-    }
-    // For regular numbers, use Object.is for -0/+0 distinction, otherwise simple equality
-    if (x === 0 && y === 0) {
-      return Object.is(x, y);
-    }
-    return x === y;
-  } else if (x instanceof SchemeCharacter) {
-    if (!(y instanceof SchemeCharacter)) {
-      return false;
-    }
-    return x.__char__ === y.__char__;
-  } else if (x instanceof SchemeBool) {
-    return y instanceof SchemeBool && x.value === y.value;
-  } else if (
-    (typeof x === "string" || x instanceof SchemeString) &&
-    (typeof y === "string" || y instanceof SchemeString)
-  ) {
-    // this is part of "friendly" compatibility layer. it's not directly following scheme logic but solves lot of problems
-    return x.valueOf() === y.valueOf();
-  } else {
-    return x === y;
-  }
-}
-
 // ----------------------------------------------------------------------
 // R7RS § 6.1 — three-tier equivalence hierarchy.
 //
@@ -738,10 +693,17 @@ function same_atom(a, b) {
   if (a instanceof RegExp) {
     return a.source === b.source;
   }
-  if (a instanceof SchemeString) {
-    return a.valueOf() === b.valueOf();
+  // Strings (raw or boxed) compare by value — the "friendly" compat layer.
+  if (SchemeString.isString(a)) {
+    return SchemeString.isString(b) && a.valueOf() === b.valueOf();
   }
-  return equal(a, b);
+  // Numbers / chars / booleans / nil: atom-grade (eqv?) equality, which lives
+  // entirely in the value kernel (instanceof + .equals/__char__/.value). This
+  // replaces the old `equal()` helper whose is_function branch dragged `unbind`
+  // — the macro engine's last tendril into lips's structural-equality switch.
+  // (The algebras-in-entities migration will fold this into each type's own
+  // fantasy-land/equals — see plan-2026-06-10-algebras-in-entities.md.)
+  return eqv(a, b);
 }
 
 // ----------------------------------------------------------------------
