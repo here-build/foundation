@@ -54,3 +54,42 @@ export const is_native = (obj: unknown): obj is SchemeString | SchemeCharacter |
   obj instanceof SchemeCharacter ||
   obj instanceof SchemeExact ||
   obj instanceof SchemeInexact;
+
+// ----------------------------------------------------------------------
+// Pure structural predicates (no value-kernel deps at all). They live here
+// rather than in guards.ts so leaf utilities (e.g. utils/typecheck.ts) can
+// import them without reaching guards.ts and, through it, Environment/Macro.
+// ----------------------------------------------------------------------
+export function is_function(o: unknown): o is Function {
+  return typeof o === "function" && "bind" in o && typeof o.bind === "function";
+}
+
+// ----------------------------------------------------------------------
+export function is_instance(obj: unknown): boolean {
+  if (!obj) {
+    return false;
+  }
+  if (typeof obj !== "object") {
+    return false;
+  }
+  // __instance__ is read only for instances
+  const o = obj as { __instance__?: boolean };
+  if (o.__instance__) {
+    o.__instance__ = false;
+    return o.__instance__;
+  }
+  return false;
+}
+
+// ----------------------------------------------------------------------
+export const has_own_symbol = (obj: unknown, symbol: symbol): boolean =>
+  obj !== null && typeof obj === "object" ? Object.hasOwn(obj, symbol) : false;
+
+// ----------------------------------------------------------------------
+export function is_iterator(obj: unknown, symbol: symbol): boolean {
+  if (obj === null || typeof obj !== "object") return false;
+  if (has_own_symbol(obj, symbol) || has_own_symbol(Object.getPrototypeOf(obj), symbol)) {
+    return is_function((obj as Record<symbol, unknown>)[symbol]);
+  }
+  return false;
+}

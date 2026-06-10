@@ -25,8 +25,17 @@ import { nil } from "./types.js";
 // Leaf value-kernel predicates live in value-guards.ts (no Environment/Macro
 // dep) so Pair.ts can import them without dragging the evaluator world in.
 // Re-exported here so every existing `from "./guards.js"` call site is unchanged.
-import { is_native, is_nil, is_pair, is_plain_object } from "./value-guards.js";
-export { is_native, is_nil, is_pair, is_plain_object };
+import {
+  has_own_symbol,
+  is_function,
+  is_instance,
+  is_iterator,
+  is_native,
+  is_nil,
+  is_pair,
+  is_plain_object,
+} from "./value-guards.js";
+export { has_own_symbol, is_function, is_instance, is_iterator, is_native, is_nil, is_pair, is_plain_object };
 
 // Import directly from source files to avoid circular dependency with lips.ts
 
@@ -85,11 +94,6 @@ export function is_symbol_extension(special: unknown): boolean {
 // ----------------------------------------------------------------------
 export function is_null(value: unknown): value is null | undefined | typeof nil {
   return is_undef(value) || is_nil(value) || value === null;
-}
-
-// ----------------------------------------------------------------------
-export function is_function(o: unknown): o is Function {
-  return typeof o === "function" && "bind" in o && typeof o.bind === "function";
 }
 
 // ----------------------------------------------------------------------------
@@ -187,23 +191,6 @@ function is_js_function_wrapper(o: unknown): boolean {
   );
 }
 
-// -------------------------------------------------------------------------
-export function is_instance(obj: unknown): boolean {
-  if (!obj) {
-    return false;
-  }
-  if (typeof obj !== "object") {
-    return false;
-  }
-  // __instance__ is read only for instances
-  const o = obj as { __instance__?: boolean };
-  if (o.__instance__) {
-    o.__instance__ = false;
-    return o.__instance__;
-  }
-  return false;
-}
-
 // ----------------------------------------------------------------------
 export function is_number(o: unknown): o is SchemeExact | SchemeInexact {
   return o instanceof SchemeExact || o instanceof SchemeInexact;
@@ -244,15 +231,3 @@ export function is_native_function(fn: unknown): boolean {
   );
 }
 
-// -------------------------------------------------------------------------
-export const has_own_symbol = (obj: unknown, symbol: symbol): boolean =>
-  obj !== null && typeof obj === "object" ? Object.hasOwn(obj, symbol) : false;
-
-// -------------------------------------------------------------------------
-export function is_iterator(obj: unknown, symbol: symbol): boolean {
-  if (obj === null || typeof obj !== "object") return false;
-  if (has_own_symbol(obj, symbol) || has_own_symbol(Object.getPrototypeOf(obj), symbol)) {
-    return is_function((obj as Record<symbol, unknown>)[symbol]);
-  }
-  return false;
-}
