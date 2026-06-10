@@ -208,7 +208,12 @@ export function is_inexact(o: unknown): o is SchemeInexact {
 
 // ----------------------------------------------------------------------
 export function is_lambda(obj: unknown): boolean {
-  return obj != null && typeof obj === "object" && __lambda__ in obj && !!(obj as Record<symbol, unknown>)[__lambda__];
+  // A Scheme lambda is a FUNCTION carrying the __lambda__ marker. The evaluator
+  // sets the STRING property "__lambda__" (evaluator.ts), older LIPS used the
+  // SYMBOL — check both, mirroring membrane.ts isSchemeValue. (Was dead: it gated
+  // on `typeof obj === "object"`, but functions are typeof "function", and only
+  // read the symbol key — the same symbol-vs-string class as is_data_marked.)
+  return typeof obj === "function" && ("__lambda__" in obj || __lambda__ in obj);
 }
 
 // ----------------------------------------------------------------------
