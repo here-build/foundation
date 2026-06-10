@@ -402,7 +402,12 @@ export function fromJS(value: unknown): SchemeValue {
   // Arrays pass through (shared mutation OK, vectors are JS arrays in R7RS)
   if (Array.isArray(value)) return value;
 
-  // Binary types pass through (polymorphic ops)
+  // Binary types pass through raw (polymorphic ops). This is an intentional
+  // membrane contract (membrane.spec.ts: "passes through bytevector-like types",
+  // "preserves Uint8Array identity") — FFI identity must be preserved, so the
+  // membrane does NOT box them. Scheme producers mint SchemeBytevector; raw
+  // binary that bypasses producers (FFI) stays raw and is coerced on use by
+  // asBytevector. bytevector? therefore stays polymorphic (boxed OR raw).
   if (isBytevectorLike(value)) return value;
 
   // Promises pass through (use '> for QuotedPromise)

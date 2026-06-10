@@ -1501,9 +1501,13 @@ export const wrappedOps = {
   // ============================================================================
 
   "bytevector?"(obj: unknown): boolean {
-    // Transition shim (S2): accept boxed OR raw forms so an as-yet-unflipped raw
-    // Uint8Array still answers #t. Tightens to `instanceof SchemeBytevector`
-    // only in S4.
+    // Polymorphic by design (NOT a transition shim): scheme producers mint
+    // SchemeBytevector, but raw binary legitimately flows from FFI through the
+    // membrane unboxed (membrane preserves Uint8Array identity), and a raw
+    // Uint8Array/ArrayBuffer/DataView/Buffer genuinely IS bytevector-like. So the
+    // predicate accepts boxed OR raw — mirroring asBytevector's coercion. (Vectors
+    // differ: a raw JS array is an R7RS list, not a vector, so vector? is
+    // instanceof-only — see the boxing plan's (a)/(b) disambiguation.)
     return (
       obj instanceof SchemeBytevector ||
       obj instanceof Uint8Array ||
