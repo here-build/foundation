@@ -408,7 +408,7 @@ describe("Environment Module Composition", () => {
   describe("Environment.eval()", () => {
     it("should evaluate simple expressions", async () => {
       // Import lips to ensure runtime is loaded
-      await import("../lips");
+      await import("../stdlib");
 
       const module: EnvironmentModule = {
         id: "test",
@@ -426,7 +426,7 @@ describe("Environment Module Composition", () => {
     });
 
     it("should evaluate multiple expressions and return last", async () => {
-      await import("../lips");
+      await import("../stdlib");
 
       const module: EnvironmentModule = {
         id: "test",
@@ -445,7 +445,7 @@ describe("Environment Module Composition", () => {
     });
 
     it("should allow setting bindings that are visible to eval", async () => {
-      await import("../lips");
+      await import("../stdlib");
 
       const module: EnvironmentModule = {
         id: "test",

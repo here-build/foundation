@@ -15,7 +15,7 @@ import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
 import { HalfBaked, is_half_baked, type Interval } from "./HalfBaked.js";
 import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./LBool.js";
-import { global_env as lipsGlobalEnv, env as userEnv, exec } from "./lips.js";
+import { global_env as lipsGlobalEnv, env as userEnv, exec } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";

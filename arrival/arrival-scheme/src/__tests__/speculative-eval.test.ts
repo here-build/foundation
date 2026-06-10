@@ -26,7 +26,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { initBridge } from "../bridge";
 import { exec } from "../generator-exec";
-import { env as globalEnv } from "../lips";
+import { env as globalEnv } from "../stdlib";
 
 beforeAll(async () => {
   await initBridge();

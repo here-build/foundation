@@ -2,7 +2,7 @@
 import { initBridge } from "./bridge.js";
 import { applyFantasyLandPatches } from "./fantasy-land-lips.js";
 
-export * from "./lips.js";
+export * from "./stdlib.js";
 export * from "./safe_builtins.js";
 export { sandboxedEnv as sandboxedEnv } from "./sandbox-env.js";
 // Sandbox-boundary sealing — `@arrival.private` (+ the underlying markAsSandboxBoundary), the
@@ -43,7 +43,7 @@ export { Pair as APair } from "./Pair.js";
 export { Nil as ANil, SchemeCharacter as AChar } from "./types.js";
 
 // Canonical core-type re-exports. These used to ride the `export * from
-// "./lips.js"` barrel via a re-export block at the bottom of lips.ts; that
+// "./stdlib.js"` barrel via a re-export block at the bottom of lips.ts; that
 // block was removed (barrel-ectomy) so these names are re-surfaced from their
 // real home modules to keep the public API identical.
 export { nil, Nil, characters, SchemeCharacter } from "./types.js";
@@ -125,13 +125,11 @@ export {
 } from "./generator-exec.js";
 
 // LX (audit Action 4): the PUBLIC bare `exec`/`parse` resolve to the stack-safe,
-// budget-bounded GENERATOR path — not the legacy lips.ts evaluator. These explicit
-// named re-exports shadow the `exec`/`parse` that ride `export * from "./lips.js"`
-// (ESM: an explicit export wins over a star-exported name of the same name). The
-// generator `ExecOptions` is a strict superset of the legacy options
-// ({env, dynamic_env, use_dynamic} shared, + signal/budgetMs/tap), so existing
-// bare-`exec` callers are source-compatible — they just gain a killable, bounded
-// evaluator. The legacy evaluator stays internal lips.ts machinery (its own special
-// forms still call it) until the syntax-rules/HOF drain removes its last users; at
-// that point legacy exec/evaluate/call_function get deleted (the rest of LX/LD).
+// budget-bounded GENERATOR path. These explicit named re-exports shadow the
+// `exec`/`parse` that ride `export * from "./stdlib.js"` (ESM: an explicit export
+// wins over a star-exported name of the same name). The generator `ExecOptions` is
+// a strict superset of stdlib's exec options ({env, dynamic_env, use_dynamic}
+// shared, + signal/budgetMs/tap), so bare-`exec` callers gain a killable, bounded
+// evaluator. The legacy `evaluate` is DELETED — stdlib.ts's own `exec` now also
+// delegates to the generator, so the two paths agree.
 export { exec, parse } from "./generator-exec.js";

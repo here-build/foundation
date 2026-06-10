@@ -30,7 +30,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { env, exec } from "../lips";
+import { env, exec } from "../stdlib";
 import { initBridge } from "../bridge";
 
 await initBridge();

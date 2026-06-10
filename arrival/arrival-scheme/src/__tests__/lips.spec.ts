@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { env as global_environment, exec, parse } from "../lips";
+import { env as global_environment, exec, parse } from "../stdlib";
 import { nil } from "../types.js";
 import { Pair } from "../Pair.js";
 import { initBridge } from "../bridge";

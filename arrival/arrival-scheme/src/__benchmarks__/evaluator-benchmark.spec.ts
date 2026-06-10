@@ -4,7 +4,7 @@
  */
 
 import { beforeAll, describe, expect, it } from "vitest";
-import { exec as lipsExec, env as lipsEnv, parse } from "../lips";
+import { exec as lipsExec, env as lipsEnv, parse } from "../stdlib";
 import { nil } from "../types.js";
 import { Pair } from "../Pair.js";
 import { SchemeSymbol } from "../LSymbol.js";

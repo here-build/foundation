@@ -2,7 +2,7 @@
 // Stack used in balanced function
 // TODO: use it in parser
 // ----------------------------------------------------------------------
-import { tokenize } from "../lips.js";
+import { tokenize } from "../stdlib.js";
 import { TokenMeta } from "../Formatter.js";
 import { Parser } from "../Parser.js";
 import invariant from "tiny-invariant";

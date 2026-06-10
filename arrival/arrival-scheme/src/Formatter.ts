@@ -4,7 +4,7 @@
 // @param sexp - number of expression to look behind
 // ----------------------------------------------------------------------
 import { is_special, is_symbol_string } from "./guards.js";
-import { tokenize } from "./lips.js";
+import { tokenize } from "./stdlib.js";
 import { SchemeString } from "./LString.js";
 import {
   def_lambda_re,

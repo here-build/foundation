@@ -24,7 +24,7 @@ import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";
 import { jsToLips } from "../rosetta";
 import { sandboxedEnv } from "../sandbox-env";
-import { exec } from "../lips";
+import { exec } from "../stdlib";
 import { Nil, nil } from "../types";
 
 const PROV = new Set<number>([42]);

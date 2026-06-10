@@ -60,7 +60,7 @@ export const LIPS_EXTENSION_BINDINGS = [
  */
 export async function createLipsExtensionsPack(): Promise<EnvironmentModule> {
   // Dynamic import to work with ESM
-  const { global_env } = await import("../lips.js");
+  const { global_env } = await import("../stdlib.js");
 
   const bindings: Record<string, SchemeValue> = {};
 

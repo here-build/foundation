@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { sandboxedEnv } from "../sandbox-env";
 import { createRosettaWrapper, jsToLips, lipsToJs } from "../rosetta";
-import { exec } from "../lips";
+import { exec } from "../stdlib";
 
 // Helper to unwrap exec results
 async function execOne(expr: string): Promise<any> {

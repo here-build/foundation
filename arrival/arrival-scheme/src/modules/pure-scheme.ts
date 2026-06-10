@@ -62,7 +62,7 @@ export function createPureSchemeResolver(sourceEnv: {
  *
  * @example
  * ```typescript
- * import { global_env } from "./lips.js";
+ * import { global_env } from "./stdlib.js";
  * const pureModule = createPureSchemeModule(global_env);
  * const sandbox = Environment.fromModules([pureModule]);
  * ```

@@ -9,7 +9,7 @@
  * As of the algebras-in-entities migration (wave 2,
  * plan-2026-06-10-algebras-in-entities.md) those algebras live IN the class
  * bodies (Pair.ts / LString.ts) — declared once, alongside Setoid/Ord. The
- * `chainPair` circular-dep hack (`require("./lips").global_env.get("append")`)
+ * `chainPair` circular-dep hack (`require("./stdlib").global_env.get("append")`)
  * dissolved: `chain` now flattens through the PURE list-concat Semigroup on
  * Pair, with no back-edge into lips.ts.
  *

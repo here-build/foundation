@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { exec } from "../lips";
+import { exec } from "../stdlib";
 import { sandboxedEnv } from "../sandbox-env";
 import { jsToLips, lipsToJs } from "../rosetta";
 

@@ -673,7 +673,7 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
 
   // Chain (Monad) — map then flatten. Flattening reuses the PURE list-concat
   // Semigroup below; there is no `global_env.get("append")` back-edge (the
-  // require("./lips") hack the monkey-patch carried existed ONLY because the
+  // require("./stdlib") hack the monkey-patch carried existed ONLY because the
   // method lived outside the class — see plan wave 2).
   ["fantasy-land/chain"](f: (x: unknown) => Pair | Nil): Pair | Nil {
     return chainPair(f, this);

@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { sandboxedEnv } from "../sandbox-env";
-import { exec } from "../lips";
+import { exec } from "../stdlib";
 import { jsToLips, lipsToJs } from "../rosetta";
 
 // Helper to execute and get first result

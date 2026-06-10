@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import { initBridge } from "../bridge.js";
-import { exec } from "../lips.js";
+import { exec } from "../stdlib.js";
 
 await initBridge();
 

@@ -29,7 +29,7 @@
 import fs from "fs";
 import path from "path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { env, exec } from "../lips";
+import { env, exec } from "../stdlib";
 import { initBridge } from "../bridge";
 
 const CHIBI_TESTS_PATH = path.resolve(import.meta.dirname, "../../vendor/chibi-scheme/tests/r7rs-tests.scm");

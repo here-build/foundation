@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { env, exec } from "../lips";
+import { env, exec } from "../stdlib";
 
 /**
  * The runtime `dict` constructor — the canonical open-key map form

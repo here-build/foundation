@@ -1,6 +1,6 @@
 import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
-import { global_env as lipsGlobalEnv } from "./lips.js";
+import { global_env as lipsGlobalEnv } from "./stdlib.js";
 import { Nil, nil } from "./types.js";
 import { RAMDA_FUNCTIONS } from "./ramda-functions.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";

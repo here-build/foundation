@@ -11,7 +11,7 @@ import type {
   parse as ParseFn,
   patch_value as PatchValueFn,
   unbind as UnbindFn,
-} from "./lips.js";
+} from "./stdlib.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import type { Macro } from "./Macro.js";

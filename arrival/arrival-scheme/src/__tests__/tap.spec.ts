@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { exec } from "../generator-exec";
-import { env as userEnv } from "../lips";
+import { env as userEnv } from "../stdlib";
 import type { Pair } from "../Pair";
 
 interface TestInv {

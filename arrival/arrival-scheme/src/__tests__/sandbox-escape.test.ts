@@ -21,7 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 import { initBridge } from "../bridge";
-import { exec } from "../lips";
+import { exec } from "../stdlib";
 import { sandboxedEnv } from "../sandbox-env";
 import {
   SANDBOX_BOUNDARY,
@@ -175,7 +175,7 @@ describe("CRITICAL: accessor isolation leaks", () => {
     // routed via Environment.get's dotted resolution). On a raw function its
     // `else` branch used to do `object[name]` — so get(fn, "constructor") handed
     // back the Function constructor (RCE). It now routes through sandboxedAccess.
-    const { get } = await import("../lips");
+    const { get } = await import("../stdlib");
     const fn = (x: number) => x;
     expect(get(fn, "constructor")).toBeUndefined();
     expect(get(fn, "__proto__")).toBeUndefined();
