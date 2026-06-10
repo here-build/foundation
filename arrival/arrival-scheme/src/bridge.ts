@@ -1383,16 +1383,16 @@ export const wrappedOps = {
     }
     // Boxed into SchemeVector so the container carries provenance and hosts
     // algebra instances. Elements (if AValues) still carry their own provenance.
-    return new SchemeVector(arr);
+    return withInputProvenance([fill], new SchemeVector(arr));
   },
 
   vector(...objs: unknown[]): SchemeVector {
-    return new SchemeVector([...objs] as SchemeValue[]);
+    return withInputProvenance(objs, new SchemeVector([...objs] as SchemeValue[]));
   },
 
   "vector-append"(...vectors: unknown[]): SchemeVector {
     const arrays = vectors.map((v) => asVector(v, "vector-append"));
-    return new SchemeVector(([] as SchemeValue[]).concat(...arrays));
+    return withInputProvenance(vectors, new SchemeVector(([] as SchemeValue[]).concat(...arrays)));
   },
 
   "vector?"(obj: unknown): boolean {
@@ -1434,7 +1434,7 @@ export const wrappedOps = {
       result.push(current.car);
       current = current.cdr;
     }
-    return new SchemeVector(result);
+    return withInputProvenance([list], new SchemeVector(result));
   },
 
   "vector-fill!"(vec: unknown, fill: unknown, start?: unknown, end?: unknown): void {
@@ -1446,7 +1446,7 @@ export const wrappedOps = {
     }
   },
 
-  "vector->string"(vec: unknown, start?: unknown, end?: unknown): string {
+  "vector->string"(vec: unknown, start?: unknown, end?: unknown): SchemeString {
     const arr = asVector(vec, "vector->string");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? arr.length : toIndex(end);
@@ -1455,7 +1455,7 @@ export const wrappedOps = {
       const ch = arr[i];
       result += ch instanceof SchemeCharacter ? charValue(ch) : String(ch);
     }
-    return result;
+    return withInputProvenance([vec], new SchemeString(result));
   },
 
   "string->vector"(str: unknown, start?: unknown, end?: unknown): SchemeVector {
@@ -1466,14 +1466,14 @@ export const wrappedOps = {
     for (let i = s; i < e; i++) {
       result.push(new SchemeCharacter(s_str[i]));
     }
-    return new SchemeVector(result);
+    return withInputProvenance([str], new SchemeVector(result));
   },
 
   "vector-copy"(vec: unknown, start?: unknown, end?: unknown): SchemeVector {
     const arr = asVector(vec, "vector-copy");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? arr.length : toIndex(end);
-    return new SchemeVector(arr.slice(s, e));
+    return withInputProvenance([vec], new SchemeVector(arr.slice(s, e)));
   },
 
   "vector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
@@ -1506,7 +1506,7 @@ export const wrappedOps = {
       const elements = arrays.map((a) => a[i]);
       result.push(proc(...elements));
     }
-    return new SchemeVector(result);
+    return withInputProvenance(vectors, new SchemeVector(result));
   },
 
   "vector-for-each"(proc: Function, ...vectors: unknown[]): void {
@@ -1546,7 +1546,7 @@ export const wrappedOps = {
     if (byte !== undefined) {
       arr.fill(toIndex(byte));
     }
-    return new SchemeBytevector(arr);
+    return withInputProvenance([byte], new SchemeBytevector(arr));
   },
 
   bytevector(...bytes: unknown[]): SchemeBytevector {
@@ -1554,7 +1554,7 @@ export const wrappedOps = {
     for (const [i, b] of bytes.entries()) {
       result[i] = toIndex(b);
     }
-    return new SchemeBytevector(result);
+    return withInputProvenance(bytes, new SchemeBytevector(result));
   },
 
   "bytevector-length"(bv: unknown): number {
@@ -1576,7 +1576,7 @@ export const wrappedOps = {
     const view = asBytevector(bv, "bytevector-copy");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? view.byteLength : toIndex(end);
-    return new SchemeBytevector(view.slice(s, e));
+    return withInputProvenance([bv], new SchemeBytevector(view.slice(s, e)));
   },
 
   "bytevector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
@@ -1597,21 +1597,21 @@ export const wrappedOps = {
       result.set(view, offset);
       offset += view.byteLength;
     }
-    return new SchemeBytevector(result);
+    return withInputProvenance(bvs, new SchemeBytevector(result));
   },
 
-  "utf8->string"(bv: unknown, start?: unknown, end?: unknown): string {
+  "utf8->string"(bv: unknown, start?: unknown, end?: unknown): SchemeString {
     const view = asBytevector(bv, "utf8->string");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? view.byteLength : toIndex(end);
-    return new TextDecoder("utf-8").decode(view.subarray(s, e));
+    return withInputProvenance([bv], new SchemeString(new TextDecoder("utf-8").decode(view.subarray(s, e))));
   },
 
   "string->utf8"(str: unknown, start?: unknown, end?: unknown): SchemeBytevector {
     const s_str = stringValue(str);
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? s_str.length : toIndex(end);
-    return new SchemeBytevector(new TextEncoder().encode(s_str.slice(s, e)));
+    return withInputProvenance([str], new SchemeBytevector(new TextEncoder().encode(s_str.slice(s, e))));
   },
 
   // ============================================================================
