@@ -1630,12 +1630,16 @@ export const global_env = new Environment(
               if (macro_expand) {
                 return { expr, scope: new_env };
               }
-              const result = evaluate(expr, { ...eval_args, env: new_env });
-              // Hack: update the result if there are generated
-              //       gensyms that should be literal symbols
-              // TODO: maybe not the part move when literal elisps may
-              //       be generated, maybe they will need to be mark somehow
-              return clear_gensyms(result, names);
+              // Drain: evaluate the expanded template through the generator. This
+              // is the last reachable legacy-evaluate caller. The Syntax transformer's
+              // return value IS the final result (the generator awaits this promise
+              // before returning the syntax expansion), so going async is transparent.
+              // clear_gensyms runs on the resolved result (gensym→literal-symbol fixup).
+              return unpromise(genRun(genEvaluate(expr, { ...eval_args, env: new_env })), (result: SchemeValue) =>
+                // Hack: update the result if there are generated
+                //       gensyms that should be literal symbols
+                clear_gensyms(result, names),
+              );
             }
             rules = rules.cdr;
           }
