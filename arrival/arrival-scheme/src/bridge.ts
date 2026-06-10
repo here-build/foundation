@@ -26,7 +26,7 @@ import type { SchemeNumeric } from "./numbers.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import * as ops from "./operators/index.js";
 // Import directly from source files to avoid circular dependency during init
-import { Pair } from "./Pair.js";
+import { isCircularList, Pair } from "./Pair.js";
 import { structuralEqual } from "./structural-equal.js";
 import { Nil, SchemeCharacter, nil, type SchemeValue } from "./types.js";
 import { type } from "./utils/typecheck.js";
@@ -1280,6 +1280,7 @@ export const wrappedOps = {
     // intact for both the singleton and any clones.
     if (list instanceof Nil) return nil;
     if (!(list instanceof Pair)) return list;
+    if (isCircularList(list)) TypeError.invariant(false, "list-copy: circular list");
     // Deep copy the spine of the list
     const copy = (lst: unknown): unknown => {
       // Same clone-aware check at the recursion base: a Nil clone in the cdr
@@ -1295,6 +1296,7 @@ export const wrappedOps = {
   // R7RS 6.4 List searching functions
   memq(obj: unknown, list: unknown): unknown {
     let current = list;
+    if (isCircularList(list)) TypeError.invariant(false, "memq: circular list");
     while (current instanceof Pair) {
       // eq? comparison (object identity)
       if (current.car === obj) return current;
@@ -1305,6 +1307,7 @@ export const wrappedOps = {
 
   memv(obj: unknown, list: unknown): unknown {
     let current = list;
+    if (isCircularList(list)) TypeError.invariant(false, "memv: circular list");
     while (current instanceof Pair) {
       if (eqv(current.car, obj)) return current;
       current = current.cdr;
@@ -1314,6 +1317,7 @@ export const wrappedOps = {
 
   assq(obj: unknown, alist: unknown): unknown {
     let current = alist;
+    if (isCircularList(alist)) TypeError.invariant(false, "assq: circular list");
     while (current instanceof Pair) {
       const pair = current.car;
       if (pair instanceof Pair && pair.car === obj) return pair;
@@ -1324,6 +1328,7 @@ export const wrappedOps = {
 
   assv(obj: unknown, alist: unknown): unknown {
     let current = alist;
+    if (isCircularList(alist)) TypeError.invariant(false, "assv: circular list");
     while (current instanceof Pair) {
       const pair = current.car;
       if (pair instanceof Pair && eqv(pair.car, obj)) return pair;
@@ -1336,6 +1341,7 @@ export const wrappedOps = {
   member(obj: unknown, list: unknown, compare?: (a: unknown, b: unknown) => boolean): unknown {
     const cmp = compare || ((a: unknown, b: unknown) => structuralEqual(a, b));
     let current = list;
+    if (isCircularList(list)) TypeError.invariant(false, "member: circular list");
     while (current instanceof Pair) {
       if (cmp(obj, current.car)) return current;
       current = current.cdr;
@@ -1347,6 +1353,7 @@ export const wrappedOps = {
   assoc(obj: unknown, alist: unknown, compare?: (a: unknown, b: unknown) => boolean): unknown {
     const cmp = compare || ((a: unknown, b: unknown) => structuralEqual(a, b));
     let current = alist;
+    if (isCircularList(alist)) TypeError.invariant(false, "assoc: circular list");
     while (current instanceof Pair) {
       const pair = current.car;
       if (pair instanceof Pair && cmp(obj, pair.car)) return pair;

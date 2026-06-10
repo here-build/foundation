@@ -60,7 +60,7 @@ import { Values } from "./Values.js";
 import { available_class, class_map, unserialize } from "./serialize.js";
 import { Macro } from "./Macro.js";
 import { Syntax } from "./Syntax.js";
-import { Pair } from "./Pair.js";
+import { isCircularList, Pair } from "./Pair.js";
 import { promise_all, unpromise } from "./utils/promises.js";
 import { compose, curry, fold, pipe } from "./utils/functional.js";
 
@@ -310,6 +310,12 @@ function to_array(name: string, deep = false): SchemeFunction {
     typecheck(name, list, ["pair", "nil"]);
     if (is_nil(list)) {
       return [];
+    }
+    // have_cycles() below only catches reader #0= cycles; actively detect a
+    // runtime set-cdr! cycle so we raise a clean error instead of growing the
+    // array until "Invalid array length" (the reverse symptom).
+    if (isCircularList(list)) {
+      invariant(false, `${name}: can't convert a circular list`);
     }
     const result: SchemeValue[] = [];
     let node = list;
@@ -1824,6 +1830,7 @@ export const global_env = new Environment(
         return obj.toCardinalityNumber();
       }
       if (is_pair(obj)) {
+        if (isCircularList(obj)) TypeError.invariant(false, "length: circular list");
         return withInputProvenance([obj], obj.length());
       }
       if ("length" in obj) {
@@ -1941,6 +1948,11 @@ export const global_env = new Environment(
     }),
     // ------------------------------------------------------------------
     "list?": doc("list?", function (obj) {
+      // A circular list is NOT a proper list (R7RS). Detect runtime cycles
+      // (have_cycles below only catches reader #0= cycles).
+      if (is_pair(obj) && isCircularList(obj)) {
+        return false;
+      }
       let node = obj;
       while (true) {
         if (is_nil(node)) {

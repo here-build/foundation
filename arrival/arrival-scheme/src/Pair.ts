@@ -64,6 +64,28 @@ function unwind(result: Thunk | void): void {
 // ----------------------------------------------------------------------
 // :: Cycle detection for pairs
 // ----------------------------------------------------------------------
+/**
+ * Floyd's tortoise/hare cycle detection on the cdr-spine. O(n) time, O(1) space.
+ * Returns true iff the list is CIRCULAR (a cdr eventually revisits a node).
+ *
+ * Unlike `have_cycles()` (a metadata read populated only by the reader for `#0=`
+ * datum labels), this ACTIVELY detects cycles created at runtime by `set-cdr!` —
+ * the gap behind the list?/length/append/memq/reverse/list-copy non-termination
+ * (caveat-sweep 2026-06-11). Spine-walking builtins guard on this so a circular
+ * list terminates (list? → #f) or raises a clean error instead of spinning /
+ * stack-overflowing. Never throws; the caller decides what a cycle means.
+ */
+export function isCircularList(head: unknown): boolean {
+  let slow: unknown = head;
+  let fast: unknown = head;
+  while (is_pair(fast) && is_pair(fast.cdr)) {
+    slow = (slow as Pair).cdr;
+    fast = fast.cdr.cdr;
+    if (slow === fast) return true;
+  }
+  return false;
+}
+
 function is_cycle(pair: unknown): boolean {
   if (!is_pair(pair)) {
     return false;
@@ -356,6 +378,12 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
   }
 
   to_array(deep = true): unknown[] {
+    // A circular list can't be materialized to a finite array — the recursion on
+    // `this.cdr` below would stack-overflow (the list-copy/reverse symptom). Detect
+    // and raise a clean error instead. (have_cycles() misses runtime set-cdr! cycles.)
+    if (isCircularList(this)) {
+      throw new Error("cannot convert a circular list to an array");
+    }
     let result: unknown[] = [];
     if (is_pair(this.car)) {
       if (deep) {
