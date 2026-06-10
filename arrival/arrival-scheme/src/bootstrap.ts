@@ -673,4 +673,282 @@ export const BOOTSTRAP_SCHEME = `
 ;; returned null for this call shape.
 (define (remove pred xs)
   (filter (lambda (x) (not (pred x))) xs))
+
+;; ================================================================
+;; SRFI libraries (pure procedures — added 2026-06-11). All exec-verified.
+;; arrival is immutable by design (no vector-set!), so only PURE ops are here.
+;; ================================================================
+;; ============ SRFI-1 (list library completion) ============
+;; take-while — longest prefix of xs satisfying pred.
+(define (take-while pred xs)
+  (let loop ((xs xs) (acc '()))
+    (if (and (pair? xs) (pred (car xs)))
+        (loop (cdr xs) (cons (car xs) acc))
+        (reverse acc))))
+
+;; drop-while — xs with the take-while prefix removed.
+(define (drop-while pred xs)
+  (let loop ((xs xs))
+    (if (and (pair? xs) (pred (car xs)))
+        (loop (cdr xs))
+        xs)))
+
+;; span — (values (take-while pred xs) (drop-while pred xs)).
+(define (span pred xs)
+  (let loop ((xs xs) (acc '()))
+    (if (and (pair? xs) (pred (car xs)))
+        (loop (cdr xs) (cons (car xs) acc))
+        (values (reverse acc) xs))))
+
+;; break — span on the negation of pred.
+(define (break pred xs)
+  (let loop ((xs xs) (acc '()))
+    (if (and (pair? xs) (not (pred (car xs))))
+        (loop (cdr xs) (cons (car xs) acc))
+        (values (reverse acc) xs))))
+
+;; partition — (values yes no) splitting xs by pred.
+(define (partition pred xs)
+  (let loop ((xs xs) (yes '()) (no '()))
+    (cond ((null? xs) (values (reverse yes) (reverse no)))
+          ((pred (car xs)) (loop (cdr xs) (cons (car xs) yes) no))
+          (else (loop (cdr xs) yes (cons (car xs) no))))))
+
+;; find-tail — first tail of xs whose car satisfies pred, else #f.
+(define (find-tail pred xs)
+  (let loop ((xs xs))
+    (cond ((null? xs) #f)
+          ((pred (car xs)) xs)
+          (else (loop (cdr xs))))))
+
+;; last-pair — the last pair of a non-empty list.
+(define (last-pair xs)
+  (let loop ((xs xs))
+    (if (pair? (cdr xs)) (loop (cdr xs)) xs)))
+
+;; last — the last element of a non-empty list.
+(define (last xs) (car (last-pair xs)))
+
+;; list-tabulate — (list (f 0) (f 1) ... (f (- n 1))).
+(define (list-tabulate n f)
+  (let loop ((i (- n 1)) (acc '()))
+    (if (< i 0) acc (loop (- i 1) (cons (f i) acc)))))
+
+;; fold-right — right-associative fold: (f x0 (f x1 ... (f xn knil))).
+(define (fold-right f knil xs)
+  (let loop ((xs xs))
+    (if (null? xs) knil (f (car xs) (loop (cdr xs))))))
+
+;; reduce-right — fold-right with the last element as the seed; ridentity if empty.
+(define (reduce-right f ridentity xs)
+  (if (null? xs)
+      ridentity
+      (let loop ((xs xs))
+        (if (null? (cdr xs))
+            (car xs)
+            (f (car xs) (loop (cdr xs)))))))
+
+;; concatenate — append a list of lists.
+(define (concatenate lists) (apply append lists))
+
+;; append-reverse — (append (reverse rev) tail), accumulator-friendly.
+(define (append-reverse rev tail)
+  (let loop ((rev rev) (tail tail))
+    (if (null? rev) tail (loop (cdr rev) (cons (car rev) tail)))))
+
+;; delete — remove all elements equal? to x from xs.
+(define (delete x xs)
+  (let loop ((xs xs) (acc '()))
+    (cond ((null? xs) (reverse acc))
+          ((equal? x (car xs)) (loop (cdr xs) acc))
+          (else (loop (cdr xs) (cons (car xs) acc))))))
+
+;; length+ — list length, or #f for a circular list (Floyd cycle detection).
+(define (length+ xs)
+  (let loop ((slow xs) (fast xs) (n 0))
+    (cond ((null? fast) n)
+          ((not (pair? fast)) n)
+          ((null? (cdr fast)) (+ n 1))
+          ((not (pair? (cdr fast))) (+ n 1))
+          (else
+            (let ((slow2 (cdr slow)) (fast2 (cdr (cdr fast))))
+              (if (eq? slow2 fast2) #f (loop slow2 fast2 (+ n 2))))))))
+;; ============ SRFI-43 (vector library — pure ops only; arrival vectors are immutable) ============
+;; vector-fold — left fold over a vector; (kons acc elt) folded across indices 0..n-1.
+(define (vector-fold kons knil vec)
+  (let ((n (vector-length vec)))
+    (let loop ((i 0) (acc knil))
+      (if (= i n) acc
+          (loop (+ i 1) (kons acc (vector-ref vec i)))))))
+
+;; vector-fold-right — right fold over a vector; (kons acc elt) across indices n-1..0.
+(define (vector-fold-right kons knil vec)
+  (let loop ((i (- (vector-length vec) 1)) (acc knil))
+    (if (< i 0) acc
+        (loop (- i 1) (kons acc (vector-ref vec i))))))
+
+;; vector-count — number of indices where (pred elt) is truthy.
+(define (vector-count pred vec)
+  (let ((n (vector-length vec)))
+    (let loop ((i 0) (c 0))
+      (if (= i n) c
+          (loop (+ i 1) (if (pred (vector-ref vec i)) (+ c 1) c))))))
+
+;; vector-index — first index where (pred elt) is truthy, else #f.
+(define (vector-index pred vec)
+  (let ((n (vector-length vec)))
+    (let loop ((i 0))
+      (cond ((= i n) #f)
+            ((pred (vector-ref vec i)) i)
+            (else (loop (+ i 1)))))))
+
+;; vector-binary-search — index of value equal under (cmp elt value)=0 in sorted vec, else #f.
+(define (vector-binary-search vec value cmp)
+  (let loop ((lo 0) (hi (- (vector-length vec) 1)))
+    (if (> lo hi) #f
+        (let* ((mid (quotient (+ lo hi) 2))
+               (c (cmp (vector-ref vec mid) value)))
+          (cond ((= c 0) mid)
+                ((< c 0) (loop (+ mid 1) hi))
+                (else (loop lo (- mid 1))))))))
+
+;; vector-empty? — #t iff the vector has length 0.
+(define (vector-empty? vec) (= (vector-length vec) 0))
+
+;; vector-any — first truthy (pred elt), scanning left to right, else #f.
+(define (vector-any pred vec)
+  (let ((n (vector-length vec)))
+    (let loop ((i 0))
+      (if (= i n) #f
+          (let ((r (pred (vector-ref vec i))))
+            (if r r (loop (+ i 1))))))))
+
+;; vector-every — last (pred elt) if all truthy, else #f (short-circuits on #f).
+(define (vector-every pred vec)
+  (let ((n (vector-length vec)))
+    (if (= n 0) #t
+        (let loop ((i 0))
+          (let ((r (pred (vector-ref vec i))))
+            (cond ((not r) #f)
+                  ((= i (- n 1)) r)
+                  (else (loop (+ i 1)))))))))
+
+
+;; ============ SRFI-189 (Maybe & Either) ============
+;; ---- SRFI-189 Maybe & Either (tagged-list values) ----
+
+;; just: wrap a value as a Just
+(define (just x) (list 'just x))
+;; nothing: the empty Maybe
+(define (nothing) (list 'nothing))
+;; left: wrap a value as a Left (failure side of Either)
+(define (left x) (list 'left x))
+;; right: wrap a value as a Right (success side of Either)
+(define (right x) (list 'right x))
+
+;; just?: is this a Just?
+(define (just? m) (and (pair? m) (eq? (car m) 'just)))
+;; nothing?: is this a Nothing?
+(define (nothing? m) (and (pair? m) (eq? (car m) 'nothing)))
+;; maybe?: is this any Maybe?
+(define (maybe? m) (or (just? m) (nothing? m)))
+;; left?: is this a Left?
+(define (left? e) (and (pair? e) (eq? (car e) 'left)))
+;; right?: is this a Right?
+(define (right? e) (and (pair? e) (eq? (car e) 'right)))
+;; either?: is this any Either?
+(define (either? e) (or (left? e) (right? e)))
+
+;; maybe-ref: unwrap a Just; on Nothing call failure thunk (default: error)
+(define (maybe-ref m . failure)
+  (cond ((just? m) (car (cdr m)))
+        ((pair? failure) ((car failure)))
+        (else (error "maybe-ref: Nothing"))))
+;; maybe-ref/default: unwrap a Just, else return default
+(define (maybe-ref/default m default)
+  (if (just? m) (car (cdr m)) default))
+;; maybe-bind: monadic bind; Nothing short-circuits
+(define (maybe-bind m f)
+  (if (just? m) (f (car (cdr m))) m))
+;; maybe-map: map over the wrapped value, preserving Nothing
+(define (maybe-map f m)
+  (if (just? m) (just (f (car (cdr m)))) m))
+;; maybe->list: '() for Nothing, (value) for Just
+(define (maybe->list m)
+  (if (just? m) (list (car (cdr m))) '()))
+;; list->maybe: '() -> Nothing, else Just of the first element
+(define (list->maybe lst)
+  (if (null? lst) (nothing) (just (car lst))))
+;; maybe->either: Nothing -> (left no-just), Just x -> (right x)
+(define (maybe->either m no-just)
+  (if (just? m) (right (car (cdr m))) (left no-just)))
+
+;; either-ref: unwrap a Right; on Left call failure with left value (default: error)
+(define (either-ref e . failure)
+  (cond ((right? e) (car (cdr e)))
+        ((pair? failure) ((car failure) (car (cdr e))))
+        (else (error "either-ref: Left"))))
+;; either-ref/default: unwrap a Right, else return default
+(define (either-ref/default e default)
+  (if (right? e) (car (cdr e)) default))
+;; either-bind: monadic bind; Left short-circuits
+(define (either-bind e f)
+  (if (right? e) (f (car (cdr e))) e))
+;; either-map: map over a Right, preserving Left
+(define (either-map f e)
+  (if (right? e) (right (f (car (cdr e)))) e))
+;; either->list: '() for Left, (value) for Right
+(define (either->list e)
+  (if (right? e) (list (car (cdr e))) '()))
+;; either-swap: (left x) <-> (right x)
+(define (either-swap e)
+  (cond ((left? e) (right (car (cdr e))))
+        ((right? e) (left (car (cdr e))))
+        (else (error "either-swap: not an Either"))))
+;; ============ SRFI-128 (comparators) ============
+;; ---- SRFI-128 comparators (tagged-list; NO hash — arrival has no value-hash,
+;; so comparator-hashable? is always #f and the hash arg is ignored) ----
+
+;; make-comparator — bundle (type-test equality ordering). A 4th hash arg is
+;; accepted for SRFI-128 source-compat but IGNORED.
+(define (make-comparator type-test equality ordering . hash)
+  (list 'comparator type-test equality ordering))
+(define (comparator? x) (and (pair? x) (eq? (car x) 'comparator)))
+(define (comparator-type-test-predicate c) (cadr c))
+(define (comparator-equality-predicate c) (caddr c))
+(define (comparator-ordering-predicate c) (cadddr c))
+(define (comparator-hashable? c) #f)
+
+;; %chain-rel — rel holds for every adjacent pair in (a b . rest).
+(define (%chain-rel rel a b rest)
+  (if (rel a b)
+      (if (null? rest) #t (%chain-rel rel b (car rest) (cdr rest)))
+      #f))
+
+(define (=? c a b . rest) (%chain-rel (comparator-equality-predicate c) a b rest))
+(define (<? c a b . rest) (%chain-rel (comparator-ordering-predicate c) a b rest))
+(define (>? c a b . rest)
+  (let ((lt (comparator-ordering-predicate c))) (%chain-rel (lambda (x y) (lt y x)) a b rest)))
+(define (<=? c a b . rest)
+  (let ((lt (comparator-ordering-predicate c))) (%chain-rel (lambda (x y) (not (lt y x))) a b rest)))
+(define (>=? c a b . rest)
+  (let ((lt (comparator-ordering-predicate c))) (%chain-rel (lambda (x y) (not (lt x y))) a b rest)))
+
+;; %type-rank / %default-less — a TOTAL order across types: by type rank, then
+;; the native within-type order.
+(define (%type-rank x)
+  (cond ((boolean? x) 0) ((number? x) 1) ((char? x) 2) ((string? x) 3)
+        ((symbol? x) 4) ((null? x) 5) ((pair? x) 6) (else 7)))
+(define (%default-less a b)
+  (let ((ra (%type-rank a)) (rb (%type-rank b)))
+    (if (not (= ra rb)) (< ra rb)
+        (cond ((number? a) (< a b))
+              ((char? a) (char<? a b))
+              ((string? a) (string<? a b))
+              ((symbol? a) (string<? (symbol->string a) (symbol->string b)))
+              ((boolean? a) (and (not a) b))
+              (else #f)))))
+(define (make-default-comparator) (make-comparator (lambda (x) #t) equal? %default-less))
+(define (default-comparator) (make-default-comparator))
+
 `;
