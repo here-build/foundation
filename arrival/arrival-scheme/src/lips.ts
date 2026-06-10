@@ -37,6 +37,7 @@ import {
   is_raw_lambda,
 } from "./guards.js";
 import { SchemeSymbol } from "./LSymbol.js";
+import { eq, eqv } from "./structural-equal.js";
 import { gensym, hidden_prop, is_atom, is_gensym, quote } from "./values-repr.js";
 import {
   __context__,
@@ -610,79 +611,9 @@ function toString(obj: unknown, quote = false, skip_cycles = false, ...pair_args
 
 // ----------------------------------------------------------------------
 // ----------------------------------------------------------------------
-// R7RS § 6.1 — three-tier equivalence hierarchy.
-//
-// War story: `eq?` and `eqv?` were both aliased to `equal` (lips.ts:3634-3635
-// pre-fix), so every dispatch flowed through one helper whose string branch
-// (lips.ts:670-672 — `x.valueOf() === y.valueOf()`) collapsed distinct heap
-// SchemeString instances to #t. That collapsed the three-tier R7RS hierarchy
-// into a single `equal?`-flavoured comparison, breaking `memq`/`assv`/`case`
-// dispatch and the R7RS § 6.1 atom-grade contract that `(eqv? (string-copy "a")
-// (string-copy "a"))` MUST be #f.
-//
-// Why three functions, not two-plus-an-alias:
-//   - `eq?` — pointer-grade. R7RS allows implementations to make immediates
-//     (numbers, chars, interned symbols, nil, booleans) answer #t even across
-//     distinct heap copies; we lean inclusive there because the provenance
-//     clone machinery (AValue.withProvenance) routinely mints copies of
-//     canonically-identifying values that should still compare eq? Without
-//     this carve-out, `(eq? (if #t #f #t) (if #f #t #f))` would surprise
-//     readers — both arms produce a SchemeBool(false) clone with different
-//     provenance heap-id, but the canonical answer is #t.
-//   - `eqv?` — same as eq? plus explicit number/char value equality. Per
-//     R7RS § 6.1, "eqv? returns #t if obj1 and obj2 are both exact numbers and
-//     are numerically equal" — but eq? above already covers SchemeExact and
-//     SchemeInexact via the .equals() call, so eqv?'s extra coverage is empty
-//     here. Kept as a distinct function so any future divergence (e.g.
-//     NaN/±0 handling change) lands in one place, and so the binding shape
-//     reflects the R7RS contract a reader expects.
-//   - `equal?` — structural recursion. Bound in bridge.ts via deepEqual,
-//     untouched.
-//
-// Provenance-clone trap: `x === y` is NOT sufficient for symbols/nil/booleans
-// because every withProvenance() call mints a fresh heap object. Use
-// instance-aware checks (SchemeSymbol.__name__, Nil instanceof, SchemeBool.value)
-// so clones still compare eq? — otherwise an `if`-induced provenance clone of
-// `nil` or `#f` would fail eq? against the singleton, breaking `(eq? x '())`
-// in the most common interpreter shape.
-function eq(x: SchemeValue, y: SchemeValue): boolean {
-  if (x === y) return true;
-  // Symbol interning: parser produces shared SchemeSymbol instances, but
-  // provenance clones break heap identity. Name equality is the canonical
-  // R7RS answer for interned symbols.
-  if (x instanceof SchemeSymbol && y instanceof SchemeSymbol) return x.__name__ === y.__name__;
-  // Nil singleton: every nil-clone (from withProvenance) is observably the
-  // empty list; eq? must answer #t. See clone-identity.test.ts for the
-  // meta-bug ledger across other modules.
-  if (x instanceof Nil && y instanceof Nil) return true;
-  // Booleans: #t and #f have schemeTrue/schemeFalse singletons, but clones
-  // exist. Compare by .value so clones still satisfy the contract.
-  if (x instanceof SchemeBool && y instanceof SchemeBool) return x.value === y.value;
-  // Characters: SchemeCharacter doesn't intern, so even literal `#\a` mints
-  // fresh instances. Compare by __char__.
-  if (x instanceof SchemeCharacter && y instanceof SchemeCharacter) return x.__char__ === y.__char__;
-  // Numbers: R7RS-implementation-defined for eq? on numbers, but treating
-  // them with eqv? semantics is the standard choice (chibi, gambit, racket).
-  if (x instanceof SchemeExact && y instanceof SchemeExact) return x.equals(y);
-  if (x instanceof SchemeInexact && y instanceof SchemeInexact) return x.equals(y);
-  // Everything else (Pair, vector/Array, SchemeString, plain objects) keeps
-  // strict pointer-grade: distinct heap instances answer #f. This is what
-  // distinguishes eq?/eqv? from equal? — and what makes the string-copy
-  // bug from the prior `equal`-alias collapse stay fixed.
-  return false;
-}
-
-function eqv(x: SchemeValue, y: SchemeValue): boolean {
-  // Per R7RS § 6.1: eqv? is "eq? plus explicit number/char equality." Our
-  // eq() above already includes both number branches (.equals on SchemeExact/
-  // SchemeInexact) and char equality (__char__), so eqv? today reduces to
-  // exactly eq?. Kept as a separate symbol so the binding mirrors the R7RS
-  // contract and so any future divergence (e.g. NaN handling, ±0, exact/
-  // inexact crossing) has a named home rather than living inside eq.
-  return eq(x, y);
-}
-
-// ----------------------------------------------------------------------
+// eq/eqv (R7RS § 6.1 lower two equivalence tiers) live in the equality leaf
+// `structural-equal.ts` alongside equal?/structuralEqual — see that file for
+// the three-tier rationale and the provenance-clone trap.
 function same_atom(a, b) {
   if (type(a) !== type(b)) {
     return false;
