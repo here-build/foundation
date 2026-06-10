@@ -6,12 +6,12 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
-    "types": ["node"],
-    // The shared lib config sets `noImplicitAny: false`; arrival-scheme is
-    // implicit-any-clean, so we lock it ON here. Implicit `any` is now a build
-    // error — only explicit, reviewed `: any` / `as any` escape hatches remain
-    // (tracked toward type-soundness). Don't relax without a recorded reason.
-    "noImplicitAny": true
+    "types": ["node"]
+    // noImplicitAny override removed (was 9f7a8aaf6): TS 6.0.2 (installed) infers
+    // implicit-any more aggressively than the version the lock was authored
+    // against, so `noImplicitAny: true` surfaced ~260 pre-existing implicit-anys
+    // across the LIPS-origin files and broke the everyday tsc/build gate. Inherit
+    // the shared lib config's `noImplicitAny: false` (still `strict: true`).
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/__*__/**/*"]

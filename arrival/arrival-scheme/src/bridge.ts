@@ -549,8 +549,10 @@ function wrapOrd(numeric: (...a: unknown[]) => unknown, sym: "<" | ">" | "<=" | 
     // numeric op untouched, so its speculative early-collapse path is preserved.
     if (args.length >= 2 && args.some(isOrd)) {
       for (let i = 0; i < args.length - 1; i++) {
-        if (!isOrd(args[i]) || !isOrd(args[i + 1])) return numeric(...args); // mixed → numeric path's clear error
-        if (!rel(args[i], args[i + 1])) return schemeFalse;
+        const a = args[i];
+        const b = args[i + 1];
+        if (!isOrd(a) || !isOrd(b)) return numeric(...args); // mixed → numeric path's clear error
+        if (!rel(a, b)) return schemeFalse;
       }
       return schemeTrue;
     }
