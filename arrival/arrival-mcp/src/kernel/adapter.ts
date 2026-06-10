@@ -3,9 +3,9 @@ import type { Context } from "hono";
 import invariant from "tiny-invariant";
 import type { Constructor } from "type-fest";
 
-import { ToolInteraction, type MCPClientInfo, type UserlandCallToolResult } from "../ToolInteraction";
-import { compileActionTool, type ActionTool } from "./action";
-import { compileDiscoveryTool, type DiscoveryTool, type Services } from "./discovery";
+import { ToolInteraction, type MCPClientInfo, type UserlandCallToolResult } from "../ToolInteraction.js";
+import { compileActionTool, type ActionTool } from "./action.js";
+import { compileDiscoveryTool, type DiscoveryTool, type Services } from "./discovery.js";
 
 /**
  * Adapter: wrap a value-shaped DiscoveryTool/ActionTool as a legacy

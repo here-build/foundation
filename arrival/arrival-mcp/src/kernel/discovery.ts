@@ -3,8 +3,8 @@ import { execSerialized, SAFE_BUILTINS, sandboxedEnv } from "@here.build/arrival
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import dedent from "dedent";
 
-import type { FieldSpec, InferProps } from "./refs";
-import { fieldJsonSchema, fieldParse } from "./refs";
+import type { FieldSpec, InferProps } from "./refs.js";
+import { fieldJsonSchema, fieldParse } from "./refs.js";
 
 /**
  * Discovery tool — Scheme sandbox, read-only, polymorphic by first scheme argument.

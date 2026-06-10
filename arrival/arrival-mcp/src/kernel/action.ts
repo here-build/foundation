@@ -1,16 +1,16 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import dedent from "dedent";
 
-import type { FieldSpec, InferProps } from "./refs";
-import { fieldJsonSchema, fieldParse } from "./refs";
-import type { ExactClass, MCPClientInfo, Services } from "./discovery";
+import type { FieldSpec, InferProps } from "./refs.js";
+import { fieldJsonSchema, fieldParse } from "./refs.js";
+import type { ExactClass, MCPClientInfo, Services } from "./discovery.js";
 import {
   checkSizeLimit,
   classifyError,
   DEFAULT_SIZE_LIMITS,
   type SizeLimits,
   withTimeout,
-} from "./errors";
+} from "./errors.js";
 
 /**
  * Action tool — tuple-invoked JSON dispatch. NOT installed in any Scheme env.

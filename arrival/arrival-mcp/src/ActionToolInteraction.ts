@@ -5,7 +5,7 @@ import invariant from "tiny-invariant";
 import type { SetRequired } from "type-fest";
 import * as z from "zod";
 
-import { ToolInteraction, type MCPClientInfo } from "./ToolInteraction";
+import { ToolInteraction, type MCPClientInfo } from "./ToolInteraction.js";
 
 type Dezod<T extends Record<string, z.ZodType>> = {
   [key in keyof T]: Awaited<z.infer<T[key]>>;

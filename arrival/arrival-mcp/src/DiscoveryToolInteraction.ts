@@ -6,7 +6,7 @@ import invariant from "tiny-invariant";
 import type { NonEmptyTuple } from "type-fest";
 import * as z from "zod";
 
-import { ToolInteraction, type MCPClientInfo } from "./ToolInteraction";
+import { ToolInteraction, type MCPClientInfo } from "./ToolInteraction.js";
 
 export interface DiscoveryQuery {
   expr: string;

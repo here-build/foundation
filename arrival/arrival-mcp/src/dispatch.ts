@@ -3,8 +3,8 @@ import type { Context } from "hono";
 import invariant from "tiny-invariant";
 import type { Constructor } from "type-fest";
 
-import type { ArrivalSessionStore, ErrorType } from "./store";
-import type { ToolInteraction, MCPClientInfo, UserlandCallToolResult } from "./ToolInteraction";
+import type { ArrivalSessionStore, ErrorType } from "./store.js";
+import type { ToolInteraction, MCPClientInfo, UserlandCallToolResult } from "./ToolInteraction.js";
 
 function asArray<T>(value: T | T[]): T[] {
   return Array.isArray(value) ? value : [value];

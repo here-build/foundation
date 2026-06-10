@@ -10,10 +10,10 @@ import {
 import type { Context } from "hono";
 import type { Constructor } from "type-fest";
 
-import { dispatchTool, getToolDefinitions } from "./dispatch";
-import type { ResourceProvider } from "./resources";
-import type { ArrivalSessionStore } from "./store";
-import type { ToolInteraction, MCPClientInfo } from "./ToolInteraction";
+import { dispatchTool, getToolDefinitions } from "./dispatch.js";
+import type { ResourceProvider } from "./resources/index.js";
+import type { ArrivalSessionStore } from "./store.js";
+import type { ToolInteraction, MCPClientInfo } from "./ToolInteraction.js";
 
 /**
  * Pluggable session state storage.

@@ -1,4 +1,4 @@
-import type { ArrivalSessionStore, ErrorType, InteractionRecord, SessionRecord } from "./store";
+import type { ArrivalSessionStore, ErrorType, InteractionRecord, SessionRecord } from "./store.js";
 
 /**
  * In-memory implementation of ArrivalSessionStore.
