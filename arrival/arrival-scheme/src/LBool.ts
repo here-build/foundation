@@ -24,6 +24,11 @@ export class SchemeBool extends AValue {
   withProvenance(p: ReadonlySet<number>): SchemeBool {
     return new SchemeBool(this.value, p);
   }
+
+  // Fantasy Land Setoid: total over any input, guards on the brand first.
+  ["fantasy-land/equals"](other: unknown): boolean {
+    return other instanceof SchemeBool && this.value === other.value;
+  }
 }
 
 export const schemeTrue = new SchemeBool(true);
