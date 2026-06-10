@@ -403,14 +403,30 @@ export class SchemeInexact extends AValue {
       if (this.real === -Infinity) return "-inf.0";
       return this.real.toString();
     }
-    // Complex format
-    const rStr = this.real === 0 ? "" : this.real.toString();
-    const sign = this.imag >= 0 ? "+" : "";
-    const iStr = this.imag === 1 ? "i" : this.imag === -1 ? "-i" : `${this.imag}i`;
+    // Complex format. A component may be NaN/±Infinity (e.g. from a genuine
+    // complex operation); format those R7RS-style (+nan.0/+inf.0/-inf.0) instead
+    // of JS "NaN"/"Infinity". Finite components keep their JS toString — preserving
+    // existing output like "1+2i" (reals here are NOT suffixed ".0", unlike the
+    // pure-real branch above).
+    const fmtComplexReal = (x: number): string =>
+      Number.isNaN(x) ? "+nan.0" : x === Infinity ? "+inf.0" : x === -Infinity ? "-inf.0" : x.toString();
     if (this.real === 0) {
-      return this.imag === 1 ? "+i" : this.imag === -1 ? "-i" : `${this.imag}i`;
+      if (this.imag === 1) return "+i";
+      if (this.imag === -1) return "-i";
+      return `${fmtComplexReal(this.imag)}i`;
     }
-    return `${rStr}${sign}${iStr}`;
+    const rStr = fmtComplexReal(this.real);
+    let iStr: string;
+    if (this.imag === 1) {
+      iStr = "+i";
+    } else if (this.imag === -1) {
+      iStr = "-i";
+    } else {
+      const m = fmtComplexReal(this.imag);
+      // nan/inf carry their own leading sign; add one for finite positives.
+      iStr = m[0] === "+" || m[0] === "-" ? `${m}i` : `${this.imag >= 0 ? "+" : ""}${m}i`;
+    }
+    return `${rStr}${iStr}`;
   }
 
   // Comparison (only valid for reals). Returns NaN when either operand is a
@@ -449,6 +465,12 @@ export class SchemeInexact extends AValue {
   }
 
   mul(other: SchemeInexact): SchemeInexact {
+    // Real fast-path: the complex formula's cross-terms (a*d, b*c) evaluate to
+    // `inf*0`/`0*inf` = NaN when a real operand is ±Infinity, leaking a spurious
+    // NaN imaginary part. Pure-real mul stays real. (R7RS: +inf.0 * 0.0 = +nan.0.)
+    if (this.imag === 0 && other.imag === 0) {
+      return new SchemeInexact(this.real * other.real, 0);
+    }
     // (a + bi)(c + di) = (ac - bd) + (ad + bc)i
     return new SchemeInexact(
       this.real * other.real - this.imag * other.imag,
@@ -457,6 +479,12 @@ export class SchemeInexact extends AValue {
   }
 
   div(other: SchemeInexact): SchemeInexact {
+    // Real fast-path: the complex formula divides by (c²+d²), so a real zero
+    // denominator makes BOTH parts 0/0 = NaN (the "NaNNaNi" bug). Pure-real div
+    // uses IEEE division directly: 1.0/0.0 = +inf.0, -1.0/0.0 = -inf.0, 0.0/0.0 = +nan.0.
+    if (this.imag === 0 && other.imag === 0) {
+      return new SchemeInexact(this.real / other.real, 0);
+    }
     // (a + bi)/(c + di) = ((ac + bd) + (bc - ad)i) / (c² + d²)
     const denom = other.real * other.real + other.imag * other.imag;
     return new SchemeInexact(
