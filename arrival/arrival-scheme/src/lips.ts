@@ -9,16 +9,12 @@ import { AValue, unionProvenance } from "./AValue.js";
 import { Environment, KEYWORD_ACCESSOR_FIELD, setLipsRuntime } from "./Environment.js";
 import { eof } from "./EOF.js";
 import { HalfBaked, is_half_baked } from "./HalfBaked.js";
-import { IgnoreException } from "./IgnoreException.js";
 import { Lexer } from "./Lexer.js";
 import { Parameter } from "./Parameter.js";
 import { Parser } from "./Parser.js";
 import { QuotedPromise } from "./QuotedPromise.js";
 import { Formatter } from "./Formatter.js";
 import {
-  is_callable,
-  is_context,
-  is_continuation,
   is_directive,
   is_env,
   is_false,
@@ -30,7 +26,6 @@ import {
   is_nil,
   is_null,
   is_pair,
-  is_parameter,
   is_plain_object,
   is_promise,
   is_prototype,
@@ -38,8 +33,8 @@ import {
 } from "./guards.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import { eq, eqv } from "./structural-equal.js";
-import { clear_gensyms, extract_patterns, macro_expand, self_evaluated, transform_syntax } from "./syntax-rules.js";
-import { gensym, hidden_prop, is_atom, is_gensym, quote } from "./values-repr.js";
+import { clear_gensyms, extract_patterns, macro_expand, transform_syntax } from "./syntax-rules.js";
+import { gensym, hidden_prop, quote } from "./values-repr.js";
 import {
   __context__,
   __data__,
@@ -55,14 +50,12 @@ import {
   rational_bare_re,
   rational_re,
 } from "./primitives.js";
-import { Nil, nil, SchemeCharacter } from "./types.js";
+import { nil, SchemeCharacter } from "./types.js";
 import * as specials from "./specials.js";
-import { LambdaContext } from "./LambdaContext.js";
-import { call_function, resolve_promises } from "./call-function.js";
-import { isNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
+import { call_function } from "./call-function.js";
+import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { type, typecheck, typecheck_args, typeErrorMessage } from "./utils/typecheck.js";
 import { parse_complex, parse_float, parse_integer, parse_rational } from "./utils/parsing.js";
-import { EnvLookup } from "./EnvLookup.js";
 import { Values } from "./Values.js";
 import { available_class, class_map, unserialize } from "./serialize.js";
 import { Macro } from "./Macro.js";
@@ -764,27 +757,6 @@ const exluded_names = new Set(["name", "length", "caller", "callee", "arguments"
 
 function filter_fn_names(name) {
   return !exluded_names.has(name);
-}
-
-// ----------------------------------------------------------------------
-// ----------------------------------------------------------------------
-function set_fn_length(fn, length) {
-  try {
-    Object.defineProperty(fn, "length", {
-      get() {
-        return length;
-      },
-    });
-    return fn;
-  } catch {
-    const wrapper = function (this: unknown) {
-      return Reflect.apply(fn, this, arguments);
-    };
-    Object.defineProperty(wrapper, "length", {
-      value: length,
-    });
-    return wrapper;
-  }
 }
 
 // ----------------------------------------------------------------------
@@ -2191,89 +2163,8 @@ for (const spec of combinations(["d", "a"], 2, 5)) {
 }
 
 // -------------------------------------------------------------------------
-// Default error handler: rethrow errors (except IgnoreException used for control flow)
-const rethrowError = (error: Error, _code?: unknown) => {
-  if (!(error instanceof IgnoreException)) {
-    throw error;
-  }
-};
-
-
-// -------------------------------------------------------------------------
-// :: Argument evaluation - evaluates all arguments in parallel
-// :: R7RS doesn't specify argument evaluation order, so parallel is valid
-// -------------------------------------------------------------------------
-function evaluate_args(rest: SchemeValue, { use_dynamic, ...options }: SchemeValue) {
-  const expressions: SchemeValue[] = [];
-  let node = rest;
-
-  // First, collect all expressions
-  while (is_pair(node)) {
-    invariant(!node.have_cycles("cdr"), `Invalid expression: Can't evaluate cycle`);
-    expressions.push(node.car);
-    node = node.cdr;
-  }
-
-  invariant(is_nil(node), "Syntax Error: improper list found in apply");
-
-  // Evaluate all expressions (parallel when async)
-  const results = expressions.map((expr) => {
-    let arg = evaluate(expr, { use_dynamic, ...options });
-    if (use_dynamic) {
-      arg = unpromise(arg, (arg) => {
-        if (is_native_function(arg)) {
-          return (arg as Function).bind(options.dynamic_env);
-        }
-        return arg;
-      });
-    }
-    return resolve_promises(arg);
-  });
-
-  // Wait for all promises to resolve together
-  const hasPromises = results.some(is_promise);
-  if (hasPromises) {
-    return promise_all(results);
-  }
-  return results;
-}
-
-// -------------------------------------------------------------------------
-function evaluate_syntax(macro, code, eval_args) {
-  const value = macro.invoke(code, eval_args);
-  return unpromise(resolve_promises(value), function (value) {
-    if (is_pair(value)) {
-      value.mark_cycles();
-    }
-    return quote(value);
-  });
-}
-
-// -------------------------------------------------------------------------
-function evaluate_macro(macro, code, eval_args) {
-  function finalize(result) {
-    if (is_pair(result)) {
-      result.mark_cycles();
-      return result;
-    }
-    return quote(result);
-  }
-
-  const value = macro.invoke(code, eval_args);
-  return unpromise(
-    resolve_promises(value),
-    function ret(value) {
-      return !value || value?.[__data__] || self_evaluated(value)
-        ? value
-        : unpromise(evaluate(value, eval_args), finalize);
-    },
-    (error) => {
-      throw error;
-    },
-  );
-}
-
-// -------------------------------------------------------------------------
+// prepare_fn_args is the one survivor of the deleted legacy `evaluate` cluster —
+// it's still used by the stdlib `apply` builtin to unbox callback args (#76).
 function prepare_fn_args(fn: SchemeValue, args: SchemeValue[]): SchemeValue[] {
   if (is_bound(fn) && !is_object_bound(fn) && !lips_context(fn)) {
     args = args.map(unbox);
@@ -2308,189 +2199,11 @@ function prepare_fn_args(fn: SchemeValue, args: SchemeValue[]): SchemeValue[] {
 }
 
 // -------------------------------------------------------------------------
-// War story (audit error shape #42, FIXED): `(- (* 0 "") (- (- 0 0) 0))`
-// used to surface as "Unbound variable `-`". Two layers of masking made
-// the diagnostic point at the wrong place:
-//   (1) The fuzz harness ran without `initBridge()` because its setup file
-//       only imported lips.ts (not index.ts), so wrappedOps were never
-//       installed in global_env and `(* …)` legitimately had no `*` binding.
-//       The fuzz "passing" was a false-positive: every random program took
-//       the unbound-variable branch and got whitelisted.
-//   (2) When the bridge IS initialized, `fromLIPS("")` threw a TypeError
-//       reading `Invariant failed: Cannot convert to SchemeNumeric: ` —
-//       technically a type error but it named neither operator nor argument.
-//
-// Both addressed:
-//   (a) `evaluator-provenance.fuzz.test.ts` now calls `initBridge()` once
-//       in `beforeAll`, dropping the bogus "unbound variable" whitelist.
-//   (b) `wrapOperator` (bridge.ts:241) catches fromLIPS failures and
-//       rethrows `TypeError: Cannot apply <op> to (<types>): argument N is
-//       <type>` with the original as `cause`. The membrane stack is still
-//       reachable through `.cause` for sandbox/security debugging.
-// Verified path (post-fix): apply → bridge wrapOperator try/catch →
-// rethrown TypeError naming op + arg types.
-
-// -------------------------------------------------------------------------
-function apply(
-  fn: SchemeFunction,
-  args: SchemeValue,
-  { env, dynamic_env, use_dynamic, error = rethrowError }: SchemeValue = {},
-) {
-  args = evaluate_args(args, { env, dynamic_env, error, use_dynamic });
-  return unpromise(args, function (args) {
-    if (is_raw_lambda(fn)) {
-      // lambda need environment as context
-      // normal functions are bound to their contexts
-      fn = unbind(fn);
-    }
-    args = prepare_fn_args(fn, args as SchemeValue[]);
-    const _args = [...(args as SchemeValue[])];
-    const result = call_function(fn, _args, { env, dynamic_env, use_dynamic });
-    return unpromise(
-      result,
-      (result) => {
-        if (is_pair(result)) {
-          result.mark_cycles();
-          return quote(result);
-        }
-        return box(result);
-      },
-      error,
-    );
-  });
-}
-
-// -------------------------------------------------------------------------
-function search_param(env, param) {
-  let candidate = env.get(param.__name__, { throwError: false });
-  if (is_parameter(candidate) && candidate !== param) {
-    return candidate;
-  }
-  let is_first_env = true;
-  const top_env = user_env.get("**interaction-environment**");
-  while (true) {
-    const parent = env.get("parent.frame", { throwError: false });
-    env = parent(0);
-    if (env === top_env) {
-      break;
-    }
-    is_first_env = false;
-    candidate = env.get(param.__name__, { throwError: false });
-    if (is_parameter(candidate) && candidate !== param) {
-      return candidate;
-    }
-  }
-  return param;
-}
-
-// -------------------------------------------------------------------------
-interface EvaluateOptions {
-  env?: Environment | boolean;
-  dynamic_env?: Environment;
-  use_dynamic?: boolean;
-  error?: (error: Error, code?: unknown) => void;
-  [key: string]: unknown;
-}
-
-export function evaluate(
-  code: unknown,
-  { env, dynamic_env, use_dynamic, error = rethrowError, ...rest }: EvaluateOptions = {},
-) {
-  try {
-    if (!is_env(dynamic_env)) {
-      dynamic_env = env === true ? user_env : env || user_env;
-    }
-    if (use_dynamic) {
-      env = dynamic_env;
-    } else if (env === true) {
-      env = user_env;
-    } else {
-      env = env || global_env;
-    }
-    const eval_args = { env, dynamic_env, use_dynamic, error };
-    let value;
-    if (is_null(code)) {
-      return code;
-    }
-    if (code instanceof SchemeSymbol) {
-      return env.get(code);
-    }
-    if (!is_pair(code)) {
-      return code;
-    }
-    const first = code.car;
-    const rest = code.cdr;
-    if (is_pair(first)) {
-      value = resolve_promises(evaluate(first, eval_args));
-      if (is_promise(value)) {
-        return value.then((value) => {
-          invariant(
-            is_callable(value),
-            () =>
-              `${type(value)} ${((env as Environment).get("repr") as SchemeFunction)(value)} is not callable while evaluating ${code.toString()}`,
-          );
-          return evaluate(new Pair(value, code.cdr), eval_args);
-        });
-        // else is later in code
-      }
-      invariant(
-        is_callable(value),
-        () =>
-          `${type(value)} ${((env as Environment).get("repr") as SchemeFunction)(value)} is not callable while evaluating ${code.toString()}`,
-      );
-    }
-    if (first instanceof SchemeSymbol) {
-      value = env.get(first);
-    } else if (is_function(first)) {
-      value = first;
-    }
-    let result;
-    if (value instanceof Syntax) {
-      result = evaluate_syntax(value, code, eval_args);
-    } else if (value instanceof Macro) {
-      result = evaluate_macro(value, rest, eval_args);
-    } else if (is_function(value)) {
-      result = apply(value, rest, eval_args);
-    } else if (value instanceof SyntaxParameter) {
-      result = evaluate_syntax(value._syntax, code, eval_args);
-    } else if (is_parameter(value)) {
-      const param = search_param(dynamic_env, value);
-      if (is_null(code.cdr)) {
-        result = param.invoke();
-      } else {
-        return unpromise(evaluate((code.cdr as Pair).car, eval_args), function (value) {
-          param.__value__ = value;
-        });
-      }
-    } else if (is_continuation(value)) {
-      result = value.invoke();
-    } else {
-      invariant(!is_pair(code), () => `${type(first)} ${first?.toString()} is not a function`);
-      return code;
-    }
-    // escape promise feature #54
-    const __promise__ = env.get(Symbol.for("__promise__"), {
-      throwError: false,
-    });
-    if (__promise__ === true && is_promise(result)) {
-      // fix #139 evaluate the code inside the promise that is not data.
-      // When promise is not quoted it happen automatically, when returning
-      // promise from evaluate.
-      result = result.then((result) => {
-        if (is_pair(result) && !value[__data__]) {
-          return evaluate(result, eval_args);
-        }
-        return result;
-      });
-      return new QuotedPromise(result);
-    }
-    return result;
-  } catch (error_) {
-    error?.call(env, error_ as Error, code);
-  }
-}
-
-// -------------------------------------------------------------------------
+// The legacy `evaluate` (+ its evaluate_args/evaluate_syntax/evaluate_macro/
+// apply/search_param helpers) is DELETED — every evaluation now runs on the
+// generator (evaluator.ts). The audit #42 wrapOperator contract it used to
+// carry is preserved in exec_with_stacktrace below (it surfaces wrapOperator's
+// TypeError + membrane cause out of the generator's SchemeError wrapping).
 async function exec_with_stacktrace(code: SchemeValue, { env, dynamic_env, use_dynamic }: SchemeValue = {}) {
   // The legacy `evaluate` driver is gone — this runs on the generator. The
   // generator's run() already attaches a Scheme stack trace (SchemeError.schemeStack)
@@ -2565,7 +2278,6 @@ export const lips = {
   exec,
   parse,
   tokenize,
-  evaluate,
   Environment,
   user_env,
   Pair,
@@ -2586,6 +2298,5 @@ setLipsRuntime({
   get,
   unbind,
   parse,
-  evaluate,
   global_env,
 });

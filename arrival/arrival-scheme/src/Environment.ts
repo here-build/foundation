@@ -6,7 +6,6 @@ import type { EOF } from "./EOF.js";
 import { is_env } from "./guards.js";
 import type {
   doc as DocFn,
-  evaluate as EvaluateFn,
   get as GetFn,
   get_props as GetPropsFn,
   parse as ParseFn,
@@ -79,7 +78,6 @@ let _lips: {
   get: typeof GetFn;
   unbind: typeof UnbindFn;
   parse: typeof ParseFn;
-  evaluate: typeof EvaluateFn;
   global_env: Environment;
 } | null = null;
 
