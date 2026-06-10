@@ -36,6 +36,7 @@ import { Parameter } from "./Parameter.js";
 import { SchemeJSFunction } from "./membrane.js";
 import { LipsError } from "./LipsError.js";
 import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeVector } from "./LVector.js";
 import { Macro } from "./Macro.js";
 import { Pair } from "./Pair.js";
 import { __data__, __location__ } from "./primitives.js";
@@ -1132,9 +1133,12 @@ function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number):
   // unquote evaluated and unquote-splicing flattened (R7RS §4.2.8). A vector
   // can't be improper or carry a dotted-unquote tail, so this mirrors the
   // list-element loop below without the tail-threading.
-  if (Array.isArray(expr)) {
+  // Vector template: a boxed SchemeVector (a `#(...) literal) or, defensively, a
+  // raw array. Build a fresh boxed vector so the result is a proper vector value.
+  if (expr instanceof SchemeVector || Array.isArray(expr)) {
+    const items = expr instanceof SchemeVector ? expr.__vector__ : expr;
     const out: SchemeValue[] = [];
-    for (const item of expr) {
+    for (const item of items) {
       if (
         level === 1 &&
         is_pair(item) &&
@@ -1159,7 +1163,7 @@ function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number):
       }
       out.push(yield { call: processQuasiquote(item, ctx, level) });
     }
-    return out;
+    return new SchemeVector(out);
   }
 
   // Atoms are returned as-is

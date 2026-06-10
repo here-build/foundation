@@ -1764,19 +1764,10 @@ export const global_env = new Environment(
       return list.flatten();
     }),
     // ------------------------------------------------------------------
-    vector: doc("vector", function (...args) {
-      typecheck_args("vector", args, "number");
-      return args;
-    }),
-    // ------------------------------------------------------------------
-    "vector-append": doc("vector-append", function (...args) {
-      if (args.length === 0) {
-        return [];
-      }
-      typecheck_args("vector-append", args, "array");
-      const [first, ...rest] = args;
-      return first.concat(...rest);
-    }),
+    // `vector` and `vector-append` live in bridge.ts (wrappedOps), minting boxed
+    // SchemeVector. The former stdlib `vector` here was DEAD (initBridge applies
+    // wrappedOps over global_env after stdlib builds, so bridge's always won) AND
+    // wrong (it typecheck'd args as numbers — non-R7RS). Removed (boxing S7, R11).
     // ------------------------------------------------------------------
     "array->list": doc("array->list", function (array) {
       typecheck("array->list", array, "array");

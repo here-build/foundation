@@ -1361,25 +1361,28 @@ export const wrappedOps = {
   // R7RS Vector functions (Section 6.8)
   // ============================================================================
 
-  "make-vector"(k: unknown, fill?: unknown): unknown[] {
+  "make-vector"(k: unknown, fill?: unknown): SchemeVector {
     const len = Number(typeof k === "number" ? k : (k as SchemeExact).valueOf());
     // O(1) cap check BEFORE Array.from materializes `len` slots — see
     // assertAllocatable. `Array.from({length})` on an oversized count is the
     // >10s hang the audit caught.
     assertAllocatable(len, "make-vector");
-    const arr = Array.from({ length: len });
+    const arr = Array.from({ length: len }) as SchemeValue[];
     if (fill !== undefined) {
       arr.fill(fill);
     }
-    // Vectors are raw JS arrays — no AValue surface to stamp provenance on.
-    // Elements (if AValues) carry their own provenance individually; the
-    // container is provenance-transparent. Same for `vector`, `vector-copy`,
-    // and bytevector ops below.
-    return arr;
+    // Boxed into SchemeVector so the container carries provenance and hosts
+    // algebra instances. Elements (if AValues) still carry their own provenance.
+    return new SchemeVector(arr);
   },
 
-  vector(...objs: unknown[]): unknown[] {
-    return [...objs];
+  vector(...objs: unknown[]): SchemeVector {
+    return new SchemeVector([...objs] as SchemeValue[]);
+  },
+
+  "vector-append"(...vectors: unknown[]): SchemeVector {
+    const arrays = vectors.map((v) => asVector(v, "vector-append"));
+    return new SchemeVector(([] as SchemeValue[]).concat(...arrays));
   },
 
   "vector?"(obj: unknown): boolean {
@@ -1414,14 +1417,14 @@ export const wrappedOps = {
     return Pair.fromArray(arr.slice(s, e));
   },
 
-  "list->vector"(list: unknown): unknown[] {
-    const result: unknown[] = [];
+  "list->vector"(list: unknown): SchemeVector {
+    const result: SchemeValue[] = [];
     let current = list;
     while (current instanceof Pair) {
       result.push(current.car);
       current = current.cdr;
     }
-    return result;
+    return new SchemeVector(result);
   },
 
   "vector-fill!"(vec: unknown, fill: unknown, start?: unknown, end?: unknown): void {
@@ -1445,22 +1448,22 @@ export const wrappedOps = {
     return result;
   },
 
-  "string->vector"(str: unknown, start?: unknown, end?: unknown): unknown[] {
+  "string->vector"(str: unknown, start?: unknown, end?: unknown): SchemeVector {
     const s_str = stringValue(str);
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? s_str.length : toIndex(end);
-    const result: unknown[] = [];
+    const result: SchemeValue[] = [];
     for (let i = s; i < e; i++) {
       result.push(new SchemeCharacter(s_str[i]));
     }
-    return result;
+    return new SchemeVector(result);
   },
 
-  "vector-copy"(vec: unknown, start?: unknown, end?: unknown): unknown[] {
+  "vector-copy"(vec: unknown, start?: unknown, end?: unknown): SchemeVector {
     const arr = asVector(vec, "vector-copy");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? arr.length : toIndex(end);
-    return arr.slice(s, e);
+    return new SchemeVector(arr.slice(s, e));
   },
 
   "vector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
@@ -1484,16 +1487,16 @@ export const wrappedOps = {
     }
   },
 
-  "vector-map"(proc: Function, ...vectors: unknown[]): unknown[] {
+  "vector-map"(proc: Function, ...vectors: unknown[]): SchemeVector {
     invariant(vectors.length > 0, "vector-map: expected at least one vector argument");
     const arrays = vectors.map((v) => asVector(v, "vector-map"));
     const minLen = Math.min(...arrays.map((a) => a.length));
-    const result: unknown[] = [];
+    const result: SchemeValue[] = [];
     for (let i = 0; i < minLen; i++) {
       const elements = arrays.map((a) => a[i]);
       result.push(proc(...elements));
     }
-    return result;
+    return new SchemeVector(result);
   },
 
   "vector-for-each"(proc: Function, ...vectors: unknown[]): void {

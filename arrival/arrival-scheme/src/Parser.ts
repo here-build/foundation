@@ -28,6 +28,7 @@ import { Lexer } from "./Lexer.js";
 // -------------------------------------------------------------------------
 import { call_function } from "./call-function.js";
 import { SchemeBytevector } from "./LBytevector.js";
+import { SchemeVector } from "./LVector.js";
 import { global_env, lips, unpromise } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { parse_argument } from "./utils/parsing.js";
@@ -445,11 +446,11 @@ export class Parser {
         this.skip();
         this._enterNesting();
         const list = await this.read_list();
-        // Convert list to array
+        // Convert list to a boxed vector (#(...) literal producer).
         if (is_nil(list)) {
-          return [];
+          return new SchemeVector([]);
         }
-        return (list as Pair).to_array(false);
+        return new SchemeVector((list as Pair).to_array(false));
       }
       // Handle bytevector literals #u8(...) specially
       if (is_bytevector_literal(token)) {
