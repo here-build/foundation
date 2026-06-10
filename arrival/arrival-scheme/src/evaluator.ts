@@ -1123,6 +1123,40 @@ function* evalQuasiquote(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
  * Process quasiquoted expression with nesting level tracking
  */
 function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number): EvalGenerator {
+  // Vectors are processed element-wise: `#(1 ,x ,@xs) builds a fresh vector with
+  // unquote evaluated and unquote-splicing flattened (R7RS §4.2.8). A vector
+  // can't be improper or carry a dotted-unquote tail, so this mirrors the
+  // list-element loop below without the tail-threading.
+  if (Array.isArray(expr)) {
+    const out: SchemeValue[] = [];
+    for (const item of expr) {
+      if (
+        level === 1 &&
+        is_pair(item) &&
+        item.car instanceof SchemeSymbol &&
+        symbol_name(item.car) === "unquote-splicing"
+      ) {
+        invariant(is_pair(item.cdr), "unquote-splicing: missing argument");
+        let spliced = yield { call: evaluate(item.cdr.car, ctx) };
+        if (is_promise(spliced)) {
+          spliced = yield spliced;
+        }
+        if (is_pair(spliced)) {
+          let n: SchemeValue = spliced;
+          while (is_pair(n)) {
+            out.push(n.car);
+            n = n.cdr;
+          }
+        } else {
+          invariant(is_nil(spliced), "unquote-splicing: expected list");
+        }
+        continue;
+      }
+      out.push(yield { call: processQuasiquote(item, ctx, level) });
+    }
+    return out;
+  }
+
   // Atoms are returned as-is
   if (!is_pair(expr)) {
     return expr;
