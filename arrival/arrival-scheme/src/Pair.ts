@@ -4,7 +4,7 @@
 import invariant from "tiny-invariant";
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import { type SourceLocation } from "./errors.js";
-import { is_native, is_nil, is_pair, is_plain_object } from "./guards.js";
+import { is_native, is_nil, is_pair, is_plain_object } from "./value-guards.js";
 import { SchemeString } from "./LString.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";

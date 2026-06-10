@@ -3,10 +3,8 @@ import { Continuation } from "./Continuation.js";
 import { Environment } from "./Environment.js";
 import { LambdaContext } from "./LambdaContext.js";
 import { SchemeBool } from "./LBool.js";
-import { SchemeString } from "./LString.js";
 import { Macro } from "./Macro.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
-import { Pair } from "./Pair.js";
 import { Parameter } from "./Parameter.js";
 import { Syntax } from "./Syntax.js";
 import {
@@ -23,7 +21,12 @@ import {
 } from "./primitives.js";
 import { QuotedPromise } from "./QuotedPromise.js";
 import * as specials from "./specials.js";
-import { Nil, SchemeCharacter, nil } from "./types.js";
+import { nil } from "./types.js";
+// Leaf value-kernel predicates live in value-guards.ts (no Environment/Macro
+// dep) so Pair.ts can import them without dragging the evaluator world in.
+// Re-exported here so every existing `from "./guards.js"` call site is unchanged.
+import { is_native, is_nil, is_pair, is_plain_object } from "./value-guards.js";
+export { is_native, is_nil, is_pair, is_plain_object };
 
 // Import directly from source files to avoid circular dependency with lips.ts
 
@@ -78,31 +81,10 @@ export function is_symbol_extension(special: unknown): boolean {
   return typeof special === "string" && specials.type(special) === specials.SYMBOL;
 }
 // ----------------------------------------------------------------------
-export function is_plain_object(object: unknown): object is Record<string, unknown> {
-  return object !== null && typeof object === "object" && object.constructor === Object;
-} // ----------------------------------------------------------------------
-// ----------------------------------------------------------------------
 // :: Check for nullish values
 // ----------------------------------------------------------------------
 export function is_null(value: unknown): value is null | undefined | typeof nil {
   return is_undef(value) || is_nil(value) || value === null;
-}
-
-// ----------------------------------------------------------------------
-/**
- * `nil` is the module-load singleton with empty provenance. Once `Nil` extends
- * AValue, `nil.withProvenance(p)` mints a FRESH Nil so the singleton's empty
- * provenance set is preserved (see types.ts:87 — withProvenance returns
- * `new Nil(p)`). `restrictControlFlowProvenance` (evaluator.ts:627) does
- * exactly this when a control-flow arm resolves to nil while the predicate
- * carries non-empty provenance, so `=== nil` would silently report false on
- * those clones and cascade through `length` / `null?` / `car` / `cdr`
- * typechecks. Match by class instead — every Nil clone IS a Nil regardless of
- * which provenance set it's carrying. Spec §5.3 + the doc comment over
- * `restrictControlFlowProvenance` explain the mechanism.
- */
-export function is_nil(value: unknown): value is Nil {
-  return value instanceof Nil;
 }
 
 // ----------------------------------------------------------------------
@@ -152,11 +134,6 @@ export function is_context(o: unknown): o is LambdaContext {
 // ----------------------------------------------------------------------
 export function is_parameter(o: unknown): o is Parameter {
   return o instanceof Parameter;
-}
-
-// ----------------------------------------------------------------------
-export function is_pair(o: unknown): o is Pair {
-  return o instanceof Pair;
 }
 
 // ----------------------------------------------------------------------
@@ -226,12 +203,6 @@ export function is_instance(obj: unknown): boolean {
   }
   return false;
 }
-
-export const is_native = (obj: unknown): obj is SchemeString | SchemeCharacter | SchemeExact | SchemeInexact =>
-  obj instanceof SchemeString ||
-  obj instanceof SchemeCharacter ||
-  obj instanceof SchemeExact ||
-  obj instanceof SchemeInexact;
 
 // ----------------------------------------------------------------------
 export function is_number(o: unknown): o is SchemeExact | SchemeInexact {
