@@ -37,6 +37,7 @@ import {
   is_raw_lambda,
 } from "./guards.js";
 import { SchemeSymbol } from "./LSymbol.js";
+import { gensym, hidden_prop, is_atom, is_gensym, quote } from "./values-repr.js";
 import {
   __context__,
   __data__,
@@ -208,42 +209,6 @@ function symbol_to_string(obj: SchemeValue): string {
   return obj.toString().replace(/^Symbol\(([^)]+)\)/, "$1");
 }
 
-function is_gensym(symbol: SchemeValue): boolean {
-  if (typeof symbol === "symbol") {
-    return !!/^Symbol\(#:/.test(symbol.toString());
-  }
-  return false;
-}
-
-// -------------------------------------------------------------------------
-const gensym = (function () {
-  let count = 0;
-
-  function with_props(name, sym) {
-    const symbol = new SchemeSymbol(sym);
-    hidden_prop(symbol, "__literal__", name);
-    return symbol;
-  }
-
-  return function (name: SchemeValue = null) {
-    if (name instanceof SchemeSymbol) {
-      if (name.is_gensym()) {
-        return name;
-      }
-      name = name.valueOf();
-    }
-    if (is_gensym(name)) {
-      // don't do double gynsyms in nested syntax-rules
-      return new SchemeSymbol(name);
-    }
-    // use ES6 symbol as name for lips symbol (they are unique)
-    if (name !== null) {
-      return with_props(name, Symbol(`#:${name}`));
-    }
-    count++;
-    return with_props(count, Symbol(`#:g${count}`));
-  };
-})();
 // ----------------------------------------------------------------------
 // :: helper function that make symbols in names array hygienic
 // ----------------------------------------------------------------------
@@ -780,20 +745,6 @@ function same_atom(a, b) {
 }
 
 // ----------------------------------------------------------------------
-function is_atom(obj) {
-  return (
-    obj instanceof SchemeSymbol ||
-    SchemeString.isString(obj) ||
-    is_nil(obj) ||
-    obj === null ||
-    obj instanceof SchemeCharacter ||
-    obj instanceof SchemeExact ||
-    obj instanceof SchemeInexact ||
-    obj === true ||
-    obj === false
-  );
-}
-
 // ----------------------------------------------------------------------
 const recur_guard = -10_000;
 
@@ -1962,15 +1913,6 @@ function filter_fn_names(name) {
 }
 
 // ----------------------------------------------------------------------
-function hidden_prop(obj, name, value) {
-  Object.defineProperty(obj, Symbol.for(name), {
-    get: () => value,
-    set: () => {},
-    configurable: false,
-    enumerable: false,
-  });
-}
-
 // ----------------------------------------------------------------------
 function set_fn_length(fn, length) {
   try {
@@ -2018,15 +1960,8 @@ function parallel(name: string, fn: SchemeFunction): Macro {
 // -------------------------------------------------------------------------
 // :: Quote function used to pause evaluation from Macro
 // -------------------------------------------------------------------------
-export function quote(value) {
-  if (is_promise(value)) {
-    return value.then(quote);
-  }
-  if (is_pair(value) || value instanceof SchemeSymbol) {
-    value[__data__] = true;
-  }
-  return value;
-}
+// quote moved to values-repr.ts; re-exported here to preserve the public barrel.
+export { quote };
 
 // -------------------------------------------------------------------------------
 const native_lambda = _parse(
