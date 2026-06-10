@@ -1008,62 +1008,13 @@ export const global_env = new Environment(
       return obj;
     }),
     // ------------------------------------------------------------------
-    "set!": doc(
-      null,
-      new Macro("set!", function (this: Environment, code: SchemeValue, { use_dynamic, ...rest }: SchemeValue = {}) {
-        const dynamic_env = this;
-        const env = this;
-        let ref;
-        const eval_args = { ...rest, env: this, dynamic_env, use_dynamic };
-        let value = evaluate(code.cdr.car, eval_args);
-        value = resolve_promises(value);
-
-        function set(object, key, value) {
-          if (is_promise(object)) {
-            return object.then((key) => set(object, key, value));
-          }
-          if (is_promise(key)) {
-            return key.then((key) => set(object, key, value));
-          }
-          if (is_promise(value)) {
-            return value.then((value) => set(object, key, value));
-          }
-          (env.get("set-obj!") as SchemeFunction).call(env, object, key, value);
-          return value;
-        }
-
-        if (is_pair(code.car) && SchemeSymbol.is(code.car.car, ".")) {
-          const second = code.car.cdr.car;
-          const third = code.car.cdr.cdr.car;
-          const object = evaluate(second, eval_args);
-          const key = evaluate(third, eval_args);
-          return set(object, key, value);
-        }
-        TypeError.invariant(
-          code.car instanceof SchemeSymbol,
-          `set! first argument need to be a symbol or dot accessor that evaluate to object.`,
-        );
-        const symbol = code.car.valueOf();
-        ref = this.ref(code.car.__name__);
-        // we don't return value because we only care about sync of set value
-        // when value is a promise
-        return unpromise(value, (value) => {
-          if (!ref) {
-            // case (set! fn.toString (lambda () "xxx"))
-            const parts = symbol.split(".");
-            invariant(parts.length > 1, `Unbound variable \`${symbol}'`);
-            const key = parts.pop();
-            const name = parts.join(".");
-            const obj = this.get(name, { throwError: false });
-            if (obj) {
-              set(obj, key, value);
-              return;
-            }
-          }
-          ref.set(symbol, value);
-        });
-      }),
-    ),
+    // set! delegates to the generator (evalSet via SPECIAL_FORMS); the binding
+    // exists for first-class lookup + macroexpand identity, like define/let/if.
+    // NOTE: evalSet is plain-symbol only — the legacy macro's dot-accessor
+    // `(set! (. o k) v)` and dotted-property `(set! fn.toString v)` JS-interop
+    // forms are not carried (already unreachable post-generator-delegation; no
+    // test exercises them). Re-add to evalSet WITH a test if a real need appears.
+    "set!": genMacroWrapper("set!"),
     // ------------------------------------------------------------------
     "unset!": doc(
       null,
@@ -1446,88 +1397,10 @@ export const global_env = new Environment(
       return new Pair(user_env, nil);
     }),
     // ------------------------------------------------------------------
-    lambda: new Macro("lambda", function (
-      this: Environment,
-      code: SchemeValue,
-      { use_dynamic, error }: SchemeValue = {},
-    ) {
-      const self = this;
-
-      function lambda(this: SchemeValue, ...args: SchemeValue[]) {
-        // lambda got scopes as context in apply
-        let { dynamic_env } = is_context(this) ? this : { dynamic_env: self };
-        const env = self.inherit("lambda");
-        dynamic_env = dynamic_env.inherit("lambda");
-        if (this && !is_context(this)) {
-          if (this && !this.__instance__) {
-            Object.defineProperty(this, "__instance__", {
-              enumerable: false,
-              get: () => true,
-              set: () => {},
-              configurable: false,
-            });
-          }
-          env.set("this", this);
-        }
-        // arguments and arguments.callee inside lambda function
-        if (this instanceof LambdaContext) {
-          const options = { throwError: false };
-          env.set("arguments", this.env.get("arguments", options));
-          env.set("parent.frame", this.env.get("parent.frame", options));
-        } else {
-          // this case is for lambda as callback function in JS; e.g. setTimeout
-          const _args: SchemeValue = [...args];
-          _args.callee = lambda;
-          _args.env = env;
-          env.set("arguments", _args);
-        }
-
-        function set(name, value) {
-          env.__env__[name.__name__] = value;
-          dynamic_env.__env__[name.__name__] = value;
-        }
-
-        let name = code.car;
-        let i = 0;
-        if (name instanceof SchemeSymbol || !is_nil(name)) {
-          while (true) {
-            if (!is_nil(name.car)) {
-              if (name instanceof SchemeSymbol) {
-                // rest argument,  can also be first argument
-                const value = quote(Pair.fromArray(args.slice(i), false));
-                set(name, value);
-                break;
-              } else if (is_pair(name)) {
-                const value = args[i];
-                set(name.car, value);
-              }
-            }
-            if (is_nil(name.cdr)) {
-              break;
-            }
-            i++;
-            name = name.cdr;
-          }
-        }
-        const rest = code.cdr;
-        const output = hygienic_begin([env, dynamic_env], rest);
-        const eval_args = {
-          env,
-          dynamic_env,
-          use_dynamic,
-          error,
-        };
-        return evaluate(output, eval_args);
-      }
-
-      const length = is_pair(code.car) ? code.car.length() : null;
-      lambda.__code__ = new Pair(new SchemeSymbol("lambda"), code);
-      lambda[__lambda__] = true;
-      if (!is_pair(code.car)) {
-        return lambda; // variable arguments
-      }
-      return set_fn_length(lambda, length);
-    }),
+    // lambda delegates to the generator (evalLambda via SPECIAL_FORMS); the
+    // binding exists for first-class lookup + the macro engine's identity check
+    // (`value === env.get("lambda")` in syntax-rules.ts), like define/let/if.
+    lambda: genMacroWrapper("lambda"),
     // ------------------------------------------------------------------
     macroexpand: doc(null, new Macro("macroexpand", macro_expand())),
     // ------------------------------------------------------------------
