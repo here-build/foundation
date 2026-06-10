@@ -164,9 +164,15 @@ function parseElements(toks: Tok[]): Node[] {
     return parseDatum();
   }
 
+  // The standard datum read: span the BASE operand first (so `5` inside `5[0]`
+  // is its own align/hover target), then the subscript-wrapped whole (so the
+  // sugared (car 5) node spans `5[0]`) — spanned() only fills empty spans, so
+  // the two stamps never fight.
+  const datum = (): Node => spanned(() => withSubscripts(spanned(() => quoted(classicDatum))));
+
   function classicList(): Node {
     const items: Node[] = [];
-    while (peek() && peek()!.t !== ")") items.push(spanned(() => withSubscripts(quoted(classicDatum))));
+    while (peek() && peek()!.t !== ")") items.push(datum());
     if (!peek()) throw new Error("unbalanced (");
     next();
     return { list: items };
@@ -179,15 +185,19 @@ function parseElements(toks: Tok[]): Node[] {
     throw new Error(`unexpected '${t.t}'`);
   }
 
+  function curlyAtomic(): Node {
+    const t = peek();
+    if (!t) throw new Error("unexpected end in curly");
+    if (t.t === "(") { next(); return classicList(); }
+    if (t.t === "{") { next(); return curly(); }
+    if (t.t === "word" && !isOp(t.v)) { next(); return atom(t.v, t.str); }
+    throw new Error(`expected operand in curly, got '${t.t === "word" ? t.v : t.t}'`);
+  }
   function curlyOperand(): Node {
-    return withSubscripts(quoted((): Node => {
-      const t = peek();
-      if (!t) throw new Error("unexpected end in curly");
-      if (t.t === "(") { next(); return classicList(); }
-      if (t.t === "{") { next(); return curly(); }
-      if (t.t === "word" && !isOp(t.v)) { next(); return atom(t.v, t.str); }
-      throw new Error(`expected operand in curly, got '${t.t === "word" ? t.v : t.t}'`);
-    }));
+    // double-spanned like `datum`: infix operands are read OUTSIDE classicList's
+    // item loop, so they need their own stamps (atoms in `{n - 1}` are
+    // hover/align targets; the inner stamp covers a subscripted base).
+    return spanned(() => withSubscripts(spanned(() => quoted(curlyAtomic))));
   }
   function infix(minPrec: number): Node {
     let left = curlyOperand();
@@ -217,7 +227,7 @@ function parseElements(toks: Tok[]): Node[] {
   }
 
   const elems: Node[] = [];
-  while (pos < toks.length) elems.push(spanned(() => withSubscripts(quoted(classicDatum))));
+  while (pos < toks.length) elems.push(datum());
   return elems;
 }
 
@@ -299,10 +309,30 @@ function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number
   }
 
   const head = parseElements(toks);
-  if (childElems.length === 0) return { elems: head, next: j };
+  if (childElems.length === 0) {
+    // SRFI-110: a CHILDLESS line of multiple datums is a list (`string-upcase s`
+    // → (string-upcase s)) — same rule readSweet applies to a whole top-level
+    // form. Splicing them as siblings instead silently rewrote a hand-typed
+    // body to junk on save-back. (The render never emits such lines — inline
+    // children keep their parens — so the round-trip law never exercised this.)
+    if (head.length > 1) {
+      const node: Node = { list: head };
+      if (line.base != null) node.span = [line.base, line.base + line.content.length];
+      return { elems: [node], next: j };
+    }
+    return { elems: head, next: j };
+  }
   // head tokens + children form one list (e.g. `define (f x)` ⏎ body, `(else …)`).
   // regroupLetFamily re-wraps elided let/let* bindings into their `(( ))`.
-  return { elems: [regroupLetFamily({ list: [...head, ...childElems] })], next: j };
+  const node = regroupLetFamily({ list: [...head, ...childElems] });
+  // Span the composite from its line extents (when both endpoints are on
+  // un-coalesced lines) — the whole-form span a definition/diagnostic lift
+  // lands on when its classic span covers the entire form.
+  const last = lines[j - 1];
+  if (node.span == null && line.base != null && last.base != null) {
+    node.span = [line.base, last.base + last.content.length];
+  }
+  return { elems: [node], next: j };
 }
 
 /** Blank a `;`-line-comment (to end of line) to SPACES, string-aware — they're
