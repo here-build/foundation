@@ -12,6 +12,10 @@ export { schemeToSweet, type SweetOpts } from "./sweet-render.js";
 // projecting scheme → JS/Python). Pure analysis — stays inside the runtime-free lens.
 export { parseSexprs, printScheme, type Node } from "./sweet-render.js";
 export { sweetToScheme, readSweet } from "./sweet-read.js";
+// Sweet↔classic span alignment — pairs the spans both transforms already stamp
+// (lockstep walk over the structurally-equal trees). Coordinate substrate for
+// IDE features in the sweet view; same runtime-free closure.
+export { alignSweetClassic, type SweetAlignment, type SweetSpanPair } from "./sweet-align.js";
 // Parameter inlay hints — pure analysis over the classic parse (imports only
 // `sweet-render`, so it stays inside this runtime-free lens closure).
 export { paramHints, paramHintsSweet, type ParamHint } from "./param-hints.js";
