@@ -88,6 +88,13 @@ export class Nil extends AValue {
   withProvenance(p: ReadonlySet<number>): Nil {
     return new Nil(p);
   }
+
+  // Setoid (Fantasy Land). Every Nil — including provenance clones — is equal,
+  // matching eq's instanceof check. structuralEqual / equal? consult this first.
+  // (algebras-in-entities migration — plan-2026-06-10-algebras-in-entities.md.)
+  ["fantasy-land/equals"](other: unknown): boolean {
+    return other instanceof Nil;
+  }
 }
 
 export const nil = new Nil();
@@ -214,6 +221,21 @@ export class SchemeCharacter extends AValue {
 
   withProvenance(p: ReadonlySet<number>): SchemeCharacter {
     return new SchemeCharacter(this.__char__, p);
+  }
+
+  // Setoid (Fantasy Land). Char ≡ char iff same grapheme. Matches the value
+  // semantics of __char__. structuralEqual / equal? consult this first.
+  // (algebras-in-entities migration — plan-2026-06-10-algebras-in-entities.md.)
+  ["fantasy-land/equals"](other: unknown): boolean {
+    return other instanceof SchemeCharacter && this.__char__ === other.__char__;
+  }
+
+  // Ord (Fantasy Land, extends Setoid). Ordered by code point.
+  ["fantasy-land/lte"](other: unknown): boolean {
+    return (
+      other instanceof SchemeCharacter &&
+      (this.__char__.codePointAt(0) ?? 0) <= (other.__char__.codePointAt(0) ?? 0)
+    );
   }
 }
 
