@@ -35,7 +35,7 @@ const Any: Codec<unknown, unknown> = {
     return true;
   },
   toJS: (v) => v,
-  fromJS: (v) => v as any,
+  fromJS: (v) => v,
 };
 
 // ============================================================================
