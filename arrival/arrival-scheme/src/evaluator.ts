@@ -38,7 +38,7 @@ import { LipsError } from "./LipsError.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import { Macro } from "./Macro.js";
 import { Pair } from "./Pair.js";
-import { __location__ } from "./primitives.js";
+import { __data__, __location__ } from "./primitives.js";
 import { nil, type SchemeValue } from "./types.js";
 
 // ============================================================================
@@ -444,15 +444,20 @@ interface LambdaFunction {
 
 /** Interface for macro expansion result */
 interface DataMarked {
-  __data__?: boolean;
+  [__data__]?: boolean;
 }
 
 /** Type guard for DataMarked objects */
 function is_data_marked(o: unknown): o is DataMarked {
   if (o === null || typeof o !== "object") return false;
-  if (!("__data__" in o)) return false;
-  // After 'in' check, TypeScript knows o has __data__ property
-  return o.__data__ === true;
+  // The data mark is the `__data__` SYMBOL (Symbol.for("__data__")), set by
+  // quote() and read by legacy evaluate_macro as `value?.[__data__]`. The earlier
+  // string-key check ("__data__" in o) never matched the symbol — invisible for
+  // any normal (quote x) because that hits evalQuote (a special form) and skips
+  // this macro path, but a hygiene-gensym'd `#:quote` resolves to the quote Macro
+  // and DOES take this path, so the mismatch made the generator re-evaluate
+  // quoted data inside syntax-rules expansions.
+  return (o as Record<symbol, unknown>)[__data__] === true;
 }
 
 /** Type guard for LambdaFunction */
