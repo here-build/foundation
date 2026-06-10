@@ -446,25 +446,33 @@ export class Parser {
         this.skip();
         this._enterNesting();
         const list = await this.read_list();
-        // Convert list to a boxed vector (#(...) literal producer).
-        if (is_nil(list)) {
-          return new SchemeVector([]);
-        }
-        return new SchemeVector((list as Pair).to_array(false));
+        // Convert list to a boxed vector (#(...) literal producer). R7RS literals
+        // are immutable → freeze, so a later vector-set!/fill! on the literal is
+        // an error (else it would corrupt the shared parsed AST node persistently).
+        const litVec = is_nil(list)
+          ? new SchemeVector([])
+          : new SchemeVector((list as Pair).to_array(false));
+        litVec.freeze();
+        return litVec;
       }
       // Handle bytevector literals #u8(...) specially
       if (is_bytevector_literal(token)) {
         this.skip();
         this._enterNesting();
         const list = await this.read_list();
-        // Convert list to a boxed bytevector (#u8(...) literal producer).
+        // Convert list to a boxed bytevector (#u8(...) literal producer). R7RS
+        // literals are immutable → freeze (see the #(...) case above).
+        let litBv: SchemeBytevector;
         if (is_nil(list)) {
-          return new SchemeBytevector(new Uint8Array(0));
+          litBv = new SchemeBytevector(new Uint8Array(0));
+        } else {
+          const arr = (list as Pair).to_array(false) as number[];
+          litBv = new SchemeBytevector(
+            new Uint8Array(arr.map((v) => (typeof v === "number" ? v : Number(v)))),
+          );
         }
-        const arr = (list as Pair).to_array(false) as number[];
-        return new SchemeBytevector(
-          new Uint8Array(arr.map((v) => (typeof v === "number" ? v : Number(v)))),
-        );
+        litBv.freeze();
+        return litBv;
       }
       // Built-in parser extensions are mapping short symbols to longer symbols
       // that can be function or macro. Parser doesn't care

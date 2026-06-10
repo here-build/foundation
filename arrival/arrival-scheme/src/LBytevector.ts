@@ -57,9 +57,19 @@ export class SchemeBytevector extends AValue {
   /** Mutable raw payload — bytevector-u8-set!/copy! write through this. */
   __bytevector__: Uint8Array;
 
+  /** R7RS: a #u8(...) literal is immutable. Parser freezes literals; the
+   *  bytevector mutators reject a frozen target. (Object.freeze can't be used —
+   *  it throws on a non-empty typed array — so a flag is the uniform mechanism.) */
+  frozen = false;
+
   constructor(source: BytevectorSource, provenance: ReadonlySet<number> = EMPTY_PROVENANCE) {
     super(provenance);
     this.__bytevector__ = toUint8(source);
+  }
+
+  /** Mark immutable (a literal). Idempotent. */
+  freeze(): void {
+    this.frozen = true;
   }
 
   static isBytevector(x: unknown): x is SchemeBytevector {
@@ -97,7 +107,9 @@ export class SchemeBytevector extends AValue {
   }
 
   withProvenance(p: ReadonlySet<number>): SchemeBytevector {
-    return new SchemeBytevector(this.__bytevector__, p);
+    const bv = new SchemeBytevector(this.__bytevector__, p);
+    if (this.frozen) bv.freeze();
+    return bv;
   }
 
   // Setoid (Fantasy Land) — byte-wise value equality. structuralEqual consults

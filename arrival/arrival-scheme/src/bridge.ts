@@ -121,8 +121,13 @@ function toIndex(v: unknown): number {
  * mutators write through) or a raw JS array (transition: raw vectors still flow
  * until S7 producers + S10 tighten). Throws on anything else.
  */
-function asVector(obj: unknown, fnName: string): SchemeValue[] {
-  if (obj instanceof SchemeVector) return obj.__vector__;
+function asVector(obj: unknown, fnName: string, forMutation = false): SchemeValue[] {
+  if (obj instanceof SchemeVector) {
+    if (forMutation && obj.frozen) {
+      TypeError.invariant(false, `${fnName}: cannot mutate an immutable vector literal`);
+    }
+    return obj.__vector__;
+  }
   if (Array.isArray(obj)) return obj;
   TypeError.invariant(false, `${fnName}: expected vector`);
 }
@@ -132,11 +137,14 @@ function asVector(obj: unknown, fnName: string): SchemeValue[] {
  * Accepts Uint8Array, ArrayBuffer, DataView, Node Buffer.
  * Preserves identity for Uint8Array, creates view for others.
  */
-function asBytevector(obj: unknown, fnName: string): Uint8Array {
+function asBytevector(obj: unknown, fnName: string, forMutation = false): Uint8Array {
   switch (true) {
     case obj instanceof SchemeBytevector:
       // Unwrap by reference so in-place mutators (bytevector-u8-set!,
       // bytevector-copy!) write through to the boxed payload.
+      if (forMutation && obj.frozen) {
+        TypeError.invariant(false, `${fnName}: cannot mutate an immutable bytevector literal`);
+      }
       return obj.__bytevector__;
     case obj instanceof Uint8Array:
       // FFI coercion: a raw Uint8Array handed to a bytevector op (e.g. from a
@@ -1407,7 +1415,7 @@ export const wrappedOps = {
   },
 
   "vector-set!"(vec: unknown, k: unknown, obj: unknown): void {
-    const arr = asVector(vec, "vector-set!");
+    const arr = asVector(vec, "vector-set!", true);
     const idx = typeof k === "number" ? k : (k as SchemeExact).valueOf();
     arr[idx as number] = obj;
   },
@@ -1430,7 +1438,7 @@ export const wrappedOps = {
   },
 
   "vector-fill!"(vec: unknown, fill: unknown, start?: unknown, end?: unknown): void {
-    const arr = asVector(vec, "vector-fill!");
+    const arr = asVector(vec, "vector-fill!", true);
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? arr.length : toIndex(end);
     for (let i = s; i < e; i++) {
@@ -1469,7 +1477,7 @@ export const wrappedOps = {
   },
 
   "vector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
-    const target = asVector(to, "vector-copy!");
+    const target = asVector(to, "vector-copy!", true);
     const source = asVector(from, "vector-copy!");
     const atIdx = toIndex(at);
     const s = start === undefined ? 0 : toIndex(start);
@@ -1560,7 +1568,7 @@ export const wrappedOps = {
   },
 
   "bytevector-u8-set!"(bv: unknown, k: unknown, byte: unknown): void {
-    const view = asBytevector(bv, "bytevector-u8-set!");
+    const view = asBytevector(bv, "bytevector-u8-set!", true);
     view[toIndex(k)] = toIndex(byte);
   },
 
@@ -1572,7 +1580,7 @@ export const wrappedOps = {
   },
 
   "bytevector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
-    const target = asBytevector(to, "bytevector-copy!");
+    const target = asBytevector(to, "bytevector-copy!", true);
     const source = asBytevector(from, "bytevector-copy!");
     const atIdx = toIndex(at);
     const s = start === undefined ? 0 : toIndex(start);

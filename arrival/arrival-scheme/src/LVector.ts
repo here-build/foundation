@@ -30,9 +30,18 @@ export class SchemeVector extends AValue {
   /** Mutable raw payload — vector-set!/fill!/copy! write through this. */
   __vector__: SchemeValue[];
 
+  /** R7RS: a #(...) literal is immutable. The Parser freezes literals; the
+   *  vector mutators reject a frozen target. Constructed vectors stay mutable. */
+  frozen = false;
+
   constructor(items: SchemeValue[], provenance: ReadonlySet<number> = EMPTY_PROVENANCE) {
     super(provenance);
     this.__vector__ = items;
+  }
+
+  /** Mark immutable (a literal). Idempotent. */
+  freeze(): void {
+    this.frozen = true;
   }
 
   static isVector(x: unknown): x is SchemeVector {
@@ -74,7 +83,11 @@ export class SchemeVector extends AValue {
   }
 
   withProvenance(p: ReadonlySet<number>): SchemeVector {
-    return new SchemeVector(this.__vector__, p);
+    const v = new SchemeVector(this.__vector__, p);
+    // The copy shares the payload by reference, so a frozen literal stays frozen
+    // (else re-stamping a literal's provenance would yield a mutable alias of it).
+    if (this.frozen) v.freeze();
+    return v;
   }
 
   // Setoid (Fantasy Land) — structural element-wise equality. structuralEqual
