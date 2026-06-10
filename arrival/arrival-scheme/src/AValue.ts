@@ -27,6 +27,8 @@ export type AKind =
   | "character"
   | "procedure"
   | "object"
+  | "vector"
+  | "bytevector"
   | "halfbaked"
   | "void";
 
