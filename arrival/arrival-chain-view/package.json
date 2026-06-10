@@ -37,7 +37,6 @@
   "dependencies": {
     "@here.build/arrival-chain": "workspace:^",
     "@here.build/lexical-namer": "workspace:^",
-    "@here.build/priority-namer": "workspace:^",
     "eslint": "9.39.2",
     "pluralize": "8.0.0",
     "prettier": "3.8.1",

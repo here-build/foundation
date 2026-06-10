@@ -151,8 +151,8 @@ describe("single scope: onTie postfix", () => {
   it("postfix: tie at top tier postfixes IMMEDIATELY even though a lower tier exists", () => {
     // Inverse of the burn-defer test at L86. Same entities, both have a lower
     // candidate at 80, but onTie:"postfix" must NOT descend to it — it keeps the
-    // tied "shared" name and postfixes there. This is priority-namer's CSS-class
-    // behavior: keep the user's name, postfix it; don't lose intent by descending.
+    // tied "shared" name and postfixes there. This is the CSS-class policy:
+    // keep the user's name, postfix it; don't lose intent by descending.
     const r = resolveStrings(
       {
         entities: [

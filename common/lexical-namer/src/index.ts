@@ -369,8 +369,8 @@ export interface EntityResolution<E> {
  *
  * 3. **Per-scope resolution**: walk priorities descending. At each priority,
  *    handle ViaPath candidates first (resolve instantly if `viaName` is in
- *    scope), then string candidates with priority-namer-style symmetric
- *    tie-break (burn or free). Unresolved entities use last-candidate +
+ *    scope), then string candidates with the flat-pool symmetric tie-break
+ *    (burn, free, or postfix). Unresolved entities use last-candidate +
  *    numeric-suffix fallback.
  *
  * 4. **Sibling independence**: child scopes inherit DOWN-propagated
@@ -634,14 +634,14 @@ function resolveScope<E>(
           const postfix = options.postfixFor(entity.key);
           invariant(
             !seenPostfixes.has(postfix),
-            `priority-namer: postfixFor must be injective on tied entities, but two entities ` +
+            `lexical-namer: postfixFor must be injective on tied entities, but two entities ` +
               `produced the same postfix "${postfix}" for name "${name}".`,
           );
           seenPostfixes.add(postfix);
           const finalName = resolveTie(name, postfix);
           invariant(
             !claimsHere.has(finalName) && !isInScope(finalName),
-            `priority-namer: tie-resolved name "${finalName}" collides with an existing claim or reservation.`,
+            `lexical-namer: tie-resolved name "${finalName}" collides with an existing claim or reservation.`,
           );
           resolutions.set(entity.key, makeSimpleResolution(entity.key, finalName, P));
           claimsHere.add(finalName);
@@ -948,11 +948,12 @@ export interface AssignNamesResult<E> {
  *
  *  1. **Duplicate names.** A name repeated at a lower importance is always
  *     dominated by its first (higher) occurrence — dedupe keeping first.
- *     (Mirrors priority-namer's per-entity dedupe.)
+ *     (The original flat-pool namer deduped each entity's list the same way.)
  *
- *  2. **Multiple candidates at the SAME importance.** priority-namer breaks
- *     this tie by NAME ASCENDING (the global queue sorts importance desc, then
- *     name asc). The record keyed by integer importance can hold only one entry
+ *  2. **Multiple candidates at the SAME importance.** The original flat-pool
+ *     namer broke this tie by NAME ASCENDING (its global queue sorted by
+ *     importance desc, then name asc). The record keyed by integer importance
+ *     can hold only one entry
  *     per importance, so we keep the name-ascending-first at the integer tier
  *     and demote each subsequent duplicate by `importance − rank/1000`. The
  *     fraction is a value no other entity emits and stays inside the same
@@ -984,8 +985,8 @@ function candidatesRecordFromList(list: Iterable<PrioritizedCandidate>): Record<
       record[importance] = group[0]!.name;
       continue;
     }
-    // Same-importance collision: order by name ascending (priority-namer's
-    // queue tiebreak), keep the first at the integer tier, demote the rest by
+    // Same-importance collision: order by name ascending (the flat-pool
+    // queue's tiebreak), keep the first at the integer tier, demote the rest by
     // rank/1000 to preserve order without colliding with other tiers.
     const sorted = [...group].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     sorted.forEach((c, rank) => {
@@ -1034,7 +1035,7 @@ export function assignNames<E>(options: AssignNamesOptions<E>): AssignNamesResul
   const result = resolveLexicalNames<E>(root, {
     postfixFor,
     onTie,
-    // Bridge priority-namer's 3-arg resolveTie (name, entity, postfix) to the
+    // Bridge the flat API's 3-arg resolveTie (name, entity, postfix) to the
     // scope resolver's 2-arg (name, postfix). The scope resolver doesn't pass
     // an entity, so we can't honor entity-dependent tie forms here — class-namer
     // (the only consumer) uses the default, name+postfix form.

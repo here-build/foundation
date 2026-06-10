@@ -134,9 +134,9 @@ describe("assignNames — fallback suffix", () => {
 describe("assignNames — same-importance candidates (record converter)", () => {
   it("two candidates at the same importance: name-ascending order is preserved", () => {
     // Mirrors class-namer's INNER=60 / CHILDREN=60 collision on one entity.
-    // priority-namer's queue breaks the same-importance tie by name ascending,
-    // so "children" is tried before "inner". The record converter must keep
-    // that order via fractional demotion (60 vs 59.999).
+    // The flat assignNames pool breaks the same-importance tie by name
+    // ascending, so "children" is tried before "inner". The record converter
+    // must keep that order via fractional demotion (60 vs 59.999).
     const a = e("a", c("inner", 60), c("children", 60), c("a-fallback", 10));
     const { assignments } = run([a]);
     // "children" < "inner" → claimed first, entity stops there.
