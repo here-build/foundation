@@ -1276,13 +1276,19 @@ export const global_env = new Environment(
     "make-parameter": doc(
       null,
       new Macro("make-parameter", function (code, eval_args) {
-        const dynamic_env = eval_args.dynamic_env;
-        const init = evaluate(code.car, eval_args);
-        let fn;
-        if (is_pair(code.cdr.car)) {
-          fn = evaluate(code.cdr.car, eval_args);
-        }
-        return new Parameter(init, fn);
+        // Value-returning legacy-evaluate site routed to the generator: the init
+        // (and optional converter fn) are unpromised before constructing the
+        // Parameter, and the macro invoker unpromises the returned value — so
+        // forcing async here is transparent. (`fn` is `unknown` out of unpromise.)
+        return unpromise(genRun(genEvaluate(code.car, eval_args)), (init) => {
+          if (is_pair(code.cdr.car)) {
+            return unpromise(
+              genRun(genEvaluate(code.cdr.car, eval_args)),
+              (fn) => new Parameter(init, fn as never),
+            );
+          }
+          return new Parameter(init, undefined);
+        });
       }),
     ),
     // ------------------------------------------------------------------
