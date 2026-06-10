@@ -1,20 +1,29 @@
 /**
- * Lexical-scope-aware name assignment.
+ * Priority-based name assignment, flat and lexically-scoped.
  *
- * Generalizes {@link @here.build/priority-namer} from "one flat pool" to
- * "tree of nested scopes." Each scope runs its own priority-resolution pass
- * with reservations propagated down the parent chain. Sibling scopes don't
- * see each other's claims — same name can occupy two disjoint scopes.
+ * This module owns the priority-resolution algorithm and exposes it through
+ * two public APIs over the same core:
  *
- * Domain-agnostic: usable for JS identifiers, CSS custom properties, or any
- * lexically-scoped namespace. The caller maps domain entities to opaque
- * keys and supplies prioritized candidate ladders; this module owns the
- * tree resolution algorithm.
+ *   - {@link assignNames}         : flat pool — one resolution pass. Each entity
+ *                                   emits a list of `(name, importance)`
+ *                                   candidates; collisions resolve by importance
+ *                                   with symmetric tie-breaking. Use for CSS
+ *                                   classes or any single-namespace pool.
+ *   - {@link resolveLexicalNames} : tree of nested scopes — one resolution pass
+ *                                   per scope, with reservations propagated down
+ *                                   the parent chain. Sibling scopes don't see
+ *                                   each other's claims (same name can occupy
+ *                                   two disjoint scopes). Use for JS identifiers
+ *                                   and other lexically-scoped namespaces.
  *
- * Composition with priority-namer:
- *   priority-namer  : flat pool, one resolution pass
- *   lexical-namer   : tree of pools, one priority-namer pass per scope,
- *                     with parent-chain reservations folded in
+ * `assignNames` is a thin adapter: it builds a single childless root scope and
+ * delegates to the scope resolver, so there is exactly ONE algorithm to reason
+ * about. Its tie policy is `onTie: "postfix"` (burn the bare name and postfix
+ * all tied entities immediately at the tied tier) — the CSS-class policy where
+ * the tied name IS the identity to keep.
+ *
+ * Domain-agnostic: the caller maps domain entities to opaque keys and supplies
+ * prioritized candidate ladders; this module owns the resolution.
  */
 
 import invariant from "tiny-invariant";
@@ -862,4 +871,182 @@ function describeEntity<E>(entity: E, options: ResolveOptions<E>): string {
   if (typeof e.id === "string") return `entity<id=${e.id}>`;
   if (typeof e.name === "string") return `entity<name=${e.name}>`;
   return String(entity);
+}
+
+// ── Flat API (assignNames) ───────────────────────────────────────────
+//
+// A single-scope projection of the resolver. Where `resolveLexicalNames`
+// resolves a tree of scopes, `assignNames` resolves one flat pool — the CSS-
+// class / generic-namespace case. It is a thin adapter: it builds one childless
+// root `ScopeSpec` and delegates to `resolveLexicalNames`, so the algorithm is
+// not duplicated.
+
+/** One `(name, importance)` preference. Higher importance wins. */
+export interface PrioritizedCandidate {
+  /** The name requested. Must be legal in the target namespace (caller's responsibility). */
+  name: string;
+  /** Higher wins. Scale is caller-defined. */
+  importance: number;
+}
+
+export interface AssignNamesOptions<E> {
+  /** Entities to be named. Iteration order does NOT affect output. */
+  entities: Iterable<E>;
+  /** Priority-ordered candidate stream for an entity. */
+  candidatesFor: (entity: E) => Iterable<PrioritizedCandidate>;
+  /**
+   * Deterministic per-entity postfix used for tie-breaking (default resolveTie).
+   * MUST be injective across the entity set — two distinct entities must never
+   * return the same postfix, or `assignments` may contain duplicate names.
+   * The namer validates this on tied groups and throws if violated.
+   */
+  postfixFor: (entity: E) => string;
+  /** Pre-reserved names (e.g. framework imports, root class). Cannot be claimed by any entity. */
+  reserved?: Iterable<string>;
+  /**
+   * Stable entity comparator used for (importance, name)-tie ordering AND for
+   * fallback ordering. Default: lexical compare of `postfixFor(entity)`.
+   */
+  compareEntities?: (a: E, b: E) => number;
+  /**
+   * Tie-break form when multiple entities want the same `name` at the same
+   * importance. Default: `${name}-${postfixFor(entity)}`. The third `entity`
+   * arg is bridged through to the scope resolver's 2-arg form (which ignores
+   * the entity) so callers relying on it keep working.
+   */
+  resolveTie?: (name: string, entity: E, postfix: string) => string;
+  /**
+   * Numeric-suffix form when a fallback name collides with an existing claim.
+   * Default: `${name}${n}` where `n` starts at 2.
+   */
+  fallbackSuffix?: (name: string, n: number) => string;
+  /**
+   * What happens to the bare name after a tie is resolved. Default `"postfix"`
+   * (the CSS-class policy): burn the bare name and postfix all tied entities
+   * immediately at the tied tier. `"burn"` / `"free"` defer to lower candidates
+   * when every tied entity still has one — see {@link ResolveOptions.onTie}.
+   */
+  onTie?: "burn" | "free" | "postfix";
+  /** Optional: human-readable description of an entity, used in error messages. */
+  describeEntity?: (entity: E) => string;
+}
+
+export interface AssignNamesResult<E> {
+  /** Final name assigned to each entity. Guaranteed: every entity maps to a unique name. */
+  assignments: ReadonlyMap<E, string>;
+  /** Names claimed by entities in this run (excludes pre-reserved). */
+  claimed: ReadonlySet<string>;
+  /** Names burned by tie-breaking — not in `assignments`, but off-limits to any claimer. */
+  burned: ReadonlySet<string>;
+}
+
+/**
+ * Convert an entity's flat `PrioritizedCandidate[]` list into the
+ * `Record<priority, Candidate>` shape the scope resolver wants.
+ *
+ * Two complications the flat list allows but the record can't represent:
+ *
+ *  1. **Duplicate names.** A name repeated at a lower importance is always
+ *     dominated by its first (higher) occurrence — dedupe keeping first.
+ *     (Mirrors priority-namer's per-entity dedupe.)
+ *
+ *  2. **Multiple candidates at the SAME importance.** priority-namer breaks
+ *     this tie by NAME ASCENDING (the global queue sorts importance desc, then
+ *     name asc). The record keyed by integer importance can hold only one entry
+ *     per importance, so we keep the name-ascending-first at the integer tier
+ *     and demote each subsequent duplicate by `importance − rank/1000`. The
+ *     fraction is a value no other entity emits and stays inside the same
+ *     importance band (callers must keep ≥1 spacing between distinct tiers), so
+ *     it preserves the within-entity name-ascending order without creating or
+ *     destroying any cross-entity tie.
+ */
+function candidatesRecordFromList(list: Iterable<PrioritizedCandidate>): Record<number, Candidate> {
+  // Dedupe by name, first occurrence wins.
+  const seen = new Set<string>();
+  const deduped: PrioritizedCandidate[] = [];
+  for (const c of list) {
+    if (seen.has(c.name)) continue;
+    seen.add(c.name);
+    deduped.push(c);
+  }
+
+  // Group by importance to detect same-importance collisions.
+  const byImportance = new Map<number, PrioritizedCandidate[]>();
+  for (const c of deduped) {
+    const group = byImportance.get(c.importance) ?? [];
+    group.push(c);
+    byImportance.set(c.importance, group);
+  }
+
+  const record: Record<number, Candidate> = {};
+  for (const [importance, group] of byImportance) {
+    if (group.length === 1) {
+      record[importance] = group[0]!.name;
+      continue;
+    }
+    // Same-importance collision: order by name ascending (priority-namer's
+    // queue tiebreak), keep the first at the integer tier, demote the rest by
+    // rank/1000 to preserve order without colliding with other tiers.
+    const sorted = [...group].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    sorted.forEach((c, rank) => {
+      record[importance - rank / 1000] = c.name;
+    });
+  }
+  return record;
+}
+
+const ROOT_SCOPE_ID = "__assignNames_root__";
+
+/**
+ * Assign names to all entities respecting priority and symmetric tie rules.
+ *
+ * Flat-pool projection of {@link resolveLexicalNames}: builds one childless
+ * root scope and delegates. Tie policy defaults to `"postfix"` (the CSS-class
+ * policy). See module docs.
+ */
+export function assignNames<E>(options: AssignNamesOptions<E>): AssignNamesResult<E> {
+  const {
+    entities,
+    candidatesFor,
+    postfixFor,
+    reserved,
+    compareEntities,
+    resolveTie,
+    fallbackSuffix,
+    describeEntity: describe,
+    onTie = "postfix",
+  } = options;
+
+  const scopedEntities: ScopedEntity<E>[] = [];
+  for (const entity of entities) {
+    scopedEntities.push({
+      key: entity,
+      candidates: candidatesRecordFromList(candidatesFor(entity)),
+    });
+  }
+
+  const root: ScopeSpec<E> = {
+    id: ROOT_SCOPE_ID,
+    ...(reserved && { reservations: [...reserved] }),
+    entities: scopedEntities,
+  };
+
+  const result = resolveLexicalNames<E>(root, {
+    postfixFor,
+    onTie,
+    // Bridge priority-namer's 3-arg resolveTie (name, entity, postfix) to the
+    // scope resolver's 2-arg (name, postfix). The scope resolver doesn't pass
+    // an entity, so we can't honor entity-dependent tie forms here — class-namer
+    // (the only consumer) uses the default, name+postfix form.
+    ...(resolveTie && { resolveTie: (name: string, postfix: string) => resolveTie(name, undefined as never, postfix) }),
+    ...(fallbackSuffix && { fallbackSuffix }),
+    ...(compareEntities && { compareEntities }),
+    ...(describe && { describeEntity: describe }),
+  });
+
+  return {
+    assignments: result.assignments,
+    claimed: result.claimsByScope.get(ROOT_SCOPE_ID) ?? new Set<string>(),
+    burned: result.burnedByScope.get(ROOT_SCOPE_ID) ?? new Set<string>(),
+  };
 }
