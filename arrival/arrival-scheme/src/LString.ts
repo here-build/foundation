@@ -97,6 +97,21 @@ export class SchemeString extends AValue {
     }
   }
 
+  // Setoid (Fantasy Land). Value equality on the underlying string — matches how
+  // structuralEqual compares strings via __string__. structuralEqual consults
+  // fantasy-land/equals FIRST, so this preserves equal? string semantics.
+  // (algebras-in-entities migration — plan-2026-06-10-algebras-in-entities.md.)
+  ["fantasy-land/equals"](other: unknown): boolean {
+    return other instanceof SchemeString && this.__string__ === other.__string__;
+  }
+
+  // Ord (Fantasy Land, extends Setoid). Lexicographic via JS `<=`, a total
+  // code-unit order (totality/antisymmetry/transitivity/consistency-with-equals
+  // all hold against the Setoid above). Non-SchemeString → false.
+  ["fantasy-land/lte"](other: unknown): boolean {
+    return other instanceof SchemeString && this.__string__ <= other.__string__;
+  }
+
   lower(): SchemeString {
     return new SchemeString(this.__string__.toLowerCase());
   }
