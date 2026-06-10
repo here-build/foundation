@@ -15,6 +15,7 @@ import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
 import { HalfBaked, is_half_baked, type Interval } from "./HalfBaked.js";
 import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./LBool.js";
+import { SchemeBytevector } from "./LBytevector.js";
 import { global_env as lipsGlobalEnv, env as userEnv, exec } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { SchemeString } from "./LString.js";
@@ -120,7 +121,15 @@ function toIndex(v: unknown): number {
  */
 function asBytevector(obj: unknown, fnName: string): Uint8Array {
   switch (true) {
+    case obj instanceof SchemeBytevector:
+      // Unwrap by reference so in-place mutators (bytevector-u8-set!,
+      // bytevector-copy!) write through to the boxed payload.
+      return obj.__bytevector__;
     case obj instanceof Uint8Array:
+      // FFI coercion: a raw Uint8Array handed to a bytevector op (e.g. from a
+      // JS function) is coerced in place. Stays permanently — it's the FFI
+      // adapter. (bytevector? tightens to instanceof-only in S4; asBytevector
+      // keeps coercing raw forms.)
       return obj;
     case obj instanceof ArrayBuffer:
       return new Uint8Array(obj);
@@ -1492,7 +1501,11 @@ export const wrappedOps = {
   // ============================================================================
 
   "bytevector?"(obj: unknown): boolean {
+    // Transition shim (S2): accept boxed OR raw forms so an as-yet-unflipped raw
+    // Uint8Array still answers #t. Tightens to `instanceof SchemeBytevector`
+    // only in S4.
     return (
+      obj instanceof SchemeBytevector ||
       obj instanceof Uint8Array ||
       obj instanceof ArrayBuffer ||
       obj instanceof DataView ||
@@ -1500,20 +1513,20 @@ export const wrappedOps = {
     );
   },
 
-  "make-bytevector"(k: unknown, byte?: unknown): Uint8Array {
+  "make-bytevector"(k: unknown, byte?: unknown): SchemeBytevector {
     const arr = new Uint8Array(toIndex(k));
     if (byte !== undefined) {
       arr.fill(toIndex(byte));
     }
-    return arr;
+    return new SchemeBytevector(arr);
   },
 
-  bytevector(...bytes: unknown[]): Uint8Array {
+  bytevector(...bytes: unknown[]): SchemeBytevector {
     const result = new Uint8Array(bytes.length);
     for (const [i, b] of bytes.entries()) {
       result[i] = toIndex(b);
     }
-    return result;
+    return new SchemeBytevector(result);
   },
 
   "bytevector-length"(bv: unknown): number {
@@ -1531,11 +1544,11 @@ export const wrappedOps = {
     view[toIndex(k)] = toIndex(byte);
   },
 
-  "bytevector-copy"(bv: unknown, start?: unknown, end?: unknown): Uint8Array {
+  "bytevector-copy"(bv: unknown, start?: unknown, end?: unknown): SchemeBytevector {
     const view = asBytevector(bv, "bytevector-copy");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? view.byteLength : toIndex(end);
-    return view.slice(s, e);
+    return new SchemeBytevector(view.slice(s, e));
   },
 
   "bytevector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
@@ -1547,7 +1560,7 @@ export const wrappedOps = {
     target.set(source.subarray(s, e), atIdx);
   },
 
-  "bytevector-append"(...bvs: unknown[]): Uint8Array {
+  "bytevector-append"(...bvs: unknown[]): SchemeBytevector {
     const views = bvs.map((bv) => asBytevector(bv, "bytevector-append"));
     const totalLen = views.reduce((sum, v) => sum + v.byteLength, 0);
     const result = new Uint8Array(totalLen);
@@ -1556,7 +1569,7 @@ export const wrappedOps = {
       result.set(view, offset);
       offset += view.byteLength;
     }
-    return result;
+    return new SchemeBytevector(result);
   },
 
   "utf8->string"(bv: unknown, start?: unknown, end?: unknown): string {
@@ -1566,11 +1579,11 @@ export const wrappedOps = {
     return new TextDecoder("utf-8").decode(view.subarray(s, e));
   },
 
-  "string->utf8"(str: unknown, start?: unknown, end?: unknown): Uint8Array {
+  "string->utf8"(str: unknown, start?: unknown, end?: unknown): SchemeBytevector {
     const s_str = stringValue(str);
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? s_str.length : toIndex(end);
-    return new TextEncoder().encode(s_str.slice(s, e));
+    return new SchemeBytevector(new TextEncoder().encode(s_str.slice(s, e)));
   },
 
   // ============================================================================

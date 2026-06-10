@@ -27,6 +27,7 @@ import { Lexer } from "./Lexer.js";
 // :: (these are only used inside methods, not at module evaluation time)
 // -------------------------------------------------------------------------
 import { call_function } from "./call-function.js";
+import { SchemeBytevector } from "./LBytevector.js";
 import { global_env, lips, unpromise } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { parse_argument } from "./utils/parsing.js";
@@ -455,12 +456,14 @@ export class Parser {
         this.skip();
         this._enterNesting();
         const list = await this.read_list();
-        // Convert list to Uint8Array
+        // Convert list to a boxed bytevector (#u8(...) literal producer).
         if (is_nil(list)) {
-          return new Uint8Array(0);
+          return new SchemeBytevector(new Uint8Array(0));
         }
         const arr = (list as Pair).to_array(false) as number[];
-        return new Uint8Array(arr.map((v) => (typeof v === "number" ? v : Number(v))));
+        return new SchemeBytevector(
+          new Uint8Array(arr.map((v) => (typeof v === "number" ? v : Number(v)))),
+        );
       }
       // Built-in parser extensions are mapping short symbols to longer symbols
       // that can be function or macro. Parser doesn't care
