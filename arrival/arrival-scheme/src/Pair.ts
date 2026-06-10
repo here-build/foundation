@@ -10,8 +10,8 @@ import { SchemeSymbol } from "./LSymbol.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { __cycles__, __data__, __location__, __ref__ } from "./primitives.js";
 import { markAsSandboxBoundary } from "./sandbox-boundary.js";
-import { type Nil, type PairLike } from "./types.js";
-import { nil, setPairConstructor } from "./types.js";
+import { type PairLike } from "./types.js";
+import { Nil, nil, setPairConstructor } from "./types.js";
 
 /**
  * Internal type for pair with metadata (cycles, refs, location).
@@ -639,6 +639,127 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
       },
     };
   }
+
+  // ----------------------------------------------------------------------
+  // Fantasy Land structure-algebras (migrated from the fantasy-land-lips.ts
+  // monkey-patch into the class body — plan-2026-06-10-algebras-in-entities.md
+  // wave 2). A Pair is the free monoid + Functor + Foldable + Traversable +
+  // Chain over a list. The recursors below TERMINATE on `instanceof Nil`, not
+  // `=== nil`: after the AValue refactor `nil.withProvenance(p)` mints fresh
+  // Nil clones (types.ts), so reference-equality would recurse past a
+  // provenance-bearing list end and crash on `<Nil-clone>.cdr`. Mirrors
+  // guards.ts:is_nil.
+  // ----------------------------------------------------------------------
+
+  // Functor — map each element, preserving the list spine.
+  ["fantasy-land/map"](f: (x: unknown) => unknown): Pair | Nil {
+    return mapPair(f, this);
+  }
+
+  // Filterable — keep elements satisfying the predicate.
+  ["fantasy-land/filter"](predicate: (x: unknown) => unknown): Pair | Nil {
+    return filterPair(predicate, this);
+  }
+
+  // Foldable — left fold over the elements.
+  ["fantasy-land/reduce"]<Acc>(f: (acc: Acc, x: unknown) => Acc, initial: Acc): Acc {
+    return reducePair(f, initial, this);
+  }
+
+  // Traversable — effectful traversal; `of` lifts into the applicative.
+  ["fantasy-land/traverse"](of: (x: unknown) => unknown, f: (x: unknown) => unknown): unknown {
+    return traversePair(of, f, this);
+  }
+
+  // Chain (Monad) — map then flatten. Flattening reuses the PURE list-concat
+  // Semigroup below; there is no `global_env.get("append")` back-edge (the
+  // require("./lips") hack the monkey-patch carried existed ONLY because the
+  // method lived outside the class — see plan wave 2).
+  ["fantasy-land/chain"](f: (x: unknown) => Pair | Nil): Pair | Nil {
+    return chainPair(f, this);
+  }
+
+  // Semigroup — list append. `this ⋄ other` = the elements of this list
+  // followed by the elements of `other`. Pure: builds a fresh spine, never
+  // mutates either operand (unlike the in-place `append` method above).
+  ["fantasy-land/concat"](other: Pair | Nil): Pair | Nil {
+    return concatPair(this, other);
+  }
+
+  // Monoid — the empty list is the identity for list-concat.
+  static ["fantasy-land/empty"](): Nil {
+    return nil;
+  }
+
+  // Applicative — single-element list.
+  static ["fantasy-land/of"](value: unknown): Pair {
+    return new Pair(value, nil);
+  }
+}
+
+// ----------------------------------------------------------------------
+// :: Structure-algebra recursors (module-local helpers for the Fantasy Land
+// :: methods above). All terminate on `instanceof Nil` — see the class-body
+// :: comment for why reference-equality (`=== nil`) is wrong here.
+// ----------------------------------------------------------------------
+
+// The empty-list sentinel: `new Pair()` (no args) yields `Pair(undefined, nil)`,
+// the shape arrival uses for "empty list" wherever a bare Pair is constructed.
+// ramda-functions.ts's own Pair recursors honor it (lines ~159/208) — the
+// class-body recursors must too, else delegating through `fantasy-land/*` would
+// fold a phantom `undefined` element. `instanceof Nil` (not `=== nil`) catches
+// provenance clones in the cdr.
+function isEmptyPairSentinel(p: Pair): boolean {
+  return p.car === undefined && p.cdr instanceof Nil;
+}
+
+function mapPair(f: (x: unknown) => unknown, pair: unknown): Pair | Nil {
+  if (!pair || pair instanceof Nil) return nil;
+  const p = pair as Pair;
+  if (isEmptyPairSentinel(p)) return nil;
+  return new Pair(f(p.car), mapPair(f, p.cdr));
+}
+
+function filterPair(predicate: (x: unknown) => unknown, pair: unknown): Pair | Nil {
+  if (!pair || pair instanceof Nil) return nil;
+  const p = pair as Pair;
+  if (isEmptyPairSentinel(p)) return nil;
+  const restFiltered = filterPair(predicate, p.cdr);
+  return predicate(p.car) ? new Pair(p.car, restFiltered) : restFiltered;
+}
+
+function reducePair<Acc>(f: (acc: Acc, x: unknown) => Acc, initial: Acc, pair: unknown): Acc {
+  if (!pair || pair instanceof Nil) return initial;
+  const p = pair as Pair;
+  if (isEmptyPairSentinel(p)) return initial;
+  return reducePair(f, f(initial, p.car), p.cdr);
+}
+
+function traversePair(of: (x: unknown) => unknown, f: (x: unknown) => unknown, pair: unknown): unknown {
+  if (!pair || pair instanceof Nil) return of(nil);
+  const p = pair as Pair;
+  const mappedCar = f(p.car) as { ["fantasy-land/ap"]?: (m: unknown) => unknown } | undefined;
+  const mappedCdr = traversePair(of, f, p.cdr);
+  return mappedCar?.["fantasy-land/ap"]
+    ? mappedCar["fantasy-land/ap"](mappedCdr)
+    : of(new Pair(mappedCar, mappedCdr));
+}
+
+// Pure list append (the Semigroup) — fresh spine of `a`'s elements, then `b`.
+function concatPair(a: unknown, b: unknown): Pair | Nil {
+  if (!a || a instanceof Nil) return (b ?? nil) as Pair | Nil;
+  const p = a as Pair;
+  return new Pair(p.car, concatPair(p.cdr, b));
+}
+
+// Chain = map-then-flatten. Each `f(car)` yields a list; concat them with the
+// PURE list-append above — NO global_env.get("append") back-edge.
+function chainPair(f: (x: unknown) => Pair | Nil, pair: unknown): Pair | Nil {
+  if (!pair || pair instanceof Nil) return nil;
+  const p = pair as Pair;
+  const mapped = f(p.car);
+  const chained = chainPair(f, p.cdr);
+  return concatPair(mapped, chained);
 }
 
 // Register Pair constructor with types.ts for Nil.append

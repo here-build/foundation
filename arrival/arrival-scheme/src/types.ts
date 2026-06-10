@@ -95,6 +95,20 @@ export class Nil extends AValue {
   ["fantasy-land/equals"](other: unknown): boolean {
     return other instanceof Nil;
   }
+
+  // Semigroup/Monoid (Fantasy Land) — Nil is the EMPTY LIST, the identity of
+  // the list monoid. `nil ⋄ other = other`. Co-declared with Pair's list-append
+  // Semigroup so the algebra is total over all lists (wave 2,
+  // plan-2026-06-10-algebras-in-entities.md). Returns `other` as-is — the
+  // identity does not allocate.
+  ["fantasy-land/concat"]<T>(other: T): T {
+    return other;
+  }
+
+  // Monoid empty — the identity is Nil itself (the canonical singleton).
+  static ["fantasy-land/empty"](): Nil {
+    return nil;
+  }
 }
 
 export const nil = new Nil();
