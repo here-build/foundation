@@ -112,6 +112,31 @@ export class SchemeString extends AValue {
     return other instanceof SchemeString && this.__string__ <= other.__string__;
   }
 
+  // Functor (Fantasy Land) — map over the characters. Iterates by code point
+  // (spread), so astral chars map as single graphemes. `f` receives and returns
+  // a string char; the result is the joined string. (Migrated from the
+  // fantasy-land-lips.ts monkey-patch — plan-2026-06-10-algebras-in-entities.md
+  // wave 2.)
+  ["fantasy-land/map"](f: (char: string) => string): SchemeString {
+    return new SchemeString([...this.__string__].map(f).join(""));
+  }
+
+  // Semigroup (Fantasy Land) — string append. `this ⋄ other` concatenates the
+  // two underlying strings. Associative; equality via the Setoid above.
+  ["fantasy-land/concat"](other: SchemeString): SchemeString {
+    return new SchemeString(this.__string__ + other.valueOf());
+  }
+
+  // Monoid (Fantasy Land) — the empty string is the identity for append.
+  static ["fantasy-land/empty"](): SchemeString {
+    return new SchemeString("");
+  }
+
+  // Applicative (Fantasy Land) — lift a value into a SchemeString.
+  static ["fantasy-land/of"](value: unknown): SchemeString {
+    return new SchemeString(String(value));
+  }
+
   lower(): SchemeString {
     return new SchemeString(this.__string__.toLowerCase());
   }
