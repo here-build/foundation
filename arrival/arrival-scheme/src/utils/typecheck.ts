@@ -3,11 +3,14 @@ import { EOF } from "../EOF.js";
 import { is_function, is_instance, is_iterator, is_pair } from "../guards.js";
 import { SchemeString } from "../LString.js";
 import { SchemeSymbol } from "../LSymbol.js";
-import { Macro } from "../Macro.js";
 import { SchemeExact, SchemeInexact } from "../numbers.js";
 import { Pair } from "../Pair.js";
 import { type_constants } from "../primitives.js";
-import { Syntax } from "../Syntax.js";
+// NOTE: Macro/Syntax are intentionally NOT imported. They are evaluator-world
+// classes; importing them here created an ESM init cycle (Macro → typecheck →
+// Syntax-extends-Macro) that resolved only by load-order luck. Their `typeOf`
+// is derived from the `constructor.__class__` brand fallback below ("macro" /
+// "syntax"), which keeps this module a leaf the value kernel can depend on.
 import { SchemeCharacter, Nil } from "../types.js";
 import { Values } from "../Values.js";
 import invariant from "tiny-invariant";
@@ -82,9 +85,7 @@ export function type(obj): string {
       character: SchemeCharacter,
       values: Values,
       regex: RegExp,
-      syntax: Syntax,
       eof: EOF,
-      macro: Macro,
       string: SchemeString,
       "native-symbol": Symbol,
     };
