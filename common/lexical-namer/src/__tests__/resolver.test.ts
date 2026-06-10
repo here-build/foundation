@@ -145,6 +145,50 @@ describe("single scope: ties", () => {
   });
 });
 
+// ── Single scope — onTie: "postfix" (immediate, no defer) ────────────
+
+describe("single scope: onTie postfix", () => {
+  it("postfix: tie at top tier postfixes IMMEDIATELY even though a lower tier exists", () => {
+    // Inverse of the burn-defer test at L86. Same entities, both have a lower
+    // candidate at 80, but onTie:"postfix" must NOT descend to it — it keeps the
+    // tied "shared" name and postfixes there. This is priority-namer's CSS-class
+    // behavior: keep the user's name, postfix it; don't lose intent by descending.
+    const r = resolveStrings(
+      {
+        entities: [
+          { key: "a", candidates: { 100: "shared", 80: "alpha" } },
+          { key: "b", candidates: { 100: "shared", 80: "beta" } },
+        ],
+      },
+      { onTie: "postfix" },
+    );
+    // postfix = key in our helper
+    expect(r.get("a")).toBe("shared-a");
+    expect(r.get("b")).toBe("shared-b");
+    // Critically NOT the deferred "alpha"/"beta" forms.
+    expect(r.get("a")).not.toBe("alpha");
+    expect(r.get("b")).not.toBe("beta");
+  });
+
+  it("postfix: bare name is burned (lower-importance claimer cannot take it)", () => {
+    const r = resolveStrings(
+      {
+        entities: [
+          { key: "highA", candidates: { 100: "x", 50: "alpha" } },
+          { key: "highB", candidates: { 100: "x", 50: "beta" } },
+          { key: "low", candidates: { 80: "x", 50: "gamma" } },
+        ],
+      },
+      { onTie: "postfix" },
+    );
+    // highA + highB tie at 100 → postfix immediately, "x" burned.
+    expect(r.get("highA")).toBe("x-highA");
+    expect(r.get("highB")).toBe("x-highB");
+    // low cannot take burned "x" → falls to gamma.
+    expect(r.get("low")).toBe("gamma");
+  });
+});
+
 // ── Single scope — ladder fallback (V's `large → typeLarge` example) ─
 
 describe("single scope: ladder fallback", () => {

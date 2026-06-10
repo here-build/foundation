@@ -253,14 +253,24 @@ export interface ResolveOptions<E> {
    * What happens to the bare name after a tie is resolved:
    *
    * - `"burn"` (default): the bare name is off-limits to all lower-importance
-   *   claimers in this scope. Use when names carry identity (CSS classes).
-   * - `"free"`: the bare name remains claimable. Use for JS identifiers
-   *   where lower priorities don't carry identity.
+   *   claimers in this scope. The tied entities DEFER — if every tied entity
+   *   still has a lower-priority candidate, they descend to it instead of
+   *   postfixing immediately (the bare name is burned either way). Use when a
+   *   lower candidate carries real identity worth descending to (JS variable
+   *   ladders: try `openState` before `open_uuid`).
+   * - `"free"`: like `"burn"` but the bare name remains claimable by lower-
+   *   importance claimers. Same defer-if-all-have-lower behavior. Use when
+   *   names are display-preference only.
+   * - `"postfix"`: burn the bare name AND symmetric-postfix all tied entities
+   *   IMMEDIATELY at the tied tier — never defer, even when lower candidates
+   *   exist. Use when the tied name IS the identity to keep (CSS classes: two
+   *   `<div name="card">` both become `card-<postfix>`, preserving the user's
+   *   "card" intent rather than descending to `div-<uuid>`).
    *
    * Note: burn semantics are scoped — a name burned in scope S is burned
    * for descendants of S, but NOT for siblings of S.
    */
-  onTie?: "burn" | "free";
+  onTie?: "burn" | "free" | "postfix";
 
   /**
    * Stable comparator for tied entities. Default: lexical compare on
@@ -302,8 +312,9 @@ export interface ResolveResult<E> {
   claimsByScope: ReadonlyMap<string, ReadonlySet<string>>;
 
   /**
-   * Per-scope view of names burned by tie-breaking at that scope (only
-   * populated when `onTie === "burn"`). Keyed by `ScopeSpec.id`.
+   * Per-scope view of names burned by tie-breaking at that scope (populated
+   * when `onTie` is `"burn"` or `"postfix"` — not `"free"`). Keyed by
+   * `ScopeSpec.id`.
    */
   burnedByScope: ReadonlyMap<string, ReadonlySet<string>>;
 }
@@ -588,15 +599,20 @@ function resolveScope<E>(
         claimsHere.add(name);
       } else {
         // Tie. Two questions:
-        //   1) Is the bare name burned? — yes iff onTie === "burn"
+        //   1) Is the bare name burned? — yes iff onTie !== "free"
+        //      ("burn" and "postfix" both burn; only "free" leaves it claimable)
         //   2) Do tied entities defer to next priority, or postfix here?
-        //      Defer iff ALL tied entities have at least one lower-priority candidate.
-        //      Otherwise (any is exhausted at this priority) symmetric postfix.
-        if (onTie === "burn") burnedHere.add(name);
-        const allHaveLower = active.every(({ entity }) => {
-          const cands = entity.candidates ?? {};
-          return Object.keys(cands).some((k) => Number(k) < P);
-        });
+        //      - "postfix": never defer — symmetric-postfix immediately at this
+        //        tier (the tied name is the identity to keep).
+        //      - "burn"/"free": defer iff ALL tied entities have at least one
+        //        lower-priority candidate; otherwise symmetric postfix.
+        if (onTie !== "free") burnedHere.add(name);
+        const allHaveLower =
+          onTie !== "postfix" &&
+          active.every(({ entity }) => {
+            const cands = entity.candidates ?? {};
+            return Object.keys(cands).some((k) => Number(k) < P);
+          });
         if (allHaveLower) {
           // Defer — entities will be tried at lower priorities. (Bare name
           // already burned above if onTie === "burn".)
