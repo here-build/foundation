@@ -795,8 +795,6 @@ function is_atom(obj) {
 }
 
 // ----------------------------------------------------------------------
-const macro = "define-macro";
-// ----------------------------------------------------------------------
 const recur_guard = -10_000;
 
 function macro_expand(): SchemeFunction {
@@ -2746,66 +2744,11 @@ export const global_env = new Environment(
     // ------------------------------------------------------------------
     macroexpand: doc(null, new Macro("macroexpand", macro_expand())),
     // ------------------------------------------------------------------
-    "define-macro": doc(
-      null,
-      new Macro(macro, function (this: Environment, macro: SchemeValue, { use_dynamic, error }: SchemeValue) {
-        if (is_pair(macro.car) && macro.car.car instanceof SchemeSymbol) {
-          const name = macro.car.car.__name__;
-          const makro_instance = Macro.defmacro(name, function (this: Environment, code: SchemeValue) {
-            const env = new Environment("defmacro", {}, this);
-            let name = macro.car.cdr;
-            let arg = code;
-            while (true) {
-              if (is_nil(name)) {
-                break;
-              }
-              if (name instanceof SchemeSymbol) {
-                env.__env__[name.__name__] = arg;
-                break;
-              } else if (!is_nil(name.car)) {
-                if (is_nil(arg)) {
-                  env.__env__[name.car.__name__] = nil;
-                } else {
-                  if (is_pair(arg.car)) {
-                    arg.car[__data__] = true;
-                  }
-                  env.__env__[name.car.__name__] = arg.car;
-                }
-              }
-              if (is_nil(name.cdr)) {
-                break;
-              }
-              if (!is_nil(arg)) {
-                arg = arg.cdr;
-              }
-              name = name.cdr;
-            }
-            const eval_args = {
-              env,
-              dynamic_env: env,
-              use_dynamic,
-              error,
-            };
-            // evaluate macro
-            if (is_pair(macro.cdr)) {
-              // this eval will return lips code
-              const rest = macro.cdr;
-              const result = rest.reduce(function (result, node) {
-                return evaluate(node, eval_args);
-              });
-              return unpromise(result, function (result) {
-                if (result && typeof result === "object") {
-                  delete (result as SchemeValue)[__data__];
-                }
-                return result;
-              });
-            }
-          });
-          (makro_instance as SchemeValue).__code__ = new Pair(new SchemeSymbol("define-macro"), macro);
-          this.set(name, makro_instance);
-        }
-      }),
-    ),
+    // define-macro delegates to the generator evaluator (evalDefineMacro) via
+    // genMacroWrapper — binds positional + rest params to the unevaluated form
+    // and registers the expander Macro in the calling env. Drops the literal's
+    // last dependency on the legacy macro-engine path.
+    "define-macro": genMacroWrapper("define-macro"),
     // ------------------------------------------------------------------
     "syntax-rules": new Macro("syntax-rules", function (this: Environment, macro: SchemeValue, options: SchemeValue) {
       const { use_dynamic, error } = options;
