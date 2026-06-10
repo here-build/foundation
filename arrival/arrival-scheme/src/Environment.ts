@@ -615,17 +615,13 @@ export class Environment {
    * ```
    */
   async eval(code: string): Promise<SchemeValue> {
-    const lips = getLipsRuntime();
-    const parsed = await lips.parse(code, this);
-    let result: SchemeValue = nil;
-    // Error handler that re-throws - LIPS evaluate uses try/catch with noop by default
-    const error = (e: Error) => {
-      throw e;
-    };
-    for (const expr of parsed) {
-      result = await lips.evaluate(expr, { env: this, error });
-    }
-    return result;
+    // Generator path (run(evaluate(...))) rather than the legacy lips.evaluate.
+    // Lazy import keeps the evaluator off Environment's module-init chain — the
+    // edge is call-time only, so no init-order cycle. exec throws on error by
+    // default, matching the old re-throwing handler.
+    const { exec } = await import("./generator-exec.js");
+    const results = await exec(code, { env: this });
+    return results.length > 0 ? results[results.length - 1] : nil;
   }
 
   // -------------------------------------------------------------------------
@@ -636,12 +632,9 @@ export class Environment {
    * Evaluate a single pre-parsed expression in this environment.
    * Use this when you've already parsed the code.
    */
-  evalExpr(expr: SchemeValue): Promise<SchemeValue> {
-    return getLipsRuntime().evaluate(expr, {
-      env: this,
-      error(e: Error): void {
-        throw e;
-      },
-    });
+  async evalExpr(expr: SchemeValue): Promise<SchemeValue> {
+    // Generator path, lazy-imported (see eval() above for the rationale).
+    const { execExpr } = await import("./generator-exec.js");
+    return execExpr(expr, { env: this });
   }
 }
