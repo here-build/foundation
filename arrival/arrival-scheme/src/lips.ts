@@ -1261,8 +1261,11 @@ export const global_env = new Environment(
     begin: genMacroWrapper("begin"),
     // ------------------------------------------------------------------
     ignore: new Macro("ignore", function (this: Environment, code: SchemeValue, options: SchemeValue) {
-      const eval_args = { ...options, env: this, dynamic_env: this };
-      evaluate(new Pair(new SchemeSymbol("begin"), code), eval_args);
+      // Evaluate (begin . code) for side effects, discard the result. Routed to
+      // the generator evaluator (genRun drives it to completion); the discarded
+      // promise is why this is the simplest legacy-evaluate caller to migrate.
+      const ctx: EvalContext = { env: this, dynamic_env: this, use_dynamic: options.use_dynamic };
+      genRun(genEvaluate(new Pair(new SchemeSymbol("begin"), code), ctx));
     }),
     // ------------------------------------------------------------------
     // parameterize delegates to the generator evaluator (evalParameterize) via
