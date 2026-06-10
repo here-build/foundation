@@ -646,8 +646,10 @@ function macro_expand(): SchemeFunction {
     const env = (args["env"] = this);
     let bindings: SchemeValue[] = [];
     const let_macros = new Set(["let", "let*", "letrec"]);
-    const lambda = global_env.get("lambda");
-    const define = global_env.get("define");
+    // lambda/define resolved from the runtime env (whose root is global_env) so
+    // the engine carries no module-level global_env edge — see K3 extraction.
+    const lambda = env.get("lambda");
+    const define = env.get("define");
 
     function is_let_macro(symbol) {
       const name = symbol.valueOf();
@@ -795,7 +797,9 @@ function extract_patterns(
     },
     symbols: {} as SchemeValue,
   };
-  const { expansion, define } = scope;
+  // globalEnv threaded through scope (like `define`) so the engine references no
+  // module-level global_env — injected by the syntax-rules caller. See K3.
+  const { expansion, define, globalEnv } = scope;
   // pattern_names parameter is used to distinguish
   // multiple matches of ((x ...) ...) against ((1 2 3) (1 2 3))
   // in loop we add x to the list so we know that this is not
@@ -813,7 +817,7 @@ function extract_patterns(
           return false;
         }
         const ref = expansion.ref(literal);
-        return !ref || ref === define || ref === global_env;
+        return !ref || ref === define || ref === globalEnv;
       }
     }
     if (Array.isArray(pattern) && Array.isArray(code)) {
@@ -2505,6 +2509,7 @@ export const global_env = new Environment(
             const bindings = extract_patterns(rule, code, symbols, ellipsis, {
               expansion: this,
               define: env,
+              globalEnv: global_env,
             });
             if (bindings) {
               /* c8 ignore next 5 */
