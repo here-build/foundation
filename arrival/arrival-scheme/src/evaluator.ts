@@ -2786,6 +2786,19 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
 
     // Invoke the macro with unevaluated code
     // is_macro narrowed fn to Macro, so we can access invoke directly
+    //
+    // ⚠️ KNOWN BUG (pre-L1 macro engine gap), root-caused but NOT fixable here
+    // alone — see src/__tests__/syntax-rules-arity-offbyone.test.ts (red):
+    // syntax-rules patterns carry a keyword slot as their first element, so the
+    // matcher (extract_patterns) wants the FULL form. Passing `rest` (correct for
+    // define-macro fexprs) makes the keyword consume the first ARG — an off-by-one
+    // that breaks fixed-arity matching, arity discrimination, and ellipsis (drops
+    // element 0). The obvious fix (`is_syntax(fn) ? code : rest`) DOES fix the
+    // off-by-one, but it then EXPOSES a downstream non-termination bug: a recursive
+    // macro that previously failed-fast now matches and infinite-loops (chibi 6.4
+    // Lists CPU-spin wedge). The off-by-one was masking a termination/hygiene
+    // defect — both must be fixed together in the L1 macro-engine rework. The red
+    // tests are the spec for that work.
     let expansion = fn.invoke(rest, evalArgs, false);
 
     // If macro returns a promise, yield it
