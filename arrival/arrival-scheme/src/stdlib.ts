@@ -1363,11 +1363,15 @@ export const global_env = new Environment(
       function (this: Environment, producer: SchemeFunction, consumer: SchemeFunction) {
         typecheck("call-with-values", producer, "function", 1);
         typecheck("call-with-values", consumer, "function", 2);
-        const maybe = producer.apply(this);
-        if (maybe instanceof Values) {
-          return consumer.apply(this, maybe.valueOf());
-        }
-        return consumer.call(this, maybe);
+        // The producer is usually a generator-lambda, so `producer.apply` returns
+        // a Promise — unwrap it BEFORE the `instanceof Values` check, else a
+        // multi-value producer leaks the Promise as a single arg (wrong arity).
+        return unpromise(producer.apply(this), (maybe) => {
+          if (maybe instanceof Values) {
+            return consumer.apply(this, maybe.valueOf());
+          }
+          return consumer.call(this, maybe);
+        });
       },
     ),
     // ------------------------------------------------------------------
