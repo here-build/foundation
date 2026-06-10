@@ -1306,13 +1306,14 @@ export const global_env = new Environment(
           name instanceof SchemeSymbol,
           `define-syntax-parameter: invalid syntax expecting symbol got ${type(name)}`,
         );
-        const syntax = evaluate(code.cdr.car, { env, ...eval_args });
-        typecheck("define-syntax-parameter", syntax, "syntax", 2);
-        syntax.__name__ = name.valueOf();
-        if (syntax.__name__ instanceof SchemeString) {
-          syntax.__name__ = syntax.__name__.valueOf();
-        }
-        env.set(code.car, new SyntaxParameter(syntax));
+        return unpromise(genRun(genEvaluate(code.cdr.car, { ...eval_args, env })), (syntax: SchemeValue) => {
+          typecheck("define-syntax-parameter", syntax, "syntax", 2);
+          syntax.__name__ = name.valueOf();
+          if (syntax.__name__ instanceof SchemeString) {
+            syntax.__name__ = syntax.__name__.valueOf();
+          }
+          env.set(code.car, new SyntaxParameter(syntax));
+        });
       }),
       `(define-syntax-parameter name syntax)
 
@@ -1325,36 +1326,47 @@ export const global_env = new Environment(
     "syntax-parameterize": doc(
       null,
       new Macro("syntax-parameterize", function (this: Environment, code: SchemeValue, eval_args: SchemeValue) {
-        const args = (global_env.get("list->array") as SchemeFunction)(code.car);
+        const args = (global_env.get("list->array") as SchemeFunction)(code.car) as Pair[];
         const env = this.inherit("syntax-parameterize");
-        while (args.length > 0) {
-          const pair = args.shift();
+        // Each binding's transformer evaluates in `this` (NOT the accumulating
+        // env), so the bindings are independent and pure (syntax-rules build a
+        // Syntax with no side effects). Drain them through the generator together,
+        // then bind, then eval the body. genRun always returns a native Promise, so
+        // Promise.all is always async and handles the zero-binding case correctly.
+        const self = this;
+        for (const pair of args) {
           invariant(
             is_pair(pair) && pair.car instanceof SchemeSymbol,
             `syntax-parameterize: invalid syntax for syntax-parameterize: ${toString(code, true)}`,
           );
-          const syntax = evaluate(((pair as Pair).cdr as Pair).car, { ...eval_args, env: this });
-          const name = pair.car;
-          typecheck("syntax-parameterize", syntax, ["syntax"]);
-          typecheck("syntax-parameterize", name, "symbol");
-          syntax.__name__ = name.valueOf();
-          if (syntax.__name__ instanceof SchemeString) {
-            syntax.__name__ = syntax.__name__.valueOf();
-          }
-          const parameter = new SyntaxParameter(syntax);
-          // used inside syntax-rules
-          if (name.is_gensym()) {
-            const symbol = name.literal();
-            const parent = this.get(symbol, { throwError: false });
-            if (parent instanceof SyntaxParameter) {
-              // create anaphoric binding for literal symbol
-              env.set(symbol, parameter);
-            }
-          }
-          env.set(name, parameter);
         }
-        const expr = hygienic_begin([env, eval_args.dynamic_env], code.cdr);
-        return evaluate(expr, { ...eval_args, env });
+        return Promise.all(
+          args.map((pair) => genRun(genEvaluate((pair.cdr as Pair).car, { ...eval_args, env: self }))),
+        ).then((syntaxes) => {
+          args.forEach((pair, i) => {
+            const syntax = syntaxes[i] as SchemeValue;
+            const name = pair.car as SchemeValue;
+            typecheck("syntax-parameterize", syntax, ["syntax"]);
+            typecheck("syntax-parameterize", name, "symbol");
+            syntax.__name__ = name.valueOf();
+            if (syntax.__name__ instanceof SchemeString) {
+              syntax.__name__ = syntax.__name__.valueOf();
+            }
+            const parameter = new SyntaxParameter(syntax);
+            // used inside syntax-rules
+            if ((name as SchemeSymbol).is_gensym()) {
+              const symbol = (name as SchemeSymbol).literal();
+              const parent = self.get(symbol, { throwError: false });
+              if (parent instanceof SyntaxParameter) {
+                // create anaphoric binding for literal symbol
+                env.set(symbol, parameter);
+              }
+            }
+            env.set(name, parameter);
+          });
+          const expr = hygienic_begin([env, eval_args.dynamic_env], code.cdr);
+          return genRun(genEvaluate(expr, { ...eval_args, env }));
+        });
       }),
     ),
     // ------------------------------------------------------------------
