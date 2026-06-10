@@ -2478,37 +2478,10 @@ export const global_env = new Environment(
       evaluate(new Pair(new SchemeSymbol("begin"), code), eval_args);
     }),
     // ------------------------------------------------------------------
-    parameterize: doc(
-      null,
-      new Macro("parameterize", function (this: Environment, code: SchemeValue, options: SchemeValue) {
-        const { dynamic_env } = options;
-        const env = dynamic_env.inherit("parameterize").new_frame(null, {});
-        const eval_args = { ...options, env: this };
-        let params = code.car;
-        invariant(is_pair(params), () => `Invalid syntax for parameterize expecting pair got ${type(params)}`);
-
-        function next() {
-          const body = new Pair(new SchemeSymbol("begin"), code.cdr);
-          return evaluate(body, { ...eval_args, dynamic_env: env });
-        }
-
-        return (function loop() {
-          const pair = params.car as SchemeValue;
-          const name = pair.car.valueOf();
-          return unpromise(evaluate(pair.cdr.car, eval_args), function (value) {
-            const param = dynamic_env.get(name, { throwError: false });
-            invariant(is_parameter(param), `Unknown parameter ${name}`);
-            env.set(name, param.inherit(value));
-            if (is_null(params.cdr)) {
-              return next();
-            } else {
-              params = params.cdr;
-              return loop();
-            }
-          });
-        })();
-      }),
-    ),
+    // parameterize delegates to the generator evaluator (evalParameterize) via
+    // genMacroWrapper — same dynamic-extent semantics (inherit dynamic_env →
+    // look up the Parameter → bind param.inherit(value) → eval body as begin).
+    parameterize: genMacroWrapper("parameterize"),
     // ------------------------------------------------------------------
     "make-parameter": doc(
       null,
