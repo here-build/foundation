@@ -31,7 +31,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { applyFantasyLandPatches } from "../fantasy-land-lips";
+import { applyFantasyLandPatches } from "../fantasy-land";
 import { is_nil } from "../guards";
 import { isSchemeValue, toJS, fromJS } from "../membrane";
 import { lipsToJs, jsToLips } from "../rosetta";

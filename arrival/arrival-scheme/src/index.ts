@@ -1,6 +1,6 @@
 // Re-export all LIPS interpreter functionality
 import { initBridge } from "./bridge.js";
-import { applyFantasyLandPatches } from "./fantasy-land-lips.js";
+import { applyFantasyLandPatches } from "./fantasy-land.js";
 
 export * from "./stdlib.js";
 export * from "./safe_builtins.js";
