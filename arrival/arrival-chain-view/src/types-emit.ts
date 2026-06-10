@@ -686,6 +686,15 @@ export function emitTypes(scheme: string, opts?: EmitTypesOptions): EmitTypesRes
   const ctxBase: Ctx = { buf, nameOf, setVars, hostMembers: opts?.hostMembers ?? EMPTY_SET };
 
   for (const [idx, form] of forest.entries()) {
+    // `(require …)` is an environment directive (load a file into the env), not
+    // a value form — there is nothing to type-check IN THIS BUFFER. Emitting it
+    // as a call produced a bogus `Cannot find name 'require'` (+ an @types/node
+    // upsell) from tsc. Skipped + recorded; the names a require brings into
+    // scope stay unresolved until the lens grows cross-file resolution.
+    if (isList(form) && head(form) === "require") {
+      droppedForms.push(idx);
+      continue;
+    }
     const checkpoint = buf.offset;
     try {
       emitStmtTop(form, ctxBase);
