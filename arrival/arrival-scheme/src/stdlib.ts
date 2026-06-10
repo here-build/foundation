@@ -491,6 +491,24 @@ function get_instances() {
           return `#${re.toString()}`;
         },
       ],
+      [
+        // Boxed vectors render as their R7RS external representation #(...),
+        // recursing through `toString` so nested vectors/strings format correctly
+        // and `quote` propagates. (Without this they fell through to the generic
+        // #<__class__> / #<JS-class-name> garbage — the only user-facing stringify
+        // in the MCP bridge env. Cyclic vectors are not datum-labelled here; repr
+        // of a runtime-cyclic vector is a known gap, as for cyclic data generally.)
+        SchemeVector,
+        function (vec: SchemeVector, { quote }: any) {
+          return `#(${vec.__vector__.map((el) => toString(el, quote)).join(" ")})`;
+        },
+      ],
+      [
+        SchemeBytevector,
+        function (bv: SchemeBytevector) {
+          return `#u8(${Array.from(bv.__bytevector__).join(" ")})`;
+        },
+      ],
     ]) {
       _instances.set(cls, fn);
     }

@@ -5,7 +5,9 @@ import invariant from "tiny-invariant";
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import { type SourceLocation } from "./errors.js";
 import { is_native, is_nil, is_pair, is_plain_object } from "./value-guards.js";
+import { SchemeBytevector } from "./LBytevector.js";
 import { SchemeString } from "./LString.js";
+import { SchemeVector } from "./LVector.js";
 import { SchemeSymbol } from "./LSymbol.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { __cycles__, __data__, __location__, __ref__ } from "./primitives.js";
@@ -176,6 +178,17 @@ function stringifyValue(obj: unknown, quote?: boolean): string {
         return `#<procedure:${name}>`;
       }
       return "#<procedure>";
+    }
+    // Boxed vectors/bytevectors → R7RS external representation #(...)/#u8(...),
+    // recursing through stringifyValue so nested elements (incl. quoting) format
+    // correctly. Without this they fall through to the generic #<ctor.name>
+    // ("#<SchemeVector>") below — the nested-in-a-list repr leak. (The stdlib
+    // toString path is handled symmetrically via get_instances.)
+    if (obj instanceof SchemeVector) {
+      return `#(${obj.__vector__.map((el) => stringifyValue(el, quote)).join(" ")})`;
+    }
+    if (obj instanceof SchemeBytevector) {
+      return `#u8(${Array.from(obj.__bytevector__).join(" ")})`;
     }
     // Objects with custom toString
     const o = obj as ObjectWithToString;
