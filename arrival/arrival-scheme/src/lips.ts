@@ -803,7 +803,10 @@ function parallel(name: string, fn: SchemeFunction): Macro {
     const results: SchemeValue[] = [];
     let node = code;
     while (is_pair(node)) {
-      results.push(evaluate(node.car, { env, dynamic_env, use_dynamic, error }));
+      // Drain: route each sub-expr through the generator. genRun always returns a
+      // promise, so the promise_all branch below is now always taken — correct for
+      // begin*, whose whole point is parallel async evaluation.
+      results.push(genRun(genEvaluate(node.car, { env, dynamic_env, use_dynamic, error })));
       node = node.cdr;
     }
     const havePromises = results.filter(is_promise).length;
@@ -1234,14 +1237,16 @@ export const global_env = new Environment(
     ) {
       typecheck("let-env", code, "pair");
       return unpromise(
-        evaluate(code.car, { env: this, dynamic_env, error, use_dynamic }),
+        genRun(genEvaluate(code.car, { env: this, dynamic_env, error, use_dynamic })),
         function (value: SchemeValue) {
           typecheck("let-env", value, "environment");
-          return evaluate(new Pair(new SchemeSymbol("begin"), code.cdr), {
-            env: value,
-            dynamic_env,
-            error,
-          });
+          return genRun(
+            genEvaluate(new Pair(new SchemeSymbol("begin"), code.cdr), {
+              env: value,
+              dynamic_env,
+              error,
+            }),
+          );
         },
       );
     }),
