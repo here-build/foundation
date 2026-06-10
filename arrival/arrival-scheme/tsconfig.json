@@ -6,7 +6,12 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
-    "types": ["node"]
+    "types": ["node"],
+    // The shared lib config sets `noImplicitAny: false`; arrival-scheme is
+    // implicit-any-clean, so we lock it ON here. Implicit `any` is now a build
+    // error — only explicit, reviewed `: any` / `as any` escape hatches remain
+    // (tracked toward type-soundness). Don't relax without a recorded reason.
+    "noImplicitAny": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/__*__/**/*"]
