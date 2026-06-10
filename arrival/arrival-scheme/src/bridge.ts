@@ -16,6 +16,7 @@ import { HalfBaked, is_half_baked, type Interval } from "./HalfBaked.js";
 import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./LBool.js";
 import { SchemeBytevector } from "./LBytevector.js";
+import { SchemeVector } from "./LVector.js";
 import { global_env as lipsGlobalEnv, env as userEnv, exec } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { SchemeString } from "./LString.js";
@@ -112,6 +113,18 @@ function stringValue(str: unknown): string {
  */
 function toIndex(v: unknown): number {
   return typeof v === "number" ? v : Number((v as SchemeExact).valueOf());
+}
+
+/**
+ * Resolve a vector argument to its raw element array (read/mutate view).
+ * Accepts a boxed SchemeVector (returns __vector__ by reference, so in-place
+ * mutators write through) or a raw JS array (transition: raw vectors still flow
+ * until S7 producers + S10 tighten). Throws on anything else.
+ */
+function asVector(obj: unknown, fnName: string): SchemeValue[] {
+  if (obj instanceof SchemeVector) return obj.__vector__;
+  if (Array.isArray(obj)) return obj;
+  TypeError.invariant(false, `${fnName}: expected vector`);
 }
 
 /**
@@ -1370,31 +1383,35 @@ export const wrappedOps = {
   },
 
   "vector?"(obj: unknown): boolean {
-    return Array.isArray(obj);
+    // Transition shim (S6): accept boxed OR raw arrays so raw vectors (pre-S7)
+    // still answer #t. S10 settles the final form — likely instanceof-only, since
+    // a raw JS array is an R7RS list at the membrane, NOT a vector (unlike a raw
+    // Uint8Array, which genuinely IS bytevector-like; that asymmetry is why
+    // bytevector? stays polymorphic but vector? need not).
+    return obj instanceof SchemeVector || Array.isArray(obj);
   },
 
   "vector-length"(vec: unknown): number {
-    TypeError.invariant(Array.isArray(vec), "vector-length: expected vector");
-    return vec.length;
+    return asVector(vec, "vector-length").length;
   },
 
   "vector-ref"(vec: unknown, k: unknown): unknown {
-    TypeError.invariant(Array.isArray(vec), "vector-ref: expected vector");
+    const arr = asVector(vec, "vector-ref");
     const idx = typeof k === "number" ? k : (k as SchemeExact).valueOf();
-    return vec[idx as number];
+    return arr[idx as number];
   },
 
   "vector-set!"(vec: unknown, k: unknown, obj: unknown): void {
-    TypeError.invariant(Array.isArray(vec), "vector-set!: expected vector");
+    const arr = asVector(vec, "vector-set!");
     const idx = typeof k === "number" ? k : (k as SchemeExact).valueOf();
-    vec[idx as number] = obj;
+    arr[idx as number] = obj;
   },
 
   "vector->list"(vec: unknown, start?: unknown, end?: unknown): unknown {
-    TypeError.invariant(Array.isArray(vec), "vector->list: expected vector");
+    const arr = asVector(vec, "vector->list");
     const s = start === undefined ? 0 : toIndex(start);
-    const e = end === undefined ? vec.length : toIndex(end);
-    return Pair.fromArray(vec.slice(s, e));
+    const e = end === undefined ? arr.length : toIndex(end);
+    return Pair.fromArray(arr.slice(s, e));
   },
 
   "list->vector"(list: unknown): unknown[] {
@@ -1408,21 +1425,21 @@ export const wrappedOps = {
   },
 
   "vector-fill!"(vec: unknown, fill: unknown, start?: unknown, end?: unknown): void {
-    TypeError.invariant(Array.isArray(vec), "vector-fill!: expected vector");
+    const arr = asVector(vec, "vector-fill!");
     const s = start === undefined ? 0 : toIndex(start);
-    const e = end === undefined ? vec.length : toIndex(end);
+    const e = end === undefined ? arr.length : toIndex(end);
     for (let i = s; i < e; i++) {
-      vec[i] = fill;
+      arr[i] = fill;
     }
   },
 
   "vector->string"(vec: unknown, start?: unknown, end?: unknown): string {
-    TypeError.invariant(Array.isArray(vec), "vector->string: expected vector");
+    const arr = asVector(vec, "vector->string");
     const s = start === undefined ? 0 : toIndex(start);
-    const e = end === undefined ? vec.length : toIndex(end);
+    const e = end === undefined ? arr.length : toIndex(end);
     let result = "";
     for (let i = s; i < e; i++) {
-      const ch = vec[i];
+      const ch = arr[i];
       result += ch instanceof SchemeCharacter ? charValue(ch) : String(ch);
     }
     return result;
@@ -1440,39 +1457,36 @@ export const wrappedOps = {
   },
 
   "vector-copy"(vec: unknown, start?: unknown, end?: unknown): unknown[] {
-    TypeError.invariant(Array.isArray(vec), "vector-copy: expected vector");
+    const arr = asVector(vec, "vector-copy");
     const s = start === undefined ? 0 : toIndex(start);
-    const e = end === undefined ? vec.length : toIndex(end);
-    return vec.slice(s, e);
+    const e = end === undefined ? arr.length : toIndex(end);
+    return arr.slice(s, e);
   },
 
   "vector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
-    TypeError.invariant(Array.isArray(to), "vector-copy: expected vector");
-    TypeError.invariant(Array.isArray(from), "vector-copy: expected vector");
+    const target = asVector(to, "vector-copy!");
+    const source = asVector(from, "vector-copy!");
     const atIdx = toIndex(at);
     const s = start === undefined ? 0 : toIndex(start);
-    const e = end === undefined ? from.length : toIndex(end);
+    const e = end === undefined ? source.length : toIndex(end);
     // Handle overlapping copies correctly by copying to temp array first
     // R7RS requires behavior as if source was copied to temp storage first
-    if (to === from && atIdx > s && atIdx < e) {
+    if (target === source && atIdx > s && atIdx < e) {
       // Overlapping copy where destination is ahead of source - use temp
-      const temp = from.slice(s, e);
+      const temp = source.slice(s, e);
       for (let i = 0, j = atIdx; i < temp.length; i++, j++) {
-        to[j] = temp[i];
+        target[j] = temp[i];
       }
     } else {
       for (let i = s, j = atIdx; i < e; i++, j++) {
-        to[j] = from[i];
+        target[j] = source[i];
       }
     }
   },
 
   "vector-map"(proc: Function, ...vectors: unknown[]): unknown[] {
     invariant(vectors.length > 0, "vector-map: expected at least one vector argument");
-    const arrays = vectors.map((v) => {
-      TypeError.invariant(Array.isArray(v), `vector-map: expected vector, got ${typeof v}`);
-      return v;
-    });
+    const arrays = vectors.map((v) => asVector(v, "vector-map"));
     const minLen = Math.min(...arrays.map((a) => a.length));
     const result: unknown[] = [];
     for (let i = 0; i < minLen; i++) {
@@ -1484,10 +1498,7 @@ export const wrappedOps = {
 
   "vector-for-each"(proc: Function, ...vectors: unknown[]): void {
     invariant(vectors.length > 0, "vector-for-each: expected at least one vector argument");
-    const arrays = vectors.map((v) => {
-      TypeError.invariant(Array.isArray(v), `vector-for-each: expected vector, got ${typeof v}`);
-      return v;
-    });
+    const arrays = vectors.map((v) => asVector(v, "vector-for-each"));
     const minLen = Math.min(...arrays.map((a) => a.length));
     for (let i = 0; i < minLen; i++) {
       const elements = arrays.map((a) => a[i]);
