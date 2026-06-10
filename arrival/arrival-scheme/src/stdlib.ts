@@ -10,7 +10,7 @@ import { Environment, KEYWORD_ACCESSOR_FIELD, setLipsRuntime } from "./Environme
 import { eof } from "./EOF.js";
 import { HalfBaked, is_half_baked } from "./HalfBaked.js";
 import { Lexer } from "./Lexer.js";
-import { Parameter } from "./Parameter.js";
+import { purityDoor } from "./purity.js";
 import { Parser } from "./Parser.js";
 import { QuotedPromise } from "./QuotedPromise.js";
 import { Formatter } from "./Formatter.js";
@@ -1034,16 +1034,8 @@ export const global_env = new Environment(
         }
       }),
     ),
-    // ------------------------------------------------------------------
-    "set-car!": doc("set-car!", function (slot, value) {
-      typecheck("set-car!", slot, "pair");
-      slot.car = value;
-    }),
-    // ------------------------------------------------------------------
-    "set-cdr!": doc("set-cdr!", function (slot, value) {
-      typecheck("set-cdr!", slot, "pair");
-      slot.cdr = value;
-    }),
+    // set-car! / set-cdr! / append! — OMITTED by the purity invariant (every
+    // entity is frozen by design). Doored in bootstrap.scm. See plan-2026-06-11.
     // ------------------------------------------------------------------
     "empty?": doc("empty?", function (x) {
       return x === undefined || is_nil(x);
@@ -1233,24 +1225,17 @@ export const global_env = new Environment(
     // look up the Parameter → bind param.inherit(value) → eval body as begin).
     parameterize: genMacroWrapper("parameterize"),
     // ------------------------------------------------------------------
-    "make-parameter": doc(
-      null,
-      new Macro("make-parameter", function (code, eval_args) {
-        // Value-returning legacy-evaluate site routed to the generator: the init
-        // (and optional converter fn) are unpromised before constructing the
-        // Parameter, and the macro invoker unpromises the returned value — so
-        // forcing async here is transparent. (`fn` is `unknown` out of unpromise.)
-        return unpromise(genRun(genEvaluate(code.car, eval_args)), (init) => {
-          if (is_pair(code.cdr.car)) {
-            return unpromise(
-              genRun(genEvaluate(code.cdr.car, eval_args)),
-              (fn) => new Parameter(init, fn as never),
-            );
-          }
-          return new Parameter(init, undefined);
-        });
-      }),
-    ),
+    // ------------------------------------------------------------------
+    // %purity-door — the ONE host primitive behind every omitted feature.
+    // arrival's omission boundary (dynamics + writing methods) is declared in
+    // bootstrap.scm as a manifesto of `define-macro` doors that all call this.
+    // It throws the typed PurityError (feature/owner code → follow-rate
+    // telemetry, errors-as-doors Rule 3/5); the language owns the LIST, the host
+    // owns the typed throw. See docs/plan-2026-06-11-purity-pass.md.
+    "%purity-door": doc(null, function (feature: unknown, reason: unknown, alternative: unknown) {
+      const s = (v: unknown) => String((v as { valueOf?: () => unknown })?.valueOf?.() ?? v);
+      purityDoor(s(feature), s(reason), s(alternative));
+    }),
     // ------------------------------------------------------------------
     "define-syntax-parameter": doc(
       null,
@@ -1554,29 +1539,23 @@ export const global_env = new Environment(
     }),
     // ------------------------------------------------------------------
     append: doc("append", function append(this: Environment, ...items: SchemeValue[]) {
-      items = items.map((item) => {
-        if (is_pair(item)) {
-          return item.clone();
-        }
-        return item;
-      });
-      return (global_env.get("append!") as SchemeFunction).call(this, ...items);
-    }),
-    // ------------------------------------------------------------------
-    "append!": doc("append!", function (...items) {
+      // `append` builds a FRESH list (pure). It clones every segment first, then
+      // splices the CLONES together via Pair.append. Because every cell touched
+      // is a clone, no caller-visible value is mutated — the result is the only
+      // new thing. (The destructive `append!` builtin this used to delegate to is
+      // OMITTED by the purity invariant — doored in bootstrap.scm. Its splice
+      // logic is inlined here, operating on clones, so it stays pure.)
       const is_list = global_env.get("list?") as SchemeFunction;
-      return items.reduce((acc, item, idx) => {
-        typecheck("append!", acc, ["nil", "pair"]);
+      const cloned = items.map((item) => (is_pair(item) ? item.clone() : item));
+      return cloned.reduce((acc, item, idx) => {
+        typecheck("append", acc, ["nil", "pair"]);
         // R7RS: last argument can be any value (creates improper list)
-        const isLast = idx === items.length - 1;
+        const isLast = idx === cloned.length - 1;
         if (!isLast && (is_pair(item) || is_nil(item)) && !is_list(item)) {
-          throw new Error("append!: Invalid argument, value is not a list");
+          throw new Error("append: Invalid argument, value is not a list");
         }
         if (is_nil(acc)) {
-          if (is_nil(item)) {
-            return nil;
-          }
-          return item;
+          return is_nil(item) ? nil : item;
         }
         if (is_null(item)) {
           return acc;

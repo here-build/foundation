@@ -995,11 +995,8 @@ export const wrappedOps = {
     return new SchemeCharacter([...stringValue(str)][idx]);
   },
 
-  "string-set!"(str: unknown, k: unknown, char: unknown): void {
-    if (str instanceof SchemeString) {
-      str.set(fromLIPS(k), char as SchemeCharacter);
-    }
-  },
+  // string-set! / string-fill! — OMITTED by the purity invariant (frozen
+  // entities); doored in bootstrap.scm. See plan-2026-06-11-purity-pass.
 
   // String comparison
   "string=?"(...strs: unknown[]): boolean {
@@ -1085,28 +1082,8 @@ export const wrappedOps = {
     return withInputProvenance([str], new SchemeString(chars.slice(startIdx, endIdx).join("")));
   },
 
-  "string-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
-    const fromChars = [...stringValue(from)];
-    const startIdx = start === undefined ? 0 : toIndex(start);
-    const endIdx = end === undefined ? fromChars.length : toIndex(end);
-    const atIdx = toIndex(at);
-    if (to instanceof SchemeString) {
-      const toChars = [...to.valueOf()];
-      for (let i = startIdx; i < endIdx; i++) toChars[atIdx + (i - startIdx)] = fromChars[i];
-      to.__string__ = toChars.join("");
-    }
-  },
-
-  "string-fill!"(str: unknown, fill: unknown, start?: unknown, end?: unknown): void {
-    const c = charValue(fill);
-    if (str instanceof SchemeString) {
-      const chars = [...str.valueOf()];
-      const startIdx = start === undefined ? 0 : toIndex(start);
-      const endIdx = end === undefined ? chars.length : toIndex(end);
-      for (let i = startIdx; i < endIdx; i++) chars[i] = c;
-      str.__string__ = chars.join("");
-    }
-  },
+  // string-copy! — OMITTED by the purity invariant (mutates its destination);
+  // doored in bootstrap.scm. The non-mutating `string-copy` stays.
 
   // Case conversion for strings — case is a presentation transform, not a
   // new origin; inherit the source's lineage so downstream `define` of the
@@ -1421,11 +1398,8 @@ export const wrappedOps = {
     return arr[idx as number];
   },
 
-  "vector-set!"(vec: unknown, k: unknown, obj: unknown): void {
-    const arr = asVector(vec, "vector-set!", true);
-    const idx = typeof k === "number" ? k : (k as SchemeExact).valueOf();
-    arr[idx as number] = obj;
-  },
+  // vector-set! / vector-fill! / vector-copy! — OMITTED by the purity invariant
+  // (frozen entities); doored in bootstrap.scm. Non-mutating vector-copy stays.
 
   "vector->list"(vec: unknown, start?: unknown, end?: unknown): unknown {
     const arr = asVector(vec, "vector->list");
@@ -1444,14 +1418,6 @@ export const wrappedOps = {
     return withInputProvenance([list], new SchemeVector(result));
   },
 
-  "vector-fill!"(vec: unknown, fill: unknown, start?: unknown, end?: unknown): void {
-    const arr = asVector(vec, "vector-fill!", true);
-    const s = start === undefined ? 0 : toIndex(start);
-    const e = end === undefined ? arr.length : toIndex(end);
-    for (let i = s; i < e; i++) {
-      arr[i] = fill;
-    }
-  },
 
   "vector->string"(vec: unknown, start?: unknown, end?: unknown): SchemeString {
     const arr = asVector(vec, "vector->string");
@@ -1483,26 +1449,8 @@ export const wrappedOps = {
     return withInputProvenance([vec], new SchemeVector(arr.slice(s, e)));
   },
 
-  "vector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
-    const target = asVector(to, "vector-copy!", true);
-    const source = asVector(from, "vector-copy!");
-    const atIdx = toIndex(at);
-    const s = start === undefined ? 0 : toIndex(start);
-    const e = end === undefined ? source.length : toIndex(end);
-    // Handle overlapping copies correctly by copying to temp array first
-    // R7RS requires behavior as if source was copied to temp storage first
-    if (target === source && atIdx > s && atIdx < e) {
-      // Overlapping copy where destination is ahead of source - use temp
-      const temp = source.slice(s, e);
-      for (let i = 0, j = atIdx; i < temp.length; i++, j++) {
-        target[j] = temp[i];
-      }
-    } else {
-      for (let i = s, j = atIdx; i < e; i++, j++) {
-        target[j] = source[i];
-      }
-    }
-  },
+  // vector-copy! — OMITTED by the purity invariant (mutates its destination);
+  // doored in bootstrap.scm. The non-mutating `vector-copy` (above) stays.
 
   "vector-map"(proc: Function, ...vectors: unknown[]): SchemeVector {
     invariant(vectors.length > 0, "vector-map: expected at least one vector argument");
@@ -1574,25 +1522,14 @@ export const wrappedOps = {
     return view[toIndex(k)];
   },
 
-  "bytevector-u8-set!"(bv: unknown, k: unknown, byte: unknown): void {
-    const view = asBytevector(bv, "bytevector-u8-set!", true);
-    view[toIndex(k)] = toIndex(byte);
-  },
+  // bytevector-u8-set! / bytevector-copy! — OMITTED by the purity invariant
+  // (frozen entities); doored in bootstrap.scm. Non-mutating bytevector-copy stays.
 
   "bytevector-copy"(bv: unknown, start?: unknown, end?: unknown): SchemeBytevector {
     const view = asBytevector(bv, "bytevector-copy");
     const s = start === undefined ? 0 : toIndex(start);
     const e = end === undefined ? view.byteLength : toIndex(end);
     return withInputProvenance([bv], new SchemeBytevector(view.slice(s, e)));
-  },
-
-  "bytevector-copy!"(to: unknown, at: unknown, from: unknown, start?: unknown, end?: unknown): void {
-    const target = asBytevector(to, "bytevector-copy!", true);
-    const source = asBytevector(from, "bytevector-copy!");
-    const atIdx = toIndex(at);
-    const s = start === undefined ? 0 : toIndex(start);
-    const e = end === undefined ? source.byteLength : toIndex(end);
-    target.set(source.subarray(s, e), atIdx);
   },
 
   "bytevector-append"(...bvs: unknown[]): SchemeBytevector {

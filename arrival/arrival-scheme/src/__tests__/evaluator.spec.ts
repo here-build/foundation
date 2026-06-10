@@ -644,67 +644,19 @@ describe("Generator Evaluator with Real LIPS Types", () => {
     // against a minimal env without bootstrap; correct R7RS exception coverage now lives
     // in generator-exec.spec.ts against a bootstrap-loaded env.
 
-    describe("delay/force", () => {
-      it("should delay evaluation", async () => {
-        let evaluated = false;
-        env.set("mark-evaluated", () => {
-          evaluated = true;
-          return num(42);
-        });
-
-        // (delay (mark-evaluated))
-        const code = list(sym("delay"), list(sym("mark-evaluated")));
-        await exec(code, { env });
-
-        // Should NOT have evaluated yet
-        expect(evaluated).toBe(false);
-      });
-
-      it("should force evaluation of delayed expression", async () => {
-        let evaluated = false;
-        env.set("mark-evaluated", () => {
-          evaluated = true;
-          return new SchemeExact(42n);
-        });
-
-        // (define p (delay (mark-evaluated)))
-        // (force p)
-        await exec(list(sym("define"), sym("p"), list(sym("delay"), list(sym("mark-evaluated")))), { env });
-
-        expect(evaluated).toBe(false);
-
-        const result = await exec(list(sym("force"), sym("p")), { env });
-
-        expect(evaluated).toBe(true);
-        expect(result).toEqual(num(42));
-      });
-
-      it("should cache forced value", async () => {
-        let callCount = 0;
-        env.set("counter", () => {
-          callCount++;
-          return new SchemeExact(BigInt(callCount));
-        });
-
-        // (define p (delay (counter)))
-        await exec(list(sym("define"), sym("p"), list(sym("delay"), list(sym("counter")))), { env });
-
-        // Force twice - should only call counter once
-        await exec(list(sym("force"), sym("p")), { env });
-        await exec(list(sym("force"), sym("p")), { env });
-
-        expect(callCount).toBe(1);
-      });
-
-      it("should return same value on multiple forces", async () => {
-        // (define p (delay (+ 1 2)))
-        await exec(list(sym("define"), sym("p"), list(sym("delay"), list(sym("+"), num(1), num(2)))), { env });
-
-        const result1 = await exec(list(sym("force"), sym("p")), { env });
-        const result2 = await exec(list(sym("force"), sym("p")), { env });
-
-        expect(result1).toEqual(num(3));
-        expect(result2).toEqual(num(3));
+    // delay/force — OMITTED by the purity invariant (delayed evaluation defers a
+    // value's identity to force-time, severing construction-rooted provenance).
+    // Removed from the special-form table; doored in bootstrap.scm. The full door
+    // surface (delay/force/make-promise/delay-force) is pinned in
+    // purity-doors.test.ts; here we just confirm the special form is gone.
+    describe("delay/force — omitted by the purity invariant", () => {
+      it("(delay …) is no longer a working special form", async () => {
+        // This raw env has no bootstrap loaded, so `delay` is unbound here (the
+        // teaching door — "omitted from arrival by design" — is a bootstrap macro,
+        // verified at the full-env layer in purity-doors.test.ts). The point at
+        // THIS layer: delay no longer evaluates lazily; it is gone from the
+        // special-form table.
+        await expect(exec(list(sym("delay"), list(sym("+"), num(1), num(2))), { env })).rejects.toThrow();
       });
     });
   });

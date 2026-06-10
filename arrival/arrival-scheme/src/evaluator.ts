@@ -32,7 +32,6 @@ import {
   is_syntax,
 } from "./guards.js";
 import { HalfBaked, is_half_baked } from "./HalfBaked.js";
-import { Parameter } from "./Parameter.js";
 import { SchemeJSFunction } from "./membrane.js";
 import { LipsError } from "./LipsError.js";
 import { SchemeSymbol } from "./LSymbol.js";
@@ -2120,52 +2119,6 @@ function* evalUnless(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 }
 
 /**
- * Handle 'delay' special form: (delay expr)
- * Creates a promise that will evaluate expr when forced.
- */
-function* evalDelay(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
-  invariant(is_pair(rest), "delay: missing expression");
-
-  const expr = rest.car;
-
-  // Create a thunk that evaluates the expression when called.
-  // Forward signal so a delayed/forced computation honors the budget at
-  // force time (the signal captured here is the one alive when the delay
-  // was created — same as ctx capture for env/dynamic_env).
-  const thunk = () => {
-    return run(evaluate(expr, ctx), { signal: ctx.signal });
-  };
-
-  return new SchemePromise(thunk);
-}
-
-/**
- * Handle 'force' special form: (force promise)
- * Forces evaluation of a delayed promise.
- */
-function* evalForce(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
-  invariant(is_pair(rest), "force: missing argument");
-
-  // Non-tail — force inspects/forces the result after it returns here.
-  let promise = yield { call: evaluate(rest.car, ctx.tail ? { ...ctx, tail: false } : ctx) };
-  if (is_promise(promise)) {
-    promise = yield promise;
-  }
-
-  if (is_scheme_promise(promise)) {
-    const result = promise.force();
-    // If the thunk returned a JS promise, await it
-    if (is_promise(result)) {
-      return yield result;
-    }
-    return result;
-  }
-
-  // If it's not a Scheme promise, just return it
-  return promise;
-}
-
-/**
  * Handle 'do' special form: (do ((var init step) ...) (test result...) body...)
  */
 function* evalDo(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
@@ -2452,72 +2405,6 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   return yield resultPromise;
 }
 
-/**
- * Handle 'parameterize' special form: (parameterize ((param val) ...) body...)
- *
- * Dynamically rebinds parameters for the duration of body evaluation.
- * Parameters are looked up in dynamic_env.
- */
-function* evalParameterize(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
-  invariant(is_pair(rest), "parameterize: missing bindings");
-
-  const bindings = rest.car;
-  const body = rest.cdr;
-
-  // Create environment for parameterized values
-  const dynamicEnv = (ctx.dynamic_env ?? ctx.env).inherit("parameterize");
-
-  // Process bindings: ((param val) ...)
-  const oldValues: Array<{ name: string | symbol; param: Parameter; old: Parameter }> = [];
-
-  let bindNode: SchemeValue = bindings;
-  while (is_pair(bindNode)) {
-    const binding = bindNode.car;
-    invariant(is_pair(binding), "parameterize: invalid binding");
-
-    const paramExpr = binding.car;
-
-    // Get parameter name
-    invariant(paramExpr instanceof SchemeSymbol, `parameterize: expected symbol, got ${typeof paramExpr}`);
-    const paramName: string | symbol = paramExpr.valueOf();
-
-    // Look up the parameter object in dynamic_env
-    const param = (ctx.dynamic_env ?? ctx.env).get(paramName, { throwError: false });
-    invariant(is_parameter(param), `Unknown parameter ${String(paramName)}`);
-
-    // Evaluate the value expression (non-tail).
-    const bindingCdr = (binding as Pair).cdr;
-    invariant(is_pair(bindingCdr), "parameterize: missing value");
-
-    let value = yield { call: evaluate(bindingCdr.car, ctx.tail ? { ...ctx, tail: false } : ctx) };
-    if (is_promise(value)) {
-      value = yield value;
-    }
-
-    // Create inherited parameter with new value
-    const newParam = param.inherit(value);
-    dynamicEnv.set(paramName, newParam);
-
-    // Track for restoration (though with our model, we don't need to restore
-    // since we use a new env frame)
-    oldValues.push({ name: paramName, param, old: param });
-
-    bindNode = bindNode.cdr;
-  }
-
-  // Evaluate body with new dynamic environment.
-  //
-  // NOT tail position (deliberate): parameterize establishes a dynamic
-  // extent that must persist for the WHOLE body and unwind when it
-  // completes (R7RS §4.2.6 / dynamic-wind). This implementation captures
-  // the parameterized values in a per-frame dynamicEnv rather than a
-  // stack-restore, so allowing a tail call to replace this slot would let
-  // the callee inherit the parameterization indefinitely instead of
-  // unwinding at body end. Keeping the body non-tail preserves the dynamic
-  // extent at the cost of TCO inside parameterize — an acceptable trade
-  // (parameterize loops are rare; correctness of dynamic extent is not).
-  return yield { call: evalBegin(body, { ...ctx, dynamic_env: dynamicEnv, tail: false }) };
-}
 
 // ============================================================================
 // Core Evaluator
@@ -2547,9 +2434,8 @@ const SPECIAL_FORMS: Record<string, (rest: SchemeValue, ctx: EvalContext) => Eva
   unless: evalUnless,
   do: evalDo,
   while: evalWhile,
-  // Lazy evaluation
-  delay: evalDelay,
-  force: evalForce,
+  // delay / force — OMITTED by the purity invariant; doored in bootstrap.scm
+  // (removed from the special-form table so env lookup reaches the door).
   // Error handling
   // NOTE: `raise` and `error` are deliberately NOT special forms. They are
   // defined in bootstrap.ts as R7RS procedures that walk
@@ -2557,8 +2443,7 @@ const SPECIAL_FORMS: Record<string, (rest: SchemeValue, ctx: EvalContext) => Eva
   // lookup, so shadowing them here made the entire exception tower inert
   // (with-exception-handler / guard / raise-continuable never saw the value).
   try: evalTry,
-  // Dynamic parameters
-  parameterize: evalParameterize,
+  // parameterize — OMITTED by the purity invariant; doored in bootstrap.scm.
 };
 
 /**

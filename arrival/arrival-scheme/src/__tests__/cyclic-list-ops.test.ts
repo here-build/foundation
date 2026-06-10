@@ -1,8 +1,13 @@
 // Caveat-sweep finding (2026-06-11): list spine-walking builtins spun forever or
-// stack-overflowed on a RUNTIME-cyclic list (set-cdr! creates a cycle that the
-// metadata-only have_cycles() can't see). Fixed with an active Floyd cycle check
-// (Pair.isCircularList) that the ops guard on: a circular list now terminates
-// (list? → #f) or raises a clean error instead of spinning.
+// stack-overflowed on a circular list (the metadata-only have_cycles() can't see
+// it). Fixed with an active Floyd cycle check (Pair.isCircularList) that the ops
+// guard on: a circular list now terminates (list? → #f) or raises a clean error.
+//
+// PURITY RE-BASELINE (2026-06-11): set-cdr! is now OMITTED by the purity invariant
+// (frozen entities), so a circular list can no longer be CONSTRUCTED by mutation —
+// only READ via a datum-label literal (`'#0=(1 2 3 . #0#)`, self-reference in the
+// last cdr). That reader path still builds a (frozen) cycle, so the cycle-safety
+// guard still matters; the inputs just move from set-cdr! to the reader.
 //
 // NOTE: each cyclic case must TERMINATE — a regression reintroduces a sync spin
 // that hangs the worker (testTimeout can't interrupt a sync loop). That loud hang
@@ -13,8 +18,8 @@ import { env, exec } from "../stdlib.js";
 
 await initBridge();
 const run = async (form: string) => String((await exec(form, env) as unknown[])[0]);
-// c = (1 2 3) with its last cdr pointing back at c → a circular list.
-const cyclic = (op: string) => `(let ((c (list 1 2 3))) (set-cdr! (cddr c) c) ${op})`;
+// c = a reader-built circular list: (1 2 3 …) whose last cdr points back at itself.
+const cyclic = (op: string) => `(let ((c '#0=(1 2 3 . #0#))) ${op})`;
 
 describe("list ops on a RUNTIME-cyclic list terminate (no spin / stack overflow)", () => {
   it("list? on a circular list → #f", async () => {
