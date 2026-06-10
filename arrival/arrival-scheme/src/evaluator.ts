@@ -2810,8 +2810,18 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     // The matcher fix ALSO does not address three expander/hygiene defects:
     // dotted-tail-after-ellipsis templates (syntax-rules.ts:562 "ellipsis not
     // transformed"), let-syntax recursive-macro hygiene ("Unbound Symbol(#:…)"),
-    // and the `_` wildcard binding like a real var (R7RS violation). The red tests
-    // are the spec; land the matcher fix + a cycle-safe list walker together.
+    // and the `_` wildcard binding like a real var (R7RS violation) — tracked
+    // separately (syntax-rules-arity-offbyone.test.ts vector block + those notes).
+    //
+    // UPDATE 2026-06-11: the cycle-safe list walker (Pair.isCircularList) shipped,
+    // so the fix `is_syntax(fn) ? code : rest` NO LONGER wedges (chibi 6.4 passes).
+    // But applying it un-masks ~17 pre-existing chibi failures the broken matcher
+    // was hiding behind "no matching syntax": unimplemented features now reached
+    // (exact-integer-sqrt, promise?/make-promise/delay-force, get-environment-variables)
+    // + the three expander/hygiene defects (derived-form macros match but expand
+    // wrong → "got ()") + a couple string-map/vector-map async leaks. Landing the
+    // fix therefore requires triaging those 17 and moving the genuine gaps into the
+    // chibi EXPECTED_FAILURES — a deliberate decision, not a silent flip. Held here.
     let expansion = fn.invoke(rest, evalArgs, false);
 
     // If macro returns a promise, yield it
