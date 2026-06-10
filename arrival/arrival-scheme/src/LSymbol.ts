@@ -101,6 +101,22 @@ export class SchemeSymbol extends AValue {
     return this.__name__;
   }
 
+  // Setoid (Fantasy Land). Symbol ≡ symbol with the same `__name__` — `===`
+  // works for both string names and gensym ES6 symbols (interned identity).
+  // Mirrors `SchemeSymbol.is` (which compares `__name__`), preserving
+  // structuralEqual / equal? behavior. (algebras-in-entities migration.)
+  ["fantasy-land/equals"](other: unknown): boolean {
+    return other instanceof SchemeSymbol && this.__name__ === other.__name__;
+  }
+
+  // Ord (Fantasy Land, extends Setoid). Lexicographic over STRING names.
+  // A gensym's `__name__` is an ES6 symbol with no meaningful order — falling
+  // back to `String(...)` gives a STABLE total order within a run (Symbol
+  // toString is stable), so totality/antisymmetry/transitivity still hold.
+  ["fantasy-land/lte"](other: unknown): boolean {
+    return other instanceof SchemeSymbol && String(this.__name__) <= String(other.__name__);
+  }
+
   is_gensym(): boolean {
     return is_gensym(this.__name__);
   }
