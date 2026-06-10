@@ -2787,18 +2787,31 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
     // Invoke the macro with unevaluated code
     // is_macro narrowed fn to Macro, so we can access invoke directly
     //
-    // ⚠️ KNOWN BUG (pre-L1 macro engine gap), root-caused but NOT fixable here
-    // alone — see src/__tests__/syntax-rules-arity-offbyone.test.ts (red):
-    // syntax-rules patterns carry a keyword slot as their first element, so the
-    // matcher (extract_patterns) wants the FULL form. Passing `rest` (correct for
+    // ⚠️ KNOWN BUG (the "pre-L1 macro engine gap"), root-caused — see
+    // src/__tests__/syntax-rules-arity-offbyone.test.ts (red): syntax-rules
+    // patterns carry a keyword slot as their first element, so the matcher
+    // (extract_patterns) wants the FULL form. Passing `rest` (correct for
     // define-macro fexprs) makes the keyword consume the first ARG — an off-by-one
     // that breaks fixed-arity matching, arity discrimination, and ellipsis (drops
-    // element 0). The obvious fix (`is_syntax(fn) ? code : rest`) DOES fix the
-    // off-by-one, but it then EXPOSES a downstream non-termination bug: a recursive
-    // macro that previously failed-fast now matches and infinite-loops (chibi 6.4
-    // Lists CPU-spin wedge). The off-by-one was masking a termination/hygiene
-    // defect — both must be fixed together in the L1 macro-engine rework. The red
-    // tests are the spec for that work.
+    // element 0). The fix `is_syntax(fn) ? code : rest` is correct for matcher
+    // ARITY (11/12 pattern shapes) and could land HERE — BUT it un-masks a
+    // SEPARATE, pre-existing bug, so it is held until that bug is addressed too:
+    //
+    //   The off-by-one currently makes the chibi `test` macro THROW at expansion
+    //   ("no matching syntax"), so the cyclic-list bodies in chibi 6.4 never run.
+    //   Fix the matcher → those bodies run → list?/length/append/memq spin forever
+    //   on RUNTIME-CYCLIC data. Root cause (caveat-sweep 2026-06-11): set-cdr!/
+    //   set-car! (stdlib.ts) create cycles that have_cycles() (Pair.ts:478, a pure
+    //   METADATA read populated only by the reader for #0= datum labels) cannot
+    //   see — there is no shared cycle-safe spine walker. This is a DATA-STRUCTURE
+    //   cycle gap, NOT a macro-engine termination/hygiene defect, and it is
+    //   SEPARABLE: the spin reproduces with this line reverted (probe rc=142).
+    //
+    // The matcher fix ALSO does not address three expander/hygiene defects:
+    // dotted-tail-after-ellipsis templates (syntax-rules.ts:562 "ellipsis not
+    // transformed"), let-syntax recursive-macro hygiene ("Unbound Symbol(#:…)"),
+    // and the `_` wildcard binding like a real var (R7RS violation). The red tests
+    // are the spec; land the matcher fix + a cycle-safe list walker together.
     let expansion = fn.invoke(rest, evalArgs, false);
 
     // If macro returns a promise, yield it
