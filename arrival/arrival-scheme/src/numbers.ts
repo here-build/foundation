@@ -167,6 +167,14 @@ export class SchemeExact extends AValue {
     return this.num === other.num && this.denom === other.denom;
   }
 
+  // Setoid (Fantasy Land). Exact ≡ exact ONLY — never equal to an inexact
+  // (R7RS eqv?). structuralEqual / equal? consult this BEFORE their valueOf
+  // fast-path, so this is what makes `(equal? 1 1.0)` correctly #f.
+  // (algebras-in-entities migration — plan-2026-06-10-algebras-in-entities.md.)
+  ["fantasy-land/equals"](other: unknown): boolean {
+    return other instanceof SchemeExact && this.equals(other);
+  }
+
   // Same-type arithmetic
   add(other: SchemeExact): SchemeExact {
     return new SchemeExact(this.num * other.denom + other.num * this.denom, this.denom * other.denom);
@@ -420,6 +428,15 @@ export class SchemeInexact extends AValue {
 
   equals(other: SchemeInexact): boolean {
     return this.real === other.real && this.imag === other.imag;
+  }
+
+  // Setoid (Fantasy Land). Inexact ≡ inexact ONLY. Object.is (not ===) so
+  // reflexivity holds for NaN (`(eqv? +nan.0 +nan.0)` ⇒ #t) and ±0 stay
+  // distinct — matching the legacy `equal` number-branch semantics.
+  ["fantasy-land/equals"](other: unknown): boolean {
+    return (
+      other instanceof SchemeInexact && Object.is(this.real, other.real) && Object.is(this.imag, other.imag)
+    );
   }
 
   // Same-type arithmetic
