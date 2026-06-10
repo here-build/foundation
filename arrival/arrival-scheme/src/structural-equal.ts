@@ -1,5 +1,6 @@
 import { SchemeBool } from "./LBool.js";
 import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeVector } from "./LVector.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";
 import { Nil, SchemeCharacter } from "./types.js";
@@ -35,6 +36,27 @@ export function structuralEqual(a: any, b: any, seen: Map<object, Set<object>> =
   // `__string__`.
   if (a === b) return true;
   if (a == null || b == null) return a === b;
+
+  // SchemeVector: handle HERE (before the fantasy-land/equals hook below), inside
+  // the `seen` occurs-check, so cyclic vectors terminate co-inductively instead of
+  // recursing forever. The class's own `fantasy-land/equals` recurses with a FRESH
+  // seen-map per call, so a mutually-cyclic pair would blow the JS stack if we let
+  // the line-43 hook take it — breaking this walker's never-throws cycle-safety
+  // contract (the war story above). Element recursion threads the shared `seen`.
+  if (a instanceof SchemeVector || b instanceof SchemeVector) {
+    if (!(a instanceof SchemeVector) || !(b instanceof SchemeVector)) return false;
+    const av = a.__vector__;
+    const bv = b.__vector__;
+    if (av.length !== bv.length) return false;
+    const partners = seen.get(a);
+    if (partners?.has(b)) return true;
+    if (partners) partners.add(b);
+    else seen.set(a, new Set([b]));
+    for (let i = 0; i < av.length; i++) {
+      if (!structuralEqual(av[i], bv[i], seen)) return false;
+    }
+    return true;
+  }
 
   // Setoid (Fantasy Land): a value that defines its own equality OWNS the comparison
   // — opaque entities (IP/hash/SID) whose canonical match differs from structural key
