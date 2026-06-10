@@ -74,7 +74,7 @@ import { compose, curry, fold, pipe } from "./utils/functional.js";
 import { SchemeBool } from "./LBool.js";
 import { SchemeString } from "./LString.js";
 import { NOT_FOUND, SandboxViolationError, SchemeJSFunction, SchemeJSObject, sandboxedAccess } from "./membrane.js";
-import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating } from "./evaluator.js";
+import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./evaluator.js";
 
 // Declare jQuery for browser environments
 declare const jQuery: { fn: { init: new (...args: unknown[]) => object } } | undefined;
@@ -2618,32 +2618,26 @@ export function evaluate(
 }
 
 // -------------------------------------------------------------------------
-function exec_with_stacktrace(code: SchemeValue, { env, dynamic_env, use_dynamic }: SchemeValue = {}) {
-  return evaluate(code, {
-    env,
-    dynamic_env,
-    use_dynamic,
-    error: (e, code) => {
-      if (e?.message) {
-        if (e.message.startsWith("Error:")) {
-          const re = /^(Error:)\s*([^:]+:\s*)/;
-          // clean duplicated Error: added by JS
-          e.message = e.message.replace(re, "$1 $2");
-        }
-        if (code) {
-          // LIPS stack trace
-          const eAny = e as SchemeValue;
-          if (!Array.isArray(eAny.__code__)) {
-            eAny.__code__ = [];
-          }
-          eAny.__code__.push((code as SchemeValue).toString(true));
-        }
-      }
-      if (!(e instanceof IgnoreException)) {
-        throw e;
-      }
-    },
-  });
+async function exec_with_stacktrace(code: SchemeValue, { env, dynamic_env, use_dynamic }: SchemeValue = {}) {
+  // The legacy `evaluate` driver is gone — this runs on the generator. The
+  // generator's run() already attaches a Scheme stack trace (SchemeError.schemeStack)
+  // and threads onReject through the tap, so the old __code__-pushing /
+  // "Error:"-prefix-cleaning error callback is obsolete.
+  try {
+    return await genRun(genEvaluate(code, { env, dynamic_env, use_dynamic }));
+  } catch (e) {
+    // Preserve the audit #42 wrapOperator contract. run() wraps every
+    // non-SchemeError — including the TypeError that wrapOperator throws to name
+    // operator + arg types — in a SchemeError, which masks BOTH the TypeError
+    // class and the membrane "Cannot convert to SchemeNumeric" cause (it sinks to
+    // SchemeError.cause.cause). Surface the original TypeError (it carries its own
+    // membrane cause), so the user-visible shape bridge.ts:wrapOperator
+    // established survives. Plain SchemeErrors pass through with their frames.
+    if (e instanceof SchemeError && e.cause instanceof TypeError) {
+      throw e.cause;
+    }
+    throw e;
+  }
 }
 
 // -------------------------------------------------------------------------
