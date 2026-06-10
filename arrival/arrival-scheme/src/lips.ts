@@ -55,6 +55,7 @@ import {
 import { Nil, nil, SchemeCharacter } from "./types.js";
 import * as specials from "./specials.js";
 import { LambdaContext } from "./LambdaContext.js";
+import { call_function, resolve_promises } from "./call-function.js";
 import { isNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
 import { type, typecheck, typecheck_args, typeErrorMessage } from "./utils/typecheck.js";
 import { parse_complex, parse_float, parse_integer, parse_rational } from "./utils/parsing.js";
@@ -3939,54 +3940,6 @@ const rethrowError = (error: Error, _code?: unknown) => {
   }
 };
 
-// -------------------------------------------------------------------------
-// :; wrap tree of Promises with single Promise or return argument as is
-// :: if tree have no Promises
-// -------------------------------------------------------------------------
-function resolve_promises(arg: SchemeValue): SchemeValue {
-  const promises: Promise<unknown>[] = [];
-  traverse(arg);
-  if (promises.length > 0) {
-    return resolve(arg);
-  }
-  return arg;
-
-  function traverse(node) {
-    if (is_promise(node)) {
-      promises.push(node);
-    } else if (is_pair(node)) {
-      if (!node.have_cycles("car")) {
-        traverse(node.car);
-      }
-      if (!node.have_cycles("cdr")) {
-        traverse(node.cdr);
-      }
-    } else if (Array.isArray(node)) {
-      node.forEach(traverse);
-    }
-  }
-
-  async function promise(node) {
-    const pair = new Pair(
-      node.have_cycles("car") ? node.car : await resolve(node.car),
-      node.have_cycles("cdr") ? node.cdr : await resolve(node.cdr),
-    );
-    if (node[__data__]) {
-      pair[__data__] = true;
-    }
-    return pair;
-  }
-
-  function resolve(node) {
-    if (Array.isArray(node)) {
-      return promise_all(node.map(resolve));
-    }
-    if (is_pair(node) && promises.length > 0) {
-      return promise(node);
-    }
-    return node;
-  }
-}
 
 // -------------------------------------------------------------------------
 // :: Argument evaluation - evaluates all arguments in parallel
@@ -4118,20 +4071,6 @@ function prepare_fn_args(fn: SchemeValue, args: SchemeValue[]): SchemeValue[] {
 //       reachable through `.cause` for sandbox/security debugging.
 // Verified path (post-fix): apply → bridge wrapOperator try/catch →
 // rethrown TypeError naming op + arg types.
-export function call_function(
-  fn: SchemeFunction,
-  args: SchemeValue[],
-  { env, dynamic_env, use_dynamic }: SchemeValue = {},
-) {
-  const scope = env?.new_frame(fn, args);
-  const dynamic_scope = dynamic_env?.new_frame(fn, args);
-  const context = new LambdaContext({
-    env: scope,
-    use_dynamic,
-    dynamic_env: dynamic_scope,
-  });
-  return resolve_promises(fn.apply(context, args));
-}
 
 // -------------------------------------------------------------------------
 function apply(

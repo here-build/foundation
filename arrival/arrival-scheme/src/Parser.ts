@@ -26,7 +26,8 @@ import { Lexer } from "./Lexer.js";
 // :: Runtime dependencies - ES6 live bindings resolve the cycle
 // :: (these are only used inside methods, not at module evaluation time)
 // -------------------------------------------------------------------------
-import { call_function, global_env, lips, unpromise } from "./lips.js";
+import { call_function } from "./call-function.js";
+import { global_env, lips, unpromise } from "./lips.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { parse_argument } from "./utils/parsing.js";
 import { SchemeString } from "./LString.js";
