@@ -494,15 +494,34 @@ function makeTypePredicate(name: string, predicate: (n: SchemeNumeric) => boolea
 // `fantasy-land/equals`. All four relations derive from the single `lte`; a chain (< a b c)
 // holds iff each adjacent pair does. Numeric operands take the original numeric/speculative
 // path unchanged — the FL check is one cheap property read, false for every number.
-const isOrd = (x: any): boolean => x != null && typeof x["fantasy-land/lte"] === "function";
+interface FLOrd {
+  "fantasy-land/lte"(other: unknown): boolean;
+}
+const isOrd = (x: unknown): x is FLOrd =>
+  x != null && typeof (x as Partial<FLOrd>)["fantasy-land/lte"] === "function";
+const flLte = (a: FLOrd, b: unknown): boolean => Boolean(a["fantasy-land/lte"](b));
+// The four relations of a total order, all derived from the single `lte`.
+const ORD_REL: Record<"<" | ">" | "<=" | ">=", (a: FLOrd, b: FLOrd) => boolean> = {
+  "<": (a, b) => !flLte(b, a),
+  ">": (a, b) => !flLte(a, b),
+  "<=": (a, b) => flLte(a, b),
+  ">=": (a, b) => flLte(b, a),
+};
+// n-ary ordered comparison derived purely from the operands' `fantasy-land/lte`
+// (wave-1 Ord). The per-type order lives in the entity's instance, so the
+// string<? / char<? families are now type-agnostic chains over it — adding a new
+// ordered type needs no new comparison builtin.
+function deriveOrd(sym: "<" | ">" | "<=" | ">="): (...args: unknown[]) => boolean {
+  const rel = ORD_REL[sym];
+  return (...args: unknown[]): boolean => {
+    for (let i = 0; i < args.length - 1; i++) {
+      if (!rel(args[i] as FLOrd, args[i + 1] as FLOrd)) return false;
+    }
+    return true;
+  };
+}
 function wrapOrd(numeric: (...a: unknown[]) => unknown, sym: "<" | ">" | "<=" | ">="): (...a: unknown[]) => unknown {
-  const lte = (a: any, b: any): boolean => Boolean(a["fantasy-land/lte"](b));
-  const rel = {
-    "<": (a: any, b: any) => !lte(b, a),
-    ">": (a: any, b: any) => !lte(a, b),
-    "<=": (a: any, b: any) => lte(a, b),
-    ">=": (a: any, b: any) => lte(b, a),
-  }[sym];
+  const rel = ORD_REL[sym];
   const fn = (...args: unknown[]): unknown => {
     // FL-Ord only intercepts ENTITY operands; numeric/HalfBaked args take the wrapped
     // numeric op untouched, so its speculative early-collapse path is preserved.
@@ -766,33 +785,12 @@ export const wrappedOps = {
     return chars.slice(1).every((c) => charValue(c) === first);
   },
 
-  "char<?"(...chars: unknown[]): boolean {
-    for (let i = 0; i < chars.length - 1; i++) {
-      if (charValue(chars[i]) >= charValue(chars[i + 1])) return false;
-    }
-    return true;
-  },
-
-  "char>?"(...chars: unknown[]): boolean {
-    for (let i = 0; i < chars.length - 1; i++) {
-      if (charValue(chars[i]) <= charValue(chars[i + 1])) return false;
-    }
-    return true;
-  },
-
-  "char<=?"(...chars: unknown[]): boolean {
-    for (let i = 0; i < chars.length - 1; i++) {
-      if (charValue(chars[i]) > charValue(chars[i + 1])) return false;
-    }
-    return true;
-  },
-
-  "char>=?"(...chars: unknown[]): boolean {
-    for (let i = 0; i < chars.length - 1; i++) {
-      if (charValue(chars[i]) < charValue(chars[i + 1])) return false;
-    }
-    return true;
-  },
+  // char</>/<=/>= derive from SchemeCharacter's fantasy-land/lte (wave-1 Ord) via
+  // the shared deriveOrd chain — see ORD_REL above.
+  "char<?": deriveOrd("<"),
+  "char>?": deriveOrd(">"),
+  "char<=?": deriveOrd("<="),
+  "char>=?": deriveOrd(">="),
 
   // Case-insensitive comparisons
   "char-ci=?"(...chars: unknown[]): boolean {
@@ -978,33 +976,12 @@ export const wrappedOps = {
     return strs.slice(1).every((s) => stringValue(s) === first);
   },
 
-  "string<?"(...strs: unknown[]): boolean {
-    for (let i = 0; i < strs.length - 1; i++) {
-      if (stringValue(strs[i]) >= stringValue(strs[i + 1])) return false;
-    }
-    return true;
-  },
-
-  "string>?"(...strs: unknown[]): boolean {
-    for (let i = 0; i < strs.length - 1; i++) {
-      if (stringValue(strs[i]) <= stringValue(strs[i + 1])) return false;
-    }
-    return true;
-  },
-
-  "string<=?"(...strs: unknown[]): boolean {
-    for (let i = 0; i < strs.length - 1; i++) {
-      if (stringValue(strs[i]) > stringValue(strs[i + 1])) return false;
-    }
-    return true;
-  },
-
-  "string>=?"(...strs: unknown[]): boolean {
-    for (let i = 0; i < strs.length - 1; i++) {
-      if (stringValue(strs[i]) < stringValue(strs[i + 1])) return false;
-    }
-    return true;
-  },
+  // string</>/<=/>= derive from SchemeString's fantasy-land/lte (wave-1 Ord) via
+  // the shared deriveOrd chain — same adapter as the char family.
+  "string<?": deriveOrd("<"),
+  "string>?": deriveOrd(">"),
+  "string<=?": deriveOrd("<="),
+  "string>=?": deriveOrd(">="),
 
   // Case-insensitive string comparison
   "string-ci=?"(...strs: unknown[]): boolean {
