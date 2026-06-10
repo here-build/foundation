@@ -24,7 +24,6 @@ import type { RosettaFunction } from "./rosetta.js";
 import { createRosettaWrapper } from "./rosetta.js";
 import { trim_lines } from "./utils/trim_lines.js";
 import { typecheck } from "./utils/typecheck.js";
-import { EnvLookup } from "./EnvLookup.js";
 import type { Syntax } from "./Syntax.js";
 import type { QuotedPromise } from "./QuotedPromise.js";
 import invariant from "tiny-invariant";
@@ -363,19 +362,6 @@ export class Environment {
     return frame;
   }
 
-  _lookup(symbol: BindingName): EnvLookup<EnvironmentValue> | undefined {
-    if (symbol instanceof SchemeSymbol) {
-      return this._lookup(symbol.__name__);
-    }
-    if (symbol instanceof SchemeString) {
-      return this._lookup(symbol.valueOf());
-    }
-    if (Object.hasOwn(this.__env__, symbol as string)) {
-      return new EnvLookup(this.__env__[symbol as string]);
-    }
-    return this.__parent__?._lookup(symbol);
-  }
-
   /**
    * Per-module lookup with proper resolution order:
    * 1. This environment's direct bindings
@@ -657,21 +643,5 @@ export class Environment {
         throw e;
       },
     });
-  }
-
-  /**
-   * Try all registered resolvers to find a value.
-   * Also checks parent environments' resolvers.
-   */
-  private _tryResolvers(name: string): EnvironmentValue | undefined {
-    // Try local resolvers first
-    for (const resolver of this.__resolvers__) {
-      const result = resolver.resolve(name, this);
-      if (result !== undefined) {
-        return result as EnvironmentValue;
-      }
-    }
-    // Then try parent's resolvers
-    return this.__parent__?._tryResolvers(name);
   }
 }
