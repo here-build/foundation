@@ -65,6 +65,14 @@
     "./backends/openrouter": {
       "types": "./dist/backends/openrouter.d.ts",
       "import": "./dist/backends/openrouter.js"
+    },
+    "./backends/ollama": {
+      "types": "./dist/backends/ollama.d.ts",
+      "import": "./dist/backends/ollama.js"
+    },
+    "./backends/vercel": {
+      "types": "./dist/backends/vercel.d.ts",
+      "import": "./dist/backends/vercel.js"
     }
   },
   "main": "./dist/index.js",
@@ -74,8 +82,11 @@
     "src"
   ],
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.82",
+    "@ai-sdk/openai-compatible": "^2.0.48",
     "@here.build/arrival-scheme": "workspace:^",
     "@here.build/plexus": "workspace:^",
+    "ai": "^6.0.201",
     "handlebars": "4.7.9",
     "jsonrepair": "3.13.0",
     "smol-toml": "1.6.1",
@@ -105,6 +116,7 @@
     "@types/ws": "8.18.1",
     "eslint": "9.39.2",
     "globals": "17.3.0",
+    "lib0": "0.2.114",
     "mobx": "6.15.0",
     "openai": "6.32.0",
     "prettier": "3.8.1",
@@ -112,9 +124,8 @@
     "typescript": "6.0.2",
     "vitest": "4.1.0",
     "ws": "8.18.3",
-    "y-websocket": "3.0.0",
     "y-protocols": "1.0.6",
-    "lib0": "0.2.114",
+    "y-websocket": "3.0.0",
     "yjs": "13.6.30"
   }
 }

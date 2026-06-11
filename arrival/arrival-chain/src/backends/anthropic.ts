@@ -19,6 +19,9 @@ export interface AnthropicOptions {
   maxTokens?: number;
   /** Rate-limit retry policy (429/503). Defaults to 6 attempts, 60s fallback pause. */
   retry?: RetryOptions;
+  /** Per-request timeout (ms). The SDK default is too short for a long Opus endgame
+   *  consolidation; default here is generous. Inference-plane retry wraps the call. */
+  timeoutMs?: number;
 }
 
 /**
@@ -37,7 +40,11 @@ export interface AnthropicOptions {
 export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
   return lazyBackend(async () => {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
+    const client = new Anthropic({
+      ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
+      timeout: opts.timeoutMs ?? 30 * 60 * 1000, // 30 min — long enough for the Opus endgame
+      maxRetries: 0, // the inference plane retries; don't double-retry inside the SDK
+    });
     // Anthropic ALWAYS requires max_tokens. The per-call ceiling (set by the
     // inference plane from the wallet reservation) overrides this construction
     // default when present, so actual ≤ quote by construction.

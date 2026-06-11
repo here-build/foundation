@@ -10,6 +10,14 @@ export interface OpenAIOptions {
    */
   baseURL?: string;
   /**
+   * Per-request timeout (ms). The SDK default (~10 min) is too short for a heavy
+   * consolidation/ideation call (a large prompt over a slow reasoner times out as
+   * `APIConnectionTimeoutError` mid-flight). Default here is generous; the inference
+   * plane's own transient-retry still wraps the call (so SDK `maxRetries` is 0 —
+   * a single attempt per infer, retried by us, not double-retried by the SDK).
+   */
+  timeoutMs?: number;
+  /**
    * Rate-limit retry policy (429/503). Defaults to 6 attempts with a 60s
    * fallback pause — tuned for OpenRouter free models (~20 rpm). Pass
    * `{ max: 0 }` to disable.
@@ -65,6 +73,8 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
     const client = new OpenAI({
       ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
       ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
+      timeout: opts.timeoutMs ?? 30 * 60 * 1000, // 30 min — long enough for a heavy consolidation
+      maxRetries: 0, // the inference plane retries; don't double-retry inside the SDK
     });
     // The SDK's `create` is heavily overloaded with specific param types; the
     // factory needs only the minimal `chat.completions.create` surface, which the
