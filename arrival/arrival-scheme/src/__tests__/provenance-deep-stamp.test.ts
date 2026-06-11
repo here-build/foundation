@@ -143,16 +143,16 @@ describe("SchemeJSObject.get — cached boundary-validated boxing", () => {
     expect(obj.get("nope")).toBe(nil);
   });
 
-  it("set! invalidates the cache for that key", () => {
+  it("rejects writes — set is banned (pure-dataflow sandbox), source unchanged", () => {
     const source: { x: unknown } = { x: 1 };
     const obj = new SchemeJSObject(source, PROV);
     const first = obj.get("x") as SchemeExact;
     expect(first.valueOf()).toBe(1);
-    obj.set("x", 99);
-    const second = obj.get("x") as SchemeExact;
-    expect(second.valueOf()).toBe(99);
-    // The cache was invalidated → a fresh AValue surfaces.
-    expect(first).not.toBe(second);
+    // Writing the foreign peer is not dataflow — the membrane is read-only.
+    expect(() => obj.set("x", 99)).toThrow(/writes are banned/);
+    expect(source.x).toBe(1); // nothing was written
+    // The cached read remains the same stable AValue.
+    expect(obj.get("x")).toBe(first);
   });
 
   it("withProvenance returns a wrapper with empty cache", () => {

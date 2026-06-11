@@ -526,16 +526,29 @@ describe("Wrapper Layer", () => {
       expect((wrappedInner as SchemeJSObject).source).toBe(inner);
     });
 
-    it("sets properties with unwrapping", () => {
-      const source: any = {};
+    it("rejects writes — the membrane is read-only (pure-dataflow sandbox)", () => {
+      const source: any = { a: 1 };
       const obj = new SchemeJSObject(source);
+      expect(() => obj.set("a", 42)).toThrow(/writes are banned/);
+      expect(source.a).toBe(1); // nothing crossed the boundary
+      expect(() => obj.delete("a")).toThrow(/mutations are banned/);
+      expect(source.a).toBe(1);
+    });
 
-      obj.set("a", 42);
-      expect(source.a).toBe(42);
-
-      const inner = new SchemeJSObject({ x: 1 });
-      obj.set("b", inner);
-      expect(source.b).toEqual({ x: 1 });
+    it("blocks method (function-valued) reads but allows getter reads", () => {
+      const source = {
+        data: 7,
+        get computed() {
+          return 99;
+        },
+        method() {
+          return "danger";
+        },
+      };
+      const obj = new SchemeJSObject(source);
+      expect((obj.get("data") as { valueOf(): unknown }).valueOf()).toBe(7); // data read
+      expect((obj.get("computed") as { valueOf(): unknown }).valueOf()).toBe(99); // getter invoked → value
+      expect(obj.get("method")).toBe(nil); // method → invisible (no foreign invocations)
     });
 
     it("checks property existence (own properties only)", () => {

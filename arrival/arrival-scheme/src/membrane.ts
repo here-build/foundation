@@ -252,6 +252,16 @@ export class SchemeJSObject extends AValue {
     }
     if (raw === NOT_FOUND) return nil;
 
+    // Method-call ban: a function-valued property IS a method. The pure-dataflow
+    // sandbox has no representation for a foreign invocation, and returning a
+    // callable would let Scheme escape into uncontrolled JS — so methods are
+    // invisible (same `nil` as absent). Getter/accessor reads are unaffected:
+    // `sandboxedAccess` (via `Reflect.get`) has already INVOKED the getter to a
+    // value above, so a getter that yields data passes through here; only an
+    // actual function result (a method, or the rare getter-returns-a-function)
+    // is blocked.
+    if (typeof raw === "function") return nil;
+
     // Box through jsToLips so primitives become AValue subtypes stamped with
     // this wrapper's provenance. SchemeJSObject's instance was constructed
     // through rosetta deep-stamping for the common case (jsToLips reached
@@ -273,12 +283,16 @@ export class SchemeJSObject extends AValue {
    * the touched key keeps subsequent `.get(key)` consistent with the new
    * underlying value.
    */
-  set(key: string | symbol, value: SchemeValue): void {
-    sandboxedSet(this.source, key, toJS(value));
-    if (typeof key === "string") {
-      const cache = entryCaches.get(this);
-      if (cache !== undefined) cache.delete(key);
-    }
+  set(key: string | symbol, _value: SchemeValue): void {
+    // Writes are banned. arrival is a pure-dataflow sandbox — mutating the
+    // foreign peer is not dataflow, and the membrane exposes a read-only view
+    // by design. (Silent no-op is worse than throwing: the program would
+    // believe it wrote.)
+    throw new SandboxViolationError(
+      "Cannot assign to a foreign object — writes are banned in the pure-dataflow sandbox",
+      typeof key === "symbol" ? key : String(key),
+      "write-banned",
+    );
   }
 
   /**
@@ -293,12 +307,13 @@ export class SchemeJSObject extends AValue {
    * Delete a property (sandboxed - only own properties).
    */
   delete(key: string | symbol): boolean {
-    const ok = sandboxedDelete(this.source, key);
-    if (ok && typeof key === "string") {
-      const cache = entryCaches.get(this);
-      if (cache !== undefined) cache.delete(key);
-    }
-    return ok;
+    // Deletion is a mutation — banned for the same reason as `set` (pure
+    // dataflow, read-only membrane).
+    throw new SandboxViolationError(
+      "Cannot delete from a foreign object — mutations are banned in the pure-dataflow sandbox",
+      typeof key === "symbol" ? key : String(key),
+      "write-banned",
+    );
   }
 
   /** Get own enumerable property keys (never includes inherited). */
