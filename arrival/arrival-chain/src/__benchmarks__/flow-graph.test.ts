@@ -21,6 +21,7 @@ import { snapshotTrace } from "../trace-snapshot.js";
 import { traceToFlowGraph } from "../trace-to-flow-graph.js";
 import { traceToFlowGraphNaive } from "../trace-to-flow-graph-naive.js";
 import { traceToForest } from "../trace-to-forest.js";
+import { traceToRegions } from "../trace-to-regions.js";
 import { traceToStatechart } from "../statechart.js";
 import { EvalTrace } from "../trace.js";
 
@@ -102,6 +103,25 @@ function visibleUnder(nodes: CountNode[], collapsed: (n: CountNode) => boolean):
   return nodes.filter((n) => !hidden(n)).length;
 }
 
+/** Count materialized Region objects in a RegionGraph. `top` = root regions;
+ *  `deep` = every region INCLUDING per-pass fanout iterations. The decision rests
+ *  on `deep` vs invocation count: deep ≈ distinct scopes ⇒ the regions build
+ *  collapses repetition like the forest path (append-only template, cheap); deep ≈
+ *  invocations ⇒ `iterations: Region[][]` over-materializes a subtree per pass (the
+ *  read-fan's hypothesis — the real fix is template-collapse, not a worker). */
+type AnyRegion = { kind: string; iterations?: AnyRegion[][] };
+function countRegions(graph: { roots: AnyRegion[] }): { top: number; deep: number } {
+  let deep = 0;
+  const walk = (regions: AnyRegion[]): void => {
+    for (const r of regions) {
+      deep++;
+      if (r.kind === "fanout" && Array.isArray(r.iterations)) for (const pass of r.iterations) walk(pass);
+    }
+  };
+  walk(graph.roots);
+  return { top: graph.roots.length, deep };
+}
+
 describe("flow-graph build — benchmark", () => {
   // Scale here to stress the O(n) / O(n²) terms. Trace-build (setup) grows too.
   const SIZES: Array<[rounds: number, personas: number]> = [
@@ -118,6 +138,7 @@ describe("flow-graph build — benchmark", () => {
 
       const mdl = traceToFlowGraph(trace);
       const naive = traceToFlowGraphNaive(trace);
+      const regionCounts = countRegions(traceToRegions(trace));
       const repeating = (n: CountNode) => n.boxType === "loop" || n.boxType === "unfold";
 
       console.log(
@@ -128,6 +149,14 @@ describe("flow-graph build — benchmark", () => {
           time("traceToStatechart", () => traceToStatechart(trace)),
           time("traceToFlowGraph (MDL)", () => traceToFlowGraph(trace)),
           time("traceToFlowGraphNaive", () => traceToFlowGraphNaive(trace)),
+          time("traceToRegions", () => traceToRegions(trace)),
+          // The regions-path collapse metric (the A2 decision): deep ≈ distinct
+          // scopes ⇒ collapses (cheap, no worker); deep ≈ invocations ⇒ per-pass
+          // over-materialization (template-collapse is the real fix).
+          `  --- regions build (use-region-graph / RegionView path) ---`,
+          `  region nodes · top-level           ${regionCounts.top}`,
+          `  region nodes · deep (w/ iterations) ${regionCounts.deep}`,
+          `  collapse ratio invocations:deep    ${(snap.invocations.length / Math.max(1, regionCounts.deep)).toFixed(1)}:1`,
           // The render-cost metric: VISIBLE nodes (elk + canvas melt past ~200).
           // Totals are tiny because the forest groups by AST scope — the iteration
           // count never inflates node count; collapsing hides a region's body.
@@ -143,6 +172,7 @@ describe("flow-graph build — benchmark", () => {
       // Sanity: a broken build fails loud rather than silently benchmarking nothing.
       expect(traceToFlowGraph(trace).nodes.length).toBeGreaterThan(0);
       expect(traceToFlowGraphNaive(trace).nodes.length).toBeGreaterThan(0);
+      expect(regionCounts.deep).toBeGreaterThan(0);
     }, 120_000);
   }
 });
