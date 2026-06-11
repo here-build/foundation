@@ -122,6 +122,23 @@ const EXPECTED_FAILURES: { pattern: string | RegExp; reason: string }[] = [
     pattern: "(= 9007199254740992.0 9007199254740993)",
     reason: "IEEE 754 precision limit: numbers beyond 2^53 lose precision when inexact",
   },
+  {
+    pattern: "(if (and (= a b) (= b c))",
+    reason: "Numeric = non-transitivity across exact-bignum vs inexact (2^1000 ± 1) — IEEE/tower edge, known",
+  },
+  // -----------------------------------------------------------------------
+  // Purity invariant — WRITING METHODS are OMITTED by design (every entity is
+  // frozen; mutation falsifies provenance lineage). These chibi tests exercise
+  // the in-place mutators, which now hit a teaching purity DOOR. Intentional
+  // deviation, not a bug — arrival is a pure-dataflow sandbox, not generalized
+  // Scheme. See bootstrap.scm "PURITY" manifesto + docs/plan-2026-06-11-purity-pass.
+  // (The matcher off-by-one fix un-masked these sections; they were always
+  // destined for the door once reached.)
+  // -----------------------------------------------------------------------
+  {
+    pattern: /string-set!|string-fill!|string-copy!|vector-set!|vector-fill!|vector-copy!|bytevector-u8-set!|bytevector-copy!|set-car!|set-cdr!|append!/,
+    reason: "intentional — purity invariant (frozen entities); writing methods are doored. See plan-2026-06-11-purity-pass",
+  },
   // -----------------------------------------------------------------------
   // Macro engine gaps — pre-L1, separate from AValue work.
   // -----------------------------------------------------------------------

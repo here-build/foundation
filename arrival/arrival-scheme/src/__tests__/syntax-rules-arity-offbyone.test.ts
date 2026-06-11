@@ -10,12 +10,11 @@
 // It masks itself in recursion-shaped macros (chibi `my-or` returns the same
 // answer either way), which is why the suite stays green via exclusions.
 //
-// These are `it.fails` (RED): each asserts the CORRECT R7RS behavior and is
-// expected to currently fail. When the matcher off-by-one is fixed, the assertion
-// passes and `it.fails` flips RED → flip it to `it`. NOT a boxing regression
-// (list patterns, no vectors). The vector-pattern block at the bottom is the
-// boxing-track S9 superset (needs the matcher fix AND a SchemeVector unwrap in
-// the matcher/expander). docs/plan-2026-06-10-boxing-track.md (S9, R8).
+// FIXED 2026-06-11 (`is_syntax(fn) ? code : rest` at evaluator.ts macro dispatch):
+// the first block (fixed-arity + arity-discrimination + ellipsis) now passes and
+// is plain `it`. The vector-pattern block below stays `it.fails` — those are the
+// SEPARATE expander defect (boxing-track S9: needs a SchemeVector unwrap in the
+// matcher/expander, not just the off-by-one). docs/plan-2026-06-10-boxing-track.md.
 import { describe, expect, it } from "vitest";
 import { initBridge } from "../bridge.js";
 import { SchemeVector } from "../LVector.js";
@@ -29,29 +28,29 @@ async function run(form: string): Promise<unknown> {
 }
 
 describe("syntax-rules matcher off-by-one (PRE-EXISTING pre-L1 gap — drops first code element)", () => {
-  it.fails("fixed 1-arg pattern binds+uses its var: ((_ a) a) on (m 9) → 9", async () => {
+  it("fixed 1-arg pattern binds+uses its var: ((_ a) a) on (m 9) → 9", async () => {
     const out = await run(`(let-syntax ((m (syntax-rules () ((_ a) a)))) (m 9))`);
     expect(String(out)).toBe("9");
   });
 
-  it.fails("fixed 2-arg pattern: ((_ a b) (list a b)) on (m 9 8) → (9 8)", async () => {
+  it("fixed 2-arg pattern: ((_ a b) (list a b)) on (m 9 8) → (9 8)", async () => {
     const out = await run(`(let-syntax ((m (syntax-rules () ((_ a b) (list a b))))) (m 9 8))`);
     expect(String(out)).toBe("(9 8)");
   });
 
-  it.fails("arity discrimination: count-to-2 on (c2 a b) → 2 (currently picks the 1-arg rule → 1)", async () => {
+  it("arity discrimination: count-to-2 on (c2 a b) → 2 (currently picks the 1-arg rule → 1)", async () => {
     const out = await run(
       `(let-syntax ((c2 (syntax-rules () ((_) 0) ((_ _) 1) ((_ _ _) 2)))) (c2 a b))`,
     );
     expect(String(out)).toBe("2");
   });
 
-  it.fails("ellipsis keeps element 0: ((_ a ...) (list a ...)) on (m 1 2 3) → (1 2 3)", async () => {
+  it("ellipsis keeps element 0: ((_ a ...) (list a ...)) on (m 1 2 3) → (1 2 3)", async () => {
     const out = await run(`(let-syntax ((m (syntax-rules () ((_ a ...) (list a ...))))) (m 1 2 3))`);
     expect(String(out)).toBe("(1 2 3)");
   });
 
-  it.fails("head + ellipsis keeps the head: ((_ h a ...) (list h a ...)) on (m 1 2 3) → (1 2 3)", async () => {
+  it("head + ellipsis keeps the head: ((_ h a ...) (list h a ...)) on (m 1 2 3) → (1 2 3)", async () => {
     const out = await run(
       `(let-syntax ((m (syntax-rules () ((_ h a ...) (list h a ...))))) (m 1 2 3))`,
     );

@@ -2669,45 +2669,33 @@ function* evaluatePair(code: Pair, ctx: EvalContext): EvalGenerator {
       error: ctx.error,
     };
 
-    // Invoke the macro with unevaluated code
-    // is_macro narrowed fn to Macro, so we can access invoke directly
+    // Invoke the macro with unevaluated code.
+    // is_macro narrowed fn to Macro, so we can access invoke directly.
     //
-    // ⚠️ KNOWN BUG (the "pre-L1 macro engine gap"), root-caused — see
-    // src/__tests__/syntax-rules-arity-offbyone.test.ts (red): syntax-rules
-    // patterns carry a keyword slot as their first element, so the matcher
-    // (extract_patterns) wants the FULL form. Passing `rest` (correct for
-    // define-macro fexprs) makes the keyword consume the first ARG — an off-by-one
-    // that breaks fixed-arity matching, arity discrimination, and ellipsis (drops
-    // element 0). The fix `is_syntax(fn) ? code : rest` is correct for matcher
-    // ARITY (11/12 pattern shapes) and could land HERE — BUT it un-masks a
-    // SEPARATE, pre-existing bug, so it is held until that bug is addressed too:
+    // THE MATCHER OFF-BY-ONE FIX (`is_syntax(fn) ? code : rest`), landed 2026-06-11.
+    // syntax-rules patterns carry a keyword slot as their FIRST element, so the
+    // matcher (extract_patterns) needs the FULL form (`code`). define-macro fexprs
+    // want the keyword-stripped `rest`. Passing `rest` to BOTH made the keyword
+    // consume the first ARG — an off-by-one that broke fixed-arity matching, arity
+    // discrimination, and ellipsis (dropped element 0). Discriminating on
+    // `is_syntax(fn)` gives each the form it expects. Root-cause + the now-green
+    // arity cases: src/__tests__/syntax-rules-arity-offbyone.test.ts (first block).
     //
-    //   The off-by-one currently makes the chibi `test` macro THROW at expansion
-    //   ("no matching syntax"), so the cyclic-list bodies in chibi 6.4 never run.
-    //   Fix the matcher → those bodies run → list?/length/append/memq spin forever
-    //   on RUNTIME-CYCLIC data. Root cause (caveat-sweep 2026-06-11): set-cdr!/
-    //   set-car! (stdlib.ts) create cycles that have_cycles() (Pair.ts:478, a pure
-    //   METADATA read populated only by the reader for #0= datum labels) cannot
-    //   see — there is no shared cycle-safe spine walker. This is a DATA-STRUCTURE
-    //   cycle gap, NOT a macro-engine termination/hygiene defect, and it is
-    //   SEPARABLE: the spin reproduces with this line reverted (probe rc=142).
+    // Why it could land now (it was held through three prior sessions):
+    //   1. The cycle-safe list walker (Pair.isCircularList) shipped — un-masking no
+    //      longer wedges on cyclic data (chibi 6.4 terminates).
+    //   2. The PURITY PASS removed set-cdr!/vector-set!/etc — runtime cycles are
+    //      unconstructable, and the chibi mutation sections this un-masks now hit a
+    //      teaching purity DOOR (→ chibi EXPECTED_FAILURES, intentional).
+    //   3. The map async-leak the fix also exposed is fixed (bridge.ts).
+    // The 34 un-masked chibi failures were triaged: 33 = writing-method purity
+    // doors + 1 = numeric-= IEEE edge, all moved to EXPECTED_FAILURES.
     //
-    // The matcher fix ALSO does not address three expander/hygiene defects:
-    // dotted-tail-after-ellipsis templates (syntax-rules.ts:562 "ellipsis not
-    // transformed"), let-syntax recursive-macro hygiene ("Unbound Symbol(#:…)"),
-    // and the `_` wildcard binding like a real var (R7RS violation) — tracked
-    // separately (syntax-rules-arity-offbyone.test.ts vector block + those notes).
-    //
-    // UPDATE 2026-06-11: the cycle-safe list walker (Pair.isCircularList) shipped,
-    // so the fix `is_syntax(fn) ? code : rest` NO LONGER wedges (chibi 6.4 passes).
-    // But applying it un-masks ~17 pre-existing chibi failures the broken matcher
-    // was hiding behind "no matching syntax": unimplemented features now reached
-    // (exact-integer-sqrt, promise?/make-promise/delay-force, get-environment-variables)
-    // + the three expander/hygiene defects (derived-form macros match but expand
-    // wrong → "got ()") + a couple string-map/vector-map async leaks. Landing the
-    // fix therefore requires triaging those 17 and moving the genuine gaps into the
-    // chibi EXPECTED_FAILURES — a deliberate decision, not a silent flip. Held here.
-    let expansion = fn.invoke(rest, evalArgs, false);
+    // STILL OPEN (separate, tracked as the vector-pattern `it.fails` block):
+    // syntax-rules VECTOR patterns need a SchemeVector unwrap in matcher/expander
+    // (boxing-track S9); dotted-tail-after-ellipsis template, `_`-wildcard binding,
+    // let-syntax recursive hygiene — the L1 expander rework.
+    let expansion = fn.invoke(is_syntax(fn) ? code : rest, evalArgs, false);
 
     // If macro returns a promise, yield it
     if (is_promise(expansion)) {
