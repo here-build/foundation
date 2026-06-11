@@ -37,8 +37,14 @@
  *     sees as a dnf box (minor noise; refine by skipping macro-internal forms).
  */
 import type { BoxType, CandidateBox } from "./mdl-collapse.js";
+import { headOf, scopeId } from "./scope-id.js";
 import { snapshotTrace, type PlainInv } from "./trace-snapshot.js";
 import type { EvalTrace } from "./trace.js";
+
+// scopeId moved to a cycle-neutral leaf (trace-snapshot needs it too; trace-to-forest
+// imports trace-snapshot, so the reverse import would close a loop). Re-exported here
+// so the 8 downstream `from "./trace-to-forest.js"` importers stay unchanged.
+export { scopeId };
 
 const CONTROL_TYPE: Record<string, BoxType> = {
   map: "unfold",
@@ -76,12 +82,6 @@ export const STRUCTURAL_FORMS = new Set([
 ]);
 
 /** Leading symbol of a form's Pair, e.g. `(map …)` → `"map"`. */
-function headOf(node: unknown): string {
-  const car = (node as { car?: { __name__?: unknown } } | null)?.car;
-  const name = (car as { __name__?: unknown } | undefined)?.__name__;
-  return typeof name === "string" ? name : "?";
-}
-
 // ── Static tail-recursion detection ──────────────────────────────────────────
 // `hasSelfAncestor` can only call a function a loop AFTER it has recursed at least
 // once — which, when the recursive arg is an async `(infer …)`, is not until the
@@ -183,24 +183,6 @@ export function staticLoopBodyScopes(invs: PlainInv[]): Set<object> {
     for (const form of d.body) if (form !== null && typeof form === "object") scopes.add(form as object);
   }
   return scopes;
-}
-
-/** Stable structural scope id: `head@line:col` (or `head` if unlocated). The
- *  parser stamps a `__location__` symbol on located Pairs. Exported so the
- *  unified flow-graph builder can bridge causal-chart nodes (keyed by Pair
- *  identity) back to forest boxes (keyed by this id) — both group by the same
- *  Pair, so the strings coincide. */
-export function scopeId(node: unknown): string {
-  const head = headOf(node);
-  if (node && typeof node === "object") {
-    for (const s of Object.getOwnPropertySymbols(node)) {
-      if (s.description === "__location__") {
-        const loc = (node as Record<symbol, unknown>)[s] as { line?: number; col?: number } | undefined;
-        if (loc && typeof loc.line === "number") return `${head}@${loc.line}:${loc.col ?? 0}`;
-      }
-    }
-  }
-  return head;
 }
 
 export interface ForestOptions {
