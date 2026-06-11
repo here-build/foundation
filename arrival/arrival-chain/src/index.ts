@@ -83,6 +83,14 @@ export { lipsToJs } from "@here.build/arrival-scheme";
 export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
 export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
+export {
+  buildChainEnv,
+  ChainEnvironment,
+  type ChainConfig,
+  type ChainModelSpec,
+  type ChainExtension,
+  type ChainInitContext,
+} from "./chain-env.js";
 // Data-effect host capability — the membrane `(http/*)` / `(sql/query)` cross.
 // The SaaS host injects a `DataEffectResolver` (label→credential, egress-safe);
 // the OSS engine ships the verbs inert. Twin of `InferFn`. See `data-effects.ts`.
