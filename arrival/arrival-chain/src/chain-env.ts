@@ -61,6 +61,10 @@ export interface ChainConfig {
   name: string;
   /** id → backend. The program names ids; this arms them. No remap. */
   models: Record<string, ChainModelSpec>;
+  /** Override the resolved infer capability (skips the model-registry router + store). A test
+   *  passes a canned resolver to drive the whole loop offline; production omits it and the chain
+   *  builds infer from `models`. */
+  infer?: InferFn;
   loader: Loader;
   tap?: EvalTrace;
   mcp?: McpEffectResolver;
@@ -154,8 +158,10 @@ export class ChainEnvironment {
     };
     this.runId = config.runId ?? config.name;
     this.tap = config.tap ?? new EvalTrace();
+    // The infer capability: a caller-supplied override (tests drive the loop offline), else built
+    // from the model registry — the router resolves each program-named id straight to a backend.
     const store = createInferStore(this.router);
-    const infer = makeInfer(store, config.maxInferRetry ?? 3, Boolean(process.env.SIFT_TRACE));
+    const infer = config.infer ?? makeInfer(store, config.maxInferRetry ?? 3, Boolean(process.env.SIFT_TRACE));
     this.env = buildArrivalEnv({
       name: config.name,
       infer,
