@@ -18,6 +18,12 @@
  * Atoms, bare symbols, quoted data, and macro-expansion-constructed
  * Pairs (those without `__location__`) are not tracked — the evaluator's
  * tap-firing rules already filter them.
+ *
+ * The provenance taxonomy invariant this file implements (mint-only-at-boundaries;
+ * pure ops union/forward; branch is an edge-role NOT a node; field-points are a node
+ * kind) is documented at
+ * `arrival-scheme/docs/reference/provenance-model.md` — read it before changing
+ * `computeProvenance`, the authoritative-set forwarding, or `fieldPoint`.
  */
 import { AValue, EMPTY_PROVENANCE, type EvalTap, type Pair, type SchemeSymbol } from "@here.build/arrival-scheme";
 import { action, observable } from "mobx";
