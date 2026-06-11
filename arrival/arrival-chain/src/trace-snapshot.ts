@@ -14,6 +14,50 @@
  * re-runs the snapshot → re-renders) — while the expensive build downstream
  * touches only plain structures and pays zero MobX cost. Reactivity at the edge,
  * computation in the core.
+ *
+ * ── structured-clone contract (the worker boundary) ─────────────────────────
+ * The snapshot is plain (de-MobX'd) but it is NOT yet a *pure* structured-clone
+ * payload, and the difference is exactly ONE field — `PlainInv.node`. The plan to
+ * move `traceToRegions`/`planNesting` into the ELK worker (DAG node A2) will
+ * `postMessage` a snapshot across the worker boundary; structured-clone is the
+ * transport, so this file's job (DAG node A1) is to pin down precisely what
+ * survives that round-trip and what does not.
+ *
+ * SURVIVES `structuredClone` (verified — see `__tests__/trace-snapshot-clone.test.ts`):
+ *   - `id` / `state` — number / string primitives.
+ *   - `provenance` — a plain `Set<number>` (Sets are clone-safe).
+ *   - `value` / `metadata` — already peeled to plain JS by `lipsToJs` (`value`) or
+ *     built as a POJO `{ kind, path, model, inputs, … }` (`metadata`); the values a
+ *     `.prompt` card reads are strings / numbers / plain objects / Sets.
+ *   - `parent` / `children` — object references; the DAG/back-edges are rebuilt
+ *     faithfully by structured-clone (it de-dups shared refs and tolerates cycles).
+ *   - `PlainTrace.invocations` array and `fieldPointMeta` `Map` — both clone-safe.
+ *   - **Invocation ids round-trip intact** — the load-bearing requirement: a later
+ *     node binds per-cell values back to worker-produced regions BY `id`, so the
+ *     ids MUST survive the boundary. They do (plain numbers).
+ *
+ * Does NOT survive — `PlainInv.node` (a live arrival-scheme `Pair`):
+ *   structured-clone deep-copies a `Pair` into a *plain* `Object` — it drops the
+ *   prototype (so `is_pair()` / `instanceof Pair` go false downstream), it does NOT
+ *   preserve cross-node `===` identity against any Pair the consumer holds OUTSIDE
+ *   the snapshot (a cloned node is a brand-new object), and — the silent killer —
+ *   it STRIPS symbol-keyed properties, so `__location__` vanishes and `scopeId`
+ *   degrades from `head@line:col` to bare `head` (scope discrimination, loop-body
+ *   keying and branch-scope liveness all collapse). The current main-thread
+ *   consumers (`traceToRegions`, `statechart`, `region-boundaries`, `trace-to-chain`,
+ *   `trace-to-forest`) read `node` by Pair identity, `node.car`, deep `car/cdr`
+ *   spine-walks AND `__location__` — all of which the live ref provides for free.
+ *
+ * ⇒ Contract for A2: BEFORE `postMessage`-ing a snapshot into the worker, the live
+ * `Pair` ref on `node` must be projected to a plain, clone-safe shape carrying the
+ * three things consumers actually read — the head name, the `scopeId`
+ * (`head@line:col`, pre-derived so `__location__` need not cross), and the walkable
+ * form structure — and the worker-side `traceToRegions` rewrite (which A2 owns)
+ * must read those plain fields instead of the `Pair`. Identity comparisons
+ * (`a.node === b.node`) become `a.scope === b.scope` (the scopeId already collapses
+ * by Pair identity, so the strings coincide). That projection co-designs with the
+ * `trace-to-regions.ts` read-site changes, so it is A2's edit, not A1's — A1 only
+ * establishes and tests this contract.
  */
 import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
 import type { EvalTrace, InvocationState } from "./trace.js";
@@ -23,6 +67,12 @@ import type { EvalTrace, InvocationState } from "./trace.js";
  *  forest boxes group by Pair identity). */
 export interface PlainInv {
   id: number;
+  /** Live arrival-scheme `Pair`, shared by reference — its identity is load-bearing
+   *  (consumers group by Pair identity and read `__location__` via `scopeId`). This
+   *  is the ONE field that is NOT structured-clone-safe: a clone loses the prototype,
+   *  cross-snapshot identity, and the symbol-keyed `__location__`. A2 must project it
+   *  to a plain shape before `postMessage`. See the structured-clone contract in this
+   *  file's header and `__tests__/trace-snapshot-clone.test.ts`. */
   node: Pair;
   parent: PlainInv | null;
   children: PlainInv[];
