@@ -30,6 +30,8 @@ import { isCircularList, Pair } from "./Pair.js";
 import { structuralEqual } from "./structural-equal.js";
 import { Nil, SchemeCharacter, nil, type SchemeValue } from "./types.js";
 import { type } from "./utils/typecheck.js";
+import { is_promise } from "./guards.js";
+import { promise_all } from "./utils/promises.js";
 import { Values } from "./Values.js";
 import invariant from "tiny-invariant";
 import "./errors.js";
@@ -1452,7 +1454,7 @@ export const wrappedOps = {
   // vector-copy! — OMITTED by the purity invariant (mutates its destination);
   // doored in bootstrap.scm. The non-mutating `vector-copy` (above) stays.
 
-  "vector-map"(proc: Function, ...vectors: unknown[]): SchemeVector {
+  "vector-map"(proc: Function, ...vectors: unknown[]): SchemeVector | Promise<SchemeVector> {
     invariant(vectors.length > 0, "vector-map: expected at least one vector argument");
     const arrays = vectors.map((v) => asVector(v, "vector-map"));
     const minLen = Math.min(...arrays.map((a) => a.length));
@@ -1461,17 +1463,31 @@ export const wrappedOps = {
       const elements = arrays.map((a) => a[i]);
       result.push(proc(...elements));
     }
+    // proc may be an async membrane callback → its results are JS Promises. Mirror
+    // the list `map` (stdlib.ts): if any slot is a promise, await them all so the
+    // returned vector holds SETTLED values (not "[object Promise]") and provenance
+    // is preserved. (errors-as-doors note: silent leak defeats boxing goal-b.)
+    if (result.some(is_promise)) {
+      return (promise_all(result) as Promise<SchemeValue[]>).then(
+        (resolved) => withInputProvenance(vectors, new SchemeVector(resolved)),
+      );
+    }
     return withInputProvenance(vectors, new SchemeVector(result));
   },
 
-  "vector-for-each"(proc: Function, ...vectors: unknown[]): void {
+  "vector-for-each"(proc: Function, ...vectors: unknown[]): void | Promise<void> {
     invariant(vectors.length > 0, "vector-for-each: expected at least one vector argument");
     const arrays = vectors.map((v) => asVector(v, "vector-for-each"));
     const minLen = Math.min(...arrays.map((a) => a.length));
+    const pending: unknown[] = [];
     for (let i = 0; i < minLen; i++) {
       const elements = arrays.map((a) => a[i]);
-      proc(...elements);
+      const ret = proc(...elements);
+      if (is_promise(ret)) pending.push(ret);
     }
+    // Await any async side effects before returning, so for-each does not complete
+    // while promises are still outstanding.
+    if (pending.length > 0) return (promise_all(pending) as Promise<unknown[]>).then(() => undefined);
   },
 
   // ============================================================================
@@ -1562,32 +1578,36 @@ export const wrappedOps = {
   // R7RS String functions (Section 6.7)
   // ============================================================================
 
-  "string-map"(proc: Function, ...strings: unknown[]): string {
+  "string-map"(proc: Function, ...strings: unknown[]): string | Promise<string> {
     invariant(strings.length > 0, "string-map: expected at least one string");
     const strs = strings.map(stringValue);
     const minLen = Math.min(...strs.map((s) => s.length));
-    let result = "";
+    const results: unknown[] = [];
     for (let i = 0; i < minLen; i++) {
-      const chars = strs.map((s) => new SchemeCharacter(s[i]));
-      const newChar = proc(...chars);
-      if (newChar instanceof SchemeCharacter) {
-        result += charValue(newChar);
-      } else if (typeof newChar === "string") {
-        result += newChar;
-      } else {
-        result += String(newChar);
-      }
+      results.push(proc(...strs.map((s) => new SchemeCharacter(s[i]))));
     }
-    return result;
+    const join = (chars: unknown[]) =>
+      chars
+        .map((c) => (c instanceof SchemeCharacter ? charValue(c) : typeof c === "string" ? c : String(c)))
+        .join("");
+    // proc may be an async membrane callback → await before joining, so the result
+    // is a real string, not "[object Promise][object Promise]…" (see vector-map).
+    if (results.some(is_promise)) {
+      return (promise_all(results) as Promise<unknown[]>).then(join);
+    }
+    return join(results);
   },
 
-  "string-for-each"(proc: Function, ...strings: unknown[]): void {
+  "string-for-each"(proc: Function, ...strings: unknown[]): void | Promise<void> {
     invariant(strings.length > 0, "string-for-each: expected at least one string");
     const strs = strings.map(stringValue);
     const minLen = Math.min(...strs.map((s) => s.length));
+    const pending: unknown[] = [];
     for (let i = 0; i < minLen; i++) {
-      proc(...strs.map((s) => new SchemeCharacter(s[i])));
+      const ret = proc(...strs.map((s) => new SchemeCharacter(s[i])));
+      if (is_promise(ret)) pending.push(ret);
     }
+    if (pending.length > 0) return (promise_all(pending) as Promise<unknown[]>).then(() => undefined);
   },
 
   // ============================================================================
