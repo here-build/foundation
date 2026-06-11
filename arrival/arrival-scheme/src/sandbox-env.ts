@@ -110,7 +110,7 @@ async function asyncFLFilter(pred: Function, structure: any): Promise<any> {
       cache.set(v, await pred(v));
     }
   }));
-  return structure["fantasy-land/filter"]((v: any) => cache.get(v));
+  return structure["fantasy-land/filter"]((v: any) => !is_false(cache.get(v)));
 }
 
 async function asyncFLReduce(fn: Function, init: any, structure: any): Promise<any> {
@@ -365,11 +365,11 @@ export const sandboxedEnv = new Environment(
       // (when test expr ...) — if test is truthy, evaluate exprs, return last
       // This needs to be a macro but we can approximate for sandbox use
       const [test, ...body] = args;
-      return test ? body[body.length - 1] : nil;
+      return !is_false(test) ? body[body.length - 1] : nil;
     },
     "unless": function unless(this: any, ...args: any[]) {
       const [test, ...body] = args;
-      return !test ? body[body.length - 1] : nil;
+      return is_false(test) ? body[body.length - 1] : nil;
     },
 
     // ── Association lists ──

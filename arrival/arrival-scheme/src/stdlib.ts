@@ -109,7 +109,7 @@ function log(x: SchemeValue, ...args: SchemeValue[]): void {
 function is_debug(n: SchemeValue = null): boolean {
   const debug = user_env?.get("DEBUG", { throwError: false });
   if (n === null) {
-    return debug === true;
+    return !is_false(debug);
   }
   return debug?.valueOf() === n.valueOf();
 }
@@ -1865,7 +1865,7 @@ export const global_env = new Environment(
       }
       const fn = matcher("find", arg);
       return unpromise(fn(list.car), function (value) {
-        if (value && !is_nil(value)) {
+        if (!is_false(value) && !is_nil(value)) {
           return list.car;
         }
         return find(arg, list.cdr);

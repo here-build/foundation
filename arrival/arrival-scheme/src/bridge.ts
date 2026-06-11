@@ -30,7 +30,7 @@ import { isCircularList, Pair } from "./Pair.js";
 import { structuralEqual } from "./structural-equal.js";
 import { Nil, SchemeCharacter, nil, type SchemeValue } from "./types.js";
 import { type } from "./utils/typecheck.js";
-import { is_promise } from "./guards.js";
+import { is_false, is_promise } from "./guards.js";
 import { promise_all } from "./utils/promises.js";
 import { Values } from "./Values.js";
 import invariant from "tiny-invariant";
@@ -1322,7 +1322,9 @@ export const wrappedOps = {
     let current = list;
     if (isCircularList(list)) TypeError.invariant(false, "member: circular list");
     while (current instanceof Pair) {
-      if (cmp(obj, current.car)) return current;
+      // `cmp` may be a user-supplied Scheme predicate whose result is a boxed
+      // SchemeBool post-L1 (a truthy JS object); route through is_false.
+      if (!is_false(cmp(obj, current.car))) return current;
       current = current.cdr;
     }
     return false;
@@ -1335,7 +1337,8 @@ export const wrappedOps = {
     if (isCircularList(alist)) TypeError.invariant(false, "assoc: circular list");
     while (current instanceof Pair) {
       const pair = current.car;
-      if (pair instanceof Pair && cmp(obj, pair.car)) return pair;
+      // `cmp` may be a user-supplied Scheme predicate → boxed SchemeBool post-L1.
+      if (pair instanceof Pair && !is_false(cmp(obj, pair.car))) return pair;
       current = current.cdr;
     }
     return false;
@@ -1714,7 +1717,9 @@ export const wrappedOps = {
   // ============================================================================
 
   complement(fn: Function): Function {
-    const result = (...args: unknown[]) => !fn(...args);
+    // `fn` is a Scheme predicate whose result is a boxed SchemeBool (truthy JS
+    // object) post-L1; `!fn(...)` would always be false. Route through is_false.
+    const result = (...args: unknown[]) => is_false(fn(...args));
     Object.defineProperty(result, "name", { value: "complement" });
     return result;
   },
