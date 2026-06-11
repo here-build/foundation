@@ -31,7 +31,7 @@ import { structuralEqual } from "./structural-equal.js";
 import { Nil, SchemeCharacter, nil, type SchemeValue } from "./types.js";
 import { type } from "./utils/typecheck.js";
 import { is_false, is_promise } from "./guards.js";
-import { promise_all } from "./utils/promises.js";
+import { promise_all, unpromise } from "./utils/promises.js";
 import { Values } from "./Values.js";
 import invariant from "tiny-invariant";
 import "./errors.js";
@@ -1717,9 +1717,12 @@ export const wrappedOps = {
   // ============================================================================
 
   complement(fn: Function): Function {
-    // `fn` is a Scheme predicate whose result is a boxed SchemeBool (truthy JS
-    // object) post-L1; `!fn(...)` would always be false. Route through is_false.
-    const result = (...args: unknown[]) => is_false(fn(...args));
+    // `fn` may be a scheme lambda, which returns a Promise to JS callers
+    // (generator-lambda async return) — so unpromise before testing. And its
+    // result may be a boxed SchemeBool (a truthy JS object), so negate via
+    // is_false, not `!` (always false on an object). Both were latent: plain
+    // `!fn(...)` failed for async predicates AND for boxed-bool ones.
+    const result = (...args: unknown[]) => unpromise(fn(...args), is_false);
     Object.defineProperty(result, "name", { value: "complement" });
     return result;
   },
