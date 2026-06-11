@@ -120,9 +120,9 @@ function normalizePath(p: string): string {
   const out: string[] = [];
   for (const seg of p.split("/")) {
     if (seg === "" || seg === ".") continue;
-    if (seg === "\0" || seg.includes("\0")) throw new Error(`require: invalid path (NUL byte): ${JSON.stringify(p)}`);
+    invariant(seg !== "\0" && !seg.includes("\0"), () => `require: invalid path (NUL byte): ${JSON.stringify(p)}`);
     if (seg === "..") {
-      if (out.length === 0) throw new Error(`require: path escapes the project root: ${p}`);
+      invariant(out.length !== 0, () => `require: path escapes the project root: ${p}`);
       out.pop();
     } else {
       out.push(seg);
@@ -190,15 +190,11 @@ export function splitChatSections(src: string): { role: string; body: string }[]
       sections.push({ role, body: src.slice(bodyStart, m.index).trim() });
     }
     const next = m[1]!.toLowerCase();
-    if (!CHAT_ROLES.has(next)) {
-      throw new Error(`.chat.hbs: unknown role "${m[1]}" — use system, user, or assistant`);
-    }
+    invariant(CHAT_ROLES.has(next), () => `.chat.hbs: unknown role "${m[1]}" — use system, user, or assistant`);
     role = next;
     bodyStart = ROLE_MARKER.lastIndex;
   }
-  if (role === null) {
-    throw new Error(`.chat.hbs: no {{role "..."}} markers — a chat template needs at least one`);
-  }
+  invariant(role !== null, `.chat.hbs: no {{role "..."}} markers — a chat template needs at least one`);
   sections.push({ role, body: src.slice(bodyStart).trim() });
   return sections;
 }
@@ -230,13 +226,13 @@ function splitTypeDesc(s: string): { type: string; desc: string } {
  *  `field(object): map`, parenthetical `type, desc`, and nesting. Optional `?`
  *  is rejected — the `s/` schema has no optional marker (add one before lifting). */
 function compilePicoschema(node: unknown): string {
-  if (!isPlainObject(node)) throw new Error(".prompt: output schema must be a map of fields");
+  invariant(isPlainObject(node), ".prompt: output schema must be a map of fields");
   const fields = Object.entries(node).map(([k, v]) => compilePicoField(k, v));
   return `(s/object ${fields.join(" ")})`;
 }
 
 function scalarFieldSrc(name: string, type: string, desc: string): string {
-  if (!SCALAR_TYPES.has(type)) throw new Error(`.prompt: unknown scalar type "${type}" for field "${name}"`);
+  invariant(SCALAR_TYPES.has(type), () => `.prompt: unknown scalar type "${type}" for field "${name}"`);
   const d = desc ? ` ${JSON.stringify(desc)}` : "";
   return `(s/field/${type} ${JSON.stringify(name)}${d})`;
 }
@@ -244,18 +240,18 @@ function scalarFieldSrc(name: string, type: string, desc: string): string {
 function compileElement(val: unknown): string {
   if (typeof val === "string") {
     const { type } = splitTypeDesc(val);
-    if (!SCALAR_TYPES.has(type)) throw new Error(`.prompt: unknown array element type "${type}"`);
+    invariant(SCALAR_TYPES.has(type), () => `.prompt: unknown array element type "${type}"`);
     return JSON.stringify(type);
   }
   if (isPlainObject(val)) return compilePicoschema(val);
-  throw new Error(".prompt: array element must be a scalar type or an object map");
+  invariant(false, ".prompt: array element must be a scalar type or an object map");
 }
 
 function compilePicoField(rawKey: string, val: unknown): string {
   const m = rawKey.match(/^([A-Za-z_][\w-]*)(\??)(?:\(([^)]*)\))?$/);
-  if (!m) throw new Error(`.prompt: malformed schema key "${rawKey}"`);
+  invariant(!!m, () => `.prompt: malformed schema key "${rawKey}"`);
   const name = m[1]!;
-  if (m[2]) throw new Error(`.prompt: optional field "${name}" — optional schema fields aren't supported yet`);
+  invariant(!m[2], () => `.prompt: optional field "${name}" — optional schema fields aren't supported yet`);
   const q = JSON.stringify(name);
   if (m[3] === undefined) {
     const { type, desc } = splitTypeDesc(String(val)); // scalar; type+desc in the value
@@ -277,7 +273,7 @@ function parsePromptFile(src: string): { fm: Record<string, unknown>; body: stri
   const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
   if (!m) return { fm: {}, body: src };
   const fm = parseYaml(m[1]!) ?? {};
-  if (!isPlainObject(fm)) throw new Error(".prompt: frontmatter must be a YAML map");
+  invariant(isPlainObject(fm), ".prompt: frontmatter must be a YAML map");
   return { fm, body: src.slice(m[0].length) };
 }
 
@@ -288,7 +284,7 @@ function parsePromptMcp(raw: unknown, path: string): string[] | null {
   const names = Array.isArray(raw) ? raw : [raw];
   for (const n of names) {
     if (typeof n !== "string") {
-      throw new Error(`.prompt: "${path}" frontmatter \`mcp:\` must be a server name or a list of names`);
+      invariant(false, () => `.prompt: "${path}" frontmatter \`mcp:\` must be a server name or a list of names`);
     }
   }
   return names as string[];
@@ -340,9 +336,7 @@ export function defaultResolvers(): Map<string, ContentResolver> {
         // (or overridden) at the call site via `:meta (dict :model …)`. A literal
         // here is the fallback; absent is fine as long as the call supplies one.
         const model = fm.model ?? null;
-        if (model !== null && typeof model !== "string") {
-          throw new Error('.prompt: frontmatter `model:` must be a model name string (e.g. "qwen3.5-9b") or omitted');
-        }
+        invariant(model === null || typeof model === "string", '.prompt: frontmatter `model:` must be a model name string (e.g. "qwen3.5-9b") or omitted');
         const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
         const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
         // `mcp:` (a name or a list of names) makes this an AGENTIC prompt. Normalise to a
@@ -459,9 +453,7 @@ export function defineRequireRosetta(opts: {
       if (pending) {
         // In-flight as our own ancestor → real cycle (awaiting would deadlock).
         // Otherwise a settled cache hit or a concurrent sibling — share the load.
-        if (evaluating.has(path)) {
-          throw new Error(`require: cyclic dependency: ${[...loadingStack, path].join(" → ")}`);
-        }
+        invariant(!evaluating.has(path), () => `require: cyclic dependency: ${[...loadingStack, path].join(" → ")}`);
         return (await pending).value;
       }
 
@@ -567,12 +559,10 @@ export function defineImportRosetta(opts: { env: Environment; loader: Loader }):
   env.defineRosetta("import", {
     fn: (nameArg: unknown) => {
       const name = String(nameArg);
-      if (!loader.imports.has(name)) {
+      invariant(loader.imports.has(name), () => {
         const known = [...loader.imports.keys()];
-        throw new Error(
-          `import: unknown module "${name}" (registered: ${known.length > 0 ? known.join(", ") : "none"})`,
-        );
-      }
+        return `import: unknown module "${name}" (registered: ${known.length > 0 ? known.join(", ") : "none"})`;
+      });
       return loader.imports.get(name);
     },
   });

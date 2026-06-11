@@ -15,6 +15,7 @@
 // the config key: NO remap, no `owl-alpha → SIFT_OWL_MODEL` indirection. Intent (which model,
 // used where) lives in the program; materialization (backend, key) lives host-side in `models`.
 
+import invariant from "tiny-invariant";
 import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
 import { buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
 import { EvalTrace } from "./trace.js";
@@ -166,7 +167,7 @@ export class ChainEnvironment {
     this.router = {
       async backendFor(modelId: string): Promise<ModelBackend> {
         const spec = models[modelId];
-        if (!spec) throw new Error(`chain: model "${modelId}" is not configured — declared models: ${Object.keys(models).join(", ") || "(none)"}`);
+        invariant(!!spec, () => `chain: model "${modelId}" is not configured — declared models: ${Object.keys(models).join(", ") || "(none)"}`);
         let b = cache.get(modelId);
         if (!b) { b = makeBackend(spec); cache.set(modelId, b); }
         return b;

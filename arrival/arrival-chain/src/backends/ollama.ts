@@ -1,3 +1,4 @@
+import invariant from "tiny-invariant";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { Completion, ModelBackend, ModelSpec, ToolCall, ToolDescriptor } from "../model.js";
@@ -135,7 +136,7 @@ export function ollamaBackend(opts: OllamaOptions = {}): ModelBackend {
           const line = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
           if (!line) continue;
-          if (status >= 400) throw new Error(`ollama /api/chat ${status}: ${line.slice(0, 300)}`);
+          invariant(status < 400, () => `ollama /api/chat ${status}: ${line.slice(0, 300)}`);
           const chunk = JSON.parse(line) as OllamaChatResponse;
           const m = chunk.message;
           if (m?.content) content += m.content;
@@ -154,7 +155,7 @@ export function ollamaBackend(opts: OllamaOptions = {}): ModelBackend {
       const value = spec.schema
         ? (() => {
             const c = coerceModelJson(content, { finish: doneReason, reasoning: thinking });
-            if (!c.ok) throw new Error(`ollama: unparseable schema'd response (finish=${doneReason})`);
+            invariant(c.ok, () => `ollama: unparseable schema'd response (finish=${doneReason})`);
             return c.value;
           })()
         : content;

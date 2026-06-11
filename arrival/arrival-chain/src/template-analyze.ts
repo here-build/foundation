@@ -15,6 +15,7 @@
  * Partials, sub-expressions (helpers with args), and `@` data variables are
  * ignored for the purpose of structure inference.
  */
+import invariant from "tiny-invariant";
 import Handlebars from "handlebars";
 
 export type Shape =
@@ -44,10 +45,8 @@ function objShape(optional = false): Shape { return { kind: "object", fields: ne
 function anyShape(optional = false): Shape { return { kind: "any", optional }; }
 
 function ensureObject(s: Shape): Map<string, Shape> {
-  if (s.kind !== "object") {
-    // Caller error — we should have created an object shape before descending.
-    throw new Error(`template analyze: expected object shape, got ${s.kind}`);
-  }
+  // Caller error — we should have created an object shape before descending.
+  invariant(s.kind === "object", () => `template analyze: expected object shape, got ${s.kind}`);
   return s.fields;
 }
 

@@ -24,6 +24,8 @@
  *   • no $ / \\ group markers, no vectors / #\char.
  */
 
+import invariant from "tiny-invariant";
+
 export type Node =
   | { atom: string; str?: boolean; lead?: string[]; trail?: string[]; span?: readonly [start: number, end: number] }
   | { list: Node[]; lead?: string[]; trail?: string[]; span?: readonly [start: number, end: number] };
@@ -76,7 +78,7 @@ export function parseSexprs(src: string): Node[] {
       if (c === '"') { i++; return { atom: out, str: true }; }
       out += c; i++;
     }
-    throw new Error("unterminated string");
+    invariant(false, "unterminated string");
   };
 
   const readDatum = (): Node => {
@@ -85,10 +87,10 @@ export function parseSexprs(src: string): Node[] {
     pendingLead = [];
     const start = i; // datum's first char (after lead-comment/whitespace skip)
     const c = src[i];
-    if (c === undefined) throw new Error("unexpected EOF");
+    invariant(c !== undefined, "unexpected EOF");
     let node: Node;
     if (c === "(" || c === "[") node = readList(c === "(" ? ")" : "]");
-    else if (c === ")" || c === "]") throw new Error(`unexpected ${c} at ${i}`);
+    else if (c === ")" || c === "]") invariant(false, () => `unexpected ${c} at ${i}`);
     else if (c === '"') node = readString();
     else if (c === "'") { i++; node = { list: [{ atom: "quote" }, readDatum()] }; }
     else if (c === "`") { i++; node = { list: [{ atom: "quasiquote" }, readDatum()] }; }
@@ -116,7 +118,7 @@ export function parseSexprs(src: string): Node[] {
     for (;;) {
       skipWs();
       const c = src[i];
-      if (c === undefined) throw new Error("unbalanced list");
+      invariant(c !== undefined, "unbalanced list");
       if (c === ")" || c === "]") { i++; break; }
       items.push(readDatum());
     }

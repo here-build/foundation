@@ -28,6 +28,7 @@
  * the handler (usable in-program) — it just isn't registered anywhere. Same
  * "capability is optional, the verb always exists" posture as `import`/`require`.
  */
+import invariant from "tiny-invariant";
 import { lipsToJs } from "@here.build/arrival-scheme";
 
 import type { Environment } from "@here.build/arrival-scheme";
@@ -96,14 +97,13 @@ export function defineExposeRosetta(opts: {
 
   env.defineRosetta(EXPOSE_FORM, {
     fn: async (name: unknown, ...kv: unknown[]) => {
-      if (typeof name !== "string") {
-        throw new Error(`${EXPOSE_FORM}: name must be a string, got ${name === null ? "null" : typeof name}`);
-      }
+      invariant(
+        typeof name === "string",
+        () => `${EXPOSE_FORM}: name must be a string, got ${name === null ? "null" : typeof name}`,
+      );
       const folded = buildDict(kv);
       const handlerProc = folded.handler;
-      if (typeof handlerProc !== "function") {
-        throw new Error(`${EXPOSE_FORM}: "${name}" is missing a :handler (lambda (input) …)`);
-      }
+      invariant(typeof handlerProc === "function", () => `${EXPOSE_FORM}: "${name}" is missing a :handler (lambda (input) …)`);
 
       // The handler crosses back as a JS callable. Wrap it so the host hands in
       // plain JS and receives plain JS — the scheme proc's result is run through

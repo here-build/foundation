@@ -1,3 +1,4 @@
+import invariant from "tiny-invariant";
 import type { Completion, ModelSpec } from "./model.js";
 import type { ModelRouter } from "./registry.js";
 
@@ -120,7 +121,7 @@ class Cell implements InferCell {
         return cached;
       }
       const backend = await router.backendFor(spec.model);
-      if (!backend) throw new Error(`host: no backend for model "${spec.model}"`);
+      invariant(!!backend, () => `host: no backend for model "${spec.model}"`);
       vlog(`→ ${spec.model}  prompt=${spec.prompt.length}c  schema=${spec.schema ? "yes" : "no"}`);
       const onFirst = (): void => {
         if (firstAt === 0) {

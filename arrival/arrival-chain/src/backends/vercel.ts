@@ -1,3 +1,4 @@
+import invariant from "tiny-invariant";
 import { streamText, type ModelMessage } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -83,7 +84,7 @@ export function vercelBackend(opts: VercelOptions): ModelBackend {
       let value: unknown = text;
       if (schema) {
         const coerced = coerceModelJson(text, {});
-        if (!coerced.ok) throw new Error(`vercel: unparseable schema'd response (${text.slice(0, 120)})`);
+        invariant(coerced.ok, () => `vercel: unparseable schema'd response (${text.slice(0, 120)})`);
         value = coerced.value;
       }
       return { value, usage: { inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0 } };

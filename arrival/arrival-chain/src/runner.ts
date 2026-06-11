@@ -1,3 +1,4 @@
+import invariant from "tiny-invariant";
 import { ArrivalChain } from "./arrival-chain.js";
 import { createInferStore } from "./infer-store.js";
 import type { ModelRouter } from "./registry.js";
@@ -77,7 +78,7 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<unknown> {
   const signal = opts.signal ?? ownAc!.signal;
 
   const entryFile = project.files.get(opts.entry);
-  if (!entryFile) throw new Error(`runPipeline: entry "${opts.entry}" is not in files`);
+  invariant(!!entryFile, () => `runPipeline: entry "${opts.entry}" is not in files`);
   try {
     return await entryFile.run({ signal, budgetMs: opts.budgetMs });
   } finally {

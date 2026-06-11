@@ -264,27 +264,26 @@ const isDictLike = (v: unknown): v is Record<string, unknown> =>
  * Anything else throws with a structured message.
  */
 function resolveTemplateInput(args: unknown[], info: TemplateInfo): Record<string, unknown> {
-  if (args.length === 0) {
-    throw new Error("template: expected at least one argument");
-  }
+  invariant(args.length !== 0, "template: expected at least one argument");
   if (args.length === 1) {
     const a = args[0];
     if (isDictLike(a)) return a;
     if (isPrimitiveLike(a)) {
-      if (!info.singleVarName) {
-        throw new Error(
+      invariant(
+        !!info.singleVarName,
+        () =>
           `template: single primitive arg passed to a template with ${info.rootFields.length} fields ` +
-            `(${info.rootFields.join(", ")}); either pass a dict, or use alternating keyword/value args`,
-        );
-      }
+          `(${info.rootFields.join(", ")}); either pass a dict, or use alternating keyword/value args`,
+      );
       return { [info.singleVarName]: a };
     }
     throw new Error(`template: unsupported single-arg type ${typeName(a)}`);
   }
   // Multi-arg: alternating string-key / value pairs.
-  if (args.length % 2 !== 0) {
-    throw new Error(`template: expected even number of args (alternating key/value), got ${args.length}`);
-  }
+  invariant(
+    args.length % 2 === 0,
+    () => `template: expected even number of args (alternating key/value), got ${args.length}`,
+  );
   const fieldSet = new Set(info.rootFields);
   const out: Record<string, unknown> = {};
   for (let i = 0; i < args.length; i += 2) {
@@ -292,9 +291,10 @@ function resolveTemplateInput(args: unknown[], info: TemplateInfo): Record<strin
     if (typeof k !== "string") {
       throw new TypeError(`template: key at position ${i} is not a string (got ${typeName(k)})`);
     }
-    if (info.rootFields.length > 0 && !fieldSet.has(k)) {
-      throw new Error(`template: unknown field "${k}"; template root fields are: ${info.rootFields.join(", ")}`);
-    }
+    invariant(
+      info.rootFields.length === 0 || fieldSet.has(k),
+      () => `template: unknown field "${k}"; template root fields are: ${info.rootFields.join(", ")}`,
+    );
     out[k] = args[i + 1];
   }
   return out;
@@ -324,9 +324,9 @@ function renderTemplateCall(source: string, args: unknown[]): string {
   // JS array on its own (see coerceShape).
   const data = coerceShape(tm.info.shape, resolveTemplateInput(args, tm.info), isNilLike);
   const ok = validateShape(tm.info.shape, data);
-  if (!ok.ok) {
-    throw new Error(`template input mismatch: ${ok.message}`);
-  }
+  // Not an invariant: the message reads `ok.message`, which only exists once `ok` is narrowed
+  // to the error arm — a narrowing the if-guard gives but an invariant thunk can't.
+  if (!ok.ok) throw new Error(`template input mismatch: ${ok.message}`);
   return tm.render(data);
 }
 
@@ -529,9 +529,7 @@ async function runAgenticInfer(
     },
     dispatch: async (call, progress) => {
       const server = serverOf.get(call.name);
-      if (server === undefined) {
-        throw new Error(`infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`);
-      }
+      invariant(server !== undefined, () => `infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`);
       return dispatchThroughChain(
         server,
         "tools/call",
@@ -683,11 +681,10 @@ export function buildArrivalEnv(opts: {
         const metaModel = meta.model === undefined ? null : asLlmModel(meta.model);
         const model = metaModel ? metaModel.name : unit.model;
         const metaParams = metaModel?.params;
-        if (model === null) {
-          throw new Error(
-            `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
-          );
-        }
+        invariant(
+          model !== null,
+          () => `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
+        );
         // ctx.argProvenance aligns to the scheme args [key, ...kv]; drop the
         // leading `key` slot so it lines up with `kv` for buildInputsProvenance.
         // `meta` is config, not an input, so drop it from the per-field provenance.
@@ -715,11 +712,10 @@ export function buildArrivalEnv(opts: {
         // infer↔dispatch through the shared engine, returning the final answer. (Schema'd
         // agentic output isn't supported in v1 — error rather than silently drop the schema.)
         if (unit.mcpServers) {
-          if (schemaSlotStr !== null) {
-            throw new Error(
-              `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
-            );
-          }
+          invariant(
+            schemaSlotStr === null,
+            () => `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
+          );
           const servers = unit.mcpServers.map((name) => new DerivableEntity("mcp", name));
           const chatMessages: ChatMessage[] = messages.map(([role, content]) => ({
             role: String(role) as ChatMessage["role"],

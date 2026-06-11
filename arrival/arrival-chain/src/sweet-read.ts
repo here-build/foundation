@@ -16,6 +16,7 @@
  * SRFI-105 space-significance: inside `{}` an operator is a whitespace-isolated
  * token equal to an operator string (so `config/min-for-boundary` is one atom).
  */
+import invariant from "tiny-invariant";
 import { parseSexprs, nodeEq, printScheme, type Node } from "./sweet-render.js";
 
 // glyph → canonical op (inverse of INFIX_GLYPH). INJECTIVE: only ==←equal?, &&←and,
@@ -80,7 +81,7 @@ type Tok =
 function subscriptToAccessor(idx: string): string {
   const slice = idx.endsWith(":");
   const k = Number(slice ? idx.slice(0, -1) : idx);
-  if (!Number.isInteger(k) || k < (slice ? 1 : 0)) throw new Error(`bad subscript '[${idx}]'`);
+  invariant(Number.isInteger(k) && k >= (slice ? 1 : 0), () => `bad subscript '[${idx}]'`);
   return slice ? "c" + "d".repeat(k) + "r" : "ca" + "d".repeat(k) + "r";
 }
 
@@ -149,9 +150,9 @@ function parseElements(toks: Tok[]): Node[] {
     while (peek() && peek()!.t === "[") {
       next(); // [
       const t = next();
-      if (!t || t.t !== "word") throw new Error("expected index inside '[ ]'");
+      invariant(!!t && t.t === "word", "expected index inside '[ ]'");
       const close = next();
-      if (!close || close.t !== "]") throw new Error("unbalanced '['");
+      invariant(!!close && close.t === "]", "unbalanced '['");
       n = { list: [atom(subscriptToAccessor(t.v)), n] };
     }
     return n;
@@ -173,7 +174,7 @@ function parseElements(toks: Tok[]): Node[] {
   function classicList(): Node {
     const items: Node[] = [];
     while (peek() && peek()!.t !== ")") items.push(datum());
-    if (!peek()) throw new Error("unbalanced (");
+    invariant(!!peek(), "unbalanced (");
     next();
     return { list: items };
   }
@@ -182,16 +183,16 @@ function parseElements(toks: Tok[]): Node[] {
     if (t.t === "(") return classicList();
     if (t.t === "{") return curly();
     if (t.t === "word") return atom(t.v, t.str);
-    throw new Error(`unexpected '${t.t}'`);
+    invariant(false, () => `unexpected '${t.t}'`);
   }
 
   function curlyAtomic(): Node {
     const t = peek();
-    if (!t) throw new Error("unexpected end in curly");
+    invariant(!!t, "unexpected end in curly");
     if (t.t === "(") { next(); return classicList(); }
     if (t.t === "{") { next(); return curly(); }
     if (t.t === "word" && !isOp(t.v)) { next(); return atom(t.v, t.str); }
-    throw new Error(`expected operand in curly, got '${t.t === "word" ? t.v : t.t}'`);
+    invariant(false, () => `expected operand in curly, got '${t.t === "word" ? t.v : t.t}'`);
   }
   function curlyOperand(): Node {
     // double-spanned like `datum`: infix operands are read OUTSIDE classicList's
@@ -221,7 +222,7 @@ function parseElements(toks: Tok[]): Node[] {
   }
   function curly(): Node {
     const e = infix(0);
-    if (!peek() || peek()!.t !== "}") throw new Error("unbalanced {");
+    invariant(!!peek() && peek()!.t === "}", "unbalanced {");
     next();
     return e;
   }
@@ -235,7 +236,7 @@ function parseElements(toks: Tok[]): Node[] {
  *  round-trip tests). For multi-element input it returns the first element. */
 export function readSweetExpr(src: string): Node {
   const elems = parseElements(tokenize(stripComments(src)));
-  if (elems.length !== 1) throw new Error(`expected one expression, got ${elems.length}`);
+  invariant(elems.length === 1, () => `expected one expression, got ${elems.length}`);
   return elems[0];
 }
 
@@ -304,7 +305,7 @@ function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number
     const key = atom(":" + (toks[0] as { v: string }).v.slice(0, -1));
     const valueElems = parseElements(toks.slice(1));
     const all = [...valueElems, ...childElems];
-    if (all.length === 0) throw new Error(`colon key '${(toks[0] as { v: string }).v}' has no value`);
+    invariant(all.length !== 0, () => `colon key '${(toks[0] as { v: string }).v}' has no value`);
     return { elems: [key, all.length === 1 ? all[0] : { list: all }], next: j };
   }
 
