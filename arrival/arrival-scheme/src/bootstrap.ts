@@ -951,4 +951,25 @@ export const BOOTSTRAP_SCHEME = `
 (define (make-default-comparator) (make-comparator (lambda (x) #t) equal? %default-less))
 (define (default-comparator) (make-default-comparator))
 
+
+;; ============ SRFI-8 receive + SRFI-2 and-let* (expression macros) ============
+;; (let-values / let*-values already live above as define-macro forms.)
+
+;; receive (SRFI-8) — bind the values of the producer expr to formals over body.
+(define-syntax receive
+  (syntax-rules ()
+    ((_ formals expr body ...)
+     (call-with-values (lambda () expr) (lambda formals body ...)))))
+
+;; and-let* (SRFI-2) — sequential AND with binding. Claw (var expr) binds+tests var;
+;; claw (expr) is a bare guard. Any #f short-circuits the whole form to #f.
+(define-syntax and-let*
+  (syntax-rules ()
+    ((_ ()) #t)
+    ((_ () body ...) (begin body ...))
+    ((_ ((var expr) claws ...) body ...)
+     (let ((var expr)) (if var (and-let* (claws ...) body ...) #f)))
+    ((_ ((expr) claws ...) body ...)
+     (if expr (and-let* (claws ...) body ...) #f))))
+
 `;

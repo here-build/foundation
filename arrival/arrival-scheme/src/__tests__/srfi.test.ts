@@ -83,6 +83,25 @@ describe("SRFI-189 — Maybe & Either", () => {
   });
 });
 
+describe("SRFI-8 receive + SRFI-2 and-let* (expression macros)", () => {
+  // These ride on the syntax-rules matcher (off-by-one fixed in b97c1e80e).
+  // let-values / let*-values predate this (define-macro forms). Definition
+  // macros (define-record-type / define-values) stay BLOCKED on a separate gap:
+  // macro-introduced (begin (define …)) doesn't splice into the enclosing scope.
+  it("receive binds the values of a producer", async () => {
+    expect(await run("(receive (a b) (values 1 2) (list a b))")).toBe("(1 2)");
+    expect(await run("(receive (a . rest) (values 1 2 3) (list a rest))")).toBe("(1 (2 3))");
+  });
+  it("and-let* binds + short-circuits", async () => {
+    expect(await run("(and-let* ((x 5) (y (* x 2))) (+ x y))")).toBe("15");
+    expect(await run("(and-let* ((x #f)) x)")).toBe("#f");
+  });
+  it("and-let* guard clause (arity-discriminated, exercises the matcher fix)", async () => {
+    expect(await run("(and-let* ((x 3) ((> x 0))) (* x 10))")).toBe("30");
+    expect(await run("(and-let* ((x 3) ((< x 0))) (* x 10))")).toBe("#f");
+  });
+});
+
 describe("SRFI-128 — comparators (no hash)", () => {
   it("default-comparator ordering + chaining", async () => {
     expect(await run("(<? (default-comparator) 1 2)")).toBe("#t");

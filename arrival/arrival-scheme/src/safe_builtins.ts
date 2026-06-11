@@ -195,4 +195,8 @@ export const SAFE_BUILTINS = [
 
   // Multiple values (call-with-values now promise-correct)
   "call-with-values",
+
+  // SRFI-8 receive + SRFI-2 and-let* (expression macros)
+  "receive",
+  "and-let*",
 ];
