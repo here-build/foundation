@@ -2,6 +2,7 @@
 // :: Environment class - Scheme environment for variable bindings
 // -------------------------------------------------------------------------
 import type { EnvironmentModule, FallbackResolver } from "./bindings.js";
+import { isBridgeInitialized } from "./boot.js";
 import type { EOF } from "./EOF.js";
 import { is_env } from "./guards.js";
 import type {
@@ -586,6 +587,31 @@ export class Environment {
       }
       env = env.__parent__;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // :: Runtime bootstrap (lazy, realm-level)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Whether the runtime bootstrap (bridge: TS builtins + BOOTSTRAP_SCHEME prelude
+   * + sandbox seeding) has run for this realm. Realm-global: the bootstrap mutates
+   * global singletons once, so every Environment reads the same flag. `exec` checks
+   * this and calls `init()` when it's down, so embedders never call `initBridge()`.
+   */
+  get initialized(): boolean {
+    return isBridgeInitialized();
+  }
+
+  /**
+   * Ensure the runtime bootstrap has run. Idempotent and cheap once settled —
+   * delegates to the bridge's `initBridge`, which memoizes via a single promise.
+   * Dynamic import avoids a static Environment→bridge cycle (bridge imports
+   * Environment); the edge is call-time only.
+   */
+  async init(): Promise<void> {
+    const { initBridge } = await import("./bridge.js");
+    await initBridge();
   }
 
   // -------------------------------------------------------------------------

@@ -18,17 +18,10 @@ import type { SchemeValue } from "./types.js";
 
 // Lazy import to avoid circular dependency during module initialization
 let _lips: typeof import("./stdlib.js") | null = null;
-let _bridgeInitialized = false;
 
 async function getLips() {
   if (!_lips) {
     _lips = await import("./stdlib.js");
-    // Ensure bridge is initialized (adds numeric operations to global_env)
-    if (!_bridgeInitialized) {
-      _bridgeInitialized = true;
-      const { initBridge } = await import("./bridge.js");
-      await initBridge();
-    }
   }
   return _lips;
 }
@@ -98,6 +91,11 @@ export async function exec(
   // Resolve environment - lips.env is the user_env (global_env.inherit("user-env"))
   const actualEnv = env ?? lips.env;
 
+  // Self-initialize the runtime bootstrap (TS builtins + Scheme prelude) lazily,
+  // so embedders never call initBridge() manually. The realm-level flag makes the
+  // re-entrant inner exec(BOOTSTRAP_SCHEME) a no-op (see Environment.init / boot.ts).
+  if (!actualEnv.initialized) await actualEnv.init();
+
   // Parse if string, otherwise wrap single value in array
   let parsed: SchemeValue[];
   if (typeof code === "string") {
@@ -158,6 +156,8 @@ export async function execExpr(
 ): Promise<SchemeValue> {
   const lips = await getLips();
   const actualEnv = env ?? lips.env;
+
+  if (!actualEnv.initialized) await actualEnv.init();
 
   return run(
     evaluate(expr, {

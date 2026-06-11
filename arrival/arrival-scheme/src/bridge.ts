@@ -11,6 +11,7 @@ import foldCase from "fold-case";
 import unicodeProperties from "unicode-properties";
 
 import { AValue, unionProvenance } from "./AValue.js";
+import { isBridgeInitialized, markBridgeInitialized } from "./boot.js";
 import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
 import { HalfBaked, is_half_baked, type Interval } from "./HalfBaked.js";
 import type { Environment } from "./Environment.js";
@@ -1785,12 +1786,14 @@ export function applyToEnvironment(lipsEnv: { set: (k: string, v: unknown) => vo
  * Initialize bridge by applying all wrapped operators to the global LIPS environment
  * and evaluating the bootstrap Scheme code.
  */
-let bridgeInitialized = false;
 let bootstrapPromise: Promise<void> | null = null;
 
 export function initBridge(): Promise<void> {
-  if (bridgeInitialized && bootstrapPromise) return bootstrapPromise;
-  bridgeInitialized = true;
+  if (isBridgeInitialized() && bootstrapPromise) return bootstrapPromise;
+  // Set the realm-level flag at the TOP, before the bootstrap exec below — so the
+  // re-entrant inner exec(BOOTSTRAP_SCHEME) sees `initialized === true` and skips
+  // its own self-init (no recursion). See boot.ts.
+  markBridgeInitialized();
 
   // Apply TypeScript bindings synchronously
   applyToEnvironment(lipsGlobalEnv);
