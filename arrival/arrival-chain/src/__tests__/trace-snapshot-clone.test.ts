@@ -19,6 +19,9 @@
  *      loses the prototype and the symbol-keyed `__location__`, so `scopeId`
  *      degrades. This is the exact boundary A2 must project away before posting;
  *      the test documents it rather than papering over it with a false green.
+ *   6. It verifies the FIX for that boundary — the pre-derived `scope` string
+ *      survives the clone intact (`head@line:col`), where `scopeId(clonedNode)`
+ *      degrades; `scope` is the clone-safe carrier the off-thread build keys by.
  */
 import { describe, expect, it } from "vitest";
 
@@ -153,5 +156,26 @@ describe("A1 — snapshotTrace is a structured-clone payload for the worker boun
     const degraded = scopeId(clonedNode);
     expect(degraded).not.toContain("@");
     expect(liveScope.startsWith(degraded)).toBe(true); // same head, lost the suffix
+  });
+
+  // ── the fix: `scope` is the clone-safe carrier of that degrading scopeId ──
+  it("preserves the pre-derived `scope` string across the clone (the A2 projection)", async () => {
+    const snap = await buildSnapshot();
+
+    // Same located node as the degradation test — `scope` IS `scopeId(node)`, just
+    // captured eagerly while the live Pair (with its `__location__`) is in hand.
+    const located = snap.invocations.find((i) => i.scope.includes("@"));
+    expect(located, "expected at least one located node in the snapshot").toBeDefined();
+    expect(located!.scope).toMatch(/@\d+:\d+$/);
+    expect(located!.scope).toBe(scopeId(located!.node));
+
+    const cloned = structuredClone(snap);
+    const twin = cloned.invocations.find((i) => i.id === located!.id)!;
+
+    // The string survives intact (head@line:col) where `scopeId(twin.node)` degrades
+    // to bare head — so the off-thread build keys by `scope`, never the cloned Pair.
+    expect(twin.scope).toBe(located!.scope);
+    expect(twin.scope).toMatch(/@\d+:\d+$/);
+    expect(twin.scope).not.toBe(scopeId(twin.node)); // node degraded; scope did not
   });
 });

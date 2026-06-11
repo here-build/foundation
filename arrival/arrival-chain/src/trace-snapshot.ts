@@ -25,6 +25,9 @@
  *
  * SURVIVES `structuredClone` (verified — see `__tests__/trace-snapshot-clone.test.ts`):
  *   - `id` / `state` — number / string primitives.
+ *   - `scope` — the pre-derived `scopeId(node)` string (`head@line:col`). This is the
+ *     clone-safe twin of `node`: it captures the symbol-keyed `__location__` (which
+ *     a clone strips) into a plain string while the live Pair is in hand.
  *   - `provenance` — a plain `Set<number>` (Sets are clone-safe).
  *   - `value` / `metadata` — already peeled to plain JS by `lipsToJs` (`value`) or
  *     built as a POJO `{ kind, path, model, inputs, … }` (`metadata`); the values a
@@ -48,18 +51,24 @@
  *   `trace-to-forest`) read `node` by Pair identity, `node.car`, deep `car/cdr`
  *   spine-walks AND `__location__` — all of which the live ref provides for free.
  *
- * ⇒ Contract for A2: BEFORE `postMessage`-ing a snapshot into the worker, the live
- * `Pair` ref on `node` must be projected to a plain, clone-safe shape carrying the
- * three things consumers actually read — the head name, the `scopeId`
- * (`head@line:col`, pre-derived so `__location__` need not cross), and the walkable
- * form structure — and the worker-side `traceToRegions` rewrite (which A2 owns)
- * must read those plain fields instead of the `Pair`. Identity comparisons
- * (`a.node === b.node`) become `a.scope === b.scope` (the scopeId already collapses
- * by Pair identity, so the strings coincide). That projection co-designs with the
- * `trace-to-regions.ts` read-site changes, so it is A2's edit, not A1's — A1 only
- * establishes and tests this contract.
+ * ⇒ Contract for A2. The first piece of the projection now EXISTS: `scope`
+ * (`scopeId(node)`, pre-derived above) is the clone-safe carrier of the symbol-keyed
+ * `__location__` — the silent killer is defused. What the live `Pair` on `node`
+ * still uniquely provides, and what the worker boundary still needs handling for:
+ *   - cross-node `===` identity (loop-body keying, `a.node === b.node`) — A2 rewrites
+ *     these read-sites to `a.scope === b.scope` (equal Pairs ⇒ equal scope strings);
+ *   - `car`/`cdr` spine-walks (`listOf`/`asPair`) — these survive the clone as plain
+ *     fields (prototype lost, but the duck-typed `"car" in v` checks still hold), so
+ *     no projection needed beyond not relying on `is_pair()`/`instanceof`;
+ *   - the second live-trace read inside `traceToRegions` (the `liveById`/`valueById`
+ *     decision-operand substitution) reads `trace.records` AFTER the snapshot — A2
+ *     must absorb those values into the snapshot rather than re-reading the live map.
+ * Once A2's `traceToRegions` reads `scope` (not `scopeId(node)`) and the above are
+ * handled, `node` itself can be dropped from the posted payload. The read-site
+ * rewrite co-designs with `trace-to-regions.ts`, so it is A2's edit, not A1's.
  */
 import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
+import { scopeId } from "./scope-id.js";
 import type { EvalTrace, InvocationState } from "./trace.js";
 
 /** Exactly the Invocation fields the flow-graph build reads. The AST `node` is a
@@ -74,6 +83,14 @@ export interface PlainInv {
    *  to a plain shape before `postMessage`. See the structured-clone contract in this
    *  file's header and `__tests__/trace-snapshot-clone.test.ts`. */
   node: Pair;
+  /** Pre-derived `scopeId(node)` (`head@line:col`) — the clone-safe twin of `node`.
+   *  `scopeId` reads the symbol-keyed `__location__` off the live Pair, which
+   *  `structuredClone` strips; deriving it here (while the live Pair is in hand)
+   *  is what lets the off-thread region build key by scope without the Pair. The
+   *  worker-side `traceToRegions` rewrite (A2) reads THIS instead of `scopeId(node)`,
+   *  and `a.node === b.node` identity checks become `a.scope === b.scope` (scopeId
+   *  already collapses by Pair identity, so equal nodes yield equal strings). */
+  scope: string;
   parent: PlainInv | null;
   children: PlainInv[];
   /** Upstream producer ids — materialized ONLY for direct children of provenance
@@ -133,6 +150,10 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
       const plain: PlainInv = {
         id: inv.id,
         node: inv.node,
+        // Pre-derive scope NOW, while `inv.node` is the live Pair (its symbol-keyed
+        // `__location__` is gone after a structuredClone). This is the one piece of
+        // node's identity the build needs that does not survive the worker boundary.
+        scope: scopeId(inv.node),
         parent: null,
         children: [],
         // Only children of provenance points — plus the top-level roots — have their
