@@ -1,6 +1,6 @@
 // ── Core ─────────────────────────────────────────────────────────────
 export { type ModelBackend, type ModelSpec, type Completion, type TokenUsage, type DeltaSink, type NoticeSink, type StreamNotice, type ToolDescriptor, type ToolCall, type Chunk } from "./model.js";
-export { type ModelPrice, PRICE_MAP, priceFor, referenceCost } from "./pricing.js";
+export { type ModelPrice, PRICE_MAP, priceFor, referenceCost, type ModelSpeed, SPEED_MAP, speedFor, effectiveCloudMs } from "./pricing.js";
 export {
   type InferCost,
   type ProjectedCost,

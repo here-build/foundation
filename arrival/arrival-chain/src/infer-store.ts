@@ -148,6 +148,15 @@ class Cell implements InferCell {
             return c;
           });
       this.settled = true;
+      // Carry the measured wall-clock onto the completion's usage — the values were
+      // already computed for the log line below; persisting them lets the cost/time
+      // projection layer (pricing.effectiveCloudMs) read per-inference timing instead
+      // of discarding it. Local time is the ACTUAL; the cloud projection is derived.
+      completion.usage = {
+        ...(completion.usage ?? { inputTokens: 0, outputTokens: 0 }),
+        durationMs: Date.now() - t0,
+        ...(firstAt > 0 ? { ttftMs: firstAt - t0 } : {}),
+      };
       vlog(
         `← ${spec.model}  ${Date.now() - t0}ms  in=${completion.usage?.inputTokens ?? 0} out=${completion.usage?.outputTokens ?? 0}  ${JSON.stringify(completion.value).slice(0, 60)}`,
       );

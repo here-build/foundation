@@ -112,6 +112,15 @@ export interface TokenUsage {
    * billing layer narrows to `bigint` at the DB/API edge.
    */
   providerCostMicroUsd?: number;
+  /**
+   * Wall-clock ms this single inference took (request dispatch → settle), measured
+   * by the infer-store. Optional: a cache hit or a stub backend may omit it. This is
+   * the ACTUAL local time; the *projected* time on a reference cloud model is derived
+   * separately from `outputTokens` × `pricing.ts`'s speed table (see `effectiveCloudMs`).
+   */
+  durationMs?: number;
+  /** Time-to-first-token ms (dispatch → first delta), when the backend streamed. */
+  ttftMs?: number;
 }
 
 /**
