@@ -36,6 +36,13 @@ export interface ChainModelSpec {
   maxTokens?: number;
   /** ollama only: per-request thinking. */
   think?: boolean;
+  /** The wire model name sent to the provider, when it differs from the registry key the
+   *  program names. Pure materialization: the program says `(llm "ideator")`, this arms that
+   *  id with `model:"claude-opus-4-8"` so the backend asks the provider for the real model —
+   *  the one place a logical program-id and a concrete provider-id legitimately diverge (NOT a
+   *  remap: there's no env indirection, just the host stating which model this id resolves to).
+   *  Omitted ⇒ the id IS the wire name (the common case: `(llm "zai-org/glm-4.7-flash")`). */
+  model?: string;
 }
 
 type ChainEnv = ReturnType<typeof buildArrivalEnv>;
@@ -78,21 +85,30 @@ export interface ChainConfig {
 /** Construct the concrete backend for a configured model. The provider→backend map — the one
  *  place that knows vercel vs ollama — replacing every consumer's hand-rolled router switch. */
 function makeBackend(spec: ChainModelSpec): ModelBackend {
-  switch (spec.provider) {
-    case "anthropic":
-      return vercelBackend({ provider: "anthropic", ...(spec.apiKey ? { apiKey: spec.apiKey } : {}), ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}) });
-    case "ollama":
-      return ollamaBackend({ ...(spec.baseURL ? { baseURL: spec.baseURL } : {}), ...(spec.think !== undefined ? { think: spec.think } : {}), ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}) });
-    case "openai-compatible":
-    default:
-      return vercelBackend({
-        provider: "openai-compatible",
-        ...(spec.baseURL ? { baseURL: spec.baseURL } : {}),
-        ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
-        ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}),
-        ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}),
-      });
-  }
+  const inner = ((): ModelBackend => {
+    switch (spec.provider) {
+      case "anthropic":
+        return vercelBackend({ provider: "anthropic", ...(spec.apiKey ? { apiKey: spec.apiKey } : {}), ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}) });
+      case "ollama":
+        return ollamaBackend({ ...(spec.baseURL ? { baseURL: spec.baseURL } : {}), ...(spec.think !== undefined ? { think: spec.think } : {}), ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}) });
+      case "openai-compatible":
+      default:
+        return vercelBackend({
+          provider: "openai-compatible",
+          ...(spec.baseURL ? { baseURL: spec.baseURL } : {}),
+          ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
+          ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}),
+          ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}),
+        });
+    }
+  })();
+  // Wire-name override: the program named a logical id (the registry key reaching `complete`
+  // as `spec.model`); rewrite it to the configured provider model. Materialization only —
+  // identity/caching upstream still keys on the program id, so two logical ids backed by the
+  // same wire model stay distinct cells.
+  if (spec.model === undefined) return inner;
+  const wire = spec.model;
+  return { complete: (s) => inner.complete({ ...s, model: wire }) };
 }
 
 /** A transient failure worth re-rolling: an infra blip or a bounded truncation. A single

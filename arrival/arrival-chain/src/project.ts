@@ -676,8 +676,13 @@ export function buildArrivalEnv(opts: {
         const meta = isPlainRecord(folded.meta) ? folded.meta : {};
         const { meta: _metaSlot, ...inputs } = folded;
         // Model = materialization: call-time `meta.model` wins, else the
-        // frontmatter default, else a hard error (nothing to route to).
-        const model = meta.model === undefined ? unit.model : String(meta.model);
+        // frontmatter default, else a hard error (nothing to route to). `meta.model`
+        // may be a bare string OR an `(llm …)` entity (so a program can `(define ideator
+        // (llm "id"))` and pass `:meta (dict :model ideator)`) — `asLlmModel` extracts the
+        // routing name and any `llm/with` content params either way.
+        const metaModel = meta.model === undefined ? null : asLlmModel(meta.model);
+        const model = metaModel ? metaModel.name : unit.model;
+        const metaParams = metaModel?.params;
         if (model === null) {
           throw new Error(
             `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
@@ -722,7 +727,7 @@ export function buildArrivalEnv(opts: {
           }));
           return runAgenticInfer(opts.infer, opts.mcp ?? inertMcpResolver, ctx, model, chatMessages, servers);
         }
-        return opts.infer(ctx, model, canonicalizeMessages(messages), schemaSlotStr, nullable(key));
+        return opts.infer(ctx, model, canonicalizeMessages(messages), schemaSlotStr, nullable(key), undefined, metaParams);
       },
     });
   };
@@ -850,6 +855,66 @@ export class Project extends PlexusModel<null> {
 
   findFile(path: string): Program | undefined {
     return this.files.get(path);
+  }
+
+  /** Is `path` occupied — by a file (exact key) or by an implicit folder (any
+   *  descendant file under `${path}/`)? Used to reject name clashes the way a
+   *  real filesystem forbids a file and a directory sharing a name. */
+  private occupied(path: string): boolean {
+    if (this.files.has(path)) return true;
+    const prefix = `${path}/`;
+    for (const p of this.files.keys()) if (p.startsWith(prefix)) return true;
+    return false;
+  }
+
+  /**
+   * Move/rename a file or an (implicit) folder — the fs `rename` verb.
+   *
+   * `from` is either a file path (an exact key in `files`) or a folder prefix
+   * (no trailing slash) whose every descendant file is re-keyed under `to`.
+   * Re-keying preserves each Program instance: the child-map orphans it at the
+   * old key and re-adopts the SAME child at the new key, so its version history
+   * travels with it. One transaction.
+   *
+   * Folders are implicit — there is no folder entity, so a folder *is* the set
+   * of files whose path starts with `${from}/`. Throws on collision (a
+   * destination is already occupied) or cycle (a folder into its own descendant).
+   */
+  renamePath(from: string, to: string): void {
+    if (from === to) return;
+    const direct = this.files.get(from);
+    if (direct) {
+      invariant(!this.occupied(to), `renamePath: destination already exists: ${to}`);
+      this.transact(() => {
+        this.files.delete(from);
+        this.files.set(to, direct);
+      });
+      return;
+    }
+    // Folder rename: re-key every descendant under the new prefix.
+    const prefix = `${from}/`;
+    const entries = [...this.files].filter(([p]) => p.startsWith(prefix));
+    invariant(entries.length > 0, `renamePath: no such file or folder: ${from}`);
+    invariant(to !== from && !to.startsWith(prefix), `renamePath: cannot move a folder into itself: ${from} → ${to}`);
+    invariant(!this.files.has(to), `renamePath: destination already exists as a file: ${to}`);
+    const moved = entries.map(([p, prog]) => [`${to}/${p.slice(prefix.length)}`, prog] as const);
+    for (const [np] of moved) invariant(!this.files.has(np), `renamePath: destination already exists: ${np}`);
+    this.transact(() => {
+      for (const [p] of entries) this.files.delete(p);
+      for (const [np, prog] of moved) this.files.set(np, prog);
+    });
+  }
+
+  /**
+   * Delete a file (exact key) or an (implicit) folder (every descendant file) —
+   * the fs `rm -r` verb. One transaction. No-op if nothing matches.
+   */
+  removePath(path: string): void {
+    const prefix = `${path}/`;
+    this.transact(() => {
+      if (this.files.has(path)) this.files.delete(path);
+      for (const p of [...this.files.keys()]) if (p.startsWith(prefix)) this.files.delete(p);
+    });
   }
 
   /** Reverse lookup: which path holds this Program? */
