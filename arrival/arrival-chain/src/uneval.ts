@@ -15,7 +15,7 @@
 
 import { execGeneratorExpr as execExpr, parseGenerator as parse, AValue, lipsToJs, type Environment } from "@here.build/arrival-scheme";
 import type { EvalTrace } from "./trace.js";
-import { buildSlice, writeForm, defineNameOf } from "./slice.js";
+import { buildSlice, writeForm, defineNameOf, lastTopLevelForm } from "./slice.js";
 
 /** One reverse-chain answer: the effective value the selector produced, the origin reads it
  *  traces to, and a re-runnable Scheme program that re-derives it. */
@@ -64,7 +64,9 @@ export function buildUneval(opts: {
   // we then bind `result` to it and append the selector — the selector picks the effective value
   // out of the reproduced output. Anchoring on the output form (not the value's provenance cone)
   // is what makes the slice CLOSED: its binding form + whole consumer chain are kept by reference.
-  const outputForm = forms.length > 0 ? forms[forms.length - 1] : undefined;
+  // The run's OUTPUT form — explicit `forms` if threaded, else the trace's last top-level form
+  // (captured HERE, before any selector eval pollutes the trace with its own top-level form).
+  const outputForm = forms.length > 0 ? forms[forms.length - 1] : lastTopLevelForm(trace);
   const outputName = outputForm !== undefined ? defineNameOf(outputForm) : null;
   // `result` re-expressed in the slice's terms: the output's name if it's a define, else the
   // output expression rendered back to source.
@@ -84,10 +86,12 @@ export function buildUneval(opts: {
       if (v != null && typeof (v as { then?: unknown }).then === "function") v = await (v as Promise<unknown>);
       const provenance = v instanceof AValue ? [...v.provenance] : [];
       // The SLICE: the reachable derivation of the run's output (static backward reference-closure
-      // from the output expression's symbols), then `(define result <output>)` to name it, then the
-      // selector that picks the effective value out. Closed + re-runnable by construction.
+      // from the output's symbols), then a LET that binds `result` to the reproduced output and
+      // evaluates the selector against it. A `let` (not a top-level `(define result …)`) avoids a
+      // collision when the program's own output binding is itself named `result` (which produced a
+      // degenerate `(define result result)`). Closed + re-runnable by construction.
       const slice = buildSlice(trace, outputForm);
-      const tail = `(define result ${resultExpr})\n${selector.trim()}`;
+      const tail = `(let ((result ${resultExpr})) ${selector.trim()})`;
       const program = slice.program ? `${slice.program}\n${tail}` : tail;
       return { value: lipsToJs(v, {}), provenance, program, points: slice.points, scopeIds: slice.scopeIds };
     },

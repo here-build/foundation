@@ -42,9 +42,31 @@ const symName = (s: DuckSymbol): string =>
  *  own `toString`; anything NON-serializable (a procedure, a host object) THROWS — a slice must
  *  never silently emit `[object Object]` and re-parse to a different datum. */
 export function writeForm(node: unknown): string {
+  // `seen` guards against a cyclic/shared structure (a reader-built `#0=(a . #0#)`): without it the
+  // pair/vector recursion spins to a RangeError. A cyclic datum has no finite read syntax — throw a
+  // clear error (errors-as-doors) rather than hang.
+  return writeDatum(node, new Set<unknown>());
+}
+
+/** Re-serialize an inexact/number datum to a RE-PARSEABLE numeral. JS `String()` (via the boxed
+ *  `toString`) has two failure modes the reader rejects: an integer-valued inexact in exponential
+ *  form gets a spurious trailing `.0` (`1.5e+300.0` — re-parses as a SYMBOL), and negative zero
+ *  loses its sign. Fix both at the slice boundary (the shared number repr is display-only). */
+function writeNumber(node: unknown): string {
+  const r = (node as { real?: unknown }).real;
+  if (typeof r === "number" && Object.is(r, -0)) return "-0.0";
+  // `1.5e+300.0` → `1.5e+300`: strip a `.0` that follows an exponent (an exponent already marks it
+  // inexact, so the `.0` the boxed toString appends for integer-valued inexacts is both redundant
+  // and unreadable).
+  return String(node).replace(/(e[+-]?\d+)\.0$/i, "$1");
+}
+
+function writeDatum(node: unknown, seen: Set<unknown>): string {
   // Raw JS primitives — defensive; parsed forms are boxed, but a stray unbox shouldn't corrupt.
   if (typeof node === "string") return JSON.stringify(node);
-  if (typeof node === "number" || typeof node === "bigint") return String(node);
+  if (typeof node === "number" || typeof node === "bigint") {
+    return typeof node === "number" && Object.is(node, -0) ? "-0.0" : String(node);
+  }
   if (typeof node === "boolean") return node ? "#t" : "#f";
   if (node === null || node === undefined) {
     throw new Error(`writeForm: cannot serialize ${String(node)} to Scheme source`);
@@ -52,27 +74,34 @@ export function writeForm(node: unknown): string {
   const kind = kindOf(node);
   switch (kind) {
     case "pair": {
+      if (seen.has(node)) throw new Error("writeForm: cyclic datum has no read syntax — cannot serialize to re-runnable Scheme");
+      seen.add(node);
       const parts: string[] = [];
       let cur: unknown = node;
       while (isPair(cur)) {
-        parts.push(writeForm(cur.car));
+        parts.push(writeDatum(cur.car, seen));
         cur = cur.cdr;
+        if (isPair(cur) && seen.has(cur)) throw new Error("writeForm: cyclic list has no read syntax — cannot serialize to re-runnable Scheme");
       }
-      if (kindOf(cur) !== "nil") parts.push(".", writeForm(cur)); // improper/dotted tail
+      if (kindOf(cur) !== "nil") parts.push(".", writeDatum(cur, seen)); // improper/dotted tail
       return `(${parts.join(" ")})`;
     }
     case "string":
       return JSON.stringify((node as { __string__: string }).__string__);
-    case "vector":
-      return `#(${(node as { __vector__: unknown[] }).__vector__.map(writeForm).join(" ")})`;
+    case "vector": {
+      if (seen.has(node)) throw new Error("writeForm: cyclic vector has no read syntax — cannot serialize to re-runnable Scheme");
+      seen.add(node);
+      return `#(${(node as { __vector__: unknown[] }).__vector__.map((el) => writeDatum(el, seen)).join(" ")})`;
+    }
     case "bytevector":
       return `#u8(${Array.from((node as { __bytevector__: Uint8Array }).__bytevector__).join(" ")})`;
+    case "number":
+      return writeNumber(node);
     case "symbol":
     case "character":
-    case "number":
     case "bool":
     case "nil":
-      return String(node); // each round-trips: name / #\c / numeral / #t#f / ()
+      return String(node); // each round-trips: name / #\c / #t#f / ()
     default:
       throw new Error(
         `writeForm: non-serializable datum kind "${kind ?? typeof node}" — a reverse-chain slice ` +
@@ -171,31 +200,41 @@ export function buildSlice(trace: EvalTrace, outputNode: unknown): Slice {
     }
   }
 
-  // Index top-level defines by name.
-  const defineByName = new Map<string, unknown>();
+  // Index top-level defines by name — ALL of them, not just the last. A name can be (re)defined
+  // multiple times: an accumulator `(define x (f x))`, or sift's REPL replay (history + expr as
+  // separate top-level forms re-binding a name). Keeping only the last form drops the earlier
+  // binding the later one depends on → unbound on re-run. Keep every form for a referenced name; in
+  // source order they reproduce the rebinding sequence.
+  const defineForms = new Map<string, unknown[]>();
   for (const node of formId.keys()) {
     const name = defineNameOf(node);
-    if (name !== null) defineByName.set(name, node);
+    if (name === null) continue;
+    const arr = defineForms.get(name);
+    if (arr) arr.push(node);
+    else defineForms.set(name, [node]);
   }
 
   // STATIC BACKWARD CLOSURE: seed from the anchor symbols, then keep any top-level define a kept
-  // form references, to a fixpoint. This pulls in the value's binding form AND its whole consumer
+  // form references, to a fixpoint. This pulls in the value's binding form(s) AND its whole consumer
   // chain (the structural fix for the cone's under-inclusion).
   const kept = new Set<unknown>();
-  for (const sym of anchorSymbols) {
-    const def = defineByName.get(sym);
-    if (def !== undefined) kept.add(def);
-  }
+  const keepName = (sym: string): boolean => {
+    let added = false;
+    for (const def of defineForms.get(sym) ?? []) {
+      if (!kept.has(def)) {
+        kept.add(def);
+        added = true;
+      }
+    }
+    return added;
+  };
+  for (const sym of anchorSymbols) keepName(sym);
   let changed = true;
   while (changed) {
     changed = false;
     for (const node of [...kept]) {
       for (const sym of referencedSymbols(node)) {
-        const def = defineByName.get(sym);
-        if (def !== undefined && !kept.has(def)) {
-          kept.add(def);
-          changed = true;
-        }
+        if (keepName(sym)) changed = true;
       }
     }
   }

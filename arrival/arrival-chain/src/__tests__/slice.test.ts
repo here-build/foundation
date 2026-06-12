@@ -110,4 +110,31 @@ describe("buildSlice — structural guarantees", () => {
     expect(() => referencedSymbols(out)).not.toThrow();
     expect(() => buildSlice(trace, out)).not.toThrow();
   });
+
+  // Swarm-2 #13: a redefined name (accumulator / REPL rebind) must keep ALL its binding forms —
+  // keeping only the last drops the earlier binding the later one reads → unbound on re-run.
+  it("keeps every binding of a redefined name (accumulator idiom)", async () => {
+    const { rerun, original } = await sliceAndRerun(`
+      (define x (car (infer "fast" "E")))
+      (define x (string-append x "!"))
+      x
+    `);
+    expect(original).toBe("out:E!");
+    expect(rerun).toEqual(original);
+  });
+
+  // Swarm-2 #3: large/exponential inexacts must not get a trailing ".0" after the exponent
+  // (1.5e+300.0 re-parses as a symbol → unbound).
+  it("round-trips exponential inexacts (no spurious .0 after the exponent)", async () => {
+    const { program, rerun, original } = await sliceAndRerun(`(define n 1.5e300)\nn`);
+    expect(program).not.toMatch(/e[+-]?\d+\.0/i);
+    expect(rerun).toEqual(original);
+  });
+
+  // Swarm-2 #5/#6/#10: writeForm must throw on a cyclic datum, not spin to a RangeError.
+  it("writeForm throws on a cyclic datum instead of hanging", () => {
+    const cyc = { kind: "pair", car: { kind: "symbol", __name__: "a", toString: () => "a" }, cdr: null as unknown };
+    cyc.cdr = cyc; // self-cycle in the cdr spine
+    expect(() => writeForm(cyc)).toThrow(/cyclic/);
+  });
 });

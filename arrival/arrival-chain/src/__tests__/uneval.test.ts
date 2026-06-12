@@ -40,4 +40,29 @@ describe("buildUneval — selector-eval + provenance extraction", () => {
     expect(tail.value).toBe("benign");
     expect(Array.isArray(tail.provenance)).toBe(true);
   });
+
+  // Swarm-2 #8: a program whose own output binding is named `result` must not collapse to a
+  // degenerate `(define result result)` — the let-wrap binds locally and the slice re-runs.
+  it("handles a program whose output is itself named `result`", async () => {
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    project.bindInfer(createInferStore(singletonRouter({ complete: vi.fn(async (_s: ModelSpec) => ({ value: "evil.exe" })) })));
+    const trace = new EvalTrace();
+    const src = `
+      (define result (string-append "X:" (car (infer "fast" "A"))))
+      result
+    `;
+    const { finished, env, result, userForms } = await project.runTraced(src, { trace });
+    await finished;
+    const container = buildUneval({ env, result: await result, trace, source: src, forms: userForms });
+
+    const picked = await container.uneval("(string-append result \"_SEL\")");
+    expect(picked.value).toBe("X:evil.exe_SEL");
+    expect(picked.program).not.toContain("(define result result)");
+
+    // Re-run the emitted program in a fresh project — it must reproduce the picked value.
+    const p2 = ArrivalChain.bootstrap(new Project()).root;
+    p2.bindInfer(createInferStore(singletonRouter({ complete: vi.fn(async (_s: ModelSpec) => ({ value: "evil.exe" })) })));
+    const rerun = await (await p2.runTraced(picked.program, { trace: new EvalTrace() })).finished;
+    expect(rerun).toBe("X:evil.exe_SEL");
+  });
 });
