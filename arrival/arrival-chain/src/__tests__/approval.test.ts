@@ -72,13 +72,11 @@ describe("run/continue-after-approval (wired approver)", () => {
     expect(lipsToJs(captured!.spec, {})).toEqual(["deploy", "prod"]);
   });
 
-  it("the edited result flows when the human edits before approving", async () => {
+  it("an approve-time value override wins over the thunk's value", async () => {
     const env = await envWith({
       onApprovalRequest: (req) => {
-        queueMicrotask(() => {
-          req.edit("edited-by-human");
-          req.approve();
-        });
+        // approve(by, value) — the override (reserved edit-then-approve path)
+        queueMicrotask(() => req.approve("alice", "edited-by-human"));
       },
     });
     const out = await run(`(run/continue-after-approval (list "x") "proposed")`, env);

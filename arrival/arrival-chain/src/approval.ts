@@ -14,8 +14,8 @@
  * rosetta is async (mirroring the `infer` rosetta): it constructs a
  * {@link FunctionRunApprovalRequest}, hands it to an optional host sink
  * (`onApprovalRequest`), and AWAITS a human's verdict by observing the request's
- * mobx fields. On approval it CALLS the thunk (running `result` for the first
- * time) and returns its value — the go-token the downstream irreversible action
+ * `result`. On approval it CALLS the thunk (running `result` for the first time)
+ * and returns its value — the go-token the downstream irreversible action
  * structurally consumes. On rejection it throws, so that branch fails and the
  * action never fires.
  *
@@ -24,13 +24,7 @@
  * crosses back once a human has signed off.
  *
  * LOCAL-FIRST: when no real approver is wired (`onApprovalRequest` absent), the
- * request auto-approves immediately so local/sandbox runs never block. A host
- * that wires `onApprovalRequest` (or `resolveApproval`) takes ownership of the
- * verdict.
- *
- * NOTE: durable suspend (days-long teardown + resume-by-replay over the
- * effect-log) is the NEXT layer (ADR-025), out of scope here — local
- * auto-approve means we don't need it yet.
+ * request auto-approves immediately so local/sandbox runs never block.
  */
 import { action, makeObservable, observable, when } from "mobx";
 
@@ -39,78 +33,88 @@ import type { Environment } from "@here.build/arrival-scheme";
 /** The form head the preamble macro lowers to. */
 export const APPROVAL_FORM = "approval/await";
 
+/** Verdict: APPROVED. Carries an optional value override (reserved — a human
+ *  substituting the result) and audit metadata (`by`). */
+export class FunctionRunApprovalResult {
+  constructor(
+    /** Audit: who approved (a principal ref). */
+    readonly by?: unknown,
+    /** Optional value override — when present, wins over the thunk's value.
+     *  Reserved for "edit-then-approve"; absent in the plain-approve path. */
+    readonly value?: unknown,
+  ) {}
+}
+
+/** Verdict: REJECTED. Carries an optional reason + audit metadata. */
+export class FunctionRunApprovalReject {
+  constructor(
+    readonly reason?: unknown,
+    /** Audit: who rejected. */
+    readonly by?: unknown,
+  ) {}
+}
+
 /**
  * A reactive comms channel for ONE pending approval. The run awaits resolution
- * by observing `approved || rejected`; a host surfaces `spec` to a human, who
- * may EDIT `result` (the proposed value) before flipping `approved`, or set
- * `rejected` (+ `reason`) to fail the branch.
+ * by observing `result` flip from `null` to a verdict variant. A host surfaces
+ * `spec` to a human, who calls `approve(...)` or `reject(...)`.
  *
- * mobx-observable so a UI (or the awaiting rosetta) reacts to the human's edits
- * and verdict without polling.
+ * Invalid states are unrepresentable: `result` is the resolution itself
+ * (`null` = pending · `Result` = approved · `Reject` = rejected), so "approved
+ * AND rejected" cannot occur, and a reason can only ride a rejection. The two
+ * mutators are the only transitions and are single-use — once `result` is set,
+ * a second `approve`/`reject` is inert (late/double verdicts are dead).
+ *
+ * mobx-observable so a UI (or the awaiting rosetta's `when`) reacts to the
+ * verdict without polling.
  */
 export class FunctionRunApprovalRequest {
   /** The approval descriptor surfaced to a human (action/args/why/collect-schema). */
   readonly spec: unknown;
-  /** The PROPOSED value, editable before approval. The edited value is what flows. */
-  result: unknown;
-  /** Set true to release `result` (possibly edited). */
-  approved = false;
-  /** Set true to fail this branch. */
-  rejected = false;
-  /** Optional human-readable rejection reason. */
-  reason?: string;
+  /** The resolution: `null` while pending, then exactly one verdict variant. */
+  result: null | FunctionRunApprovalResult | FunctionRunApprovalReject = null;
 
-  constructor(spec: unknown, result: unknown) {
+  constructor(spec: unknown) {
     this.spec = spec;
-    this.result = result;
-    // mobx-observable so a UI (or the awaiting rosetta's `when`) reacts to the
-    // human's edits + verdict. The mutators are actions so a strict-mode host
-    // (`enforceActions: "observed"`) can flip them without tripping.
     makeObservable(this, {
       result: observable.ref,
-      approved: observable,
-      rejected: observable,
-      reason: observable.ref,
-      edit: action.bound,
       approve: action.bound,
       reject: action.bound,
     });
   }
 
-  /** Edit the proposed value before approval. */
-  edit(result: unknown): void {
-    this.result = result;
+  /** Approve. Optional `by` (audit) and `value` (reserved override). Inert once
+   *  resolved. */
+  approve(by?: unknown, value?: unknown): void {
+    if (this.result) return;
+    this.result = new FunctionRunApprovalResult(by, value);
   }
 
-  /** Approve, optionally replacing the proposed value with an edited one. */
-  approve(result?: unknown): void {
-    if (arguments.length > 0) this.result = result;
-    this.approved = true;
-  }
-
-  /** Reject this branch with an optional reason. */
-  reject(reason?: string): void {
-    this.reason = reason;
-    this.rejected = true;
+  /** Reject this branch with an optional reason + `by` (audit). Inert once
+   *  resolved. */
+  reject(reason?: unknown, by?: unknown): void {
+    if (this.result) return;
+    this.result = new FunctionRunApprovalReject(reason, by);
   }
 }
 
 /** Host sink for a freshly-constructed pending request. Sync or async; return
- *  ignored — the request resolves through its own mobx fields, not a return. */
+ *  ignored — the request resolves through its `result` field, not a return. */
 export type OnApprovalRequest = (req: FunctionRunApprovalRequest) => void | Promise<void>;
 
 /**
  * Optional host hook that decides a request's verdict directly (instead of, or
  * in addition to, surfacing it via `onApprovalRequest`). Return `true`/`false`
  * synchronously to approve/reject; return `undefined` to leave the verdict to
- * the async channel (`onApprovalRequest` + observed fields).
+ * the async channel (`onApprovalRequest` + the observed `result`).
  */
 export type ResolveApproval = (req: FunctionRunApprovalRequest) => boolean | undefined;
 
 /** Raised when an approval is rejected — the branch fails, the action never fires. */
 export class ApprovalRejected extends Error {
   constructor(readonly request: FunctionRunApprovalRequest) {
-    super(`approval rejected${request.reason ? `: ${request.reason}` : ""}`);
+    const reject = request.result instanceof FunctionRunApprovalReject ? request.result : undefined;
+    super(`approval rejected${reject?.reason ? `: ${String(reject.reason)}` : ""}`);
     this.name = "ApprovalRejected";
   }
 }
@@ -136,7 +140,7 @@ export function defineApprovalRosetta(opts: {
       }
       const proc = thunk as () => unknown | Promise<unknown>;
 
-      const req = new FunctionRunApprovalRequest(spec, undefined);
+      const req = new FunctionRunApprovalRequest(spec);
 
       // LOCAL AUTO-APPROVE — no real approver wired ⇒ release synchronously so
       // local runs never park.
@@ -150,24 +154,23 @@ export function defineApprovalRosetta(opts: {
           else if (verdict === false) req.reject();
         }
         // Surface to the host UI/inbox unless already decided.
-        if (!req.approved && !req.rejected && onApprovalRequest) {
+        if (req.result === null && onApprovalRequest) {
           await onApprovalRequest(req);
         }
         // TODO(ADR-025): durable teardown/resume is the next layer. Today we
-        // hold the run in memory until a human flips `approved`/`rejected`. The
-        // durable variant suspends here and resumes by replaying the effect-log.
-        await when(() => req.approved || req.rejected);
+        // hold the run in memory until a human resolves `result`. The durable
+        // variant suspends here and resumes by replaying the effect-log.
+        await when(() => req.result !== null);
       }
 
-      if (req.rejected) throw new ApprovalRejected(req);
+      if (req.result instanceof FunctionRunApprovalReject) throw new ApprovalRejected(req);
 
-      // Approved: run `result` NOW (first evaluation), AND release the
-      // possibly-edited proposed value when the human supplied one. The thunk's
-      // value is the go-token the downstream irreversible action consumes; if
-      // the human edited `result`, that edited value wins (it's the human's
-      // sign-off, not the raw proposal).
+      // Approved: run `result` NOW (first evaluation) — the thunk's value is the
+      // go-token the downstream irreversible action consumes. A human-supplied
+      // `value` override (reserved edit-then-approve path) wins over it.
       const computed = await proc();
-      return req.result === undefined ? computed : req.result;
+      const verdict = req.result as FunctionRunApprovalResult;
+      return verdict.value === undefined ? computed : verdict.value;
     },
   });
 }

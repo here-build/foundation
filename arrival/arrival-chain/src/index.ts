@@ -197,6 +197,8 @@ export {
 export {
   defineApprovalRosetta,
   FunctionRunApprovalRequest,
+  FunctionRunApprovalResult,
+  FunctionRunApprovalReject,
   ApprovalRejected,
   type OnApprovalRequest,
   type ResolveApproval,
