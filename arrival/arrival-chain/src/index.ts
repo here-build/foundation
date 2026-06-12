@@ -190,6 +190,18 @@ export {
   type ResolveOverride,
   OVERRIDABLE_FORM,
 } from "./overridable.js";
+// The human-in-the-loop approval gate: `(run/continue-after-approval spec result)`
+// THUNKS the irreversible value, awaits a human verdict over a reactive
+// `FunctionRunApprovalRequest`, and only then runs + releases the go-token. Local/
+// sandbox auto-approves when no approver is wired. Durable suspend is next (ADR-025).
+export {
+  defineApprovalRosetta,
+  FunctionRunApprovalRequest,
+  ApprovalRejected,
+  type OnApprovalRequest,
+  type ResolveApproval,
+  APPROVAL_FORM,
+} from "./approval.js";
 // The bridge from static `(declare/expose …)` extraction to the canonical
 // tagged-list signature the registry stores: evaluates ONLY the pure
 // `:input`/`:output` schema slices (never the handler), so a config-plane
