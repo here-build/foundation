@@ -20,10 +20,10 @@ describe("buildUneval — selector-eval + provenance extraction", () => {
       (define verdict (infer "fast" "name the malware"))
       (list verdict "benign")
     `;
-    const { finished, env, result } = await project.runTraced(src, { trace });
+    const { finished, env, result, userForms } = await project.runTraced(src, { trace });
     await finished;
 
-    const container = buildUneval({ env, result: await result, trace, source: src, forms: [] });
+    const container = buildUneval({ env, result: await result, trace, source: src, forms: userForms });
 
     // The head selector picks the infer output (a list) — provenance-bearing.
     const head = await container.uneval("(car result)");

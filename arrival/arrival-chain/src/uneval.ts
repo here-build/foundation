@@ -15,7 +15,7 @@
 
 import { execGeneratorExpr as execExpr, parseGenerator as parse, AValue, lipsToJs, type Environment } from "@here.build/arrival-scheme";
 import type { EvalTrace } from "./trace.js";
-import { buildSlice } from "./slice.js";
+import { buildSlice, writeForm, defineNameOf } from "./slice.js";
 
 /** One reverse-chain answer: the effective value the selector produced, the origin reads it
  *  traces to, and a re-runnable Scheme program that re-derives it. */
@@ -58,10 +58,22 @@ export function buildUneval(opts: {
   source: string;
   forms: readonly unknown[];
 }): UnevalContainer {
-  const { env, result, trace, source } = opts;
+  const { env, result, trace, forms } = opts;
+  // The run's OUTPUT expression (the last top-level form) is what produces `result`. The slice is
+  // anchored on the symbols IT references, so the derivation of `result` is reproduced in full;
+  // we then bind `result` to it and append the selector — the selector picks the effective value
+  // out of the reproduced output. Anchoring on the output form (not the value's provenance cone)
+  // is what makes the slice CLOSED: its binding form + whole consumer chain are kept by reference.
+  const outputForm = forms.length > 0 ? forms[forms.length - 1] : undefined;
+  const outputName = outputForm !== undefined ? defineNameOf(outputForm) : null;
+  // `result` re-expressed in the slice's terms: the output's name if it's a define, else the
+  // output expression rendered back to source.
+  const resultExpr =
+    outputForm === undefined ? "result" : (outputName ?? writeForm(outputForm));
+
   return {
     result: lipsToJs(result, {}),
-    meta: { forms: opts.forms.length },
+    meta: { forms: forms.length },
     uneval: async (selector: string): Promise<Uneval> => {
       // Bind the run's output as `result`, then evaluate the selector as ONE more tapped step —
       // the effective value is produced by the SAME pure evaluator, so it carries provenance and
@@ -71,12 +83,12 @@ export function buildUneval(opts: {
       let v: unknown = await execExpr(sel[sel.length - 1], { env, tap: trace });
       if (v != null && typeof (v as { then?: unknown }).then === "function") v = await (v as Promise<unknown>);
       const provenance = v instanceof AValue ? [...v.provenance] : [];
-      // The SLICE: backward dependence cone of the effective value over the run's trace — only
-      // the forms it depends on, followed by the selector that picks it out (the selector reads
-      // `result`, the run output bound in `env`). Unrelated forms are pruned; referenced literal
-      // defines kept (buildSlice's two closures). Re-runs to the value, by purity.
-      const slice = buildSlice(trace, v instanceof AValue ? v.provenance : []);
-      const program = slice.program ? `${slice.program}\n${selector.trim()}` : selector.trim();
+      // The SLICE: the reachable derivation of the run's output (static backward reference-closure
+      // from the output expression's symbols), then `(define result <output>)` to name it, then the
+      // selector that picks the effective value out. Closed + re-runnable by construction.
+      const slice = buildSlice(trace, outputForm);
+      const tail = `(define result ${resultExpr})\n${selector.trim()}`;
+      const program = slice.program ? `${slice.program}\n${tail}` : tail;
       return { value: lipsToJs(v, {}), provenance, program, points: slice.points, scopeIds: slice.scopeIds };
     },
   };

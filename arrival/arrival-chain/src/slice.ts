@@ -1,147 +1,191 @@
 // slice.ts — the reverse-chain slicer (Galois `uneval`, naive baseline).
 //
-// Given a value's provenance (the set of provenance-point ids that flowed into it), produce a
-// runnable Scheme program containing ONLY the top-level forms that value depends on — a sound,
-// re-runnable reverse chain. This is the lower adjoint of evaluation (Perera–Cheney): arrival's
-// PURITY invariant is the theorem that makes the slice sound (nothing outside the dependence
-// cone could have influenced the value).
+// Given the OUTPUT EXPRESSION of a run, produce the runnable top-level forms its value depends on
+// — a sound, re-runnable reverse chain (Perera–Cheney `uneval`; arrival's PURITY invariant is the
+// soundness theorem). Re-running the slice reproduces the value.
 //
-// TWO closures compose, and BOTH are needed for a slice that is sound AND runnable:
-//   1. DYNAMIC point-cone — backward over the provenance relation from the seed: which evidence
-//      reads / derivations actually fed the value (this is what PRUNES untaken branches and
-//      unused forms). Control dependence rides along for free: an `(if pred …)` invocation's
-//      children include the predicate, and `computeProvenance` already unions `pred.provenance`
-//      in — so a gating predicate's forms are in the cone (trace.ts:114-124).
-//   2. STATIC define-closure — the dynamic cone names forms that contain a provenance POINT, but
-//      a kept form may reference a pure-literal `(define k 5)` that has NO point (a literal has
-//      empty provenance, so it never enters the cone). Dropping it would leave the kept form with
-//      an unbound symbol. So: transitively keep any top-level `(define name …)` whose `name` is
-//      referenced by a kept form. Coarse (a symbol match, not lexical-scope-exact) ⇒ an
-//      OVER-approximation: keeps too much, never too little — sound for runnability.
+// SELECTION IS BY STATIC BACKWARD REFERENCE-CLOSURE, not the provenance cone. An adversarial swarm
+// proved the cone approach unsound: the cone walks UPSTREAM from the value to its evidence reads,
+// so it structurally cannot name the value's own binding form or any pure-combinator consumer
+// between the reads and the output (string-append/if/list/quasiquote bodies are not provenance
+// points, and the forward "keep defines referenced by kept forms" closure never reaches a
+// CONSUMER). The fix inverts it: seed from the symbols the OUTPUT expression references, then
+// transitively keep every top-level (define name …) reachable through references. That keeps the
+// whole consumer chain by construction and is trivially runnable (a closed subset of forms that
+// already ran). Granularity is top-level form: sound + runnable, a superset of the least slice
+// (intra-form minimal slicing is the deferred increment).
 //
-// Granularity is TOP-LEVEL FORM (a superset of the Perera–Cheney least slice): honestly
-// "sound + runnable", not "provably minimal". Intra-form minimal slicing is the deferred
-// heuristic re-roll step.
+// The provenance points are still surfaced (`points`) — derived from which reads land in the kept
+// forms — as the attestation per-leaf→read join key and a UI source-highlight seed.
 
 import type { EvalTrace, Invocation } from "./trace.js";
 import { scopeId } from "./scope-id.js";
 
-// Pair / SchemeSymbol are duck-typed (the concrete classes aren't in arrival-scheme's public
-// surface) — the same approach as extract-defines.ts / trace-view.tsx.
-type DuckPair = { car: unknown; cdr: unknown; toString(quote?: boolean): string };
+// Datum kinds are discriminated on the authoritative `kind` tag every AValue carries — NOT on
+// structural duck-typing. (A SchemeCharacter carries `__name__` for its named form like #\space,
+// so `"__name__" in v` misclassifies chars as symbols — a real crash the swarm found.)
+const kindOf = (v: unknown): string | undefined =>
+  v !== null && typeof v === "object" ? (v as { kind?: string }).kind : undefined;
+
+type DuckPair = { car: unknown; cdr: unknown };
 type DuckSymbol = { __name__: string | symbol };
 
-const isPair = (v: unknown): v is DuckPair =>
-  v !== null && typeof v === "object" && "car" in v && "cdr" in v;
-const isSymbol = (v: unknown): v is DuckSymbol =>
-  v !== null && typeof v === "object" && "__name__" in v;
+const isPair = (v: unknown): v is DuckPair => kindOf(v) === "pair";
+const isSymbol = (v: unknown): v is DuckSymbol => kindOf(v) === "symbol";
 const symName = (s: DuckSymbol): string =>
   typeof s.__name__ === "string" ? s.__name__ : (s.__name__.description ?? String(s.__name__));
 
-const isString = (v: unknown): v is { __string__: string } =>
-  v !== null && typeof v === "object" && "__string__" in v;
-const isNilLike = (v: unknown): boolean =>
-  v !== null && typeof v === "object" && (v as { constructor?: { name?: string } }).constructor?.name === "Nil";
-
-/** Re-serialize a homoiconic form to re-PARSEABLE Scheme. The shared value serializer is
- *  display-only — it drops string quotes (`SchemeString.toString` ignores its `quote` arg), so a
- *  rendered slice wouldn't round-trip. This writer quotes strings (the one atom that doesn't
- *  round-trip via `toString`); every other atom (symbol, number, boolean, char, keyword) already
- *  renders re-parseably, and source `__location__` offsets proved unreliable for span-slicing. */
-function writeForm(node: unknown): string {
-  if (isPair(node)) {
-    const parts: string[] = [];
-    let cur: unknown = node;
-    while (isPair(cur)) {
-      parts.push(writeForm(cur.car));
-      cur = cur.cdr;
-    }
-    if (!isNilLike(cur)) parts.push(".", writeForm(cur)); // improper/dotted tail
-    return `(${parts.join(" ")})`;
+/** Re-serialize a homoiconic form to RE-PARSEABLE Scheme — total over the datum algebra. The
+ *  shared value serializer is display-only (drops string quotes; renders boxed vectors as
+ *  `[object Object]`), so a rendered slice wouldn't round-trip. Strings are JSON.stringify'd;
+ *  vectors/bytevectors get their reader syntax; symbol/char/number/bool/nil round-trip via their
+ *  own `toString`; anything NON-serializable (a procedure, a host object) THROWS — a slice must
+ *  never silently emit `[object Object]` and re-parse to a different datum. */
+export function writeForm(node: unknown): string {
+  // Raw JS primitives — defensive; parsed forms are boxed, but a stray unbox shouldn't corrupt.
+  if (typeof node === "string") return JSON.stringify(node);
+  if (typeof node === "number" || typeof node === "bigint") return String(node);
+  if (typeof node === "boolean") return node ? "#t" : "#f";
+  if (node === null || node === undefined) {
+    throw new Error(`writeForm: cannot serialize ${String(node)} to Scheme source`);
   }
-  if (isString(node)) return JSON.stringify(node.__string__); // the one non-round-tripping atom
-  return String(node); // symbol / number / boolean / char / keyword all round-trip via toString
+  const kind = kindOf(node);
+  switch (kind) {
+    case "pair": {
+      const parts: string[] = [];
+      let cur: unknown = node;
+      while (isPair(cur)) {
+        parts.push(writeForm(cur.car));
+        cur = cur.cdr;
+      }
+      if (kindOf(cur) !== "nil") parts.push(".", writeForm(cur)); // improper/dotted tail
+      return `(${parts.join(" ")})`;
+    }
+    case "string":
+      return JSON.stringify((node as { __string__: string }).__string__);
+    case "vector":
+      return `#(${(node as { __vector__: unknown[] }).__vector__.map(writeForm).join(" ")})`;
+    case "bytevector":
+      return `#u8(${Array.from((node as { __bytevector__: Uint8Array }).__bytevector__).join(" ")})`;
+    case "symbol":
+    case "character":
+    case "number":
+    case "bool":
+    case "nil":
+      return String(node); // each round-trips: name / #\c / numeral / #t#f / ()
+    default:
+      throw new Error(
+        `writeForm: non-serializable datum kind "${kind ?? typeof node}" — a reverse-chain slice ` +
+          `must be re-runnable source, but this datum has no read syntax`,
+      );
+  }
 }
 
-/** A reverse-chain slice: the runnable derivation + the structured cone for downstream
- *  consumers (the attestation per-leaf→read join, a UI source highlight). */
+/** A reverse-chain slice: the runnable derivation + the structured data downstream consumers need
+ *  (the attestation per-leaf→read join, a UI source highlight). */
 export interface Slice {
-  /** The sliced top-level forms, in original eval order, rendered as runnable Scheme. */
+  /** The reachable top-level DEFINE forms, in source order, as runnable Scheme. The caller appends
+   *  its terminator (the output expression, or a `(define result …)` + selector). */
   program: string;
-  /** The dynamic point-cone — the provenance-point invocation ids the value depends on. THESE
-   *  are the evidence reads: the per-leaf→read join key the attestation needs. */
+  /** The provenance-point ids whose producing form is in the slice — the evidence READS the
+   *  derivation makes. The per-leaf→read join key. */
   points: number[];
-  /** `scopeId` of each kept form (a stable source-location key — for UI source highlighting). */
+  /** `scopeId` of each kept form (stable source-location keys, for UI highlighting). */
   scopeIds: string[];
-  /** The kept top-level form nodes (the homoiconic Pairs), in order. */
+  /** The kept top-level form nodes, in order. */
   formNodes: unknown[];
 }
 
-/** Build the reverse-chain slice for a value, seeded by its provenance set. Pure + deterministic
- *  — no LLM, just graph reachability over the trace. */
-export function buildSlice(trace: EvalTrace, seed: Iterable<number>): Slice {
-  // id → Invocation (the standard rebuild; every binding of every recorded node).
-  const invById = new Map<number, Invocation>();
-  for (const rec of trace.records.values()) for (const inv of rec.bindings) invById.set(inv.id, inv);
+/** The defined name of `(define name …)` / `(define (name …) …)`, else null. */
+export function defineNameOf(form: unknown): string | null {
+  if (!isPair(form) || !isSymbol(form.car) || symName(form.car) !== "define") return null;
+  if (!isPair(form.cdr)) return null;
+  const head = form.cdr.car;
+  if (isPair(head) && isSymbol(head.car)) return symName(head.car);
+  if (isSymbol(head)) return symName(head);
+  return null;
+}
 
-  // A field-point id (minted by a `(:field x)` projection) resolves to the real producing
-  // invocation by walking `fieldPointMeta` until there's no entry (trace.ts:333-339).
-  const resolveOrigin = (id: number): number => {
-    let cur = id;
-    for (let guard = 0; guard < 64; guard++) {
-      const meta = trace.fieldPointMeta.get(cur);
-      if (!meta) break;
-      cur = meta.origin;
+/** Every symbol name referenced anywhere in a form's tree (cycle-guarded, kind-discriminated).
+ *  Coarse by design — the closure wants an over-approximation, not lexical-scope precision. */
+export function referencedSymbols(form: unknown): Set<string> {
+  const out = new Set<string>();
+  const seen = new Set<unknown>();
+  const walk = (n: unknown): void => {
+    if (n === null || typeof n !== "object" || seen.has(n)) return;
+    seen.add(n);
+    if (isSymbol(n)) {
+      out.add(symName(n));
+      return;
     }
-    return cur;
+    if (isPair(n)) {
+      walk(n.car);
+      walk(n.cdr);
+      return;
+    }
+    if (kindOf(n) === "vector") for (const el of (n as { __vector__: unknown[] }).__vector__) walk(el);
+    // strings / chars / numbers / nil reference nothing.
   };
+  walk(form);
+  return out;
+}
 
-  // (1) DYNAMIC point-cone: a provenance point's own `provenance` is `{self.id}`, so its UPSTREAM
-  // producers come from its children's provenance (the inputs to the call) — the same upstream
-  // rule the statechart / regions encode. Walk it transitively.
-  const cone = new Set<number>();
-  const work: number[] = [];
-  for (const s of seed) work.push(resolveOrigin(s));
-  while (work.length > 0) {
-    const p = work.pop()!;
-    if (cone.has(p)) continue;
-    cone.add(p);
-    const inv = invById.get(p);
-    if (!inv) continue;
-    for (const child of inv.children) for (const u of child.provenance) work.push(resolveOrigin(u));
-    if (inv.symbolContributions) for (const set of inv.symbolContributions) for (const u of set) work.push(resolveOrigin(u));
+/** The last-entered top-level form in the trace (the run's output expression) — the natural anchor
+ *  for a self-contained reverse chain. */
+export function lastTopLevelForm(trace: EvalTrace): unknown {
+  let best: unknown;
+  let bestId = -1;
+  for (const rec of trace.records.values()) {
+    for (const inv of rec.bindings) {
+      if (inv.parent === null && inv.id > bestId) {
+        bestId = inv.id;
+        best = inv.node;
+      }
+    }
   }
+  return best;
+}
 
-  // Top-level form of an invocation = the root of its dynamic call chain (each top-level form is
-  // exec'd under one tap with `parent=null` at its form node — project.ts / sift discovery.ts).
+/** Build the reverse-chain slice: the reachable top-level defines that the run's OUTPUT FORM
+ *  depends on, by STATIC BACKWARD REFERENCE-CLOSURE from the symbols it references. Pure +
+ *  deterministic. `program` is the DEFINES ONLY (in source order); the caller appends its
+ *  terminator (the output expression, or `(define result …)` + selector). `points` counts the
+ *  evidence reads in the kept defines AND in the output form itself (its inline reads — the common
+ *  forensic case `(list (:Field (car (read))))` has no defines at all). */
+export function buildSlice(trace: EvalTrace, outputNode: unknown): Slice {
+  const anchorSymbols = outputNode === undefined ? new Set<string>() : referencedSymbols(outputNode);
+  // id → Invocation, and every top-level form node → its enter-order id (min across re-entries).
+  const invById = new Map<number, Invocation>();
+  const formId = new Map<unknown, number>();
   const rootOf = (inv: Invocation): Invocation => {
     let c = inv;
     while (c.parent) c = c.parent;
     return c;
   };
-
-  // Enumerate EVERY top-level form (node → its enter-order id, the min across re-entries), and
-  // index the top-level defines by name — the material for the static closure + ordering.
-  const formId = new Map<unknown, number>();
-  for (const inv of invById.values()) {
-    const root = rootOf(inv);
-    const prev = formId.get(root.node);
-    if (prev === undefined || root.id < prev) formId.set(root.node, root.id);
+  for (const rec of trace.records.values()) {
+    for (const inv of rec.bindings) {
+      invById.set(inv.id, inv);
+      const root = rootOf(inv);
+      const prev = formId.get(root.node);
+      if (prev === undefined || root.id < prev) formId.set(root.node, root.id);
+    }
   }
+
+  // Index top-level defines by name.
   const defineByName = new Map<string, unknown>();
   for (const node of formId.keys()) {
-    const name = defineName(node);
+    const name = defineNameOf(node);
     if (name !== null) defineByName.set(name, node);
   }
 
-  // Kept forms — seeded by the cone.
+  // STATIC BACKWARD CLOSURE: seed from the anchor symbols, then keep any top-level define a kept
+  // form references, to a fixpoint. This pulls in the value's binding form AND its whole consumer
+  // chain (the structural fix for the cone's under-inclusion).
   const kept = new Set<unknown>();
-  for (const p of cone) {
-    const inv = invById.get(p);
-    if (inv) kept.add(rootOf(inv).node);
+  for (const sym of anchorSymbols) {
+    const def = defineByName.get(sym);
+    if (def !== undefined) kept.add(def);
   }
-
-  // (2) STATIC define-closure to a fixpoint: pull in any top-level define a kept form references.
   let changed = true;
   while (changed) {
     changed = false;
@@ -156,43 +200,23 @@ export function buildSlice(trace: EvalTrace, seed: Iterable<number>): Slice {
     }
   }
 
-  // Order by enter id (lower = earlier in source) and re-serialize each kept form.
+  // points = the provenance-point reads whose producing form is in the slice OR in the output form
+  // (the evidence the derivation reads — the attestation join key). The output form's inline reads
+  // count even though it isn't a kept define (the caller emits it as the terminator).
+  const points: number[] = [];
+  for (const inv of invById.values()) {
+    if (!inv.isProvenancePoint) continue;
+    const root = rootOf(inv).node;
+    if (kept.has(root) || root === outputNode) points.push(inv.id);
+  }
+
+  // Order by enter id (source order) and re-serialize.
   const ordered = [...kept].sort((a, b) => (formId.get(a) ?? 0) - (formId.get(b) ?? 0));
-  return {
-    program: ordered.map((n) => writeForm(n)).join("\n"),
-    points: [...cone],
-    scopeIds: ordered.map((n) => scopeId(n)),
-    formNodes: ordered,
-  };
-}
-
-/** The defined name of `(define name …)` / `(define (name …) …)`, else null. */
-function defineName(form: unknown): string | null {
-  if (!isPair(form) || !isSymbol(form.car) || symName(form.car) !== "define") return null;
-  if (!isPair(form.cdr)) return null;
-  const head = form.cdr.car;
-  if (isPair(head) && isSymbol(head.car)) return symName(head.car);
-  if (isSymbol(head)) return symName(head);
-  return null;
-}
-
-/** Every symbol name referenced anywhere in a form's Pair tree (cycle-guarded). Coarse by design
- *  — the static closure wants an over-approximation, not lexical-scope precision. */
-function referencedSymbols(form: unknown): Set<string> {
-  const out = new Set<string>();
-  const seen = new Set<unknown>();
-  const walk = (n: unknown): void => {
-    if (n === null || typeof n !== "object" || seen.has(n)) return;
-    seen.add(n);
-    if (isSymbol(n)) {
-      out.add(symName(n));
-      return;
-    }
-    if (isPair(n)) {
-      walk(n.car);
-      walk(n.cdr);
-    }
-  };
-  walk(form);
-  return out;
+  const program = ordered.map((n) => writeForm(n)).join("\n");
+  // Structural backstop: writeForm throws on a non-serializable datum, but assert no object slipped
+  // through any raw path — a slice must never carry `[object Object]`.
+  if (program.includes("[object ")) {
+    throw new Error("buildSlice: emitted a non-serialized object — writeForm coverage gap");
+  }
+  return { program, points, scopeIds: ordered.map((n) => scopeId(n)), formNodes: ordered };
 }
