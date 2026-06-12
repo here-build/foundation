@@ -1,6 +1,11 @@
 import invariant from "tiny-invariant";
-import { request as httpRequest, type IncomingMessage } from "node:http";
-import { request as httpsRequest } from "node:https";
+// Namespace imports (not named): vite externalizes node:http(s) to a browser
+// stub with no NAMED exports, so `{ request }` hard-fails the SPA bundle even
+// though ollama is node-only and never selected there. A namespace import
+// resolves to the (empty) stub fine; `.request` is only touched in node.
+import * as nodeHttp from "node:http";
+import * as nodeHttps from "node:https";
+import type { IncomingMessage } from "node:http";
 import type { Completion, ModelBackend, ModelSpec, ToolCall, ToolDescriptor } from "../model.js";
 import { coerceModelJson, renderSchema, specMessages, type ChatMessage } from "./_shared.js";
 
@@ -10,7 +15,7 @@ import { coerceModelJson, renderSchema, specMessages, type ChatMessage } from ".
  *  default, so a multi-minute thinking response streams fine. No timeout is set: a local
  *  inference daemon has no runaway-connection risk, and the caller's transient-retry wraps it. */
 function postStream(url: URL, payload: string): Promise<IncomingMessage> {
-  const requestFn = url.protocol === "https:" ? httpsRequest : httpRequest;
+  const requestFn = url.protocol === "https:" ? nodeHttps.request : nodeHttp.request;
   return new Promise((resolve, reject) => {
     const req = requestFn(
       {

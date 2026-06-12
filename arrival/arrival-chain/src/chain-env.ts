@@ -25,8 +25,6 @@ import type { ModelRouter } from "./registry.js";
 import type { ModelBackend } from "./model.js";
 import type { Loader } from "./loader.js";
 import type { McpEffectResolver } from "./mcp-effects.js";
-import { vercelBackend } from "./backends/vercel.js";
-import { ollamaBackend } from "./backends/ollama.js";
 
 /** A configured model: the host-side materialization of a model id the program names. */
 export interface ChainModelSpec {
@@ -91,15 +89,23 @@ export interface ChainConfig {
 
 /** Construct the concrete backend for a configured model. The provider→backend map — the one
  *  place that knows vercel vs ollama — replacing every consumer's hand-rolled router switch. */
-function makeBackend(spec: ChainModelSpec): ModelBackend {
-  const inner = ((): ModelBackend => {
+async function makeBackend(spec: ChainModelSpec): Promise<ModelBackend> {
+  // Backends are DYNAMICALLY imported per provider, so a browser bundle never
+  // pulls a node-only transport (ollama → node:http) it will never select. Each
+  // provider's module is its own lazy chunk; only the selected one loads.
+  const inner = await (async (): Promise<ModelBackend> => {
     switch (spec.provider) {
-      case "anthropic":
+      case "anthropic": {
+        const { vercelBackend } = await import("./backends/vercel.js");
         return vercelBackend({ provider: "anthropic", ...(spec.apiKey ? { apiKey: spec.apiKey } : {}), ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}) });
-      case "ollama":
+      }
+      case "ollama": {
+        const { ollamaBackend } = await import("./backends/ollama.js");
         return ollamaBackend({ ...(spec.baseURL ? { baseURL: spec.baseURL } : {}), ...(spec.think !== undefined ? { think: spec.think } : {}), ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}) });
+      }
       case "openai-compatible":
-      default:
+      default: {
+        const { vercelBackend } = await import("./backends/vercel.js");
         return vercelBackend({
           provider: "openai-compatible",
           ...(spec.baseURL ? { baseURL: spec.baseURL } : {}),
@@ -107,6 +113,7 @@ function makeBackend(spec: ChainModelSpec): ModelBackend {
           ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}),
           ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}),
         });
+      }
     }
   })();
   // Wire-name override: the program named a logical id (the registry key reaching `complete`
@@ -189,7 +196,7 @@ export class ChainEnvironment {
         const spec = models[modelId];
         invariant(!!spec, () => `chain: model "${modelId}" is not configured — declared models: ${Object.keys(models).join(", ") || "(none)"}`);
         let b = cache.get(modelId);
-        if (!b) { b = makeBackend(spec); cache.set(modelId, b); }
+        if (!b) { b = await makeBackend(spec); cache.set(modelId, b); }
         return b;
       },
     };
