@@ -112,7 +112,9 @@ const BUILTIN_BOUNDARY_PROTOTYPES: Set<object | null> = new Set([
   BigInt64Array.prototype,
   BigUint64Array.prototype,
   ArrayBuffer.prototype,
-  SharedArrayBuffer.prototype,
+  // SharedArrayBuffer exists only in crossOriginIsolated scopes (plain
+  // browser workers hide it entirely) — police it where it can exist.
+  ...(typeof SharedArrayBuffer === "undefined" ? [] : [SharedArrayBuffer.prototype]),
   DataView.prototype,
   // Generator/AsyncGenerator function prototypes
   Object.getPrototypeOf(function* () {}).prototype, // GeneratorFunction.prototype
