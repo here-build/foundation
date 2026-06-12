@@ -45,6 +45,9 @@ export interface ExposeInfo {
   inputSrc: string | null;
   /** Source slice of the `:output` `(s/object …)` form, or null when absent. */
   outputSrc: string | null;
+  /** Source slice of the `:meta` `(s/object …)` form (declared filterable
+   *  observability dimensions), or null when absent. */
+  metaSrc: string | null;
   /** True when a `:handler` clause is present. The handler body is NOT sliced
    *  or evaluated here — its presence is the only static fact (a declaration
    *  without a handler is incomplete and will fail at runtime registration). */
@@ -128,9 +131,10 @@ function sliceForm(source: string, offset: number): string | null {
 function foldClauses(
   tail: unknown,
   source: string,
-): { inputSrc: string | null; outputSrc: string | null; hasHandler: boolean } {
+): { inputSrc: string | null; outputSrc: string | null; metaSrc: string | null; hasHandler: boolean } {
   let inputSrc: string | null = null;
   let outputSrc: string | null = null;
+  let metaSrc: string | null = null;
   let hasHandler = false;
 
   let cur = tail;
@@ -141,14 +145,15 @@ function foldClauses(
       const raw = symName(key);
       const name = raw.startsWith(":") ? raw.slice(1) : raw;
       const valueForm = rest.car;
-      if (name === "input" || name === "output") {
+      if (name === "input" || name === "output" || name === "meta") {
         const loc = locationOf(valueForm);
         // Schema values are always `(s/object …)` pairs → sliceable. An atom
         // (no location) leaves the slot null: a non-list schema is malformed
         // and surfaces at runtime, not here.
         const slice = loc ? sliceForm(source, loc.offset) : null;
         if (name === "input") inputSrc = slice;
-        else outputSrc = slice;
+        else if (name === "output") outputSrc = slice;
+        else metaSrc = slice;
       } else if (name === "handler") {
         hasHandler = true;
       }
@@ -159,13 +164,22 @@ function foldClauses(
       cur = rest;
     }
   }
-  return { inputSrc, outputSrc, hasHandler };
+  return { inputSrc, outputSrc, metaSrc, hasHandler };
 }
 
 /**
- * Statically enumerate `(declare/expose …)` forms. Pure parse — nothing is
- * evaluated, so the handler never runs. Mirrors `extractDefines`'s contract:
- * `[]` on parse failure, top-level only, declaration order preserved.
+ * Statically enumerate the expose declarations in `source` — BOTH authoring
+ * fronts:
+ *   • `(declare/expose "name" :input … :output … :meta … :handler …)` — string
+ *     name, `:handler` clause carries the body.
+ *   • `(define/exposed name :input … :output … :meta … <body>)` — symbol name,
+ *     the trailing form is the body (always present ⇒ `hasHandler` is true).
+ *
+ * Both carry the same `:input`/`:output`/`:meta` schema clauses now, so the
+ * static view never diverges from the runtime one (both lower to the same
+ * `declare/expose` rosetta + `ExposeDeclaration`). Pure parse — nothing is
+ * evaluated, so the handler never runs. `[]` on parse failure, top-level only,
+ * declaration order preserved.
  */
 export async function extractExpose(source: string): Promise<ExposeInfo[]> {
   let forms: unknown[];
@@ -178,19 +192,36 @@ export async function extractExpose(source: string): Promise<ExposeInfo[]> {
   const out: ExposeInfo[] = [];
   for (const form of forms) {
     if (!isPair(form)) continue;
-    if (!isSymbol(form.car) || symName(form.car) !== EXPOSE_FORM) continue;
+    if (!isSymbol(form.car)) continue;
+    const head = symName(form.car);
+    const isDeclare = head === EXPOSE_FORM;
+    const isDefine = head === EXPOSED_DEFINE_HEAD;
+    if (!isDeclare && !isDefine) continue;
 
     const cdr1 = form.cdr;
     if (!isPair(cdr1)) continue;
     const nameForm = cdr1.car;
-    if (!isString(nameForm)) continue; // name must be a string literal
 
-    const { inputSrc, outputSrc, hasHandler } = foldClauses(cdr1.cdr, source);
+    // `declare/expose` names with a string literal; `define/exposed` with a
+    // bare symbol. Skip anything that doesn't match its front's name shape.
+    let name: string;
+    if (isDeclare) {
+      if (!isString(nameForm)) continue;
+      name = nameForm.__string__;
+    } else {
+      if (!isSymbol(nameForm)) continue;
+      name = symName(nameForm);
+    }
+
+    const { inputSrc, outputSrc, metaSrc, hasHandler } = foldClauses(cdr1.cdr, source);
     out.push({
-      name: nameForm.__string__,
+      name,
       inputSrc,
       outputSrc,
-      hasHandler,
+      metaSrc,
+      // `define/exposed`'s trailing body IS the handler — always present. The
+      // `:handler` keyword only exists on the `declare/expose` front.
+      hasHandler: isDefine ? true : hasHandler,
       location: locationOf(form),
     });
   }

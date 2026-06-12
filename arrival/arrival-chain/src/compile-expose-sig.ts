@@ -88,6 +88,9 @@ export interface ExposeSig {
   input: unknown | null;
   /** Canonical `(s/object …)` tagged list for the output, or null. */
   output: unknown | null;
+  /** Canonical `(s/object …)` tagged list for the declared filterable `:meta`
+   *  observability dimensions, or null. */
+  meta: unknown | null;
   /** Whether the declaration carries a `:handler` (static completeness). */
   hasHandler: boolean;
 }
@@ -105,6 +108,10 @@ export interface ExposeSig {
  * fail at runtime registration, which the gate can surface).
  */
 export async function compileExposeSig(info: ExposeInfo): Promise<ExposeSig> {
-  const [input, output] = await Promise.all([evalSchemaSlice(info.inputSrc), evalSchemaSlice(info.outputSrc)]);
-  return { input, output, hasHandler: info.hasHandler };
+  const [input, output, meta] = await Promise.all([
+    evalSchemaSlice(info.inputSrc),
+    evalSchemaSlice(info.outputSrc),
+    evalSchemaSlice(info.metaSrc),
+  ]);
+  return { input, output, meta, hasHandler: info.hasHandler };
 }
