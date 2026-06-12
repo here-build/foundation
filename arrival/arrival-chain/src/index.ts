@@ -206,6 +206,7 @@ export { traceToChain, type ProvenanceChain, type ChainNode, type ChainEdge } fr
 export { traceToRegions, type Region, type RegionGraph } from "./trace-to-regions.js";
 export { serializeTrace, loadTraceArtifact, TRACE_PROTOCOL_VERSION, type TraceArtifact } from "./trace-artifact.js";
 export { regionBoundaries, type RegionBoundary } from "./region-boundaries.js";
+export { buildUneval, type Uneval, type UnevalContainer } from "./uneval.js";
 export { inferTasksByScope } from "./infer-content.js";
 
 // ── Sweet-expression lens ─────────────────────────────────────────────

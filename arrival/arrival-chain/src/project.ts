@@ -7,6 +7,7 @@ import {
   sandboxedEnv,
   lipsToJs,
   Nil,
+  type Environment,
 } from "@here.build/arrival-scheme";
 import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
 import Handlebars from "handlebars";
@@ -1617,7 +1618,7 @@ export class Project extends PlexusModel<null> {
        *  same record+replay seam as `run`. Inert when absent. */
       data?: DataEffectResolver;
     } & ExecBudget,
-  ): Promise<{ userForms: unknown[]; finished: Promise<unknown> }> {
+  ): Promise<{ userForms: unknown[]; finished: Promise<unknown>; env: Environment; result: Promise<unknown> }> {
     // Reuse the same rosetta wiring as run() by going through run() for the
     // preamble half, then parsing and tap-evaluating the user body ourselves.
     // To avoid duplicating the env-setup, we set up the env inline here.
@@ -1693,16 +1694,24 @@ export class Project extends PlexusModel<null> {
 
     // Kick off evaluation of each user form sequentially, with the tap attached.
     // A `(require …)` spills its defines/macros before the next form (eager-seq).
+    // `lastValue` keeps the RAW final value (an AValue with provenance) — `finished`
+    // peels it to JS for callers, but `uneval` needs the AValue + the live `env` to
+    // evaluate a selector ("(car result)") as one more tapped step. Both are surfaced.
+    let lastValue: unknown = undefined;
     const finished = (async () => {
       let last: unknown = undefined;
       for (const form of userForms) {
         last = await execExpr(form, { env, tap: opts.trace, signal: opts.signal, budgetMs: opts.budgetMs });
         if (isThenable(last)) last = await last;
       }
+      lastValue = last;
       return lipsToJs(last, {});
     })();
 
-    return { userForms, finished };
+    // `env` (post-run scope) + `result` (the final AValue) let a caller build the
+    // `{result, meta, uneval}` container: bind `result` in `env`, eval a selector as one
+    // more tapped step, slice the trace by the effective value's provenance.
+    return { userForms, finished, env, result: finished.then(() => lastValue) };
   }
 }
 
