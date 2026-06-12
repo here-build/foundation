@@ -3,6 +3,7 @@
  * scheme into a target language. Phase 1: JS (read-view). See SPEC.md.
  */
 export { projectToJs, projectToJsRaw, type ProjectOptions } from "./project.js";
+export { sliceToTypeScript } from "./slice-to-ts.js";
 export { formatJs } from "./format.js";
 export { cleanName, nameCandidates } from "./names.js";
 export {
