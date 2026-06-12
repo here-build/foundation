@@ -128,6 +128,7 @@ describe("flow-graph build — benchmark", () => {
     [12, 6],
     [40, 16],
     [80, 24],
+    [1000, 24], // ~500k invocations — the real host test-pipeline ceiling (V)
   ];
 
   for (const [rounds, personas] of SIZES) {
@@ -173,6 +174,6 @@ describe("flow-graph build — benchmark", () => {
       expect(traceToFlowGraph(trace).nodes.length).toBeGreaterThan(0);
       expect(traceToFlowGraphNaive(trace).nodes.length).toBeGreaterThan(0);
       expect(regionCounts.deep).toBeGreaterThan(0);
-    }, 120_000);
+    }, 600_000);
   }
 });
