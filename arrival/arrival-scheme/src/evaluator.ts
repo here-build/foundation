@@ -1336,6 +1336,34 @@ function* evalDefine(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 }
 
 /**
+ * Handle 'define/expose' (ADR-022): define-and-expose in one form.
+ *
+ * EVALUATOR-TRANSPARENT: this binds IDENTICALLY to `define`. The exposing is an
+ * analysis-time annotation read host-side by `scanExposed` (exposed.ts), never
+ * here — interface/provenance is external to the dataflow core (membrane rule),
+ * so the purity invariant is untouched. The only evaluation-time job is to
+ * strip the optional `#:id <token>` annotation so the residual binds as a plain
+ * `(define name body…)`.
+ */
+function* evalDefineExpose(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
+  invariant(is_pair(rest), "define/expose: missing name");
+  const first = rest.car;
+  // `(define/expose (f x) body)` — function shorthand carries no annotation.
+  // `(define/expose name #:id tok value)` — strip the leading `#:id tok` pair.
+  let lowered: SchemeValue = rest;
+  if (first instanceof SchemeSymbol && is_pair(rest.cdr)) {
+    const next = rest.cdr.car;
+    if (next instanceof SchemeSymbol) {
+      const kw = symbol_name(next);
+      if ((kw === "#:id" || kw === ":id") && is_pair(rest.cdr.cdr)) {
+        lowered = new Pair(first, rest.cdr.cdr.cdr);
+      }
+    }
+  }
+  return yield* evalDefine(lowered, ctx);
+}
+
+/**
  * Handle 'set!' special form: (set! name value)
  */
 function* evalSet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
@@ -2418,6 +2446,7 @@ const SPECIAL_FORMS: Record<string, (rest: SchemeValue, ctx: EvalContext) => Eva
   quote: evalQuote,
   quasiquote: evalQuasiquote,
   define: evalDefine,
+  "define/expose": evalDefineExpose,
   "define-macro": evalDefineMacro,
   "set!": evalSet,
   lambda: evalLambda,

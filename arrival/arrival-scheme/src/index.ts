@@ -57,6 +57,9 @@ export { Pair } from "./Pair.js";
 //        const n = new Scheme.Exact(42n)
 export * as Scheme from "./Scheme.js";
 
+// ADR-022: exposed-functions analysis (host-side reader of define/expose).
+export { scanExposed, deriveToken, type ExportRecord } from "./exposed.js";
+
 applyFantasyLandPatches();
 void initBridge();
 
