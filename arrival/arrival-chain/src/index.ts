@@ -168,6 +168,7 @@ export { extractDefines, type DefineInfo } from "./extract-defines.js";
 // import the parse-form location type directly from `./extract-expose.js`.
 export {
   extractExpose,
+  extractOverridables,
   extractReachableOverridables,
   type ExposeInfo,
   type OverridableInfo,
@@ -208,7 +209,7 @@ export {
 // tagged-list signature the registry stores: evaluates ONLY the pure
 // `:input`/`:output` schema slices (never the handler), so a config-plane
 // registry sync can run it on every draft edit safely. Feeds `schemaToZod`.
-export { compileExposeSig, type ExposeSig } from "./compile-expose-sig.js";
+export { compileExposeSig, extractFormSpec, type ExposeSig, type FormFieldKind, type FormHole } from "./compile-expose-sig.js";
 export {
   traceToStatechart,
   forwardCone,

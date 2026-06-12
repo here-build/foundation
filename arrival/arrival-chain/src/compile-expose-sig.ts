@@ -1,6 +1,6 @@
 import { execGeneratorExpr, execGeneratorFromString, lipsToJs, parseGenerator, sandboxedEnv } from "@here.build/arrival-scheme";
 
-import type { ExposeInfo } from "./extract-expose.js";
+import { extractOverridables, type ExposeInfo } from "./extract-expose.js";
 import { BUILTIN_PREAMBLE } from "./project.js";
 
 // ── static expose extraction → canonical tagged-list signature ─────────────
@@ -54,17 +54,18 @@ function schemaEnv(): Promise<ReturnType<typeof sandboxedEnv.inherit>> {
 }
 
 /**
- * Evaluate one pure `(s/object …)` schema source slice to its canonical tagged
- * list (`["object", …]` / `["enum", …]` / `["array", …]`), or `null` for an
- * absent slice. Pure: the slice is a list-constructor expression over the
- * preamble's `s/…` procs; nothing here runs a handler or reaches an effect.
+ * Evaluate one pure source slice to a JS value via the sandboxed schema env — a schema
+ * `(s/…)` form to its canonical tagged list (`["object", …]` / `["enum", …]`), OR an
+ * overridable's literal default to its value (`"gpt-4o"` → `"gpt-4o"`, `5` → `5`). `null`
+ * for an absent slice. Pure: the slice is a list-constructor / literal over the preamble's
+ * `s/…` procs; nothing here runs a handler or reaches an effect.
  *
- * A slice that fails to parse or evaluate yields `null` (a malformed schema is
- * "no structured schema" — the same null `extractExpose`/`renderSchema` produce
- * for an absent one — rather than throwing and stranding the whole registry
- * sync; the malformed declaration surfaces at runtime registration instead).
+ * A slice that fails to parse or evaluate yields `null` (a malformed schema is "no
+ * structured schema" — the same null `extractExpose`/`renderSchema` produce for an absent
+ * one — rather than throwing and stranding the consumer; the malformed declaration surfaces
+ * at runtime registration instead).
  */
-async function evalSchemaSlice(src: string | null): Promise<unknown | null> {
+async function evalPureSlice(src: string | null): Promise<unknown | null> {
   if (src === null) return null;
   try {
     const env = await schemaEnv();
@@ -109,9 +110,63 @@ export interface ExposeSig {
  */
 export async function compileExposeSig(info: ExposeInfo): Promise<ExposeSig> {
   const [input, output, meta] = await Promise.all([
-    evalSchemaSlice(info.inputSrc),
-    evalSchemaSlice(info.outputSrc),
-    evalSchemaSlice(info.metaSrc),
+    evalPureSlice(info.inputSrc),
+    evalPureSlice(info.outputSrc),
+    evalPureSlice(info.metaSrc),
   ]);
   return { input, output, meta, hasHandler: info.hasHandler };
+}
+
+// ── overridable holes → form-field spec (the N3 form lens) ─────────────────
+//
+// The form lens renders each top-level `define/overridable` as a typed input: its schema
+// picks the control, its default seeds the value. Evaluated pure-statically (same sandbox
+// as the expose sigs) — opening the form costs no inference and runs no handler. The form
+// is a projection of the declaration; field edits feed `kernel.setOverride(name, value)`.
+
+/** Which input control a hole's schema maps to. The studio renders by `kind`, so the
+ *  `s/…` tag encoding stays inside the engine (never re-parsed in the UI). An object /
+ *  array / unrecognised schema is `unsupported` — the form shows a read-only fallback
+ *  rather than guessing a control. */
+export type FormFieldKind =
+  | { kind: "string" }
+  | { kind: "number" }
+  | { kind: "integer" }
+  | { kind: "boolean" }
+  | { kind: "enum"; options: unknown[] }
+  | { kind: "unsupported"; schemaTag: unknown };
+
+/** One rendered form field: the hole's name (its caller-arg identity + override key), its
+ *  declared default (the seed value), and the control its schema selects. */
+export interface FormHole {
+  name: string;
+  default: unknown;
+  field: FormFieldKind;
+}
+
+/** Map an evaluated `(s/…)` schema tag to a form-field control choice. */
+function fieldKindOf(schemaTag: unknown): FormFieldKind {
+  if (schemaTag === "string") return { kind: "string" };
+  if (schemaTag === "number") return { kind: "number" };
+  if (schemaTag === "integer") return { kind: "integer" };
+  if (schemaTag === "boolean") return { kind: "boolean" };
+  if (Array.isArray(schemaTag) && schemaTag[0] === "enum") return { kind: "enum", options: schemaTag.slice(1) };
+  return { kind: "unsupported", schemaTag };
+}
+
+/**
+ * The N3 form spec for a source: every top-level `define/overridable` as a typed field
+ * ({@link FormHole}). Pure + handler-free — `extractOverridables` parses statically, then
+ * each hole's schema + default slices evaluate in the sandboxed schema env. Opening the
+ * form spends nothing; the field values feed `kernel.setOverride(name, value)` at run.
+ */
+export async function extractFormSpec(source: string): Promise<FormHole[]> {
+  const holes = await extractOverridables(source);
+  return Promise.all(
+    holes.map(async (h) => ({
+      name: h.name,
+      default: await evalPureSlice(h.defaultSrc),
+      field: fieldKindOf(await evalPureSlice(h.schemaSrc)),
+    })),
+  );
 }

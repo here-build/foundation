@@ -280,6 +280,11 @@ function renderAtom(v: unknown): string | null {
   if (typeof v === "boolean") return v ? "#t" : "#f";
   if (typeof v === "number") return String(v);
   if (typeof v === "bigint") return v.toString();
+  // arrival-scheme boxes a boolean literal as SchemeBool { value: boolean } — match it
+  // BEFORE the numeric box below (whose `.value` is numeric), so the discriminant holds.
+  if (v !== null && typeof v === "object" && typeof (v as { value?: unknown }).value === "boolean") {
+    return (v as { value: boolean }).value ? "#t" : "#f";
+  }
   // arrival-scheme numbers box as objects carrying `num`/`value`; fall through.
   if (v !== null && typeof v === "object") {
     const n = (v as { num?: unknown; value?: unknown }).num ?? (v as { value?: unknown }).value;
@@ -309,6 +314,58 @@ function definedName(head: unknown, afterName: unknown): string | undefined {
   // string-named (declare/expose "name" …) is not a binding here.
   void afterName;
   return undefined;
+}
+
+/**
+ * Parse one top-level `(define/overridable name <default> <schema>)` form into its static
+ * {@link OverridableInfo}, or null if it isn't that shape. The shared per-hole parse behind
+ * both the exposed-reachability pass and the flat {@link extractOverridables} lister: a
+ * list-form default/schema is sliced from source by location; an atom renders to its
+ * literal text — either way a re-parseable, re-evaluable slice.
+ */
+function overridableInfoOf(form: unknown, source: string): OverridableInfo | null {
+  if (!isPair(form) || !isSymbol(form.car) || symName(form.car) !== OVERRIDABLE_DEFINE_HEAD) return null;
+  const cdr1 = form.cdr;
+  if (!isPair(cdr1)) return null;
+  const name = definedName(cdr1.car, cdr1.cdr);
+  if (name === undefined) return null;
+  const rest = cdr1.cdr; // (default schema)
+  const defForm = isPair(rest) ? rest.car : undefined;
+  const schemaForm = isPair(rest) && isPair(rest.cdr) ? rest.cdr.car : undefined;
+  const sliceOf = (f: unknown): string | null => {
+    if (isPair(f)) {
+      const loc = locationOf(f);
+      return loc ? sliceForm(source, loc.offset) : null;
+    }
+    return renderAtom(f);
+  };
+  return {
+    name,
+    defaultSrc: defForm !== undefined ? sliceOf(defForm) : null,
+    schemaSrc: schemaForm !== undefined ? sliceOf(schemaForm) : null,
+    location: locationOf(form),
+  };
+}
+
+/**
+ * Every top-level `(define/overridable …)` in a source, in declaration order — the flat
+ * knob surface (NOT exposed-function-scoped: a notebook cell commonly declares overridable
+ * knobs with no `define/exposed`, so the reachability pass would report none). Pure static
+ * parse; `[]` on parse failure. The N3 form lens renders exactly this list.
+ */
+export async function extractOverridables(source: string): Promise<OverridableInfo[]> {
+  let forms: unknown[];
+  try {
+    forms = (await parseGenerator(source)) as unknown[];
+  } catch {
+    return [];
+  }
+  const out: OverridableInfo[] = [];
+  for (const form of forms) {
+    const info = overridableInfoOf(form, source);
+    if (info) out.push(info);
+  }
+  return out;
 }
 
 /**
@@ -362,27 +419,8 @@ export async function extractReachableOverridables(source: string): Promise<Reac
     defs.set(name, { name, refs, kind, location });
 
     if (isOverridable) {
-      // (define/overridable name <default> <schema>)
-      const rest = cdr1.cdr; // (default schema)
-      const defForm = isPair(rest) ? rest.car : undefined;
-      const schemaForm = isPair(rest) && isPair(rest.cdr) ? rest.cdr.car : undefined;
-      // A list form (Pair) carries a `__location__` → slice it from source. An
-      // atom default (string / number / boolean / symbol) carries no location,
-      // so render its literal text directly. Either way the result is the exact
-      // source-equivalent text the consumer can re-parse + evaluate.
-      const sliceOf = (f: unknown): string | null => {
-        if (isPair(f)) {
-          const loc = locationOf(f);
-          return loc ? sliceForm(source, loc.offset) : null;
-        }
-        return renderAtom(f);
-      };
-      overridables.set(name, {
-        name,
-        defaultSrc: defForm !== undefined ? sliceOf(defForm) : null,
-        schemaSrc: schemaForm !== undefined ? sliceOf(schemaForm) : null,
-        location,
-      });
+      const info = overridableInfoOf(form, source);
+      if (info) overridables.set(name, info);
     }
     if (isExposed) exposedOrder.push({ name, location });
   }
