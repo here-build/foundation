@@ -35,9 +35,6 @@ import type { Environment } from "@here.build/arrival-scheme";
 
 import { EXPOSE_FORM } from "./extract-expose.js";
 
-/** The form head the `define/exposed` preamble macro lowers to. */
-export const EXPOSED_DEFINE_FORM = "exposed/declare";
-
 /** A scheme proc as seen from JS after crossing the rosetta membrane: an async
  *  callable taking already-membraned JS args. The handler lambda is exactly this. */
 type SchemeProc = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -57,6 +54,10 @@ export interface ExposeDeclaration {
   inputSchema: unknown | null;
   /** Canonical `(s/object …)` tagged list for the output, or null. */
   outputSchema: unknown | null;
+  /** Canonical `(s/object …)` tagged list for the declared, typed, FILTERABLE
+   *  observability dimensions (low-cardinality `:meta`), or null. Same schema
+   *  shape as input/output; becomes the runs-filter surface host-side. */
+  metaSchema: unknown | null;
   /**
    * The handler. Call with a plain JS input; get a plain JS value back (the
    * wrapper crosses the result through the LIPS→JS membrane). Async because the
@@ -99,37 +100,11 @@ export function defineExposeRosetta(opts: {
 }): void {
   const { env, buildDict, onExpose } = opts;
 
-  // ── `define/exposed` authoring front ──────────────────────────────────
-  // `(define/exposed name body)` lowers (preamble macro) to
-  // `(define name (exposed/declare (symbol->string 'name) <handler>))`. No
-  // `:input`/`:output` schema in v1 — the input contract is DERIVED from the
-  // reachable `define/overridable`s (static, see extract-expose). Registers on
-  // the SAME `onExpose` sink as `declare/expose`, keyed by name. The form's
-  // value IS the handler, so the name binds and stays callable.
-  env.defineRosetta(EXPOSED_DEFINE_FORM, {
-    fn: async (name: unknown, handlerProc: unknown) => {
-      invariant(
-        typeof name === "string",
-        () => `${EXPOSED_DEFINE_FORM}: name must be a string, got ${name === null ? "null" : typeof name}`,
-      );
-      invariant(
-        typeof handlerProc === "function",
-        () => `${EXPOSED_DEFINE_FORM}: "${name}" is missing a handler body (a lambda)`,
-      );
-      const proc = handlerProc as SchemeProc;
-      const handler = async (input: unknown): Promise<unknown> => lipsToJs(await proc(input), {});
-      if (onExpose) {
-        await onExpose({
-          name,
-          inputSchema: null,
-          outputSchema: null,
-          handler,
-        });
-      }
-      return handlerProc;
-    },
-  });
-
+  // ── `declare/expose` — the one expose rosetta ─────────────────────────
+  // The `define/exposed` authoring front is now a pure preamble macro that
+  // lowers directly to `(define name (declare/expose (symbol->string 'name)
+  // …passthrough :k v… :handler <body>))`, so there is no separate runtime
+  // head: both fronts land here, keyed by name, on the same `onExpose` sink.
   env.defineRosetta(EXPOSE_FORM, {
     fn: async (name: unknown, ...kv: unknown[]) => {
       invariant(
@@ -151,6 +126,7 @@ export function defineExposeRosetta(opts: {
           name,
           inputSchema: folded.input ?? null,
           outputSchema: folded.output ?? null,
+          metaSchema: folded.meta ?? null,
           handler,
         });
       }
