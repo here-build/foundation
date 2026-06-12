@@ -17,6 +17,7 @@ import { createInferStore } from "../infer-store.js";
 import type { ModelSpec } from "../model.js";
 import { Project } from "../project.js";
 import { singletonRouter } from "../registry.js";
+import { TraceRegionFold } from "../trace-region-fold.js";
 import { snapshotTrace } from "../trace-snapshot.js";
 import { traceToFlowGraph } from "../trace-to-flow-graph.js";
 import { traceToFlowGraphNaive } from "../trace-to-flow-graph-naive.js";
@@ -80,7 +81,9 @@ function time(label: string, fn: () => void, runs = 7): string {
     samples.push(performance.now() - t0);
   }
   const mean = samples.reduce((a, b) => a + b, 0) / runs;
-  return `  ${label.padEnd(30)} mean ${mean.toFixed(1).padStart(9)} ms    min ${Math.min(...samples).toFixed(1).padStart(9)} ms`;
+  return `  ${label.padEnd(30)} mean ${mean.toFixed(1).padStart(9)} ms    min ${Math.min(...samples)
+    .toFixed(1)
+    .padStart(9)} ms`;
 }
 
 /** Nodes that would be VISIBLE under a collapse predicate — i.e. NOT inside any
@@ -122,6 +125,114 @@ function countRegions(graph: { roots: AnyRegion[] }): { top: number; deep: numbe
   return { top: graph.roots.length, deep };
 }
 
+/** The whole point of `TraceRegionFold`: per-tick cost is the incremental Δ, not the
+ *  O(N) full rebuild `traceToRegions` pays each frame. We measure the GENUINE streaming
+ *  path — a barrier-gated router parks every infer; we pulse it (releasing the currently
+ *  parked wave), then applyDelta() (and, periodically, current()) on a fold reading the
+ *  LIVE trace, timing each. The MAX per-tick current() on the 500k row must be
+ *  MILLISECONDS (the whole point); the one-shot traceToRegions is seconds. */
+async function measureStreamingFold(rounds: number, personas: number): Promise<string> {
+  let release!: () => void;
+  let gate = new Promise<void>((r) => (release = r));
+  let waiting!: () => void;
+  let nextWaiter = new Promise<void>((r) => (waiting = r));
+
+  const project = ArrivalChain.bootstrap(new Project()).root;
+  project.bindInfer(
+    createInferStore(
+      singletonRouter({
+        complete: async (spec: ModelSpec) => {
+          const signal = waiting;
+          nextWaiter = new Promise<void>((r) => (waiting = r));
+          signal();
+          await gate;
+          const msgs = JSON.parse(spec.prompt) as { role: string; content: string }[];
+          const user = msgs.find((m) => m.role === "user")?.content ?? "";
+          if (user.startsWith("REACT|")) return { value: { verdict: "click" } };
+          const current = user.split("|")[1] ?? "";
+          return { value: { next: `${current}x` } };
+        },
+      }),
+    ),
+  );
+  const personaList = Array.from({ length: personas }, (_, i) => `"p${i}"`).join(" ");
+  const trace = new EvalTrace();
+  const done = project.run(
+    `
+(define (react-cell tagline persona-id)
+  (car (infer/chat "fast"
+         (list (infer/chat/system "stub")
+               (infer/chat/user (string-append "REACT|" tagline "|" persona-id)))
+         (s/object (s/field/string "verdict"))
+         (string-append "react/" tagline "/" persona-id))))
+(define (next-tagline current reactions)
+  (:next (car (infer/chat "fast"
+                (list (infer/chat/system "stub")
+                      (infer/chat/user (string-append "REFLECT|" current "|"
+                                                      (:verdict (car reactions)))))
+                (s/object (s/field/string "next"))
+                (string-append "reflect/" current)))))
+(define (loop tagline iter max-iter)
+  (let ((reactions (map (lambda (p) (react-cell tagline p)) (list ${personaList}))))
+    (if (>= iter max-iter) tagline (loop (next-tagline tagline reactions) (+ iter 1) max-iter))))
+(loop "t0" 0 ${rounds})
+`,
+    { trace },
+  );
+
+  const fold = new TraceRegionFold(trace);
+  let pulses = 0;
+  let currents = 0;
+  let totalDelta = 0;
+  let maxApply = 0;
+  let maxCurrent = 0;
+  let lastCurrent = 0;
+  // Pulse until the run settles. Each pulse: applyDelta() (timed — the per-tick absorb),
+  // then release the parked wave. current() emits the WHOLE graph (O(total regions) per
+  // call), so to keep the simulation bounded at scale we time current() only every
+  // `sampleEvery` pulses + always at the very end (full-trace worst case = the headline).
+  const sampleEvery = Math.max(1, Math.floor(rounds / 24));
+  for (let guard = 0; guard < rounds * (personas + 4) + 16; guard++) {
+    const parked = await Promise.race([nextWaiter.then(() => true), done.then(() => false)]);
+    const a0 = performance.now();
+    const delta = fold.applyDelta();
+    maxApply = Math.max(maxApply, performance.now() - a0);
+    totalDelta += delta;
+    pulses += 1;
+    if (!parked || pulses % sampleEvery === 0) {
+      const c0 = performance.now();
+      fold.current();
+      lastCurrent = performance.now() - c0;
+      maxCurrent = Math.max(maxCurrent, lastCurrent);
+      currents += 1;
+    }
+    if (!parked) break;
+    const open = release;
+    gate = new Promise<void>((r) => (release = r));
+    open();
+    await Promise.resolve();
+  }
+  await done;
+  // Final current() on the fully-settled trace (the worst-case per-tick render cost).
+  fold.applyDelta();
+  {
+    const c0 = performance.now();
+    fold.current();
+    lastCurrent = performance.now() - c0;
+    maxCurrent = Math.max(maxCurrent, lastCurrent);
+    currents += 1;
+  }
+
+  return [
+    `  --- streaming fold (per-tick incremental — the win) ---`,
+    `  pulses / current() samples         ${pulses} / ${currents}`,
+    `  sum delta invocations absorbed     ${totalDelta}`,
+    `  MAX applyDelta() per pulse         ${maxApply.toFixed(2)} ms   (O(total bindings) scan — see notes)`,
+    `  MAX current() per tick             ${maxCurrent.toFixed(2)} ms   <- must be ms, not s`,
+    `  last current() (full trace)        ${lastCurrent.toFixed(2)} ms`,
+  ].join("\n");
+}
+
 describe("flow-graph build — benchmark", () => {
   // Scale here to stress the O(n) / O(n²) terms. Trace-build (setup) grows too.
   const SIZES: Array<[rounds: number, personas: number]> = [
@@ -142,15 +253,22 @@ describe("flow-graph build — benchmark", () => {
       const regionCounts = countRegions(traceToRegions(trace));
       const repeating = (n: CountNode) => n.boxType === "loop" || n.boxType === "unfold";
 
+      // The per-tick streaming measurement (re-builds its own gated trace of the same
+      // shape) — the whole point of the fold.
+      const streamingReport = await measureStreamingFold(rounds, personas);
+
       console.log(
         [
           `\n=== trace: rounds=${rounds} personas=${personas} → ${snap.invocations.length} invocations, ${infers} infer points ===`,
-          time("snapshotTrace", () => snapshotTrace(trace)),
-          time("traceToForest", () => traceToForest(trace)),
-          time("traceToStatechart", () => traceToStatechart(trace)),
-          time("traceToFlowGraph (MDL)", () => traceToFlowGraph(trace)),
-          time("traceToFlowGraphNaive", () => traceToFlowGraphNaive(trace)),
-          time("traceToRegions", () => traceToRegions(trace)),
+          // Fewer samples for the heavy builds at 500k (each call is seconds).
+          time("snapshotTrace", () => snapshotTrace(trace), rounds >= 1000 ? 3 : 7),
+          time("traceToForest", () => traceToForest(trace), rounds >= 1000 ? 2 : 7),
+          time("traceToStatechart", () => traceToStatechart(trace), rounds >= 1000 ? 2 : 7),
+          time("traceToFlowGraph (MDL)", () => traceToFlowGraph(trace), rounds >= 1000 ? 2 : 7),
+          time("traceToFlowGraphNaive", () => traceToFlowGraphNaive(trace), rounds >= 1000 ? 2 : 7),
+          time("traceToRegions (from-scratch)", () => traceToRegions(trace), rounds >= 1000 ? 2 : 7),
+          time("TraceRegionFold.fromTrace (one-shot)", () => TraceRegionFold.fromTrace(trace), rounds >= 1000 ? 2 : 7),
+          streamingReport,
           // The regions-path collapse metric (the A2 decision): deep ≈ distinct
           // scopes ⇒ collapses (cheap, no worker); deep ≈ invocations ⇒ per-pass
           // over-materialization (template-collapse is the real fix).

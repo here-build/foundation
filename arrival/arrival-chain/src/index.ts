@@ -226,6 +226,8 @@ export {
 export { traceToFlowGraphNaive } from "./trace-to-flow-graph-naive.js";
 export { traceToChain, type ProvenanceChain, type ChainNode, type ChainEdge } from "./trace-to-chain.js";
 export { traceToRegions, type Region, type RegionGraph } from "./trace-to-regions.js";
+// Incremental twin of `traceToRegions` — maintains the same RegionGraph in O(Δ) per streamed tick (vs O(N) full rebuild) for the live blueprint render. Parity-locked to traceToRegions.
+export { TraceRegionFold } from "./trace-region-fold.js";
 export { serializeTrace, loadTraceArtifact, TRACE_PROTOCOL_VERSION, type TraceArtifact } from "./trace-artifact.js";
 export { regionBoundaries, type RegionBoundary } from "./region-boundaries.js";
 export { buildSlice, type Slice } from "./slice.js";
