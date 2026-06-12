@@ -414,6 +414,14 @@ export function loaderFromResolver(resolver: RequireResolver): Loader {
  * Define the runtime `require` rosetta on `env`. Closes over the loader, the run
  * env, the trace tap, and the per-run load state. Statement-position +
  * eager-sequential (see module header). Cycles throw.
+ *
+ * Returns a `clearCache()` — the single-flight module cache (`inflight`) persists for
+ * the life of this closure, which is fine within one run but stale across runs of a
+ * SHARED env (a notebook kernel): a `(require "config.scm")` would resolve its
+ * `define/overridable` holes ONCE and never see a later override. A shared-kernel host
+ * calls `clearCache()` before each run so requires re-evaluate against the current
+ * overrides (and current source). Within-run single-flight is untouched — the cache
+ * fills during the run, clears before the next.
  */
 export function defineRequireRosetta(opts: {
   env: Environment;
@@ -424,7 +432,7 @@ export function defineRequireRosetta(opts: {
    *  project (it closes over the infer capability + the `s/…` schema rosettas).
    *  Absent on a bare loader → requiring a `.prompt` throws (no infer to bind). */
   compileInferUnit?: (unit: PromptUnit) => MaybePromise<unknown>;
-}): void {
+}): () => void {
   const { env, loader, tap, baseDir = "", compileInferUnit } = opts;
   // Single-flight module cache: each resolved path loads EXACTLY ONCE; every later
   // require — sequential repeat OR concurrent sibling — awaits that one promise.
@@ -529,6 +537,10 @@ export function defineRequireRosetta(opts: {
       }
     },
   });
+
+  // The host clears this between runs of a shared env so requires re-evaluate against
+  // the current overrides + source (see the doc header). A no-op within a single run.
+  return () => inflight.clear();
 }
 
 /**

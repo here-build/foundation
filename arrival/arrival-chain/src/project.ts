@@ -624,6 +624,14 @@ export function buildArrivalEnv(opts: {
    */
   resolveOverride?: ResolveOverride;
   /**
+   * Receiver for the `require` cache-clearer (see `defineRequireRosetta`). A shared-env
+   * host (a notebook kernel) keeps this fn and calls it before each run, so a
+   * `(require …)` re-evaluates against the CURRENT overrides + source instead of a value
+   * cached at first load. Absent ⇒ the cache persists for the env's life (the one-shot
+   * default, where there is no "next run" to stale against).
+   */
+  onRequireCache?: (clearRequireCache: () => void) => void;
+  /**
    * Host sink for `(run/continue-after-approval …)`. Each pending approval is
    * handed over as a {@link FunctionRunApprovalRequest}; a human surfaces it,
    * may edit the proposed value, and flips `approved`/`rejected`. Absent (and
@@ -816,7 +824,8 @@ export function buildArrivalEnv(opts: {
     resolveApproval: opts.resolveApproval,
   });
   defineImportRosetta({ env, loader: opts.loader });
-  defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "", compileInferUnit });
+  const clearRequireCache = defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "", compileInferUnit });
+  opts.onRequireCache?.(clearRequireCache);
   return env;
 }
 
