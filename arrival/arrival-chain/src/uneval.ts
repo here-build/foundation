@@ -9,13 +9,13 @@
 // Why this is sound (and why arrival was made pure): the language is pure dataflow with on-value
 // provenance, so the effective value's origin set IS its dependency set, and a program restricted
 // to that derivation reproduces the value (the Galois-slicing `uneval` of Perera–Cheney; purity is
-// the theorem that makes the least slice exist and be sound). This file ships the SELECTOR step +
-// the container; the minimal inlining slice (substitute defines over the homoiconic AST) is the
-// next increment — for now `program` is the runnable original-source + selector (correct, re-runs
-// to V), plus the provenance points so a renderer can minimize it.
+// the theorem that makes the least slice exist and be sound). The container's `program` is the
+// real SLICE (via `buildSlice`): only the top-level forms the effective value depends on, plus
+// the selector. Intra-form minimal slicing (sub-form re-synthesis) is the deferred increment.
 
 import { execGeneratorExpr as execExpr, parseGenerator as parse, AValue, lipsToJs, type Environment } from "@here.build/arrival-scheme";
 import type { EvalTrace } from "./trace.js";
+import { buildSlice } from "./slice.js";
 
 /** One reverse-chain answer: the effective value the selector produced, the origin reads it
  *  traces to, and a re-runnable Scheme program that re-derives it. */
@@ -25,10 +25,15 @@ export interface Uneval {
   /** The origin-IDs the value traces to — the provenance-point invocations (the evidence reads /
    *  marked derivations). Empty if the selector produced a non-provenanced value. */
   provenance: number[];
-  /** A re-runnable Scheme program re-deriving the value. v1: the original program source followed
-   *  by the selector (correct + re-runnable). The MINIMAL slice (only V's derivation) is the next
-   *  increment — `provenance` is the seed for it. */
+  /** A re-runnable Scheme program re-deriving the value: the SLICE — only the top-level forms the
+   *  effective value depends on (the backward dependence cone), followed by the selector that
+   *  picks it out. Unrelated forms are pruned; referenced literal defines are kept. */
   program: string;
+  /** The dynamic point-cone — the provenance-point ids the value depends on (the evidence reads
+   *  / derivations). The per-leaf→read join key; also a UI source-highlight seed. */
+  points: number[];
+  /** `scopeId` of each kept form (stable source-location keys, for UI highlighting). */
+  scopeIds: string[];
 }
 
 /** A traced run's return value, as V's design wants it: the answer, run metadata, and `uneval`. */
@@ -66,11 +71,13 @@ export function buildUneval(opts: {
       let v: unknown = await execExpr(sel[sel.length - 1], { env, tap: trace });
       if (v != null && typeof (v as { then?: unknown }).then === "function") v = await (v as Promise<unknown>);
       const provenance = v instanceof AValue ? [...v.provenance] : [];
-      // v1 program: the original derivation + the selector — re-runnable, reproduces V. The
-      // minimal inlining slice (substitute the defines V depends on over the homoiconic AST,
-      // bottoming out at the reads) is the next increment, seeded by `provenance`.
-      const program = `${source.trim()}\n${selector.trim()}`;
-      return { value: lipsToJs(v, {}), provenance, program };
+      // The SLICE: backward dependence cone of the effective value over the run's trace — only
+      // the forms it depends on, followed by the selector that picks it out (the selector reads
+      // `result`, the run output bound in `env`). Unrelated forms are pruned; referenced literal
+      // defines kept (buildSlice's two closures). Re-runs to the value, by purity.
+      const slice = buildSlice(trace, v instanceof AValue ? v.provenance : []);
+      const program = slice.program ? `${slice.program}\n${selector.trim()}` : selector.trim();
+      return { value: lipsToJs(v, {}), provenance, program, points: slice.points, scopeIds: slice.scopeIds };
     },
   };
 }

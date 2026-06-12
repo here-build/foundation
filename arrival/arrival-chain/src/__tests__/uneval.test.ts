@@ -14,7 +14,9 @@ describe("buildUneval — selector-eval + provenance extraction", () => {
     project.bindInfer(createInferStore(singletonRouter({ complete })));
     const trace = new EvalTrace();
     // `result` = a list whose head is an infer output (carries provenance), tail a bare literal.
+    // `noise` is an unrelated define — the slice must PRUNE it.
     const src = `
+      (define noise (infer "fast" "irrelevant noise"))
       (define verdict (infer "fast" "name the malware"))
       (list verdict "benign")
     `;
@@ -28,6 +30,10 @@ describe("buildUneval — selector-eval + provenance extraction", () => {
     expect(head.value).toEqual(["evil.exe"]);
     expect(head.provenance.length).toBeGreaterThan(0);
     expect(head.program).toContain("(car result)");
+    // The program is the SLICE: the verdict derivation, with the unrelated `noise` form pruned.
+    expect(head.program).toContain("verdict");
+    expect(head.program).not.toContain("noise");
+    expect(head.points.length).toBeGreaterThan(0);
 
     // A different leaf of the same structure selects its own effective value.
     const tail = await container.uneval("(car (cdr result))");
