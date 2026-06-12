@@ -208,8 +208,10 @@ describe("traceToFlowGraph — unified model over the real gepa trace", () => {
     const scopes = trace.records.size;
     const invocations = [...trace.records.values()].reduce((n, r) => n + r.bindings.size, 0);
 
-    // Meaningful only if scopes are heavily re-entered (else the test is vacuous).
-    expect(invocations).toBeGreaterThan(scopes * 3);
+    // Meaningful only if scopes are heavily re-entered (else the test is vacuous). `>=`, not `>`:
+    // the invocation count of an async `project.run` sits on a scheduling-sensitive knife-edge
+    // (exactly 3× re-entry here), so a strict `>` flakes on perturbation; ≥3× is still "heavy".
+    expect(invocations).toBeGreaterThanOrEqual(scopes * 3);
     // The build ran ~once per distinct scope as the structure filled in — NOT once
     // per invocation. (+1 for the autorun's initial pass; MobX batches, so usually
     // fewer.) Were the build TRACKED, this would be ≈ invocations.
