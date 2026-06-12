@@ -33,18 +33,20 @@ const OUTPUTS = [
   `\`(tag ,ev)`,
 ];
 
-// Intermediate define chains feeding `ev` (each ends binding `ev`).
+// Intermediate define chains feeding `ev` (each ends binding `ev`). The last is TRANSITIVE
+// (a → b → ev) so the closure fixpoint actually iterates more than one hop.
 const CHAINS = [
-  `(define ev (car (infer "fast" "E")))`,
-  `(define raw (car (infer "fast" "E")))\n(define ev (string-append raw "!"))`,
-  `(define k "K")\n(define ev (string-append (car (infer "fast" "E")) k))`,
+  { src: `(define ev (car (infer "fast" "E")))`, defines: 1 },
+  { src: `(define raw (car (infer "fast" "E")))\n(define ev (string-append raw "!"))`, defines: 2 },
+  { src: `(define k "K")\n(define ev (string-append (car (infer "fast" "E")) k))`, defines: 2 },
+  { src: `(define a (car (infer "fast" "E")))\n(define b (string-append a "-b"))\n(define ev (string-append b "-ev"))`, defines: 3 },
 ];
 
 describe("buildSlice — property: slice re-runs to the value AND prunes noise", () => {
   for (const chain of CHAINS) {
     for (const out of OUTPUTS) {
-      it(`out=${out} | chain=${chain.split("\n").length} forms`, async () => {
-        const src = `${NOISE}\n${chain}\n${out}`;
+      it(`out=${out} | chain=${chain.defines}-define`, async () => {
+        const src = `${NOISE}\n${chain.src}\n${out}`;
         const trace = new EvalTrace();
         const original = await (await fresh().runTraced(src, { trace })).finished;
 
@@ -53,8 +55,11 @@ describe("buildSlice — property: slice re-runs to the value AND prunes noise",
         const terminal = defineNameOf(outForm) ?? writeForm(outForm);
         const program = `${slice.program}\n${terminal}`.trim();
 
-        // Invariant 1: pruned the unreferenced noise define.
+        // Invariant 1: pruned the unreferenced noise define...
         expect(program).not.toContain("noise_marker");
+        // ...and kept EXACTLY the chain's defines (strict, non-empty subset — not a degenerate
+        // empty slice that would also satisfy "no noise"); the noise define (a +1) is excluded.
+        expect(slice.formNodes).toHaveLength(chain.defines);
         // Invariant 2: no corrupt render.
         expect(program).not.toContain("[object");
         // Invariant 3 (the core guarantee): re-runs to exactly the original value.

@@ -18,6 +18,7 @@
 // The provenance points are still surfaced (`points`) — derived from which reads land in the kept
 // forms — as the attestation per-leaf→read join key and a UI source-highlight seed.
 
+import invariant from "tiny-invariant";
 import type { EvalTrace, Invocation } from "./trace.js";
 import { scopeId } from "./scope-id.js";
 
@@ -68,20 +69,20 @@ function writeDatum(node: unknown, seen: Set<unknown>): string {
     return typeof node === "number" && Object.is(node, -0) ? "-0.0" : String(node);
   }
   if (typeof node === "boolean") return node ? "#t" : "#f";
-  if (node === null || node === undefined) {
-    throw new Error(`writeForm: cannot serialize ${String(node)} to Scheme source`);
-  }
+  invariant(node !== null && node !== undefined, () => `writeForm: cannot serialize ${String(node)} to Scheme source`);
   const kind = kindOf(node);
+  // A cyclic datum has no finite read syntax (errors-as-doors: construct a new value, don't cycle).
+  const CYCLE = "writeForm: cyclic datum has no read syntax — cannot serialize to re-runnable Scheme";
   switch (kind) {
     case "pair": {
-      if (seen.has(node)) throw new Error("writeForm: cyclic datum has no read syntax — cannot serialize to re-runnable Scheme");
+      invariant(!seen.has(node), CYCLE);
       seen.add(node);
       const parts: string[] = [];
       let cur: unknown = node;
       while (isPair(cur)) {
         parts.push(writeDatum(cur.car, seen));
         cur = cur.cdr;
-        if (isPair(cur) && seen.has(cur)) throw new Error("writeForm: cyclic list has no read syntax — cannot serialize to re-runnable Scheme");
+        invariant(!(isPair(cur) && seen.has(cur)), CYCLE);
       }
       if (kindOf(cur) !== "nil") parts.push(".", writeDatum(cur, seen)); // improper/dotted tail
       return `(${parts.join(" ")})`;
@@ -89,7 +90,7 @@ function writeDatum(node: unknown, seen: Set<unknown>): string {
     case "string":
       return JSON.stringify((node as { __string__: string }).__string__);
     case "vector": {
-      if (seen.has(node)) throw new Error("writeForm: cyclic vector has no read syntax — cannot serialize to re-runnable Scheme");
+      invariant(!seen.has(node), CYCLE);
       seen.add(node);
       return `#(${(node as { __vector__: unknown[] }).__vector__.map((el) => writeDatum(el, seen)).join(" ")})`;
     }
@@ -103,10 +104,9 @@ function writeDatum(node: unknown, seen: Set<unknown>): string {
     case "nil":
       return String(node); // each round-trips: name / #\c / #t#f / ()
     default:
-      throw new Error(
-        `writeForm: non-serializable datum kind "${kind ?? typeof node}" — a reverse-chain slice ` +
-          `must be re-runnable source, but this datum has no read syntax`,
-      );
+      // A procedure / host object has no read syntax — a slice must be re-runnable source, so fail
+      // loud rather than emit `[object Object]` that re-parses to a different datum.
+      invariant(false, () => `writeForm: non-serializable datum kind "${kind ?? typeof node}" — no read syntax`);
   }
 }
 
@@ -254,8 +254,6 @@ export function buildSlice(trace: EvalTrace, outputNode: unknown): Slice {
   const program = ordered.map((n) => writeForm(n)).join("\n");
   // Structural backstop: writeForm throws on a non-serializable datum, but assert no object slipped
   // through any raw path — a slice must never carry `[object Object]`.
-  if (program.includes("[object ")) {
-    throw new Error("buildSlice: emitted a non-serialized object — writeForm coverage gap");
-  }
+  invariant(!program.includes("[object "), "buildSlice: emitted a non-serialized object — writeForm coverage gap");
   return { program, points, scopeIds: ordered.map((n) => scopeId(n)), formNodes: ordered };
 }

@@ -137,4 +137,47 @@ describe("buildSlice — structural guarantees", () => {
     cyc.cdr = cyc; // self-cycle in the cdr spine
     expect(() => writeForm(cyc)).toThrow(/cyclic/);
   });
+
+  it("writeForm throws on a cyclic VECTOR (the vector guard, not just the pair spine)", () => {
+    const vec = { kind: "vector", __vector__: [] as unknown[] };
+    vec.__vector__.push(vec); // vector containing itself
+    expect(() => writeForm(vec)).toThrow(/cyclic/);
+  });
+
+  it("renders an improper/dotted pair literal round-trippably", async () => {
+    const { program, rerun, original } = await sliceAndRerun(`(define p '(1 . 2))\np`);
+    expect(program).toContain("(1 . 2)"); // the quoted dotted literal, not a cons call
+    expect(rerun).toEqual(original);
+  });
+});
+
+// The certificate's whole value: `points` must be the reads the DERIVATION makes — the kept
+// forms' reads, including the output form's inline reads, and EXCLUDING pruned forms' reads.
+describe("buildSlice — points = the reads in the slice (the attestation join key)", () => {
+  it("excludes a pruned form's read and includes the kept one", async () => {
+    const trace = new EvalTrace();
+    const { finished } = await fresh().runTraced(`
+      (define a (car (infer "fast" "A")))
+      (define noise (car (infer "fast" "NOISE")))
+      (list a)
+    `, { trace });
+    await finished;
+    const out = lastTopLevelForm(trace);
+    const slice = buildSlice(trace, out);
+    // Two reads ran; only a's feeds the output, so exactly ONE read is in the derivation.
+    expect(slice.points).toHaveLength(1);
+    expect(slice.formNodes.map((n) => defineNameOf(n))).toContain("a");
+    expect(slice.formNodes.map((n) => defineNameOf(n))).not.toContain("noise");
+    expect(slice.scopeIds).toHaveLength(slice.formNodes.length);
+  });
+
+  it("counts a read inline in the output form (a finding with no defines)", async () => {
+    const trace = new EvalTrace();
+    const { finished } = await fresh().runTraced(`(list (car (infer "fast" "X")))`, { trace });
+    await finished;
+    const out = lastTopLevelForm(trace);
+    const slice = buildSlice(trace, out);
+    expect(slice.formNodes).toHaveLength(0); // no defines
+    expect(slice.points).toHaveLength(1); // the output form's inline read still counts
+  });
 });
