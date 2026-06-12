@@ -70,15 +70,38 @@ export function vercelBackend(opts: VercelOptions): ModelBackend {
       const maxOutputTokens =
         spec.maxTokens ?? opts.maxTokens ?? (opts.provider === "anthropic" ? ANTHROPIC_DEFAULT_MAX_TOKENS : undefined);
 
+      // INTER-TOKEN IDLE WATCHDOG: streaming kills the headers-timeout wall, but a stream that
+      // STALLS mid-generation (a local LM Studio model that hangs after some tokens) would await
+      // forever — a silent 0%-CPU wedge. Abort if no delta arrives within the idle window; the
+      // for-await then throws, surfacing as a transient error that `makeInfer` re-rolls. The
+      // window is generous (a slow thinking model can pause between tokens) but finite. Env:
+      // ARRIVAL_INFER_IDLE_MS (default 180s).
+      const idleMs = Number(process.env.ARRIVAL_INFER_IDLE_MS) || 180_000;
+      const ac = new AbortController();
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      const armIdle = (): void => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => ac.abort(new Error(`infer idle ${idleMs}ms — stream stalled (aborted)`)), idleMs);
+      };
+
       const result = streamText({
         model: model(spec.model),
         messages,
+        abortSignal: ac.signal,
         ...(system !== undefined ? { system } : {}),
         ...(temperature !== undefined ? { temperature } : {}),
         ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       });
       let text = "";
-      for await (const delta of result.textStream) text += delta; // streaming: headers at first token
+      try {
+        armIdle(); // first-token deadline
+        for await (const delta of result.textStream) {
+          text += delta;
+          armIdle(); // reset on every token — the watchdog only fires on a true stall
+        }
+      } finally {
+        if (idleTimer) clearTimeout(idleTimer);
+      }
       const u = await result.usage;
 
       let value: unknown = text;

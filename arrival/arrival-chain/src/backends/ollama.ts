@@ -134,7 +134,19 @@ export function ollamaBackend(opts: OllamaOptions = {}): ModelBackend {
       let doneReason: string | undefined;
       const usage = { inputTokens: 0, outputTokens: 0 };
       const rawToolCalls: NonNullable<NonNullable<OllamaChatResponse["message"]>["tool_calls"]> = [];
+      // INTER-TOKEN IDLE WATCHDOG (see vercel.ts): a stream that stalls mid-generation would await
+      // forever — destroy the socket on idle so the for-await throws (transient → makeInfer retries).
+      // Env: ARRIVAL_INFER_IDLE_MS (default 180s).
+      const idleMs = Number(process.env.ARRIVAL_INFER_IDLE_MS) || 180_000;
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      const armIdle = (): void => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => res.destroy(new Error(`infer idle ${idleMs}ms — stream stalled (aborted)`)), idleMs);
+      };
+      try {
+        armIdle();
       for await (const piece of res) {
+        armIdle(); // reset on every chunk — fires only on a true stall
         buf += piece as string;
         let nl: number;
         while ((nl = buf.indexOf("\n")) >= 0) {
@@ -153,6 +165,9 @@ export function ollamaBackend(opts: OllamaOptions = {}): ModelBackend {
             usage.outputTokens = chunk.eval_count ?? 0;
           }
         }
+      }
+      } finally {
+        if (idleTimer) clearTimeout(idleTimer);
       }
 
       // Schema'd: parse content to the structured value (recover from the reasoning channel
