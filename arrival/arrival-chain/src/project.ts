@@ -40,6 +40,7 @@ import { Draft } from "./draft.js";
 import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey, stableJson } from "./effect-log.js";
 import { defineExposeRosetta, type OnExpose } from "./expose.js";
 import { defineOverridableRosetta, type OnOverridable, type ResolveOverride } from "./overridable.js";
+import { defineApprovalRosetta, type OnApprovalRequest, type ResolveApproval } from "./approval.js";
 import { InferBinding, type InferStoreLike } from "./infer-store.js";
 import { InferString } from "./infer-string.js";
 import type { Completion, LlmParams, ToolCall, ToolDescriptor } from "./model.js";
@@ -622,6 +623,21 @@ export function buildArrivalEnv(opts: {
    * per-key in-program table is deferred.
    */
   resolveOverride?: ResolveOverride;
+  /**
+   * Host sink for `(run/continue-after-approval …)`. Each pending approval is
+   * handed over as a {@link FunctionRunApprovalRequest}; a human surfaces it,
+   * may edit the proposed value, and flips `approved`/`rejected`. Absent (and
+   * `resolveApproval` absent), the request AUTO-APPROVES immediately (local /
+   * sandbox: runs never block) — same optional posture as `onExpose`.
+   */
+  onApprovalRequest?: OnApprovalRequest;
+  /**
+   * Host hook that decides an approval verdict directly: return `true`/`false`
+   * to approve/reject synchronously, `undefined` to leave it to the async
+   * channel. When both this and `onApprovalRequest` are absent, requests
+   * auto-approve.
+   */
+  resolveApproval?: ResolveApproval;
 }): ReturnType<typeof sandboxedEnv.inherit> {
   const env = sandboxedEnv.inherit(opts.name);
   // Every (infer …) yields a list to scheme; the resolver returns the raw value.
@@ -793,6 +809,11 @@ export function buildArrivalEnv(opts: {
     env,
     onOverridable: opts.onOverridable,
     resolveOverride: opts.resolveOverride,
+  });
+  defineApprovalRosetta({
+    env,
+    onApprovalRequest: opts.onApprovalRequest,
+    resolveApproval: opts.resolveApproval,
   });
   defineImportRosetta({ env, loader: opts.loader });
   defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "", compileInferUnit });
@@ -1846,4 +1867,13 @@ export const BUILTIN_PREAMBLE =`
   (let* ((body (car (reverse clauses)))
          (kwargs (reverse (cdr (reverse clauses)))))
     \`(define ,name (declare/expose (symbol->string (quote ,name)) ,@kwargs :handler ,body))))
+;;
+;; (run/continue-after-approval spec result)
+;;   → THUNKS result (does NOT evaluate it until approved — the irreversible
+;;     action isn't run before permission lands), hands a request to the host,
+;;     awaits a human verdict, then runs the thunk and returns the (possibly
+;;     human-edited) go-token. Rejection fails the branch. With no approver
+;;     wired the request auto-approves immediately (local runs never block).
+(define-macro (run/continue-after-approval spec result)
+  \`(approval/await ,spec (lambda () ,result)))
 `;
