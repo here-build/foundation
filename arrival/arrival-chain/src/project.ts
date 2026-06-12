@@ -39,7 +39,6 @@ import type { ChatMessage } from "./backends/_shared.js";
 import { Draft } from "./draft.js";
 import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey, stableJson } from "./effect-log.js";
 import { defineExposeRosetta, type OnExpose } from "./expose.js";
-import { createTokenMinter } from "./expose-token.js";
 import { defineOverridableRosetta, type OnOverridable, type ResolveOverride } from "./overridable.js";
 import { InferBinding, type InferStoreLike } from "./infer-store.js";
 import { InferString } from "./infer-string.js";
@@ -611,15 +610,15 @@ export function buildArrivalEnv(opts: {
   onExpose?: OnExpose;
   /**
    * Host sink for `(define/overridable …)`. Each declaration registers an
-   * {@link OnOverridable} descriptor (frozen token + schema + default). Absent,
+   * {@link OnOverridable} descriptor (name + schema + default). Absent,
    * the form still evaluates and resolves to its default — same optional posture
    * as `onExpose`.
    */
   onOverridable?: OnOverridable;
   /**
-   * Host override channel for `define/overridable`: token → externally-supplied
+   * Host override channel for `define/overridable`: name → externally-supplied
    * value (deployment env / caller args). A matching, schema-valid value
-   * replaces the default; absent or invalid ⇒ the default. v1 per-token; a
+   * replaces the default; absent or invalid ⇒ the default. v1 per-name; a
    * per-key in-program table is deferred.
    */
   resolveOverride?: ResolveOverride;
@@ -786,17 +785,14 @@ export function buildArrivalEnv(opts: {
   // `(declare/expose …)` — the sealed-skill registration form. Reuses the same
   // `buildDict` keyword folder as `dict`/the `.prompt` proc so `:input`/`:output`/
   // `:handler` resolve identically; the host's `onExpose` sink receives the typed
-  // declaration. Inert (handler-factory only) when no sink is supplied.
-  // The superpowered-define family (`define/exposed`, `define/overridable`) and
-  // the legacy `(declare/expose …)` all mint into ONE token space per env, so
-  // collision suffixing is deterministic across the whole program.
-  const tokenMinter = createTokenMinter();
-  defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose, minter: tokenMinter });
+  // declaration. Inert (handler-factory only) when no sink is supplied. The
+  // superpowered-define family (`define/exposed`, `define/overridable`) registers
+  // on the same sinks, keyed by name (the identity — no derived token).
+  defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose });
   defineOverridableRosetta({
     env,
     onOverridable: opts.onOverridable,
     resolveOverride: opts.resolveOverride,
-    minter: tokenMinter,
   });
   defineImportRosetta({ env, loader: opts.loader });
   defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "", compileInferUnit });
@@ -1834,12 +1830,12 @@ export const BUILTIN_PREAMBLE =`
 ;;
 ;; (define/overridable name default schema)
 ;;   → name resolves to a host override (if present AND it validates) else the
-;;     default; registers {token, schemaTag, default} with the host.
+;;     default; registers {name, schemaTag, default} with the host.
 (define-macro (define/overridable name default schema)
   \`(define ,name (overridable/declare (symbol->string (quote ,name)) ,default ,schema)))
 ;;
 ;; (define/exposed name body)
-;;   → registers an expose declaration (frozen token) on the same sink as
+;;   → registers an expose declaration (keyed by name) on the same sink as
 ;;     declare/expose; the function stays callable in-program. The input
 ;;     contract is DERIVED statically from the reachable define/overridables.
 (define-macro (define/exposed name body)

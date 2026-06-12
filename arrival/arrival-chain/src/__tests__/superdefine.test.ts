@@ -9,7 +9,7 @@
  *
  *   1. RUNTIME: the rosettas registered in `buildArrivalEnv` — `define/overridable`
  *      resolves default/override + registers a descriptor; `define/exposed`
- *      registers an expose declaration carrying a frozen token.
+ *      registers an expose declaration keyed by name.
  *   2. STATIC: `extractReachableOverridables` derives, per exposed function, the
  *      transitively-referenced overridables — its argument surface.
  */
@@ -63,7 +63,7 @@ describe("define/overridable (runtime)", () => {
   });
 
   it("resolves to a valid host override over the default", async () => {
-    const { env } = await envWith((token) => (token === "pub/model" ? "claude" : undefined));
+    const { env } = await envWith((name) => (name === "model" ? "claude" : undefined));
     const out = await run(`(define/overridable model "gpt-4o" (s/enum "gpt-4o" "claude")) model`, env);
     expect(out).toBe("claude");
   });
@@ -81,13 +81,12 @@ describe("define/overridable (runtime)", () => {
     ).rejects.toThrow(/default does not satisfy/i);
   });
 
-  it("registers a descriptor with a frozen token, name, schema tag and default", async () => {
+  it("registers a descriptor with name, schema tag and default", async () => {
     const { env, overridables } = await envWith();
     await exec(`(define/overridable maxRetries 3 "number") maxRetries`, { env });
     expect(overridables).toHaveLength(1);
     const d = overridables[0]!;
     expect(d.name).toBe("maxRetries");
-    expect(d.token).toBe("pub/max-retries");
     expect(d.default).toBe(3);
   });
 
@@ -99,13 +98,12 @@ describe("define/overridable (runtime)", () => {
 });
 
 describe("define/exposed (runtime)", () => {
-  it("registers an expose declaration carrying a frozen token", async () => {
+  it("registers an expose declaration keyed by name", async () => {
     const { env, exposes } = await envWith();
     await exec(`(define/exposed runResearch (lambda (input) (list "ok" input)))`, { env });
     expect(exposes).toHaveLength(1);
     const d = exposes[0]!;
     expect(d.name).toBe("runResearch");
-    expect(d.token).toBe("pub/run-research");
     expect(d.inputSchema).toBeNull();
     expect(d.outputSchema).toBeNull();
     expect(typeof d.handler).toBe("function");
@@ -128,9 +126,6 @@ describe("define/exposed (runtime)", () => {
     await exec(`(define/exposed a (lambda (i) i))`, { env });
     await exec(`(declare/expose "b" :handler (lambda (i) i))`, { env });
     expect(exposes.map((e) => e.name)).toEqual(["a", "b"]);
-    // The superdefine front carries a token; the legacy form does not.
-    expect(exposes[0]!.token).toBe("pub/a");
-    expect(exposes[1]!.token).toBeUndefined();
   });
 });
 

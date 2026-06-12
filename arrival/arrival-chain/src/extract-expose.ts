@@ -202,7 +202,7 @@ export async function extractExpose(source: string): Promise<ExposeInfo[]> {
 // `define/exposed` carries NO `:input` schema in v1. Its INPUT CONTRACT is
 // DERIVED: the set of `define/overridable`s that the exposed function
 // TRANSITIVELY REFERENCES is its argument surface — each overridable
-// contributes its {token-shape, schema, default}.
+// contributes its {name, schema, default}.
 //
 // This is a pure-static reachability over the top-level reference graph:
 //   nodes  = every top-level define / define/exposed / define/overridable name

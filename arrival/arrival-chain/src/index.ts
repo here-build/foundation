@@ -179,10 +179,10 @@ export {
 export { defineExposeRosetta, type ExposeDeclaration, type OnExpose, EXPOSED_DEFINE_FORM } from "./expose.js";
 // The superpowered-define family: `define/overridable` (host-overridable
 // binding with a declared default + schema) + `define/exposed` (expose with a
-// frozen token and a derived overridable arg surface). Both are preamble macros
-// lowering to a plain `(define name (<rosetta> …))` so the interpreter core
-// stays domain-free. `createTokenMinter`/`deriveToken` mint the frozen external
-// identity, salvaged from the reverted arrival-scheme `exposed.ts`.
+// derived overridable arg surface). Both are preamble macros lowering to a plain
+// `(define name (<rosetta> …))` so the interpreter core stays domain-free. The
+// binding's NAME is its identity — no derived token (renaming a public function
+// is a breaking change by design, caught by the dangling-binding linter).
 export {
   defineOverridableRosetta,
   type OverridableDescriptor,
@@ -190,7 +190,6 @@ export {
   type ResolveOverride,
   OVERRIDABLE_FORM,
 } from "./overridable.js";
-export { createTokenMinter, deriveToken, type TokenMinter, TOKEN_PREFIX } from "./expose-token.js";
 // The bridge from static `(declare/expose …)` extraction to the canonical
 // tagged-list signature the registry stores: evaluates ONLY the pure
 // `:input`/`:output` schema slices (never the handler), so a config-plane
