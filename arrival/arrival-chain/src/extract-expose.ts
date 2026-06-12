@@ -369,6 +369,31 @@ export async function extractOverridables(source: string): Promise<OverridableIn
 }
 
 /**
+ * Every top-level `(require "path")` string argument in a source, in order — a cell's direct
+ * config dependencies. The form lens follows these to reach overridable knobs declared in a
+ * required file (`(require "config.scm")` → config.scm's knobs). Pure parse; `[]` on failure.
+ * Top-level only; reads the path string, never executes the require.
+ */
+export async function extractRequires(source: string): Promise<string[]> {
+  let forms: unknown[];
+  try {
+    forms = (await parseGenerator(source)) as unknown[];
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const form of forms) {
+    if (!isPair(form) || !isSymbol(form.car) || symName(form.car) !== "require") continue;
+    const arg = isPair(form.cdr) ? form.cdr.car : undefined;
+    if (isString(arg)) {
+      const s = (arg as { __string__?: string }).__string__;
+      out.push(s ?? String(arg));
+    }
+  }
+  return out;
+}
+
+/**
  * Derive, per `define/exposed`, the set of `define/overridable`s it transitively
  * references. Pure static parse — macros are NOT expanded (the heads survive
  * verbatim), and nothing is evaluated. `[]` on parse failure, declaration order

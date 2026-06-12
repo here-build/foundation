@@ -1,6 +1,6 @@
 import { execGeneratorExpr, execGeneratorFromString, lipsToJs, parseGenerator, sandboxedEnv } from "@here.build/arrival-scheme";
 
-import { extractOverridables, type ExposeInfo } from "./extract-expose.js";
+import { extractOverridables, extractRequires, type ExposeInfo } from "./extract-expose.js";
 import { BUILTIN_PREAMBLE } from "./project.js";
 
 // ── static expose extraction → canonical tagged-list signature ─────────────
@@ -154,19 +154,46 @@ function fieldKindOf(schemaTag: unknown): FormFieldKind {
   return { kind: "unsupported", schemaTag };
 }
 
+/** Options for {@link extractFormSpec}. */
+export interface FormSpecOptions {
+  /** Source resolver for `(require …)`. When provided, the spec ALSO includes the overridable
+   *  knobs of each DIRECTLY-required file (one level) — so a cell that is just
+   *  `(require "config.scm")` renders config.scm's knobs. Returns the file's source, or null
+   *  when unresolvable. Reads source only (never executes), so the pure-static property holds. */
+  resolveRequire?: (path: string) => Promise<string | null>;
+}
+
 /**
  * The N3 form spec for a source: every top-level `define/overridable` as a typed field
- * ({@link FormHole}). Pure + handler-free — `extractOverridables` parses statically, then
- * each hole's schema + default slices evaluate in the sandboxed schema env. Opening the
- * form spends nothing; the field values feed `kernel.setOverride(name, value)` at run.
+ * ({@link FormHole}), optionally reaching THROUGH `(require …)` into required files (the
+ * config-in-config.scm pattern). Pure + handler-free — `extractOverridables` parses
+ * statically, each hole's schema + default slices evaluate in the sandboxed schema env, and
+ * `resolveRequire` reads (never runs) the required source. Opening the form spends nothing;
+ * the field values feed `kernel.setOverride(name, value)` at run.
  */
-export async function extractFormSpec(source: string): Promise<FormHole[]> {
-  const holes = await extractOverridables(source);
-  return Promise.all(
-    holes.map(async (h) => ({
-      name: h.name,
-      default: await evalPureSlice(h.defaultSrc),
-      field: fieldKindOf(await evalPureSlice(h.schemaSrc)),
-    })),
-  );
+export async function extractFormSpec(source: string, opts: FormSpecOptions = {}): Promise<FormHole[]> {
+  // The cell's own source, then (if a resolver is given) each directly-required file — a cell
+  // that only `(require "config.scm")`s renders config.scm's knobs.
+  const sources = [source];
+  if (opts.resolveRequire) {
+    for (const r of await extractRequires(source)) {
+      const s = await opts.resolveRequire(r).catch(() => null);
+      if (s != null) sources.push(s);
+    }
+  }
+  // Holes across the cell + required files, deduped by name (cell-first wins a collision).
+  const seen = new Set<string>();
+  const out: FormHole[] = [];
+  for (const src of sources) {
+    for (const h of await extractOverridables(src)) {
+      if (seen.has(h.name)) continue;
+      seen.add(h.name);
+      out.push({
+        name: h.name,
+        default: await evalPureSlice(h.defaultSrc),
+        field: fieldKindOf(await evalPureSlice(h.schemaSrc)),
+      });
+    }
+  }
+  return out;
 }

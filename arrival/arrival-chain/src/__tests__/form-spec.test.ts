@@ -48,4 +48,18 @@ describe("extractFormSpec", () => {
     const spec = await extractFormSpec(`(define/overridable cfg (list) (s/array "string"))`);
     expect(spec[0]!.field.kind).toBe("unsupported");
   });
+
+  it("follows requires — a (require …) cell renders the required file's knobs", async () => {
+    const CONFIG = `(define/overridable config/product "Acme" "string")\n(define/overridable config/model "gpt-4o" (s/enum "gpt-4o" "claude-3"))`;
+    const cell = `(require "config.scm")\n(string-append config/product " via " config/model)`;
+    const resolveRequire = async (p: string): Promise<string | null> => (p === "config.scm" ? CONFIG : null);
+    const spec = await extractFormSpec(cell, { resolveRequire });
+    expect(spec.map((h) => h.name)).toEqual(["config/product", "config/model"]);
+    expect(spec[0]!.default).toBe("Acme");
+    expect(spec[1]!.field).toEqual({ kind: "enum", options: ["gpt-4o", "claude-3"] });
+  });
+
+  it("without a resolver, a (require …) cell has no knobs (single-source)", async () => {
+    expect(await extractFormSpec(`(require "config.scm")`)).toEqual([]);
+  });
 });
