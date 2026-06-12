@@ -78,6 +78,35 @@ describe("compileExposeSig — source slices → canonical tagged lists", () => 
     const [noHandler] = await extractExpose(`(declare/expose "incomplete" :input (s/object (s/field/string "x")))`);
     const b = await compileExposeSig(noHandler!);
     expect(b.input).toEqual(["object", ["x", "string"]]);
+    expect(b.meta).toBeNull();
     expect(b.hasHandler).toBe(false);
+  });
+
+  it("lowers :meta the same s/ → tagged-list path as input/output", async () => {
+    const [info] = await extractExpose(`
+      (declare/expose "classify"
+        :input  (s/object (s/field/string "message"))
+        :output (s/object (s/field/string "label"))
+        :meta   (s/object (s/field/enum "tier" (s/enum "free" "pro")))
+        :handler (lambda (input) input))
+    `);
+    const sig = await compileExposeSig(info!);
+    expect(sig.input).toEqual(["object", ["message", "string"]]);
+    expect(sig.output).toEqual(["object", ["label", "string"]]);
+    expect(sig.meta).toEqual(["object", ["tier", ["enum", "free", "pro"]]]);
+  });
+
+  it("extracts :meta from a define/exposed front too (static ≡ runtime)", async () => {
+    const [info] = await extractExpose(`
+      (define/exposed classify
+        :input (s/object (s/field/string "message"))
+        :meta  (s/object (s/field/enum "tier" (s/enum "free" "pro")))
+        (lambda (input) input))
+    `);
+    expect(info!.name).toBe("classify");
+    expect(info!.hasHandler).toBe(true);
+    const sig = await compileExposeSig(info!);
+    expect(sig.input).toEqual(["object", ["message", "string"]]);
+    expect(sig.meta).toEqual(["object", ["tier", ["enum", "free", "pro"]]]);
   });
 });

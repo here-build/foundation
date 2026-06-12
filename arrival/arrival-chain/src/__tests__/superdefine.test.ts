@@ -106,7 +106,53 @@ describe("define/exposed (runtime)", () => {
     expect(d.name).toBe("runResearch");
     expect(d.inputSchema).toBeNull();
     expect(d.outputSchema).toBeNull();
+    expect(d.metaSchema).toBeNull();
     expect(typeof d.handler).toBe("function");
+  });
+
+  it("passes :input/:output/:meta schema slots through to the declaration", async () => {
+    const { env, exposes } = await envWith();
+    await exec(
+      `(define/exposed classify
+         :input  (s/object (s/field/string "message"))
+         :output (s/object (s/field/string "label") (s/field/number "confidence"))
+         :meta   (s/object (s/field/enum "tier" (s/enum "free" "pro")))
+         (lambda (input) input))`,
+      { env },
+    );
+    expect(exposes).toHaveLength(1);
+    const d = exposes[0]!;
+    expect(d.name).toBe("classify");
+    expect(d.inputSchema).toEqual(["object", ["message", "string"]]);
+    expect(d.outputSchema).toEqual(["object", ["label", "string"], ["confidence", "number"]]);
+    expect(d.metaSchema).toEqual(["object", ["tier", ["enum", "free", "pro"]]]);
+    expect(typeof d.handler).toBe("function");
+  });
+
+  it("collapses to declare/expose — both fronts produce an equivalent declaration", async () => {
+    const { env: e1, exposes: viaDefine } = await envWith();
+    await exec(
+      `(define/exposed classify
+         :input  (s/object (s/field/string "message"))
+         :meta   (s/object (s/field/enum "tier" (s/enum "free" "pro")))
+         (lambda (input) input))`,
+      { env: e1 },
+    );
+    const { env: e2, exposes: viaDeclare } = await envWith();
+    await exec(
+      `(declare/expose "classify"
+         :input  (s/object (s/field/string "message"))
+         :meta   (s/object (s/field/enum "tier" (s/enum "free" "pro")))
+         :handler (lambda (input) input))`,
+      { env: e2 },
+    );
+    const strip = (d: ExposeDeclaration) => ({
+      name: d.name,
+      inputSchema: d.inputSchema,
+      outputSchema: d.outputSchema,
+      metaSchema: d.metaSchema,
+    });
+    expect(strip(viaDefine[0]!)).toEqual(strip(viaDeclare[0]!));
   });
 
   it("the registered handler runs the body and returns plain JS", async () => {

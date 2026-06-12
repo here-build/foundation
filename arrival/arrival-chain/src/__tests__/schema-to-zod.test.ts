@@ -139,3 +139,16 @@ describe("schemaSlotToZod — slot-string form, symmetric with renderSchema", ()
     expect(schemaSlotToZod("ProfileLegacy")).toBeNull();
   });
 });
+
+describe("schemaToZod — :meta validates by the same path as input/output", () => {
+  // `:meta` lowers the identical s/ → JSON-Schema → zod path. A low-cardinality
+  // enum-tier meta tag validates exactly like any other object schema.
+  const META = ["object", ["tier", ["enum", "free", "pro"]]] as const;
+
+  it("accepts a valid meta record, rejects out-of-enum and unknown keys", () => {
+    const zod = schemaToZod(META);
+    expect(zod.safeParse({ tier: "free" }).success).toBe(true);
+    expect(zod.safeParse({ tier: "enterprise" }).success).toBe(false);
+    expect(zod.safeParse({ tier: "pro", extra: 1 }).success).toBe(false);
+  });
+});
