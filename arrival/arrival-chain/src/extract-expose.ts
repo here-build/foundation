@@ -57,6 +57,12 @@ export interface ExposeInfo {
  *  tooling name it from one place rather than restating the string. */
 export const EXPOSE_FORM = "declare/expose";
 
+/** The superpowered-define authoring heads (preamble macros — see project.ts
+ *  `SUPERDEFINE_PREAMBLE`). They survive into the parse tree verbatim because a
+ *  static scan never expands macros, so this scanner reads them directly. */
+export const EXPOSED_DEFINE_HEAD = "define/exposed";
+export const OVERRIDABLE_DEFINE_HEAD = "define/overridable";
+
 const LOCATION_KEY = Symbol.for("__location__");
 
 const isPair = (v: unknown): v is { car: unknown; cdr: unknown } =>
@@ -189,4 +195,184 @@ export async function extractExpose(source: string): Promise<ExposeInfo[]> {
     });
   }
   return out;
+}
+
+// ── reachable-overridable derivation (the derived argument surface) ─────────
+//
+// `define/exposed` carries NO `:input` schema in v1. Its INPUT CONTRACT is
+// DERIVED: the set of `define/overridable`s that the exposed function
+// TRANSITIVELY REFERENCES is its argument surface — each overridable
+// contributes its {token-shape, schema, default}.
+//
+// This is a pure-static reachability over the top-level reference graph:
+//   nodes  = every top-level define / define/exposed / define/overridable name
+//   edges  = "definition A's body mentions symbol B" (B a defined name)
+//   sinks  = the overridable names
+//   query  = for each exposed name, the overridables reachable from its body.
+//
+// "Mentions" = the bare symbol appears anywhere in the body sub-tree. This
+// over-approximates (a shadowed local binding of the same name still counts) —
+// acceptable for an argument-surface hint, and it never runs the handler.
+
+/** A statically-derived overridable declaration (the parse-only view). */
+export interface OverridableInfo {
+  /** The binding name (first arg of `define/overridable`). */
+  name: string;
+  /** Source slice of the `(s/…)` schema form (third arg), or null if unsliceable. */
+  schemaSrc: string | null;
+  /** Source slice of the default value (second arg), or null if unsliceable. */
+  defaultSrc: string | null;
+  /** Source location of the `(define/overridable …)` form. */
+  location?: SourceLocation;
+}
+
+/** An exposed function with its derived reachable-overridable argument surface. */
+export interface ReachableExposed {
+  /** The exposed binding name (first arg of `define/exposed`). */
+  name: string;
+  /** Source location of the `(define/exposed …)` form. */
+  location?: SourceLocation;
+  /** The overridables this function transitively references — its arg surface,
+   *  in source order. */
+  overridables: OverridableInfo[];
+}
+
+/**
+ * Render a parsed atom back to its source-literal text. Strings re-quote (with
+ * `"`/`\` escaping); symbols render as their name; numbers/booleans via their
+ * scheme repr (`#t`/`#f`). Returns null for a shape we can't faithfully render —
+ * the caller records the default as absent rather than emitting wrong text.
+ */
+function renderAtom(v: unknown): string | null {
+  if (isString(v)) return `"${v.__string__.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  if (isSymbol(v)) return symName(v);
+  if (typeof v === "boolean") return v ? "#t" : "#f";
+  if (typeof v === "number") return String(v);
+  if (typeof v === "bigint") return v.toString();
+  // arrival-scheme numbers box as objects carrying `num`/`value`; fall through.
+  if (v !== null && typeof v === "object") {
+    const n = (v as { num?: unknown; value?: unknown }).num ?? (v as { value?: unknown }).value;
+    if (typeof n === "bigint" || typeof n === "number") return String(n);
+  }
+  return null;
+}
+
+/** Recursively collect every bare symbol name appearing in a parsed sub-tree. */
+function collectSymbols(node: unknown, into: Set<string>): void {
+  if (isSymbol(node)) {
+    into.add(symName(node));
+    return;
+  }
+  if (isPair(node)) {
+    collectSymbols(node.car, into);
+    collectSymbols(node.cdr, into);
+  }
+}
+
+/** The defined name of a top-level form, or undefined if it isn't a define-shape. */
+function definedName(head: unknown, afterName: unknown): string | undefined {
+  // (define (name args…) …) — function shorthand.
+  if (isPair(head) && isSymbol(head.car)) return symName(head.car);
+  // (define name …) / (define/exposed name …) / (define/overridable name …)
+  if (isSymbol(head)) return symName(head);
+  // string-named (declare/expose "name" …) is not a binding here.
+  void afterName;
+  return undefined;
+}
+
+/**
+ * Derive, per `define/exposed`, the set of `define/overridable`s it transitively
+ * references. Pure static parse — macros are NOT expanded (the heads survive
+ * verbatim), and nothing is evaluated. `[]` on parse failure, declaration order
+ * preserved both for the exposed list and each function's overridable surface.
+ */
+export async function extractReachableOverridables(source: string): Promise<ReachableExposed[]> {
+  let forms: unknown[];
+  try {
+    forms = (await parseGenerator(source)) as unknown[];
+  } catch {
+    return [];
+  }
+
+  // Pass 1: index every top-level definition by its bound name, recording the
+  // symbols its body references and whether it is an exposed / overridable node.
+  interface DefNode {
+    name: string;
+    refs: Set<string>;
+    kind: "plain" | "exposed" | "overridable";
+    location?: SourceLocation;
+  }
+  const defs = new Map<string, DefNode>();
+  const overridables = new Map<string, OverridableInfo>();
+  const exposedOrder: { name: string; location?: SourceLocation }[] = [];
+
+  for (const form of forms) {
+    if (!isPair(form) || !isSymbol(form.car)) continue;
+    const headSym = symName(form.car);
+    const isPlainDefine = headSym === "define";
+    const isExposed = headSym === EXPOSED_DEFINE_HEAD;
+    const isOverridable = headSym === OVERRIDABLE_DEFINE_HEAD;
+    if (!isPlainDefine && !isExposed && !isOverridable) continue;
+
+    const cdr1 = form.cdr;
+    if (!isPair(cdr1)) continue;
+    const name = definedName(cdr1.car, cdr1.cdr);
+    if (name === undefined) continue;
+    const location = locationOf(form);
+
+    // Body = everything after the name (for function shorthand, the head's cdr
+    // holds the arg list, which is fine to include — a body never references a
+    // define-name through its own parameter list in a way that matters here).
+    const refs = new Set<string>();
+    collectSymbols(cdr1.cdr, refs);
+    if (isPair(cdr1.car)) collectSymbols(cdr1.car.cdr, refs); // function-shorthand body lives only in cdr1.cdr; arg list ignored
+
+    const kind = isExposed ? "exposed" : isOverridable ? "overridable" : "plain";
+    defs.set(name, { name, refs, kind, location });
+
+    if (isOverridable) {
+      // (define/overridable name <default> <schema>)
+      const rest = cdr1.cdr; // (default schema)
+      const defForm = isPair(rest) ? rest.car : undefined;
+      const schemaForm = isPair(rest) && isPair(rest.cdr) ? rest.cdr.car : undefined;
+      // A list form (Pair) carries a `__location__` → slice it from source. An
+      // atom default (string / number / boolean / symbol) carries no location,
+      // so render its literal text directly. Either way the result is the exact
+      // source-equivalent text the consumer can re-parse + evaluate.
+      const sliceOf = (f: unknown): string | null => {
+        if (isPair(f)) {
+          const loc = locationOf(f);
+          return loc ? sliceForm(source, loc.offset) : null;
+        }
+        return renderAtom(f);
+      };
+      overridables.set(name, {
+        name,
+        defaultSrc: defForm !== undefined ? sliceOf(defForm) : null,
+        schemaSrc: schemaForm !== undefined ? sliceOf(schemaForm) : null,
+        location,
+      });
+    }
+    if (isExposed) exposedOrder.push({ name, location });
+  }
+
+  // Pass 2: for each exposed node, transitively close over its body references,
+  // collecting reachable overridable names. BFS over the define-name graph.
+  const result: ReachableExposed[] = [];
+  for (const exposed of exposedOrder) {
+    const seen = new Set<string>();
+    const reachedOverridables: OverridableInfo[] = [];
+    const start = defs.get(exposed.name);
+    const queue: string[] = start ? [...start.refs] : [];
+    while (queue.length > 0) {
+      const sym = queue.shift()!;
+      if (seen.has(sym)) continue;
+      seen.add(sym);
+      if (overridables.has(sym)) reachedOverridables.push(overridables.get(sym)!);
+      const node = defs.get(sym);
+      if (node) for (const r of node.refs) if (!seen.has(r)) queue.push(r);
+    }
+    result.push({ name: exposed.name, location: exposed.location, overridables: reachedOverridables });
+  }
+  return result;
 }

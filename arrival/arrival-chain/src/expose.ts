@@ -33,7 +33,11 @@ import { lipsToJs } from "@here.build/arrival-scheme";
 
 import type { Environment } from "@here.build/arrival-scheme";
 
+import { createTokenMinter, type TokenMinter } from "./expose-token.js";
 import { EXPOSE_FORM } from "./extract-expose.js";
+
+/** The form head the `define/exposed` preamble macro lowers to. */
+export const EXPOSED_DEFINE_FORM = "exposed/declare";
 
 /** A scheme proc as seen from JS after crossing the rosetta membrane: an async
  *  callable taking already-membraned JS args. The handler lambda is exactly this. */
@@ -47,6 +51,13 @@ type SchemeProc = (...args: unknown[]) => unknown | Promise<unknown>;
 export interface ExposeDeclaration {
   /** The exposed function's name (first positional arg). */
   name: string;
+  /**
+   * Frozen project-global identity. Present on declarations from the
+   * `define/exposed` authoring front (the superpowered-define family), which
+   * mints a stable token from the name. Absent on the legacy `(declare/expose
+   * "name" …)` form, which keys by `name` alone. See `expose-token.ts`.
+   */
+  token?: string;
   /** Canonical `(s/object …)` tagged list for the input, or null when the
    *  declaration omits `:input`. Identical in shape to `extractExpose`'s sliced
    *  `inputSrc` once evaluated, and to a `.prompt`'s compiled schema. */
@@ -92,8 +103,44 @@ export function defineExposeRosetta(opts: {
   /** Host sink. Optional — omit to make the form a pure (registering-nowhere)
    *  handler factory. */
   onExpose?: OnExpose;
+  /** Shared minter so `define/exposed` and `define/overridable` mint into one
+   *  token space within a run. Defaults to a fresh per-call minter. */
+  minter?: TokenMinter;
 }): void {
   const { env, buildDict, onExpose } = opts;
+  const minter = opts.minter ?? createTokenMinter();
+
+  // ── `define/exposed` authoring front ──────────────────────────────────
+  // `(define/exposed name body)` lowers (preamble macro) to
+  // `(define name (exposed/declare (symbol->string 'name) <handler>))`. No
+  // `:input`/`:output` schema in v1 — the input contract is DERIVED from the
+  // reachable `define/overridable`s (static, see extract-expose). Registers on
+  // the SAME `onExpose` sink as `declare/expose`, additionally carrying a frozen
+  // token. The form's value IS the handler, so the name binds and stays callable.
+  env.defineRosetta(EXPOSED_DEFINE_FORM, {
+    fn: async (name: unknown, handlerProc: unknown) => {
+      invariant(
+        typeof name === "string",
+        () => `${EXPOSED_DEFINE_FORM}: name must be a string, got ${name === null ? "null" : typeof name}`,
+      );
+      invariant(
+        typeof handlerProc === "function",
+        () => `${EXPOSED_DEFINE_FORM}: "${name}" is missing a handler body (a lambda)`,
+      );
+      const proc = handlerProc as SchemeProc;
+      const handler = async (input: unknown): Promise<unknown> => lipsToJs(await proc(input), {});
+      if (onExpose) {
+        await onExpose({
+          name,
+          token: minter.mint(name),
+          inputSchema: null,
+          outputSchema: null,
+          handler,
+        });
+      }
+      return handlerProc;
+    },
+  });
 
   env.defineRosetta(EXPOSE_FORM, {
     fn: async (name: unknown, ...kv: unknown[]) => {
