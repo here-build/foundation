@@ -17,7 +17,8 @@
 
 import invariant from "tiny-invariant";
 import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
-import { buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
+import { buildArrivalEnv, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
+import { InferString } from "./infer-string.js";
 import { EvalTrace } from "./trace.js";
 import { createInferStore } from "./infer-store.js";
 import type { ModelRouter } from "./registry.js";
@@ -54,6 +55,11 @@ export interface ChainInitContext {
   env: ChainEnv;
   router: ModelRouter;
   runId: string;
+  /** The chain's resolved infer capability — the SAME store-backed seam every `(infer …)`
+   *  role uses. An extension (the agentic scout) drives its own loop through this, so its
+   *  per-round inference gets caching / timing / trace cards / cost for free. Tool-aware:
+   *  pass `tools` (7th/6th args) for an agentic turn → an InferString with toolCalls back. */
+  infer: InferFn;
 }
 
 /** A composable env-extension: register rosettas synchronously, optionally materialize an
@@ -124,21 +130,34 @@ function isTransient(e: unknown): boolean {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** Build the retrying infer closure over the store. NO remap — the model name from scheme is
- *  the config key, resolved directly to a backend by the router. */
+ *  the config key, resolved directly to a backend by the router.
+ *
+ *  TOOL-AWARE: when `tools` are passed (the agentic scout path), they ride the ModelSpec to the
+ *  backend AND fold into the cache key (`inferIdentityKey`), so a tool-enabled turn caches
+ *  honestly and replays. The result is wrapped in an `InferString` carrying the turn's
+ *  `toolCalls` — exactly the shape the agentic loop reads — so the scout's per-round inference
+ *  runs on the SAME store seam as every other role: caching, timing, trace cards, cost. */
 function makeInfer(store: ReturnType<typeof createInferStore>, maxRetry: number, trace: boolean): InferFn {
-  return (async (_ctx, modelIn, prompt, schema, cacheKey) => {
+  return (async (_ctx, modelIn, prompt, schema, cacheKey, tools, params) => {
     const model = String(modelIn);
+    const hasTools = tools !== undefined && tools.length > 0;
+    const idKey = inferIdentityKey((cacheKey ?? null) as string | null, tools, params);
     let lastErr: unknown;
     for (let attempt = 1; attempt <= maxRetry; attempt++) {
-      const cell = store.get({ model, prompt: String(prompt), schema: (schema ?? null) as string | null }, (cacheKey ?? null) as string | null);
+      const cell = store.get(
+        { model, prompt: String(prompt), schema: (schema ?? null) as string | null, ...(hasTools ? { tools } : {}), ...(params ?? {}) },
+        idKey,
+      );
       cell.acquire();
       try {
-        const value = (await cell.done).value;
+        const completion = await cell.done;
         if (trace) {
           // eslint-disable-next-line no-console
-          console.error(`\x1b[36m[infer ${String(cacheKey)}]\x1b[0m ${JSON.stringify(value).slice(0, 600)}`);
+          console.error(`\x1b[36m[infer ${String(cacheKey)}]\x1b[0m ${JSON.stringify(completion.value).slice(0, 600)}`);
         }
-        return value;
+        // Tool turn ⇒ an InferString carrying the toolCalls (the agentic loop reads them);
+        // plain ⇒ the bare value, byte-identical to before.
+        return hasTools ? new InferString(String(completion.value ?? ""), "", [], completion.toolCalls ?? []) : completion.value;
       } catch (e) {
         lastErr = e;
         if (!isTransient(e) || attempt === maxRetry) throw e;
@@ -156,6 +175,7 @@ function makeInfer(store: ReturnType<typeof createInferStore>, maxRetry: number,
 export class ChainEnvironment {
   readonly env: ChainEnv;
   readonly router: ModelRouter;
+  readonly infer: InferFn;
   private readonly exts: ChainExtension[];
   private readonly runId: string;
   private readonly tap: EvalTrace;
@@ -179,6 +199,7 @@ export class ChainEnvironment {
     // from the model registry — the router resolves each program-named id straight to a backend.
     const store = createInferStore(this.router);
     const infer = config.infer ?? makeInfer(store, config.maxInferRetry ?? 3, Boolean(process.env.SIFT_TRACE));
+    this.infer = infer;
     this.env = buildArrivalEnv({
       name: config.name,
       infer,
@@ -195,7 +216,7 @@ export class ChainEnvironment {
     if (this.started) return;
     this.started = true;
     await this.env.init();
-    for (const e of this.exts) await e.init?.({ env: this.env, router: this.router, runId: this.runId });
+    for (const e of this.exts) await e.init?.({ env: this.env, router: this.router, runId: this.runId, infer: this.infer });
   }
 
   /** Run a scheme program string (already loaded). Returns the JS-projected last value + trace.
