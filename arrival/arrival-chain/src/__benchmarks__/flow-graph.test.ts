@@ -227,7 +227,7 @@ async function measureStreamingFold(rounds: number, personas: number): Promise<s
     `  --- streaming fold (per-tick incremental — the win) ---`,
     `  pulses / current() samples         ${pulses} / ${currents}`,
     `  sum delta invocations absorbed     ${totalDelta}`,
-    `  MAX applyDelta() per pulse         ${maxApply.toFixed(2)} ms   (O(total bindings) scan — see notes)`,
+    `  MAX applyDelta() per pulse         ${maxApply.toFixed(2)} ms   (O(Δ) index-slice; residual = Hasse reach extension per new point)`,
     `  MAX current() per tick             ${maxCurrent.toFixed(2)} ms   <- must be ms, not s`,
     `  last current() (full trace)        ${lastCurrent.toFixed(2)} ms`,
   ].join("\n");

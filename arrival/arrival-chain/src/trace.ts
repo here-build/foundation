@@ -301,6 +301,19 @@ export class EvalTrace implements EvalTap {
   }
 
   /**
+   * Flat append-ordered log of every invocation, in `enter` order — which is
+   * strictly ascending invocation id (each `enter` mints the next id, and only
+   * `enter` pushes here, so field-point ids that share `#nextId` leave gaps but
+   * never reorder). The region fold slices new invocations off the tail by an
+   * index cursor — O(Δ) per tick — instead of re-scanning every `records` binding.
+   * Pointer array only: the Invocations already live in `records`.
+   */
+  readonly #invocationLog: Invocation[] = [];
+  get invocationLog(): readonly Invocation[] {
+    return this.#invocationLog;
+  }
+
+  /**
    * Field-point registry: synthetic provenance-point id → its origin + plucked
    * field. A field-point is minted by `computeProvenance` when a keyword
    * accessor `(:field x)` projects across the structured-output membrane (§5.3
@@ -418,6 +431,7 @@ export class EvalTrace implements EvalTap {
       this.records.set(node, rec);
     }
     rec.bindings.add(inv);
+    this.#invocationLog.push(inv);
     rec.entered += 1;
     this.#entries.set(this.#entries.get() + 1);
     return inv;

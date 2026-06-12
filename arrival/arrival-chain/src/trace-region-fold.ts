@@ -126,9 +126,10 @@ export class TraceRegionFold {
   readonly #trace: EvalTrace;
 
   // ── cursor ──────────────────────────────────────────────────────────────────
-  /** Next unprocessed invocation id. Ids are monotonic (`trace.ts` `#nextId++`), so
-   *  ascending id is the correct fold order and `id ≥ #nextId` is exactly the delta. */
-  #nextId = 0;
+  /** Cursor into the trace's append-ordered `invocationLog`. Everything before this
+   *  index is already folded in; `invocationLog.slice(#logCursor)` is exactly the
+   *  delta, already in ascending-id (fold) order — O(Δ), no re-scan, no sort. */
+  #logCursor = 0;
 
   // ── snapshot mirror (the growing de-MobX'd PlainInv graph) ────────────────────
   readonly #invById = new Map<number, PlainInv>();
@@ -237,14 +238,13 @@ export class TraceRegionFold {
    * O(Δ-new-invocations) — the whole point.
    */
   applyDelta(): number {
-    // Collect the new invocations across all records, ascending id (the fold order).
-    const fresh: Invocation[] = [];
-    for (const rec of this.#trace.records.values()) {
-      for (const inv of rec.bindings) {
-        if (inv.id >= this.#nextId) fresh.push(inv);
-      }
-    }
-    fresh.sort((a, b) => a.id - b.id);
+    // Slice the new invocations off the trace's append-ordered log by index cursor —
+    // O(Δ), not an O(total-bindings) re-scan of every records binding each tick. The
+    // log is in `enter` order = ascending invocation id (the fold order), so the slice
+    // is already ordered (no collect-and-sort).
+    const log = this.#trace.invocationLog;
+    const fresh: Invocation[] = log.slice(this.#logCursor);
+    this.#logCursor = log.length;
     // Refresh previously-running mirrors even when there are NO new invocations — an
     // in-flight infer can resolve (running → resolved) without minting anything new, and
     // the next `current()` must reflect that (parity with a fresh snapshot).
@@ -287,8 +287,6 @@ export class TraceRegionFold {
     // `isProvenancePoint` is already set when the child is mirrored. The root case is
     // likewise stable (parentless from birth). So no back-fix pass is needed; asserted by
     // the parity test (which would diverge if a child's provenance were dropped).
-
-    this.#nextId = fresh[fresh.length - 1]!.id + 1;
 
     // ── recursion + branch signals (extend the monotonic sets) ────────────────────
     this.#extendSignals(fresh);
