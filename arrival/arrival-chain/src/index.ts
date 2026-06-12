@@ -176,7 +176,7 @@ export {
   EXPOSED_DEFINE_HEAD,
   OVERRIDABLE_DEFINE_HEAD,
 } from "./extract-expose.js";
-export { defineExposeRosetta, type ExposeDeclaration, type OnExpose, EXPOSED_DEFINE_FORM } from "./expose.js";
+export { defineExposeRosetta, type ExposeDeclaration, type OnExpose } from "./expose.js";
 // The superpowered-define family: `define/overridable` (host-overridable
 // binding with a declared default + schema) + `define/exposed` (expose with a
 // derived overridable arg surface). Both are preamble macros lowering to a plain

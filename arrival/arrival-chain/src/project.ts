@@ -1834,10 +1834,16 @@ export const BUILTIN_PREAMBLE =`
 (define-macro (define/overridable name default schema)
   \`(define ,name (overridable/declare (symbol->string (quote ,name)) ,default ,schema)))
 ;;
-;; (define/exposed name body)
+;; (define/exposed name :k v … body)
 ;;   → registers an expose declaration (keyed by name) on the same sink as
-;;     declare/expose; the function stays callable in-program. The input
-;;     contract is DERIVED statically from the reachable define/overridables.
-(define-macro (define/exposed name body)
-  \`(define ,name (exposed/declare (symbol->string (quote ,name)) ,body)))
+;;     declare/expose; the function stays callable in-program. The clauses split
+;;     into leading \`:keyword value\` pairs (passed through verbatim — e.g.
+;;     :input/:output/:meta schemas) and a trailing body, which becomes the
+;;     :handler. With no schema slots the reachable-overridable derivation still
+;;     supplies the argument surface statically. Lowers directly to declare/expose
+;;     (one runtime head; the form's value is the handler so the name binds).
+(define-macro (define/exposed name . clauses)
+  (let* ((body (car (reverse clauses)))
+         (kwargs (reverse (cdr (reverse clauses)))))
+    \`(define ,name (declare/expose (symbol->string (quote ,name)) ,@kwargs :handler ,body))))
 `;
