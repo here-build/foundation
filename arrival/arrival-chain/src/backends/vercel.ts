@@ -83,6 +83,11 @@ export function vercelBackend(opts: VercelOptions): ModelBackend {
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => ac.abort(new Error(`infer idle ${idleMs}ms — stream stalled (aborted)`)), idleMs);
       };
+      // TOTAL deadline backstop: the idle watchdog only catches a STALL — a pathologically slow but
+      // never-quite-idle stream would run unbounded. A generous hard ceiling closes that gap.
+      // Env: ARRIVAL_INFER_TOTAL_MS (default 15 min).
+      const totalMs = Number(process.env.ARRIVAL_INFER_TOTAL_MS) || 900_000;
+      const totalTimer = setTimeout(() => ac.abort(new Error(`infer total ${totalMs}ms exceeded (aborted)`)), totalMs);
 
       const result = streamText({
         model: model(spec.model),
@@ -94,13 +99,21 @@ export function vercelBackend(opts: VercelOptions): ModelBackend {
       });
       let text = "";
       try {
-        armIdle(); // first-token deadline
-        for await (const delta of result.textStream) {
-          text += delta;
-          armIdle(); // reset on every token — the watchdog only fires on a true stall
+        armIdle(); // first-activity deadline
+        // fullStream (NOT textStream): re-arm on ANY activity — content OR reasoning. A reasoning
+        // model actively thinking emits `reasoning-delta` parts (silent on textStream), so the
+        // content-only watchdog FALSE-ABORTED it mid-think (the nemotron / glm:thinking "stall").
+        // Now only a TRUE stall — no part of any kind for the idle window — fires. Text accumulates
+        // from `text-delta` parts only; an `error` part is re-thrown (textStream threw upstream
+        // errors; fullStream surfaces them as parts — preserve the makeInfer retry path).
+        for await (const part of result.fullStream) {
+          armIdle();
+          if (part.type === "text-delta") text += part.text;
+          else if (part.type === "error") throw new Error(String(part.error));
         }
       } finally {
         if (idleTimer) clearTimeout(idleTimer);
+        clearTimeout(totalTimer);
       }
       const u = await result.usage;
 
