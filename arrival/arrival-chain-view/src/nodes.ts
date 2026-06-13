@@ -2,7 +2,7 @@
  * Thin helpers over the arrival-chain `Node` parse forest. The projection lowers
  * this forest; everything here is pure shape inspection — no emit, no naming.
  */
-import type { Node } from "@here.build/arrival-chain/sweet";
+import type { Node } from "@here.build/arrival-sweet";
 
 export type { Node };
 

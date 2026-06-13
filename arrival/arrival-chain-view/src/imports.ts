@@ -10,7 +10,7 @@
  * `.scm` spill names are read from the required source with the same parser — no
  * dependency on the heavy arrival-chain runtime barrel; the projection stays a few KB.
  */
-import { parseSexprs } from "@here.build/arrival-chain/sweet";
+import { parseSexprs } from "@here.build/arrival-sweet";
 import { cleanName } from "./names.js";
 import { head, isAtom, isList, type Node } from "./nodes.js";
 

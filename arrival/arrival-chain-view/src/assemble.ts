@@ -3,7 +3,7 @@
  * No eslint, no prettier — so it is browser-safe and can be wrapped by either the
  * Node formatter (`project.ts`) or the browser formatter (`browser.ts`).
  */
-import { parseSexprs } from "@here.build/arrival-chain/sweet";
+import { parseSexprs } from "@here.build/arrival-sweet";
 import { computeAsyncNames, inferPrimitives } from "./async-analysis.js";
 import { desugar } from "./desugar.js";
 import { collectImports, type ProjectOptions } from "./imports.js";

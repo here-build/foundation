@@ -287,16 +287,9 @@ export { buildUneval, type Uneval, type UnevalContainer } from "./uneval.js";
 export { inferTasksByScope } from "./infer-content.js";
 
 // ── Sweet-expression lens ─────────────────────────────────────────────
-//
-// classic↔sweet view over .scm source. `schemeToSweet` renders the stored
-// canonical scheme as a readable "sweet" form (curly-infix, `=>` lambda, colon
-// kwargs, `??` coalesce); `sweetToScheme` folds an edited sweet view back to
-// canonical scheme, preserving every UNCHANGED top-level form byte-for-byte and
-// reprinting only what changed (canonical reprint when the form correspondence is
-// uncertain). Stored entities stay raw scheme — sweet is a derived editing lens.
-// Studio's [scheme]/[sweet] editor toggle renders + saves the program through them.
-export { schemeToSweet, type SweetOpts } from "@here.build/arrival-scheme";
-export { sweetToScheme } from "./sweet-read.js";
+// The classic↔sweet lens moved to its own zero-dep package `@here.build/arrival-sweet`
+// (schemeToSweet / sweetToScheme / readSweet / parseSexprs / alignSweetClassic / paramHints).
+// Import it directly — it no longer rides the arrival-chain barrel or the `/sweet` subpath.
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //

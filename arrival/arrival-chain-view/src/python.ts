@@ -11,7 +11,7 @@
  * emitter prints well-formed Python directly, leaning on single-`return` `def`s and
  * expression comprehensions so the gepa-class chain stays one statement per binding.
  */
-import { parseSexprs } from "@here.build/arrival-chain/sweet";
+import { parseSexprs } from "@here.build/arrival-sweet";
 import pluralize from "pluralize";
 import { desugar } from "./desugar.js";
 import {

@@ -19,7 +19,7 @@
  * Both wrap the entry's trailing expression in a print, so the program's result
  * (the GEPA-optimized candidate) actually reaches stdout.
  */
-import { parseSexprs } from "@here.build/arrival-chain/sweet";
+import { parseSexprs } from "@here.build/arrival-sweet";
 import { cleanName } from "./names.js";
 import { head, isAtom, isList, type Node } from "./nodes.js";
 import { projectToJs } from "./project.js";

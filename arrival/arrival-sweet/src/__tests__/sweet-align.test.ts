@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { alignSweetClassic } from "../sweet-align.js";
-import { schemeToSweet } from "@here.build/arrival-scheme";
+import { schemeToSweet } from "../sweet-render.js";
 
 /** Translate the position of `needle`'s first char in `sweet` to classic and
  *  read back what classic token sits there — the round-trip a hover query makes. */

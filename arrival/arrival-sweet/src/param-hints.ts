@@ -1,5 +1,5 @@
 import { readSweet, splitFormsWithBase } from "./sweet-read.js";
-import { type Node, parseSexprs } from "@here.build/arrival-scheme";
+import { type Node, parseSexprs } from "./sweet-render.js";
 
 /**
  * Parameter-name inlay hints. For a call to a `(define (f a b c) …)`, place a hint
@@ -35,7 +35,8 @@ const isList = (n: Node | undefined): n is List => n != null && "list" in n;
  *  sweet I-expression reader wraps `a` + an indented value into a `(a v)` binding with no
  *  span of its own), the start of its first child, recursively. So a hint lands on the
  *  binding's visible start (`(` inline, the symbol in an I-expression) in either lens. */
-const startOf = (n: Node | undefined): number | undefined => (n == null ? undefined : n.span ? n.span[0] : isList(n) ? startOf(n.list[0]) : undefined);
+const startOf = (n: Node | undefined): number | undefined =>
+  n == null ? undefined : n.span ? n.span[0] : isList(n) ? startOf(n.list[0]) : undefined;
 
 /** Drop a dotted-rest tail: `(a b . rest)` tokenizes as `[a, b, ., rest]`; cut at the
  *  `.` so the rest param takes no positional hint (rest hinting is a follow-up). */
@@ -50,7 +51,7 @@ const positional = (names: string[]): string[] => {
 function defOf(nd: Node): { name: string; params: string[] } | null {
   if (!isList(nd) || nd.list.length < 2 || !isAtom(nd.list[0]) || nd.list[0].atom !== "define") return null;
   const sig = nd.list[1];
-  if (isList(sig) && sig.list.length >= 1 && sig.list.every(isAtom)) {
+  if (isList(sig) && sig.list.length > 0 && sig.list.every(isAtom)) {
     const names = (sig.list as Atom[]).map((a) => a.atom);
     return { name: names[0], params: positional(names.slice(1)) };
   }
@@ -157,7 +158,7 @@ function hintsFromForms(forms: Node[]): ParamHint[] {
           if (pos !== undefined) hints.push({ pos, name: "let" });
         }
       if (nd.list.length > i + 1) {
-        const pos = startOf(nd.list[nd.list.length - 1]);
+        const pos = startOf(nd.list.at(-1));
         if (pos !== undefined) hints.push({ pos, name: "return" });
       }
       for (const c of nd.list) walk(c);

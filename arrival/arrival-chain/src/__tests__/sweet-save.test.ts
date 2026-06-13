@@ -15,8 +15,8 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { parseSexprs, printScheme, nodeEq, schemeToSweet, type Node } from "@here.build/arrival-scheme";
-import { sweetToScheme, topFormSpans } from "../sweet-read.js";
+import { parseSexprs, printScheme, nodeEq, schemeToSweet, type Node } from "@here.build/arrival-sweet";
+import { sweetToScheme, topFormSpans } from "@here.build/arrival-sweet";
 
 const FIX = path.resolve(import.meta.dirname, "fixtures/programs");
 const EX = path.resolve(import.meta.dirname, "../../../../../examples/host-custdev");

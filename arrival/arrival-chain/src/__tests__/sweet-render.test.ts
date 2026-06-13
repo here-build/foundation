@@ -24,8 +24,8 @@ import path from "node:path";
 import {
   schemeToSweet, parseSexprs, collectKwargHeads, inflateKwargs, flattenKwargs,
   type Node,
-} from "@here.build/arrival-scheme";
-import { readSweet } from "../sweet-read.js";
+} from "@here.build/arrival-sweet";
+import { readSweet } from "@here.build/arrival-sweet";
 
 const FIX = path.resolve(import.meta.dirname, "fixtures/programs");
 const EX = path.resolve(import.meta.dirname, "../../../../../examples/host-custdev");

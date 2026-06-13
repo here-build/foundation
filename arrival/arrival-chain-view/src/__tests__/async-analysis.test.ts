@@ -2,7 +2,7 @@
  * The run-view's async taint analysis: which `define`d functions must be `async`
  * because they transitively reach a `.prompt` inference call.
  */
-import { parseSexprs } from "@here.build/arrival-chain/sweet";
+import { parseSexprs } from "@here.build/arrival-sweet";
 import { describe, expect, it } from "vitest";
 import { computeAsyncNames, inferPrimitives } from "../async-analysis.js";
 

@@ -17,7 +17,8 @@
  * token equal to an operator string (so `config/min-for-boundary` is one atom).
  */
 import invariant from "tiny-invariant";
-import { parseSexprs, nodeEq, printScheme, type Node } from "@here.build/arrival-scheme";
+
+import { parseSexprs, nodeEq, printScheme, type Node } from "./sweet-render.js";
 
 // glyph → canonical op (inverse of INFIX_GLYPH). INJECTIVE: only ==←equal?, &&←and,
 // ||←or are remapped; everything else (=, eq?, eqv?, arithmetic, comparison) is its
@@ -28,20 +29,35 @@ const opOf = (glyph: string): string => GLYPH_OP[glyph] ?? glyph;
 // glyph → precedence — must mirror sweet-render's INFIX_PREC. `=>` loosest;
 // `??` (null-coalescing) ≈ `||`.
 const GLYPH_PREC: Record<string, number> = {
-  "=>": 0, "??": 1, "||": 1, "&&": 2,
-  "==": 3, "=": 3, "eq?": 3, "eqv?": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
-  "+": 4, "-": 4,
+  "=>": 0,
+  "??": 1,
+  "||": 1,
+  "&&": 2,
+  "==": 3,
+  "=": 3,
+  "eq?": 3,
+  "eqv?": 3,
+  "<": 3,
+  ">": 3,
+  "<=": 3,
+  ">=": 3,
+  "+": 4,
+  "-": 4,
   // Multiplicative tier MUST mirror sweet-render's INFIX_PREC — render emits
   // `modulo`/`quotient`/`remainder` as infix, so read has to recognise them back
   // or `{a modulo b}` fails as "unbalanced {" (round-trip break).
-  "*": 5, "/": 5, modulo: 5, quotient: 5, remainder: 5,
+  "*": 5,
+  "/": 5,
+  modulo: 5,
+  quotient: 5,
+  remainder: 5,
 };
 const isOp = (w: string): boolean => w in GLYPH_PREC;
 
 const atom2 = (w: string): Node => ({ atom: w });
 /** `{a ?? b}` → (if a a b); right-folds a chain `{a ?? b ?? c}` → (if a a (if b b c)). */
 function coalesceNode(ops: Node[]): Node {
-  let acc = ops[ops.length - 1];
+  let acc = ops.at(-1);
   for (let i = ops.length - 2; i >= 0; i--) acc = { list: [atom2("if"), ops[i], ops[i], acc] };
   return acc;
 }
@@ -82,11 +98,16 @@ function subscriptToAccessor(idx: string): string {
   const slice = idx.endsWith(":");
   const k = Number(slice ? idx.slice(0, -1) : idx);
   invariant(Number.isInteger(k) && k >= (slice ? 1 : 0), () => `bad subscript '[${idx}]'`);
-  return slice ? "c" + "d".repeat(k) + "r" : "ca" + "d".repeat(k) + "r";
+  return slice ? `c${"d".repeat(k)}r` : `ca${"d".repeat(k)}r`;
 }
 
 // reader-macro prefix → the symbol it expands to (mirrors parseSexprs).
-const QUOTE_WRAP: Record<string, string> = { "'": "quote", "`": "quasiquote", ",": "unquote", ",@": "unquote-splicing" };
+const QUOTE_WRAP: Record<string, string> = {
+  "'": "quote",
+  "`": "quasiquote",
+  ",": "unquote",
+  ",@": "unquote-splicing",
+};
 
 function tokenize(src: string, base?: number): Tok[] {
   const toks: Tok[] = [];
@@ -95,23 +116,45 @@ function tokenize(src: string, base?: number): Tok[] {
   const at = (start: number, end: number) => (base == null ? {} : { start: base + start, end: base + end });
   while (i < src.length) {
     const c = src[i];
-    if (/\s/.test(c)) { i++; continue; }
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
     const s = i;
-    if (c === "(" || c === ")" || c === "{" || c === "}" || c === "[" || c === "]") { i++; toks.push({ t: c, ...at(s, i) }); continue; }
-    if (c === "'" || c === "`") { i++; toks.push({ t: "quote", v: c, ...at(s, i) }); continue; }
-    if (c === ",") { const v = src[i + 1] === "@" ? ",@" : ","; i += v.length; toks.push({ t: "quote", v, ...at(s, i) }); continue; }
+    if (c === "(" || c === ")" || c === "{" || c === "}" || c === "[" || c === "]") {
+      i++;
+      toks.push({ t: c, ...at(s, i) });
+      continue;
+    }
+    if (c === "'" || c === "`") {
+      i++;
+      toks.push({ t: "quote", v: c, ...at(s, i) });
+      continue;
+    }
+    if (c === ",") {
+      const v = src[i + 1] === "@" ? ",@" : ",";
+      i += v.length;
+      toks.push({ t: "quote", v, ...at(s, i) });
+      continue;
+    }
     if (c === '"') {
       let str = "";
       i++;
       while (i < src.length && src[i] !== '"') {
-        if (src[i] === "\\") { str += src[i] + (src[i + 1] ?? ""); i += 2; } else { str += src[i]; i++; }
+        if (src[i] === "\\") {
+          str += src[i] + (src[i + 1] ?? "");
+          i += 2;
+        } else {
+          str += src[i];
+          i++;
+        }
       }
       i++;
       toks.push({ t: "word", v: str, str: true, ...at(s, i) });
       continue;
     }
     let j = i;
-    while (j < src.length && !/\s/.test(src[j]) && !"(){}[]\"".includes(src[j])) j++;
+    while (j < src.length && !/\s/.test(src[j]) && !'(){}[]"'.includes(src[j])) j++;
     toks.push({ t: "word", v: src.slice(i, j), ...at(s, j) });
     i = j;
   }
@@ -119,7 +162,8 @@ function tokenize(src: string, base?: number): Tok[] {
 }
 
 const atom = (w: string, str?: boolean): Node => (str ? { atom: w, str: true } : { atom: w });
-const isColonKey = (t: Tok): boolean => t.t === "word" && !t.str && t.v.length > 1 && t.v.endsWith(":") && !t.v.slice(0, -1).includes(":");
+const isColonKey = (t: Tok): boolean =>
+  t.t === "word" && !t.str && t.v.length > 1 && t.v.endsWith(":") && !t.v.slice(0, -1).includes(":");
 
 /** Parse a token array into a SEQUENCE of classic elements: `(…)` lists, `{…}`
  *  curlies, quoted data, and atoms. Colon-keys are NOT handled here — parseNode
@@ -147,7 +191,7 @@ function parseElements(toks: Tok[]): Node[] {
   // fully-read datum/operand before the infix climber sees it.
   function withSubscripts(node: Node): Node {
     let n = node;
-    while (peek() && peek()!.t === "[") {
+    while (peek()?.t === "[") {
       next(); // [
       const t = next();
       invariant(!!t && t.t === "word", "expected index inside '[ ]'");
@@ -161,7 +205,10 @@ function parseElements(toks: Tok[]): Node[] {
   // `'`/`` ` ``/`,`/`,@` prefix → (quote datum) etc. Recurses (`''x` → nested).
   function quoted(parseDatum: () => Node): Node {
     const t = peek();
-    if (t && t.t === "quote") { next(); return { list: [atom(QUOTE_WRAP[t.v]), quoted(parseDatum)] }; }
+    if (t?.t === "quote") {
+      next();
+      return { list: [atom(QUOTE_WRAP[t.v]), quoted(parseDatum)] };
+    }
     return parseDatum();
   }
 
@@ -189,9 +236,18 @@ function parseElements(toks: Tok[]): Node[] {
   function curlyAtomic(): Node {
     const t = peek();
     invariant(!!t, "unexpected end in curly");
-    if (t.t === "(") { next(); return classicList(); }
-    if (t.t === "{") { next(); return curly(); }
-    if (t.t === "word" && !isOp(t.v)) { next(); return atom(t.v, t.str); }
+    if (t.t === "(") {
+      next();
+      return classicList();
+    }
+    if (t.t === "{") {
+      next();
+      return curly();
+    }
+    if (t.t === "word" && !isOp(t.v)) {
+      next();
+      return atom(t.v, t.str);
+    }
     invariant(false, () => `expected operand in curly, got '${t.t === "word" ? t.v : t.t}'`);
   }
   function curlyOperand(): Node {
@@ -204,7 +260,7 @@ function parseElements(toks: Tok[]): Node[] {
     let left = curlyOperand();
     for (;;) {
       const t = peek();
-      if (!t || t.t !== "word" || !isOp(t.v) || GLYPH_PREC[t.v] < minPrec) break;
+      if (t?.t !== "word" || !isOp(t.v) || GLYPH_PREC[t.v] < minPrec) break;
       const glyph = t.v;
       const p = GLYPH_PREC[glyph];
       const operands = [left];
@@ -212,11 +268,12 @@ function parseElements(toks: Tok[]): Node[] {
         next();
         operands.push(infix(p + 1));
       }
-      left = glyph === "=>"
-        ? { list: [atom("lambda"), operands[0], operands[1]] }
-        : glyph === "??"
-        ? coalesceNode(operands)
-        : { list: [atom(opOf(glyph)), ...operands] };
+      left =
+        glyph === "=>"
+          ? { list: [atom("lambda"), operands[0], operands[1]] }
+          : glyph === "??"
+            ? coalesceNode(operands)
+            : { list: [atom(opOf(glyph)), ...operands] };
     }
     return left;
   }
@@ -246,13 +303,35 @@ const leadingSpaces = (s: string): number => s.length - s.trimStart().length;
 
 /** Net bracket depth of a string, ignoring brackets inside "strings". */
 function bracketDepth(s: string): number {
-  let d = 0, inStr = false;
+  let d = 0,
+    inStr = false;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
-    if (inStr) { if (c === "\\") i++; else if (c === '"') inStr = false; continue; }
-    if (c === '"') inStr = true;
-    else if (c === "(" || c === "{" || c === "[") d++;
-    else if (c === ")" || c === "}" || c === "]") d--;
+    if (inStr) {
+      if (c === "\\") i++;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    switch (c) {
+      case '"': {
+        inStr = true;
+        break;
+      }
+      case "(":
+      case "{":
+      case "[": {
+        d++;
+        break;
+      }
+      case ")":
+      case "}":
+      case "]":
+        {
+          d--;
+          // No default
+        }
+        break;
+    }
   }
   return d;
 }
@@ -261,7 +340,11 @@ function bracketDepth(s: string): number {
  *  attachment. Set only for a SINGLE-physical-line LogLine (offsets map directly);
  *  a coalesced multi-line one leaves it undefined → its nodes get no spans → no
  *  parameter hints there (rare, and the broken-`{…}` form is still readable). */
-interface LogLine { indent: number; content: string; base?: number }
+interface LogLine {
+  indent: number;
+  content: string;
+  base?: number;
+}
 
 /** Coalesce physical lines whose brackets are unbalanced into one logical line
  *  (so a multi-line `{…}` becomes a single parseable unit; bracket mode overrides
@@ -276,7 +359,7 @@ function coalesce(physical: { text: string; base: number }[]): LogLine[] {
     let joined = false;
     while (i + 1 < physical.length && bracketDepth(content) > 0) {
       i++;
-      content += " " + physical[i].text.trim();
+      content += ` ${physical[i].text.trim()}`;
       joined = true;
     }
     out.push(joined ? { indent, content } : { indent, content, base });
@@ -301,11 +384,11 @@ function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number
   // colon-pair: a line whose FIRST token is a TRAILING-colon key (`summary:`) is a
   // kwarg pair → :summary + value. Value = rest-of-line ++ children (one expr).
   // (Leading-colon `:personas` is an accessor HEAD, not a key — it falls through.)
-  if (toks.length >= 1 && isColonKey(toks[0])) {
-    const key = atom(":" + (toks[0] as { v: string }).v.slice(0, -1));
+  if (toks.length > 0 && isColonKey(toks[0])) {
+    const key = atom(`:${(toks[0] as { v: string }).v.slice(0, -1)}`);
     const valueElems = parseElements(toks.slice(1));
     const all = [...valueElems, ...childElems];
-    invariant(all.length !== 0, () => `colon key '${(toks[0] as { v: string }).v}' has no value`);
+    invariant(all.length > 0, () => `colon key '${(toks[0] as { v: string }).v}' has no value`);
     return { elems: [key, all.length === 1 ? all[0] : { list: all }], next: j };
   }
 
@@ -349,12 +432,22 @@ function stripComments(text: string): string {
     const c = text[i];
     if (inStr) {
       out += c;
-      if (c === "\\") { out += text[i + 1] ?? ""; i++; } else if (c === '"') inStr = false;
+      if (c === "\\") {
+        out += text[i + 1] ?? "";
+        i++;
+      } else if (c === '"') inStr = false;
       continue;
     }
-    if (c === '"') { inStr = true; out += c; continue; }
+    if (c === '"') {
+      inStr = true;
+      out += c;
+      continue;
+    }
     if (c === ";") {
-      while (i < text.length && text[i] !== "\n") { out += " "; i++; }
+      while (i < text.length && text[i] !== "\n") {
+        out += " ";
+        i++;
+      }
       i--; // the for-loop's i++ re-lands on the \n (or past end), copied next iteration
       continue;
     }
@@ -417,25 +510,40 @@ export function topFormSpans(src: string): Array<{ start: number; end: number }>
   while (i < n) {
     // Skip inter-form whitespace + line comments.
     while (i < n) {
-      if (/\s/.test(src[i])) { i++; continue; }
-      if (src[i] === ";") { while (i < n && src[i] !== "\n") i++; continue; }
+      if (/\s/.test(src[i])) {
+        i++;
+        continue;
+      }
+      if (src[i] === ";") {
+        while (i < n && src[i] !== "\n") i++;
+        continue;
+      }
       break;
     }
     if (i >= n) break;
     const start = i;
     // A form may carry leading quote/quasiquote/unquote prefixes (they bind tight).
-    while (i < n && (src[i] === "'" || src[i] === "`" || src[i] === ",")) i += src[i] === "," && src[i + 1] === "@" ? 2 : 1;
+    while (i < n && (src[i] === "'" || src[i] === "`" || src[i] === ","))
+      i += src[i] === "," && src[i + 1] === "@" ? 2 : 1;
     if (i < n && (src[i] === "(" || src[i] === "[")) {
       // Balanced bracket group, string- & comment-aware.
       let depth = 0;
       let inStr = false;
       for (; i < n; i++) {
         const c = src[i];
-        if (inStr) { if (c === "\\") i++; else if (c === '"') inStr = false; continue; }
+        if (inStr) {
+          if (c === "\\") i++;
+          else if (c === '"') inStr = false;
+          continue;
+        }
         if (c === '"') inStr = true;
-        else if (c === ";") { while (i + 1 < n && src[i + 1] !== "\n") i++; }
-        else if (c === "(" || c === "[") depth++;
-        else if (c === ")" || c === "]") { if (--depth === 0) { i++; break; } }
+        else if (c === ";") {
+          while (i + 1 < n && src[i + 1] !== "\n") i++;
+        } else if (c === "(" || c === "[") depth++;
+        else if ((c === ")" || c === "]") && --depth === 0) {
+          i++;
+          break;
+        }
       }
     } else if (i < n && src[i] === '"') {
       i++;
@@ -443,7 +551,7 @@ export function topFormSpans(src: string): Array<{ start: number; end: number }>
       i++;
     } else {
       // Bare atom (symbol / number).
-      while (i < n && !/\s/.test(src[i]) && !"()[];\"".includes(src[i])) i++;
+      while (i < n && !/\s/.test(src[i]) && !'()[];"'.includes(src[i])) i++;
     }
     spans.push({ start, end: i });
   }
@@ -462,7 +570,7 @@ export function topFormSpans(src: string): Array<{ start: number; end: number }>
  */
 export function sweetToScheme(sweetText: string, prevClassic: string): string {
   const sweetForms = readSweet(sweetText); // throws on malformed sweet → caller handles
-  const reprintAll = (): string => sweetForms.map((f) => printScheme(f)).join("\n\n") + "\n";
+  const reprintAll = (): string => `${sweetForms.map((f) => printScheme(f)).join("\n\n")}\n`;
 
   const spans = topFormSpans(prevClassic);
   if (spans.length !== sweetForms.length) return reprintAll(); // form added/removed → uncertain

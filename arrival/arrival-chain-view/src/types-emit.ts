@@ -16,7 +16,7 @@
  * lens: every emitted construct records the IR span it came from, so a tsc
  * diagnostic at a TS offset lifts back onto the right `.scm` form.
  */
-import { parseSexprs } from "@here.build/arrival-chain/sweet";
+import { parseSexprs } from "@here.build/arrival-sweet";
 
 import { desugar } from "./desugar.js";
 import { cleanName } from "./names.js";

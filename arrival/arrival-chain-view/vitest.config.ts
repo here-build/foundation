@@ -1,10 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
-// Resolve the arrival-chain `/sweet` lens to SOURCE in tests, so a freshly-added
-// re-export (parseSexprs/Node) is picked up without rebuilding arrival-chain's dist.
-// The lens is runtime-free (imports nothing heavy), so this stays a few-KB closure.
-const sweetSrc = fileURLToPath(new URL("../arrival-chain/src/sweet.ts", import.meta.url));
+// Resolve the `@here.build/arrival-sweet` lens to SOURCE in tests, so a freshly-added
+// re-export (parseSexprs/Node) is picked up without rebuilding the package's dist.
+// The lens is a runtime-free leaf (its own S-expr parser; only tiny-invariant).
+const sweetSrc = fileURLToPath(new URL("../arrival-sweet/src/index.ts", import.meta.url));
 
 export default defineConfig({
   test: {
@@ -13,6 +13,6 @@ export default defineConfig({
     include: ["src/__tests__/**/*.test.{ts,tsx}"],
   },
   resolve: {
-    alias: { "@here.build/arrival-chain/sweet": sweetSrc },
+    alias: { "@here.build/arrival-sweet": sweetSrc },
   },
 });

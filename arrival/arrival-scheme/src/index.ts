@@ -5,24 +5,6 @@ import { applyFantasyLandPatches } from "./fantasy-land.js";
 export * from "./stdlib.js";
 export * from "./safe_builtins.js";
 export { sandboxedEnv as sandboxedEnv } from "./sandbox-env.js";
-// Sweet-expression renderer — classic↔sweet scheme-source formatting (self-contained S-expr parser +
-// printer). Lives here in the scheme layer so both arrival-chain and provenance-analysis consumers can
-// render scheme source without a cross-package dependency on either.
-export {
-  schemeToSweet,
-  parseSexprs,
-  printScheme,
-  inlineScheme,
-  inlineSweet,
-  formatSweet,
-  inflateKwargs,
-  flattenKwargs,
-  collectKwargHeads,
-  nodeEq,
-  DEFAULT_OPTS,
-  type Node,
-  type SweetOpts,
-} from "./sweet-render.js";
 // Sandbox-boundary sealing — `@arrival.private` (+ the underlying markAsSandboxBoundary), the
 // correct, exported way to mark a host class opaque to Scheme. Previously unexported, which forced
 // consumers to forge the wrong (registry-global, forgeable) boundary symbol — see the decorator doc.

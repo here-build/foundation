@@ -30,7 +30,6 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
-    "test:sweet": "vitest run sweet-render --disableConsoleIntercept",
     "test:watch": "vitest",
     "research": "vitest run --config vitest.research.config.ts",
     "custdev": "vitest run --config vitest.custdev.config.ts",
@@ -41,10 +40,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./sweet": {
-      "types": "./dist/sweet.d.ts",
-      "import": "./dist/sweet.js"
     },
     "./flow": {
       "types": "./dist/flow.d.ts",
@@ -85,6 +80,7 @@
     "@ai-sdk/anthropic": "^3.0.82",
     "@ai-sdk/openai-compatible": "^2.0.48",
     "@here.build/arrival-scheme": "workspace:^",
+    "@here.build/arrival-sweet": "workspace:^",
     "@here.build/plexus": "workspace:^",
     "ai": "^6.0.201",
     "dedent": "1.7.2",

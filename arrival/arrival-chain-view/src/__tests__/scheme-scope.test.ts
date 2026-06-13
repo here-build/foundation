@@ -4,7 +4,7 @@
  * refs are absent (caller falls back to cleanName). Collision-free → every binding is
  * its cleanName; a cross-scope shadow gets the standard numeric suffix.
  */
-import { parseSexprs } from "@here.build/arrival-chain/sweet";
+import { parseSexprs } from "@here.build/arrival-sweet";
 import { describe, expect, it } from "vitest";
 import { resolveNames } from "../scheme-scope.js";
 

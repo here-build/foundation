@@ -9,8 +9,8 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { parseSexprs, schemeToSweet, inlineSweet, DEFAULT_OPTS, nodeEq, type Node } from "@here.build/arrival-scheme";
-import { readSweetExpr, readSweet } from "../sweet-read.js";
+import { parseSexprs, schemeToSweet, inlineSweet, DEFAULT_OPTS, nodeEq, type Node } from "@here.build/arrival-sweet";
+import { readSweetExpr, readSweet } from "@here.build/arrival-sweet";
 
 const classic = (src: string): Node => parseSexprs(src)[0];
 const show = (n: Node): string => ("atom" in n ? (n.str ? JSON.stringify(n.atom) : n.atom) : "(" + n.list.map(show).join(" ") + ")");
