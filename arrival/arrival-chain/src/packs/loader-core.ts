@@ -1,0 +1,35 @@
+import { createRuntimeAssembler, type EnvPack } from "../env-pack.js";
+import { type ArrivalEnv, type BuildArrivalEnvOpts, makeCompileInferUnit } from "../infer-kernel.js";
+import { defineImportRosetta, defineRequireRosetta } from "../loader.js";
+import { defineRequireExtensionRosetta } from "../require-extension.js";
+
+/** The irreducible loader/prompt core — `.prompt` sealer + `import`/`require` + (when armed)
+ *  `require/extension`. NOT a capability the way the others are; the env's plumbing floor. Applies
+ *  LAST (lowest precedence), so anything an extracted pack registers shadows it (in practice their
+ *  symbols are disjoint, so there is no clash). */
+export function arrivalLoaderCorePack(opts: BuildArrivalEnvOpts): EnvPack<ArrivalEnv> {
+  return {
+    name: "arrival/loader-core",
+    apply: (env) => {
+      const compileInferUnit = makeCompileInferUnit(env, opts);
+      defineImportRosetta({ env, loader: opts.loader });
+      const clearRequireCache = defineRequireRosetta({
+        env,
+        loader: opts.loader,
+        tap: opts.tap,
+        baseDir: opts.dirname ?? "",
+        compileInferUnit,
+      });
+      opts.onRequireCache?.(clearRequireCache);
+      // (P4) `(require/extension :name)` — host-armed pack registry, applied onto THIS live env via a
+      // runtime assembler (idempotent + single-flight). Registered only when the host arms a registry;
+      // absent ⇒ the verb is unbound. The assembler is handed to the lifecycle owner so its runtime
+      // disposers fold into env teardown.
+      if (opts.extensionRegistry) {
+        const assembler = createRuntimeAssembler(env);
+        defineRequireExtensionRosetta({ env, registry: opts.extensionRegistry, assembler });
+        opts.onExtensionAssembler?.(assembler);
+      }
+    },
+  };
+}
