@@ -18,7 +18,7 @@
 import invariant from "tiny-invariant";
 import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
 import { buildArrivalEnv, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
-import { assembleEnv, type AssembledEnv, type EnvPack } from "./env-pack.js";
+import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "./env-pack.js";
 import { InferString } from "./infer-string.js";
 import { EvalTrace } from "./trace.js";
 import { createInferStore } from "./infer-store.js";
@@ -98,6 +98,9 @@ export interface ChainConfig {
   tap?: EvalTrace;
   mcp?: McpEffectResolver;
   extensions?: ChainExtension[];
+  /** Host-armed registry of named extension packs for `(require/extension :name)`. Programs reach a
+   *  capability by name; the host decides what each resolves to. Absent ⇒ the verb is unbound. */
+  extensionRegistry?: ReadonlyMap<string, EnvPack<ChainEnv>>;
   /** A stable id for this run (the progress room, etc.). Defaults to the chain name. */
   runId?: string;
   /** Transient-failure retry budget per infer call. Default 3. */
@@ -205,6 +208,7 @@ export class ChainEnvironment {
   private readonly tap: EvalTrace;
   private started = false;
   private assembledExts?: AssembledEnv<ChainEnv>;
+  private extAssembler?: RuntimeAssembler<ChainEnv>;
 
   constructor(config: ChainConfig) {
     const models = config.models;
@@ -231,6 +235,14 @@ export class ChainEnvironment {
       loader: config.loader,
       tap: this.tap,
       ...(config.mcp ? { mcp: config.mcp } : {}),
+      ...(config.extensionRegistry
+        ? {
+            extensionRegistry: config.extensionRegistry,
+            onExtensionAssembler: (a) => {
+              this.extAssembler = a;
+            },
+          }
+        : {}),
     });
     this.exts = config.extensions ?? [];
     // P3: registration is deferred to async init() — the env-pack assembly is the single pass that
@@ -266,9 +278,11 @@ export class ChainEnvironment {
     }
   }
 
-  /** Tear down extension resources (progress servers, etc.) — LIFO via the assembled env's dispose. */
+  /** Tear down extension resources (progress servers, etc.) — LIFO via the assembled env's dispose,
+   *  plus any runtime `(require/extension)`-applied packs' disposers. */
   async dispose(): Promise<void> {
     await this.assembledExts?.dispose();
+    await this.extAssembler?.dispose();
   }
 }
 

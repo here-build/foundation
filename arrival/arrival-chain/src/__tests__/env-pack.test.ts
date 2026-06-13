@@ -11,6 +11,7 @@ import {
   AssembleLinearizationError,
   AssemblePackError,
   AssemblePackTimeoutError,
+  createRuntimeAssembler,
   type EnvPack,
 } from "../env-pack.js";
 
@@ -176,6 +177,76 @@ describe("env-pack assembly core (P0)", () => {
       },
     };
     expect(() => assembleEnvSync(stub(), [asyncPack])).toThrow(AssemblePackError);
+  });
+
+  // ── createRuntimeAssembler (P4: the `(require/extension)` live-apply path) ──
+  describe("createRuntimeAssembler", () => {
+    it("applies a pack onto the live env, deps-first", async () => {
+      const env = stub();
+      const a = pack("a");
+      const b = pack("b", [a]);
+      const ra = createRuntimeAssembler(env);
+      await ra.require(b);
+      expect(env.appliedOrder).toEqual(["a", "b"]);
+    });
+
+    it("idempotent: a second require is a no-op (applies once)", async () => {
+      const env = stub();
+      const a = pack("a");
+      const ra = createRuntimeAssembler(env);
+      await ra.require(a);
+      await ra.require(a);
+      expect(env.appliedOrder.filter((n) => n === "a")).toHaveLength(1);
+    });
+
+    it("single-flight: two CONCURRENT requires of the same pack apply once", async () => {
+      const env = stub();
+      let applies = 0;
+      const slow: EnvPack<Stub> = {
+        name: "slow",
+        apply: async (e) => {
+          applies += 1;
+          await Promise.resolve();
+          e.appliedOrder.push("slow");
+        },
+      };
+      const ra = createRuntimeAssembler(env);
+      await Promise.all([ra.require(slow), ra.require(slow)]); // race two arms
+      expect(applies).toBe(1);
+    });
+
+    it("a failed apply can be retried (FAILED → re-require applies)", async () => {
+      const env = stub();
+      let attempt = 0;
+      const flaky: EnvPack<Stub> = {
+        name: "flaky",
+        apply: (e) => {
+          attempt += 1;
+          if (attempt === 1) throw new Error("transient");
+          e.appliedOrder.push("flaky");
+        },
+      };
+      const ra = createRuntimeAssembler(env);
+      await expect(ra.require(flaky)).rejects.toBeInstanceOf(AssemblePackError);
+      await ra.require(flaky); // retry succeeds
+      expect(env.appliedOrder).toEqual(["flaky"]);
+    });
+
+    it("dispose runs runtime-applied disposers LIFO", async () => {
+      const env = stub();
+      const log: string[] = [];
+      const mk = (name: string, deps: EnvPack<Stub>[] = []): EnvPack<Stub> => ({
+        name,
+        deps,
+        apply: (_e, ctx) => ctx.onDispose(() => void log.push(name)),
+      });
+      const a = mk("a");
+      const b = mk("b", [a]);
+      const ra = createRuntimeAssembler(env);
+      await ra.require(b); // applies a then b → disposers pushed a,b
+      await ra.dispose();
+      expect(log).toEqual(["b", "a"]); // LIFO
+    });
   });
 
   // ── C3 SPEC-PARITY (G9): our linearization == Python's C3 on canonical cases ──

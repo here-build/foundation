@@ -256,6 +256,59 @@ export async function assembleEnv<E>(base: E, roots: readonly EnvPack<E>[]): Pro
  * is moved into an async `init()` (the point at which async packs — e.g. the progress server —
  * become expressible and the sync path retires).
  */
+/** A live-env assembler for RUNTIME pack application — the `(require/extension :name)` path. Where
+ *  `assembleEnv` builds a fresh env once at construction, this applies registered packs onto an
+ *  ALREADY-LIVE env mid-run, idempotently and single-flight (a second require of the same pack — or a
+ *  concurrent one from a parallel HOF arm — awaits the one in-flight apply, never re-applies). Each
+ *  pack's deps are applied first in C3 order, and a pack reached two ways applies once. Disposers are
+ *  collected for a single LIFO `dispose()` tied to the env's teardown. */
+export interface RuntimeAssembler<E = unknown> {
+  /** Apply `pack` (and any not-yet-applied deps) to the live env, in C3 order. Idempotent. */
+  require(pack: EnvPack<E>): Promise<void>;
+  /** Tear down every runtime-applied pack, LIFO (reverse of apply order). */
+  dispose(): Promise<void>;
+}
+
+export function createRuntimeAssembler<E>(env: E): RuntimeAssembler<E> {
+  // name → the in-flight-or-settled apply promise. Presence = APPLYING|APPLIED (single-flight key);
+  // a rejecting apply deletes its entry so a later require may retry (FAILED → APPLYING).
+  const applied = new Map<string, Promise<void>>();
+  const disposers: Array<() => void | Promise<void>> = [];
+
+  const applyOne = (name: string, pack: EnvPack<E>, order: readonly string[]): Promise<void> => {
+    const existing = applied.get(name);
+    if (existing) return existing; // idempotent + single-flight (no await between get and set below)
+    const ctx: PackContext = { onDispose: (fn) => disposers.push(fn), order };
+    // The async IIFE turns a SYNCHRONOUS throw in apply() into a rejection so the catch handles it
+    // uniformly (a bare `pack.apply(...)` would throw before withTimeout was even called).
+    const p = (async () => withTimeout(pack.apply(env, ctx), packTimeoutMs(), name))().catch((error) => {
+      applied.delete(name); // FAILED: drop so a re-require retries; the pack's own disposers ran via ctx
+      if (error instanceof AssemblePackTimeoutError) throw error;
+      throw new AssemblePackError(name, error);
+    });
+    applied.set(name, p);
+    return p;
+  };
+
+  const require = async (pack: EnvPack<E>): Promise<void> => {
+    const { order, byName } = linearize([pack]);
+    // Apply least-precedence (deps) first, matching construction's last-write-wins order.
+    for (const name of order.toReversed()) await applyOne(name, byName.get(name)!, order);
+  };
+
+  const dispose = async (): Promise<void> => {
+    for (let i = disposers.length - 1; i >= 0; i--) {
+      try {
+        await disposers[i]();
+      } catch {
+        /* best-effort teardown */
+      }
+    }
+  };
+
+  return { require, dispose };
+}
+
 export function assembleEnvSync<E>(base: E, roots: readonly EnvPack<E>[]): AssembledEnv<E> {
   const { order, byName } = linearize(roots);
   const { ctx, runDisposers } = makeCtx(order);

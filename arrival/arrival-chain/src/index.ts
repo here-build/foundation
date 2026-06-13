@@ -82,7 +82,24 @@ export { lipsToJs } from "@here.build/arrival-scheme";
 // consumers like sift can brand entities with the correct boundary symbol, not the forgeable hack).
 export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
-export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type InferFn } from "./project.js";
+export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type BuildArrivalEnvOpts, type InferFn } from "./project.js";
+// Env-pack capability-DAG assembly (P0–P4): the pack type + the construction/runtime assemblers, so a
+// host can author extension packs and arm a `(require/extension :name)` registry.
+export {
+  assembleEnv,
+  assembleEnvSync,
+  createRuntimeAssembler,
+  type AssembledEnv,
+  type EnvPack,
+  type PackContext,
+  type RuntimeAssembler,
+  AssembleCycleError,
+  AssembleConfigConflictError,
+  AssembleLinearizationError,
+  AssemblePackError,
+  AssemblePackTimeoutError,
+} from "./env-pack.js";
+export { defineRequireExtensionRosetta } from "./require-extension.js";
 export {
   buildChainEnv,
   ChainEnvironment,

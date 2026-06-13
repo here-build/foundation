@@ -25,7 +25,8 @@ import {
 } from "./data-effects.js";
 import { Draft } from "./draft.js";
 import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey, stableJson } from "./effect-log.js";
-import { assembleEnvSync, type EnvPack } from "./env-pack.js";
+import { assembleEnvSync, createRuntimeAssembler, type EnvPack, type RuntimeAssembler } from "./env-pack.js";
+import { defineRequireExtensionRosetta } from "./require-extension.js";
 import { defineExposeRosetta, type OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "./infer-store.js";
 import { InferString } from "./infer-string.js";
@@ -652,6 +653,20 @@ export interface BuildArrivalEnvOpts {
    * auto-approve.
    */
   resolveApproval?: ResolveApproval;
+  /**
+   * Host-armed registry of named extension packs for `(require/extension :name)`. The program reaches
+   * a capability by NAME (intent); the host decides what each name resolves to (materialization) —
+   * never an `await import()` of a program-named file. Absent ⇒ `require/extension` is unregistered
+   * (calling it is an unbound-symbol error, same as any unarmed verb).
+   */
+  extensionRegistry?: ReadonlyMap<string, EnvPack<ReturnType<typeof sandboxedEnv.inherit>>>;
+  /**
+   * Receiver for the runtime assembler backing `(require/extension …)` — its `dispose()` tears down
+   * any runtime-applied extension's resources. A lifecycle owner (ChainEnvironment) keeps it and
+   * folds it into its own `dispose()`. Absent ⇒ runtime extension disposers are not tied to teardown
+   * (fine for pure registrar extensions; a resource-allocating one needs the owner to wire this).
+   */
+  onExtensionAssembler?: (assembler: RuntimeAssembler<ReturnType<typeof sandboxedEnv.inherit>>) => void;
 }
 
 /**
@@ -839,6 +854,15 @@ export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sa
         compileInferUnit,
       });
       opts.onRequireCache?.(clearRequireCache);
+      // (P4) `(require/extension :name)` — host-armed pack registry, applied onto THIS live env via a
+      // runtime assembler (idempotent + single-flight). Registered only when the host arms a registry;
+      // absent ⇒ the verb is unbound (calling it errors like any unarmed capability). The assembler is
+      // handed to the lifecycle owner so its runtime disposers fold into env teardown.
+      if (opts.extensionRegistry) {
+        const assembler = createRuntimeAssembler(env);
+        defineRequireExtensionRosetta({ env, registry: opts.extensionRegistry, assembler });
+        opts.onExtensionAssembler?.(assembler);
+      }
     },
   };
   // (P2) Standalone capability packs carved out of loader-core. `config` is the host-injected
