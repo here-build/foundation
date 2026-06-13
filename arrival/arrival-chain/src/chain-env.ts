@@ -20,7 +20,7 @@ import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
 import { buildArrivalEnv, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
 import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "./env-pack.js";
 import { InferString } from "@here.build/arrival-inference";
-import { EvalTrace } from "./trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelRouter } from "@here.build/arrival-inference";
 import type { ModelBackend } from "@here.build/arrival-inference";

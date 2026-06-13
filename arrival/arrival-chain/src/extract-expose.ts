@@ -32,9 +32,9 @@
  */
 import { parseGenerator } from "@here.build/arrival-scheme";
 
-import type { SourceLocation } from "./extract-defines.js";
+import type { SourceLocation } from "@here.build/arrival-provenance";
 
-export type { SourceLocation } from "./extract-defines.js";
+export type { SourceLocation } from "@here.build/arrival-provenance";
 
 export interface ExposeInfo {
   /** The exposed function's name (the first arg, a string literal). */

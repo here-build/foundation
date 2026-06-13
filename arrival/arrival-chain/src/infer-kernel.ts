@@ -35,7 +35,7 @@ import type { Completion, LlmParams, ToolCall, ToolDescriptor } from "@here.buil
 import type { OnOverridable, ResolveOverride } from "./overridable.js";
 import { RunSpend } from "@here.build/arrival-inference";
 import { analyzeTemplate, coerceShape, type TemplateInfo, validateShape } from "./template-analyze.js";
-import type { EvalTrace } from "./trace.js";
+import type { EvalTrace } from "@here.build/arrival-provenance";
 
 // The brand arrival-scheme tags keyword-accessor pluck functions with (see
 // Environment.ts). Read via the same registered symbol so it matches across the

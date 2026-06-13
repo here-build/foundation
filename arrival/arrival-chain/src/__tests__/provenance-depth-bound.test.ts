@@ -24,7 +24,7 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace, type Invocation } from "../trace.js";
+import { EvalTrace, type Invocation } from "@here.build/arrival-provenance";
 
 const stub = {
   complete: async (spec: ModelSpec) => {

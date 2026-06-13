@@ -16,10 +16,10 @@ import { describe, expect, it, vi } from "vitest";
 import { ArrivalChain } from "../arrival-chain.js";
 import { detectShape } from "../ast-shapes.js";
 import { createInferStore, InferBinding } from "@here.build/arrival-inference";
-import type { Invocation } from "../trace.js";
+import type { Invocation } from "@here.build/arrival-provenance";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 describe("live call-stack capture at (infer) time", () => {
   it("walks each task's invocation up to the enclosing AST shape", async () => {

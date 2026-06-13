@@ -4,8 +4,8 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
-import { buildSlice, referencedSymbols, defineNameOf, writeForm, lastTopLevelForm } from "../slice.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
+import { buildSlice, referencedSymbols, defineNameOf, writeForm, lastTopLevelForm } from "@here.build/arrival-provenance";
 
 const echoInfer = () => vi.fn(async (s: ModelSpec) => ({ value: `out:${s.prompt}` }));
 const fresh = () => {

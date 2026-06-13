@@ -50,7 +50,7 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace, Invocation } from "../trace.js";
+import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
 
 /** Deterministic stub: react → {verdict}, reflect → {next} with a growing tagline
  *  so every round mints distinct infers (no cache collisions collapsing the trace). */

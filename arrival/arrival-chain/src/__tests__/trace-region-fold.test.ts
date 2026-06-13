@@ -24,9 +24,9 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { TraceRegionFold } from "../trace-region-fold.js";
-import { traceToRegions, type Region, type RegionGraph } from "../trace-to-regions.js";
-import { EvalTrace } from "../trace.js";
+import { TraceRegionFold } from "@here.build/arrival-provenance";
+import { traceToRegions, type Region, type RegionGraph } from "@here.build/arrival-provenance";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 // ── Normalization: make order-insensitive arrays canonical so deepEqual is fair ──
 // `edges` is built in a deterministic order by BOTH paths, but the safe contract is

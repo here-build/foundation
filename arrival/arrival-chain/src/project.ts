@@ -53,7 +53,7 @@ import { arrivalPacks } from "./packs/index.js";
 import { Program, ProgramVersion } from "./program.js";
 import { RunSpend } from "@here.build/arrival-inference";
 import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
-import type { EvalTrace } from "./trace.js";
+import type { EvalTrace } from "@here.build/arrival-provenance";
 
 const isThenable = (v: unknown): v is PromiseLike<unknown> =>
   v != null && typeof (v as { then?: unknown }).then === "function";

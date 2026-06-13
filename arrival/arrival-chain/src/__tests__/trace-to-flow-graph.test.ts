@@ -17,15 +17,15 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { traceToStatechart } from "../statechart.js";
+import { traceToStatechart } from "@here.build/arrival-provenance";
 import {
   flowBackwardCone,
   flowForwardCone,
   traceToFlowGraph,
   type FlowGraph,
   type FlowGraphNode,
-} from "../trace-to-flow-graph.js";
-import { EvalTrace } from "../trace.js";
+} from "@here.build/arrival-provenance";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 const PROGRAM = `
 (define (react-cell tagline persona-id)

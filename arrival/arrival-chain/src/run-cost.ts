@@ -2,7 +2,7 @@ import { InferBinding } from "@here.build/arrival-inference";
 import type { TokenUsage } from "@here.build/arrival-inference";
 import { referenceCost } from "@here.build/arrival-inference";
 import { type InferCost, type ProjectedCostStrategy, uncachedSumStrategy } from "@here.build/arrival-inference";
-import type { EvalTrace } from "./trace.js";
+import type { EvalTrace } from "@here.build/arrival-provenance";
 
 /**
  * Per-task cost facts extracted from one run's trace. The content-addressed

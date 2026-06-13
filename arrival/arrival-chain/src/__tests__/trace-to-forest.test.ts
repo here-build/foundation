@@ -9,12 +9,12 @@ import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
 import { createInferStore } from "@here.build/arrival-inference";
-import { collapseMDL, type CandidateBox } from "../mdl-collapse.js";
+import { collapseMDL, type CandidateBox } from "@here.build/arrival-provenance";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { traceToForest, type ForestOptions } from "../trace-to-forest.js";
-import { EvalTrace } from "../trace.js";
+import { traceToForest, type ForestOptions } from "@here.build/arrival-provenance";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 const PROGRAM = `
 (define (react-cell tagline persona-id)

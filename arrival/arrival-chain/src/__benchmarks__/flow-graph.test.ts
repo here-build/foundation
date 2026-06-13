@@ -17,14 +17,14 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { TraceRegionFold } from "../trace-region-fold.js";
-import { snapshotTrace } from "../trace-snapshot.js";
-import { traceToFlowGraph } from "../trace-to-flow-graph.js";
-import { traceToFlowGraphNaive } from "../trace-to-flow-graph-naive.js";
-import { traceToForest } from "../trace-to-forest.js";
-import { traceToRegions } from "../trace-to-regions.js";
-import { traceToStatechart } from "../statechart.js";
-import { EvalTrace } from "../trace.js";
+import { TraceRegionFold } from "@here.build/arrival-provenance";
+import { snapshotTrace } from "@here.build/arrival-provenance";
+import { traceToFlowGraph } from "@here.build/arrival-provenance";
+import { traceToFlowGraphNaive } from "@here.build/arrival-provenance";
+import { traceToForest } from "@here.build/arrival-provenance";
+import { traceToRegions } from "@here.build/arrival-provenance";
+import { traceToStatechart } from "@here.build/arrival-provenance";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 /** Deterministic stub: react → {verdict}, reflect → {next}. The tagline grows by
  *  one char per round, so every round mints distinct infers (no cache collisions

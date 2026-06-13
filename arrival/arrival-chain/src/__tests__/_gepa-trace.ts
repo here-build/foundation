@@ -13,7 +13,7 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 export const GEPA_PROGRAM = `
 (define (react-cell tagline persona-id)

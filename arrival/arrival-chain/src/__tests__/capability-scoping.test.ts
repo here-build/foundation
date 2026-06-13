@@ -8,7 +8,7 @@ import { execGeneratorFromString, lipsToJs, sandboxedEnv } from "@here.build/arr
 
 import { assembleEnvSync, type EnvPack } from "../env-pack.js";
 import { arrivalInferPack, arrivalUtilsPack, type ArrivalEnv } from "../project.js";
-import { EvalTrace } from "../trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 const stubInfer = (async () => [""]) as unknown as Parameters<typeof arrivalInferPack>[0]["infer"];
 

@@ -13,9 +13,9 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
-import { traceToFlowGraph } from "../trace-to-flow-graph.js";
-import { traceToFlowGraphNaive } from "../trace-to-flow-graph-naive.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
+import { traceToFlowGraph } from "@here.build/arrival-provenance";
+import { traceToFlowGraphNaive } from "@here.build/arrival-provenance";
 
 async function traceOf(
   program: string,

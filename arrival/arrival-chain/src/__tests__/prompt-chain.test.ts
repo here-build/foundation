@@ -13,8 +13,8 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { traceToChain } from "../trace-to-chain.js";
-import { EvalTrace } from "../trace.js";
+import { traceToChain } from "@here.build/arrival-provenance";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 const ANALYZE = `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}}\n\nMessage: {{message}}\n`;
 const DECIDE = `---\nmodel: fast\n---\n{{role "user"}}\n{{instruction}}\n\nMessage: {{message}}\nAnalysis: {{analysis}}\n`;

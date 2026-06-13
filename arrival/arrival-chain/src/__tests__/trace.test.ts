@@ -13,7 +13,7 @@ import { createInferStore, InferBinding } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 // A backend whose completions stay pending until the test explicitly resolves
 // them by prompt — this reproduces the in-flight window the old

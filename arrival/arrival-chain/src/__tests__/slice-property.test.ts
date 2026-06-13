@@ -4,8 +4,8 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
-import { buildSlice, defineNameOf, writeForm, lastTopLevelForm } from "../slice.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
+import { buildSlice, defineNameOf, writeForm, lastTopLevelForm } from "@here.build/arrival-provenance";
 
 // THE CORE GUARANTEE AS AN EXECUTABLE INVARIANT: for any program, slicing by its output and
 // re-running the slice reproduces the value — AND the slice is a strict subset (it pruned the

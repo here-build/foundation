@@ -31,8 +31,8 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { forwardCone, traceToStatechart } from "../statechart.js";
-import { EvalTrace } from "../trace.js";
+import { forwardCone, traceToStatechart } from "@here.build/arrival-provenance";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 const fresh = () => ArrivalChain.bootstrap(new Project()).root;
 

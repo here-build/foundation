@@ -17,7 +17,7 @@ import { ArrivalChain } from "../arrival-chain.js";
 import { createInferStore } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace, Invocation } from "../trace.js";
+import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
 
 const fresh = () => {
   const project = ArrivalChain.bootstrap(new Project()).root;

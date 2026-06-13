@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
 
-import { EvalTrace } from "../trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 import { buildArrivalEnv } from "../project.js";
 import { loaderFromResolver } from "../loader.js";
 import type { EnvPack } from "../env-pack.js";

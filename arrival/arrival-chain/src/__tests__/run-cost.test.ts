@@ -6,7 +6,7 @@ import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
 import { runCostSummary, summarizeCosts, type TaskCost } from "../run-cost.js";
-import { EvalTrace } from "../trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 // qwen3.5-9b prices a {1M in, 1M out} call at $0.05 + $0.10 = $0.15 (see pricing.test.ts).
 const USAGE = { inputTokens: 1_000_000, outputTokens: 1_000_000 };

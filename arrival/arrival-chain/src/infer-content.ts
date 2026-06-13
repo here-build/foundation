@@ -16,8 +16,7 @@
  * list is "the distinct calls this node made."
  */
 import { InferBinding } from "@here.build/arrival-inference";
-import { scopeId } from "./trace-to-forest.js";
-import type { EvalTrace } from "./trace.js";
+import { scopeId, type EvalTrace } from "@here.build/arrival-provenance";
 
 export function inferTasksByScope(trace: EvalTrace): Map<string, InferBinding[]> {
   // invocation id → the binding it created (invert the trace's binding→invocations map).

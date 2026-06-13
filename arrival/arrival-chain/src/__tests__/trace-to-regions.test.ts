@@ -12,8 +12,8 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { traceToRegions, type Region } from "../trace-to-regions.js";
-import { EvalTrace } from "../trace.js";
+import { traceToRegions, type Region } from "@here.build/arrival-provenance";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 const PROGRAM = `
 (define (react-cell tagline persona-id)

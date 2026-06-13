@@ -11,9 +11,9 @@ import { ArrivalChain } from "../arrival-chain.js";
 import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { regionBoundaries } from "../region-boundaries.js";
+import { regionBoundaries } from "@here.build/arrival-provenance";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 
 const LOOP_PROGRAM = `
 (define (react-cell tagline persona-id)

@@ -51,8 +51,7 @@
 import type { DataEffect } from "./data-effects.js";
 import type { McpEffect } from "./mcp-effects.js";
 import { InferBinding } from "@here.build/arrival-inference";
-import { forwardCone, traceToStatechart, type Statechart } from "./statechart.js";
-import type { EvalTrace } from "./trace.js";
+import { forwardCone, traceToStatechart, type Statechart, type EvalTrace } from "@here.build/arrival-provenance";
 
 /** Protocol family of an external effect. `infer` is the LLM plane; `http`/`sql`
  *  are the data planes the host-capability builtins (A3) inject; `mcp` is the tool

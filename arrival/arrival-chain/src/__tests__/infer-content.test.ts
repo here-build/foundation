@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import { inferTasksByScope } from "../infer-content.js";
-import { traceToFlowGraph } from "../trace-to-flow-graph.js";
+import { traceToFlowGraph } from "@here.build/arrival-provenance";
 
 import { gepaTrace } from "./_gepa-trace.js";
 

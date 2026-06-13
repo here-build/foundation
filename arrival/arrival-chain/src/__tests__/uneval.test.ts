@@ -4,8 +4,8 @@ import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
-import { buildUneval } from "../uneval.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
+import { buildUneval } from "@here.build/arrival-provenance";
 
 describe("buildUneval — selector-eval + provenance extraction", () => {
   it("uneval('(car result)') picks the effective value and its provenance", async () => {

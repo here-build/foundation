@@ -1,0 +1,62 @@
+{
+  "name": "@here.build/arrival-provenance",
+  "version": "0.1.0",
+  "description": "Provenance analysis for Arrival — the trace capture substrate (EvalTrace/Invocation/computeProvenance) plus the analysis stack that turns a finished trace into render-models: forest, statechart, region tree (the studio blueprint), flow graph, and the reverse-chain slicer (uneval/slice). Reads finished traces; never drives the evaluator.",
+  "keywords": [
+    "arrival",
+    "provenance",
+    "trace",
+    "dataflow",
+    "slicing"
+  ],
+  "homepage": "https://github.com/here-build/foundation#readme",
+  "bugs": {
+    "url": "https://github.com/here-build/foundation/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "arrival/arrival-provenance"
+  },
+  "license": "FSL-1.1-MIT",
+  "author": "here.build",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@here.build/arrival-scheme": "workspace:^",
+    "@here.build/arrival-sweet": "workspace:^",
+    "mobx": "6.15.0",
+    "tiny-invariant": "1.3.3",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@types/node": "24.0.0",
+    "eslint": "9.39.2",
+    "globals": "17.3.0",
+    "prettier": "3.8.1",
+    "typescript": "6.0.2",
+    "vitest": "4.1.0"
+  }
+}

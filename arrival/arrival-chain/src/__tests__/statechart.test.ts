@@ -15,11 +15,11 @@ import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
 import { createInferStore } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { backwardCone, forwardCone, traceToStatechart, type Statechart } from "../statechart.js";
+import { backwardCone, forwardCone, traceToStatechart, type Statechart } from "@here.build/arrival-provenance";
 
 // Trimmed gepa harness — react fans out over personas, reflect proposes the
 // next tagline, loop is a tail call. (Same shape as gepa-loop.test.ts; kept

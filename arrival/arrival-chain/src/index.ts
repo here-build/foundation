@@ -194,8 +194,10 @@ export {
   type RequireResolver,
   type ResolverResult,
 } from "./loader.js";
-export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "./trace.js";
-export { extractDefines, type DefineInfo } from "./extract-defines.js";
+// Provenance-analysis cluster — moved to `@here.build/arrival-provenance`; these
+// re-exports keep the arrival-chain barrel back-compat for existing consumers.
+export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "@here.build/arrival-provenance";
+export { extractDefines, type DefineInfo } from "@here.build/arrival-provenance";
 // `(declare/expose …)` — the sealed-skill form. Static signature extraction
 // (the config-plane sync path; the handler never runs) + the runtime
 // declaration the host registry consumes (`OnExpose`, wired into
@@ -255,7 +257,7 @@ export {
   type ChartNode,
   type ChartEdge,
   type EdgeKind,
-} from "./statechart.js";
+} from "@here.build/arrival-provenance";
 export {
   collapseMDL,
   type CandidateBox,
@@ -263,8 +265,8 @@ export {
   type CollapseParams,
   type CollapseResult,
   type Decision,
-} from "./mdl-collapse.js";
-export { traceToForest, scopeId, type ForestOptions } from "./trace-to-forest.js";
+} from "@here.build/arrival-provenance";
+export { traceToForest, scopeId, type ForestOptions } from "@here.build/arrival-provenance";
 export {
   traceToFlowGraph,
   flowForwardCone,
@@ -274,17 +276,17 @@ export {
   type FlowGraphEdge,
   type FlowNodeKind,
   type FlowGraphOptions,
-} from "./trace-to-flow-graph.js";
-export { traceToFlowGraphNaive } from "./trace-to-flow-graph-naive.js";
-export { traceToChain, type ProvenanceChain, type ChainNode, type ChainEdge } from "./trace-to-chain.js";
-export { traceToRegions, type Region, type RegionGraph } from "./trace-to-regions.js";
+} from "@here.build/arrival-provenance";
+export { traceToFlowGraphNaive } from "@here.build/arrival-provenance";
+export { traceToChain, type ProvenanceChain, type ChainNode, type ChainEdge } from "@here.build/arrival-provenance";
+export { traceToRegions, type Region, type RegionGraph } from "@here.build/arrival-provenance";
 // Incremental twin of `traceToRegions` — maintains the same RegionGraph in O(Δ) per streamed tick (vs O(N) full rebuild) for the live blueprint render. Parity-locked to traceToRegions.
-export { TraceRegionFold } from "./trace-region-fold.js";
-export { serializeTrace, loadTraceArtifact, TRACE_PROTOCOL_VERSION, type TraceArtifact } from "./trace-artifact.js";
-export { regionBoundaries, type RegionBoundary } from "./region-boundaries.js";
-export { buildSlice, writeForm, referencedSymbols, defineNameOf, lastTopLevelForm, resolveReadIds, type Slice } from "./slice.js";
+export { TraceRegionFold } from "@here.build/arrival-provenance";
+export { serializeTrace, loadTraceArtifact, TRACE_PROTOCOL_VERSION, type TraceArtifact } from "@here.build/arrival-provenance";
+export { regionBoundaries, type RegionBoundary } from "@here.build/arrival-provenance";
+export { buildSlice, writeForm, referencedSymbols, defineNameOf, lastTopLevelForm, resolveReadIds, type Slice } from "@here.build/arrival-provenance";
 export { cellTriggers, formsTrigger, rootEffectEnv, EffectEnv, evalForm, PENETRATING_FORMS } from "./effect-analysis.js";
-export { buildUneval, type Uneval, type UnevalContainer } from "./uneval.js";
+export { buildUneval, type Uneval, type UnevalContainer } from "@here.build/arrival-provenance";
 export { inferTasksByScope } from "./infer-content.js";
 
 // ── Sweet-expression lens ─────────────────────────────────────────────

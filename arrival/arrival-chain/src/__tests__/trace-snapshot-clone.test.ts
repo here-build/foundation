@@ -29,9 +29,9 @@ import { ArrivalChain } from "../arrival-chain.js";
 import { createInferStore } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "../trace.js";
-import { snapshotTrace, type PlainTrace } from "../trace-snapshot.js";
-import { scopeId } from "../trace-to-forest.js";
+import { EvalTrace } from "@here.build/arrival-provenance";
+import { snapshotTrace, type PlainTrace } from "@here.build/arrival-provenance";
+import { scopeId } from "@here.build/arrival-provenance";
 
 /** A program with the richest snapshot shape: a branch (`if` → branch-child
  *  values), a `define` + `let` (forwarding boundaries), and a `map` loop (the same

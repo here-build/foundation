@@ -1,8 +1,5 @@
-// Flow-graph view layer — the render-ready `FlowGraph` model + causal cones
-// (engine-free, from flow-graph.ts).
-//
-// Import from here to render and select over an inference flow-graph WITHOUT the
-// eval runtime that the `.` barrel drags. The PRODUCER (`traceToFlowGraph`,
-// EvalTrace → graph) stays on the barrel, where the engine already is.
-export type { FlowGraph, FlowGraphNode, FlowGraphEdge, FlowNodeKind } from "./flow-graph.js";
-export { flowForwardCone, flowBackwardCone } from "./flow-graph.js";
+// Back-compat shim for the `@here.build/arrival-chain/flow` subpath. The
+// engine-free flow-graph view layer moved to `@here.build/arrival-provenance`;
+// this re-export keeps the subpath resolving for existing consumers.
+export type { FlowGraph, FlowGraphNode, FlowGraphEdge, FlowNodeKind } from "@here.build/arrival-provenance";
+export { flowForwardCone, flowBackwardCone } from "@here.build/arrival-provenance";

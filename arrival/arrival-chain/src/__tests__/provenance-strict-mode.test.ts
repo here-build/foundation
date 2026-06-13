@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
 import { Project } from "../project.js";
-import { EvalTrace, type Invocation } from "../trace.js";
+import { EvalTrace, type Invocation } from "@here.build/arrival-provenance";
 
 describe("trace hot machinery stays plain (non-observable)", () => {
   it("Invocation is a plain object; marking a provenance point is a bare, safe write", async () => {

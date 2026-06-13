@@ -19,7 +19,7 @@ import { reaction } from "mobx";
 import { ArrivalChain } from "./arrival-chain.js";
 import { createInferStore, InferBinding } from "@here.build/arrival-inference";
 import { Project } from "./project.js";
-import { EvalTrace, Invocation } from "./trace.js";
+import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
 import type { ModelRouter } from "@here.build/arrival-inference";
 
 // ════════════════════════════════════════════════════════════════════
