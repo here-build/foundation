@@ -655,10 +655,10 @@ export function buildArrivalEnv(opts: {
 }): ReturnType<typeof sandboxedEnv.inherit> {
   // P1 (env-pack seam): the entire legacy registration below is ONE pack applied to the base via
   // assembleEnvSync — behavior-identical to inlined registration, but routed through the capability-
-  // DAG engine. P2 splits this `arrival/legacy-core` pack into real packs (infer/mcp/data/schema/…).
+  // DAG engine. P2 splits this `arrival/loader-core` pack into real packs (infer/mcp/data/schema/…).
   const base = sandboxedEnv.inherit(opts.name);
   // (infer …) yields a list to scheme; the resolver returns the raw value. Hoisted to function
-  // scope so the inference packs carved out of legacy-core can share it.
+  // scope so the inference packs carved out of loader-core can share it.
   const list = (v: unknown): unknown => (Array.isArray(v) ? v : [v]);
 
   // (P2) Inference verbs (infer, infer/chat) — armed by opts.infer.
@@ -807,13 +807,11 @@ export function buildArrivalEnv(opts: {
       },
     });
   };
-  // (P2) Data-effect verbs (http/*, sql/query) and MCP dispatch verbs (mcp/call, mcp/list, plus
-  // the mcp/break halt sentinel) are EXTRACTED to the `arrival/data-effects` and `arrival/mcp-effects`
-  // packs — see the assembleEnvSync roots at the end of this function. Both keep the disarmed-default
-  // posture (present-but-inert until the host arms `opts.data`/`opts.mcp`). They are standalone
-  // (no deps, disjoint symbols); the dep-bearing agentic verb below still lives in legacy-core.
-  // (P2) infer/agentic/end-to-end is EXTRACTED to the arrival/infer-agentic pack (deps: arrival/infer
-  // + arrival/mcp-effects — the first real dep edge in the live assembly), defined near the roots below.
+  // (P2) The data-effect verbs, MCP dispatch verbs (incl. mcp/break), and infer/agentic/end-to-end
+  // were EXTRACTED from this function body to the arrival/data-effects, arrival/mcp-effects, and
+  // arrival/infer-agentic packs (defined near the assembleEnvSync roots below). The effect verbs keep
+  // the disarmed-default posture (inert until the host arms opts.data/opts.mcp); infer-agentic deps
+  // [infer, mcp] — the first real dep edge in the live assembly.
   // (P2) The superpowered-define family (declare/expose, define/exposed, define/overridable) and the
   // approval verbs are EXTRACTED to the arrival/superdefine pack (see roots below). What remains in
   // this pack is the irreducible loader/prompt core: compileInferUnit + import/require wiring.
@@ -827,9 +825,9 @@ export function buildArrivalEnv(opts: {
   });
   opts.onRequireCache?.(clearRequireCache);
   } };
-  // (P2) Standalone capability packs carved out of legacy-core. `config` is the host-injected
+  // (P2) Standalone capability packs carved out of loader-core. `config` is the host-injected
   // arming (the resolver) — two same-name packs armed differently in one assembly would conflict.
-  // No deps, disjoint symbols ⇒ C3 order among them is immaterial; legacy-core applies last.
+  // No deps, disjoint symbols ⇒ C3 order among them is immaterial; loader-core applies last.
   const dataPack: EnvPack<typeof base> = {
     name: "arrival/data-effects",
     config: opts.data,
@@ -868,8 +866,8 @@ export function buildArrivalEnv(opts: {
       });
     },
   };
-  // legacy-core applies LAST (lowest precedence) so any symbol it still registers is shadowed by an
-  // extracted pack — though the extracted symbols no longer appear in legacy-core, so there is no clash.
+  // loader-core applies LAST (lowest precedence) so any symbol it still registers is shadowed by an
+  // extracted pack — though the extracted symbols no longer appear in loader-core, so there is no clash.
   // Root order is C3-consistent: a dependent (agenticPack) must precede its deps (inferPack, mcpPack)
   // — listing a dep first would contradict the dependent's linearization and throw
   // AssembleLinearizationError. Symbols are disjoint, so precedence is otherwise immaterial.
