@@ -26,12 +26,17 @@ function pack(name: string, deps: EnvPack<Stub>[] = [], extra: Partial<EnvPack<S
   return {
     name,
     deps,
-    apply: (env) => { env.appliedOrder.push(name); env.syms.set(name, true); },
+    apply: (env) => {
+      env.appliedOrder.push(name);
+      env.syms.set(name, true);
+    },
     ...extra,
   };
 }
 
-afterEach(() => { delete process.env.ASSEMBLE_PACK_TIMEOUT_MS; });
+afterEach(() => {
+  delete process.env.ASSEMBLE_PACK_TIMEOUT_MS;
+});
 
 describe("env-pack assembly core (P0)", () => {
   it("linear chain a→b→c: order highest-first; apply deps-first; each once", async () => {
@@ -39,7 +44,7 @@ describe("env-pack assembly core (P0)", () => {
     const b = pack("b", [c]);
     const a = pack("a", [b]);
     const r = await assembleEnv(stub(), [a]);
-    expect(r.order).toEqual(["a", "b", "c"]);          // C3: highest precedence first
+    expect(r.order).toEqual(["a", "b", "c"]); // C3: highest precedence first
     expect(r.env.appliedOrder).toEqual(["c", "b", "a"]); // applied least-precedence first
   });
 
@@ -49,7 +54,7 @@ describe("env-pack assembly core (P0)", () => {
     const c = pack("c", [a]);
     const d = pack("d", [b, c]);
     const r = await assembleEnv(stub(), [d]);
-    expect(r.order).toEqual(["d", "b", "c", "a"]);     // classic C3 diamond
+    expect(r.order).toEqual(["d", "b", "c", "a"]); // classic C3 diamond
     expect(r.env.appliedOrder.filter((n) => n === "a")).toHaveLength(1);
     expect(r.env.appliedOrder).toEqual(["a", "c", "b", "d"]);
   });
@@ -70,7 +75,8 @@ describe("env-pack assembly core (P0)", () => {
   });
 
   it("same-name divergent config throws AssembleConfigConflictError", async () => {
-    const fnA = () => 1, fnB = () => 2;
+    const fnA = () => 1,
+      fnB = () => 2;
     const mcp1 = pack("mcp", [], { config: fnA });
     const mcp2 = pack("mcp", [], { config: fnB });
     const root = pack("root", [mcp1, mcp2]);
@@ -89,7 +95,10 @@ describe("env-pack assembly core (P0)", () => {
   it("async apply (await import-shaped): env has the symbol after assemble resolves", async () => {
     const slow: EnvPack<Stub> = {
       name: "slow",
-      apply: async (env) => { await Promise.resolve(); env.syms.set("slow/fn", 42); },
+      apply: async (env) => {
+        await Promise.resolve();
+        env.syms.set("slow/fn", 42);
+      },
     };
     const r = await assembleEnv(stub(), [slow]);
     expect(r.env.syms.get("slow/fn")).toBe(42);
@@ -98,9 +107,17 @@ describe("env-pack assembly core (P0)", () => {
   it("onDispose runs LIFO (reverse of apply)", async () => {
     const log: string[] = [];
     const mk = (name: string, deps: EnvPack<Stub>[] = []): EnvPack<Stub> => ({
-      name, deps, apply: (_e, ctx) => { ctx.onDispose(() => { log.push(name); }); },
+      name,
+      deps,
+      apply: (_e, ctx) => {
+        ctx.onDispose(() => {
+          log.push(name);
+        });
+      },
     });
-    const c = mk("c"); const b = mk("b", [c]); const a = mk("a", [b]);
+    const c = mk("c");
+    const b = mk("b", [c]);
+    const a = mk("a", [b]);
     const r = await assembleEnv(stub(), [a]);
     await r.dispose();
     // applied c,b,a → disposers pushed c,b,a → LIFO runs a,b,c
@@ -109,8 +126,19 @@ describe("env-pack assembly core (P0)", () => {
 
   it("partial-assembly rollback: a throwing apply runs prior disposers and rejects", async () => {
     const disposed: string[] = [];
-    const ok: EnvPack<Stub> = { name: "ok", apply: (_e, ctx) => { ctx.onDispose(() => disposed.push("ok")); } };
-    const boom: EnvPack<Stub> = { name: "boom", deps: [ok], apply: () => { throw new Error("kaboom"); } };
+    const ok: EnvPack<Stub> = {
+      name: "ok",
+      apply: (_e, ctx) => {
+        ctx.onDispose(() => disposed.push("ok"));
+      },
+    };
+    const boom: EnvPack<Stub> = {
+      name: "boom",
+      deps: [ok],
+      apply: () => {
+        throw new Error("kaboom");
+      },
+    };
     await expect(assembleEnv(stub(), [boom])).rejects.toBeInstanceOf(AssemblePackError);
     expect(disposed).toEqual(["ok"]); // ok applied before boom, so its disposer ran on rollback
   });
@@ -121,16 +149,32 @@ describe("env-pack assembly core (P0)", () => {
     await expect(assembleEnv(stub(), [wedged])).rejects.toBeInstanceOf(AssemblePackTimeoutError);
   });
 
+  it("a pack listing the same dep twice dedups (no spurious AssembleLinearizationError)", async () => {
+    // Regression: dep-name dups must collapse to one C3 node, else the [deps] list has a duplicate
+    // with no valid 'good head' and C3 wrongly throws. (Bug surfaced during the lint refactor.)
+    const a = pack("a");
+    const dupDep: EnvPack<Stub> = { name: "b", deps: [a, a], apply: (env) => env.appliedOrder.push("b") };
+    const r = await assembleEnv(stub(), [dupDep]);
+    expect(r.order).toEqual(["b", "a"]);
+    expect(r.env.appliedOrder.filter((n) => n === "a")).toHaveLength(1);
+  });
+
   // ── assembleEnvSync (the P1 seam for sync buildArrivalEnv) ──
   it("assembleEnvSync applies sync packs in C3 order and returns the env", () => {
-    const a = pack("a"); const b = pack("b", [a]);
+    const a = pack("a");
+    const b = pack("b", [a]);
     const r = assembleEnvSync(stub(), [b]);
     expect(r.order).toEqual(["b", "a"]);
     expect(r.env.appliedOrder).toEqual(["a", "b"]);
   });
 
   it("assembleEnvSync throws AssemblePackError if a pack's apply returns a Promise", () => {
-    const asyncPack: EnvPack<Stub> = { name: "async", apply: async () => { await Promise.resolve(); } };
+    const asyncPack: EnvPack<Stub> = {
+      name: "async",
+      apply: async () => {
+        await Promise.resolve();
+      },
+    };
     expect(() => assembleEnvSync(stub(), [asyncPack])).toThrow(AssemblePackError);
   });
 
@@ -139,7 +183,11 @@ describe("env-pack assembly core (P0)", () => {
     it("the classic K1/K2/K3/Z hierarchy matches Python's documented MRO", async () => {
       // From the C3 paper / Python docs. Python MRO of Z (dropping object):
       //   Z, K1, K2, K3, D, A, B, C, E
-      const A = pack("A"), B = pack("B"), C = pack("C"), D = pack("D"), E = pack("E");
+      const A = pack("A"),
+        B = pack("B"),
+        C = pack("C"),
+        D = pack("D"),
+        E = pack("E");
       const K1 = pack("K1", [A, B, C]);
       const K2 = pack("K2", [D, B, E]);
       const K3 = pack("K3", [D, A]);
@@ -150,7 +198,8 @@ describe("env-pack assembly core (P0)", () => {
 
     it("an inconsistent hierarchy Python REJECTS, we reject too (AssembleLinearizationError)", async () => {
       // a wants [x,y]; b wants [y,x]; c(a,b) — no consistent linearization. Python raises TypeError.
-      const x = pack("x"), y = pack("y");
+      const x = pack("x"),
+        y = pack("y");
       const a = pack("a", [x, y]);
       const b = pack("b", [y, x]);
       const c = pack("c", [a, b]);

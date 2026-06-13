@@ -65,13 +65,19 @@ export class AssembleLinearizationError extends Error {
   }
 }
 export class AssemblePackError extends Error {
-  constructor(public readonly packName: string, public readonly cause: unknown) {
+  constructor(
+    public readonly packName: string,
+    public readonly cause: unknown,
+  ) {
     super(`env-pack "${packName}" failed to apply: ${cause instanceof Error ? cause.message : String(cause)}`);
     this.name = "AssemblePackError";
   }
 }
 export class AssemblePackTimeoutError extends Error {
-  constructor(public readonly packName: string, public readonly ms: number) {
+  constructor(
+    public readonly packName: string,
+    public readonly ms: number,
+  ) {
     super(`env-pack "${packName}" did not finish applying within ${ms}ms (a wedged await import?).`);
     this.name = "AssemblePackTimeoutError";
   }
@@ -94,7 +100,8 @@ function configEqual(a: unknown, b: unknown): boolean {
 /** DFS the dep DAG from roots: collect packs by name, detect cycles (3-color), check config dedup. */
 function closure<E>(roots: readonly EnvPack<E>[]): Map<string, EnvPack<E>> {
   const byName = new Map<string, EnvPack<E>>();
-  const GRAY = 1, BLACK = 2;
+  const GRAY = 1,
+    BLACK = 2;
   const color = new Map<string, number>();
   const stack: string[] = [];
 
@@ -127,7 +134,10 @@ function c3Linearize<E>(roots: readonly EnvPack<E>[], byName: Map<string, EnvPac
     const cached = memo.get(name);
     if (cached) return cached;
     const pack = byName.get(name)!;
-    const deps = (pack.deps ?? []).map((d) => d.name);
+    // Dedupe dep NAMES: two same-name deps (or a pack listing one dep twice) are one node after
+    // identity-dedup, so the linearization lists must carry it once — else the [deps] list holds a
+    // duplicate that has no valid C3 "good head" (it appears in its own tail).
+    const deps = [...new Set((pack.deps ?? []).map((d) => d.name))];
     const lists: string[][] = [...deps.map((d) => lin(d)), [...deps]];
     const merged = merge(lists, name);
     const result = [name, ...merged];
@@ -136,27 +146,32 @@ function c3Linearize<E>(roots: readonly EnvPack<E>[], byName: Map<string, EnvPac
   };
 
   // A synthetic top depending on all roots gives the total order; drop the synthetic head.
-  const rootNames = roots.map((r) => r.name);
+  const rootNames = [...new Set(roots.map((r) => r.name))];
   const top = merge([...rootNames.map((n) => lin(n)), [...rootNames]], "<assembly-root>");
   return dedupeStable(top);
+}
+
+/** A "good head" for C3 merge: the first list-head that appears in no list's TAIL (non-head
+ *  position). Returns undefined when none exists (an inconsistent hierarchy). */
+function findGoodHead(work: string[][]): string | undefined {
+  for (const list of work) {
+    const candidate = list[0];
+    const inSomeTail = work.some((l) => l.slice(1).includes(candidate));
+    if (!inSomeTail) return candidate;
+  }
+  return undefined;
 }
 
 function merge(lists: string[][], owner: string): string[] {
   const out: string[] = [];
   const work = lists.map((l) => [...l]).filter((l) => l.length > 0);
   while (work.length > 0) {
-    let head: string | undefined;
-    for (const list of work) {
-      const candidate = list[0];
-      const inTail = work.some((l) => l.indexOf(candidate) > 0);
-      if (!inTail) { head = candidate; break; }
-    }
+    const head = findGoodHead(work);
     if (head === undefined) throw new AssembleLinearizationError(owner);
     out.push(head);
     for (let i = work.length - 1; i >= 0; i--) {
-      const list = work[i];
-      if (list[0] === head) list.shift();
-      if (list.length === 0) work.splice(i, 1);
+      if (work[i][0] === head) work[i].shift();
+      if (work[i].length === 0) work.splice(i, 1);
     }
   }
   return out;
@@ -165,19 +180,20 @@ function merge(lists: string[][], owner: string): string[] {
 function dedupeStable(names: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const n of names) if (!seen.has(n)) { seen.add(n); out.push(n); }
+  for (const n of names)
+    if (!seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
   return out;
 }
 
 function withTimeout<T>(p: Promise<T> | T, ms: number, name: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    let done = false;
-    const timer = setTimeout(() => { if (!done) { done = true; reject(new AssemblePackTimeoutError(name, ms)); } }, ms);
-    Promise.resolve(p).then(
-      (v) => { if (!done) { done = true; clearTimeout(timer); resolve(v); } },
-      (e) => { if (!done) { done = true; clearTimeout(timer); reject(e); } },
-    );
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new AssemblePackTimeoutError(name, ms)), ms);
   });
+  return Promise.race([Promise.resolve(p), timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -199,7 +215,11 @@ function makeCtx(order: string[]): { ctx: PackContext; runDisposers: () => Promi
   const ctx: PackContext = { onDispose: (fn) => disposers.push(fn), order };
   const runDisposers = async () => {
     for (let i = disposers.length - 1; i >= 0; i--) {
-      try { await disposers[i](); } catch { /* best-effort teardown */ }
+      try {
+        await disposers[i]();
+      } catch {
+        /* best-effort teardown */
+      }
     }
   };
   return { ctx, runDisposers };
@@ -215,14 +235,14 @@ const isThenable = (v: unknown): boolean => v != null && typeof (v as { then?: u
 export async function assembleEnv<E>(base: E, roots: readonly EnvPack<E>[]): Promise<AssembledEnv<E>> {
   const { order, byName } = linearize(roots);
   const { ctx, runDisposers } = makeCtx(order);
-  for (const name of [...order].reverse()) {
+  for (const name of order.toReversed()) {
     const pack = byName.get(name)!;
     try {
       await withTimeout(pack.apply(base, ctx), packTimeoutMs(), name);
-    } catch (e) {
+    } catch (error) {
       await runDisposers();
-      if (e instanceof AssemblePackTimeoutError) throw e;
-      throw new AssemblePackError(name, e);
+      if (error instanceof AssemblePackTimeoutError) throw error;
+      throw new AssemblePackError(name, error);
     }
   }
   return { env: base, order, dispose: runDisposers };
@@ -239,20 +259,22 @@ export async function assembleEnv<E>(base: E, roots: readonly EnvPack<E>[]): Pro
 export function assembleEnvSync<E>(base: E, roots: readonly EnvPack<E>[]): AssembledEnv<E> {
   const { order, byName } = linearize(roots);
   const { ctx, runDisposers } = makeCtx(order);
-  for (const name of [...order].reverse()) {
+  for (const name of order.toReversed()) {
     const pack = byName.get(name)!;
     let result: void | Promise<void>;
     try {
       result = pack.apply(base, ctx);
-    } catch (e) {
+    } catch (error) {
       void runDisposers();
-      throw new AssemblePackError(name, e);
+      throw new AssemblePackError(name, error);
     }
     if (isThenable(result)) {
       void runDisposers();
       throw new AssemblePackError(
         name,
-        new Error("assembleEnvSync requires synchronous apply; this pack returned a Promise — use assembleEnv (async)."),
+        new Error(
+          "assembleEnvSync requires synchronous apply; this pack returned a Promise — use assembleEnv (async).",
+        ),
       );
     }
   }
