@@ -801,19 +801,11 @@ export function buildArrivalEnv(opts: {
       },
     });
   };
-  // Data-effect verbs (http/*, sql/query) over the resolved capability seam.
-  // Disarmed default: with no host resolver they throw the teaching error rather
-  // than reach a network/DB (present-but-inert, never an unbound symbol). Node A3
-  // enriches the per-verb arg coercion inside `defineDataEffectRosettas`.
-  defineDataEffectRosettas(env, opts.data ?? inertDataResolver);
-  // MCP dispatch verbs (mcp/call, mcp/list) over the resolved capability seam. Same
-  // disarmed-default posture: with no host resolver they throw the teaching error
-  // rather than reach a server (present-but-inert, never an unbound symbol).
-  defineMcpRosettas(env, opts.mcp ?? inertMcpResolver);
-  // `mcp/break` — the bare halt sentinel a middleware returns to stop the agentic loop
-  // without calling next (flow 4). Bound as a VALUE (not a verb) so scheme references it
-  // bare; the JS chain runner compares the same global symbol `===`.
-  env.set("mcp/break", MCP_BREAK);
+  // (P2) Data-effect verbs (http/*, sql/query) and MCP dispatch verbs (mcp/call, mcp/list, plus
+  // the mcp/break halt sentinel) are EXTRACTED to the `arrival/data-effects` and `arrival/mcp-effects`
+  // packs — see the assembleEnvSync roots at the end of this function. Both keep the disarmed-default
+  // posture (present-but-inert until the host arms `opts.data`/`opts.mcp`). They are standalone
+  // (no deps, disjoint symbols); the dep-bearing agentic verb below still lives in legacy-core.
   // `(infer/agentic/end-to-end model messages servers)` — the ONE explicit agentic verb
   // (V's framing: run the loop end-to-end, return the FINAL answer; a single `(infer …)`
   // never carries tool calls). `servers` is a list of `(mcp …)` handles. We list their
@@ -869,7 +861,20 @@ export function buildArrivalEnv(opts: {
   });
   opts.onRequireCache?.(clearRequireCache);
   } };
-  return assembleEnvSync(base, [legacyCorePack]).env;
+  // (P2) Standalone capability packs carved out of legacy-core. `config` is the host-injected
+  // arming (the resolver) — two same-name packs armed differently in one assembly would conflict.
+  // No deps, disjoint symbols ⇒ C3 order among them is immaterial; legacy-core applies last.
+  const dataPack: EnvPack<typeof base> = {
+    name: "arrival/data-effects",
+    config: opts.data,
+    apply: (env) => { defineDataEffectRosettas(env, opts.data ?? inertDataResolver); },
+  };
+  const mcpPack: EnvPack<typeof base> = {
+    name: "arrival/mcp-effects",
+    config: opts.mcp,
+    apply: (env) => { defineMcpRosettas(env, opts.mcp ?? inertMcpResolver); env.set("mcp/break", MCP_BREAK); },
+  };
+  return assembleEnvSync(base, [dataPack, mcpPack, legacyCorePack]).env;
 }
 
 /**
