@@ -1,7 +1,8 @@
-import invariant from "tiny-invariant";
-import { streamText, type ModelMessage } from "ai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { streamText, type ModelMessage } from "ai";
+import invariant from "tiny-invariant";
+
 import type { Completion, ModelBackend, ModelSpec } from "../model.js";
 import { coerceModelJson, renderSchema, specMessages } from "./_shared.js";
 
@@ -53,7 +54,9 @@ export function vercelBackend(opts: VercelOptions): ModelBackend {
       // mode (some openai-compatible models silently ignore it, returning `{}`).
       const systemParts = all.filter((m) => m.role === "system").map((m) => m.content);
       if (schema) {
-        systemParts.push(`Respond with ONLY a single JSON value conforming to this JSON Schema — no prose, no markdown fences:\n${JSON.stringify(schema)}`);
+        systemParts.push(
+          `Respond with ONLY a single JSON value conforming to this JSON Schema — no prose, no markdown fences:\n${JSON.stringify(schema)}`,
+        );
       }
       const system = systemParts.join("\n\n") || undefined;
 
@@ -62,7 +65,10 @@ export function vercelBackend(opts: VercelOptions): ModelBackend {
       // tool-calls are dropped (the text-mode scout re-emits from text, never via native tools).
       const messages = all
         .filter((m) => m.role !== "system")
-        .map((m) => ({ role: m.role === "tool" ? "user" : m.role, content: m.content || "(no content)" })) as ModelMessage[];
+        .map((m) => ({
+          role: m.role === "tool" ? "user" : m.role,
+          content: m.content || "(no content)",
+        })) as ModelMessage[];
       if (messages.length === 0) messages.push({ role: "user", content: system ?? "" });
 
       // anthropic ignores `temperature` for some models (a harmless warning); omit it there.
@@ -93,9 +99,9 @@ export function vercelBackend(opts: VercelOptions): ModelBackend {
         model: model(spec.model),
         messages,
         abortSignal: ac.signal,
-        ...(system !== undefined ? { system } : {}),
-        ...(temperature !== undefined ? { temperature } : {}),
-        ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+        ...(system === undefined ? {} : { system }),
+        ...(temperature === undefined ? {} : { temperature }),
+        ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
       });
       let text = "";
       try {

@@ -89,7 +89,7 @@ function flowCone(graph: FlowGraph, startId: string, direction: "forward" | "bac
   }
   const out = new Set<string>();
   const queue = [startId];
-  while (queue.length) {
+  while (queue.length > 0) {
     for (const next of adj.get(queue.shift()!) ?? []) {
       if (next === startId || out.has(next)) continue;
       out.add(next);

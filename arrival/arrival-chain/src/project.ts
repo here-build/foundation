@@ -16,9 +16,7 @@ import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey } from "./ef
 import { assembleEnvSync } from "./env-pack.js";
 import type { OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "@here.build/arrival-inference";
-// The infer/template/dict kernel + env-construction opts now live in `infer-kernel.ts`.
-// Re-export `* from` keeps project.js's public surface (the barrel consumes it) identical.
-export * from "./infer-kernel.js";
+
 import {
   type BuildArrivalEnvOpts,
   type ExecBudget,
@@ -28,14 +26,18 @@ import {
   recordInfer,
   reviveInfer,
 } from "./infer-kernel.js";
-import {
-  loaderFromResolver,
-  makeProjectLoader,
-  type Loader,
-  type RequireResolver,
-} from "./loader.js";
+import { loaderFromResolver, makeProjectLoader, type Loader, type RequireResolver } from "./loader.js";
 import { type McpEffectResolver, wrapMcpResolver } from "./mcp-effects.js";
 import type { ResolveOverride } from "./overridable.js";
+import { arrivalPacks } from "./packs/index.js";
+import { Program, ProgramVersion } from "./program.js";
+import { RunSpend } from "@here.build/arrival-inference";
+
+import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
+import type { EvalTrace } from "@here.build/arrival-provenance";
+// The infer/template/dict kernel + env-construction opts now live in `infer-kernel.ts`.
+// Re-export `* from` keeps project.js's public surface (the barrel consumes it) identical.
+export * from "./infer-kernel.js";
 // The 8 atomic capability packs + their assembler now live in `packs/`. Re-exported so
 // project.js's public surface (the barrel consumes it) is unchanged.
 export {
@@ -49,11 +51,6 @@ export {
   arrivalSuperDefinePack,
   arrivalUtilsPack,
 } from "./packs/index.js";
-import { arrivalPacks } from "./packs/index.js";
-import { Program, ProgramVersion } from "./program.js";
-import { RunSpend } from "@here.build/arrival-inference";
-import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
-import type { EvalTrace } from "@here.build/arrival-provenance";
 
 const isThenable = (v: unknown): v is PromiseLike<unknown> =>
   v != null && typeof (v as { then?: unknown }).then === "function";

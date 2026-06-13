@@ -15,17 +15,16 @@
 // the config key: NO remap, no `owl-alpha → SIFT_OWL_MODEL` indirection. Intent (which model,
 // used where) lives in the program; materialization (backend, key) lives host-side in `models`.
 
-import invariant from "tiny-invariant";
-import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
-import { buildArrivalEnv, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
-import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "./env-pack.js";
-import { InferString } from "@here.build/arrival-inference";
+import { InferString, createInferStore } from "@here.build/arrival-inference";
+import type { ModelRouter, ModelBackend } from "@here.build/arrival-inference";
 import { EvalTrace } from "@here.build/arrival-provenance";
-import { createInferStore } from "@here.build/arrival-inference";
-import type { ModelRouter } from "@here.build/arrival-inference";
-import type { ModelBackend } from "@here.build/arrival-inference";
+import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
+import invariant from "tiny-invariant";
+
+import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "./env-pack.js";
 import type { Loader } from "./loader.js";
 import type { McpEffectResolver } from "./mcp-effects.js";
+import { buildArrivalEnv, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
 
 /** A configured model: the host-side materialization of a model id the program names. */
 export interface ChainModelSpec {
@@ -117,11 +116,19 @@ async function makeBackend(spec: ChainModelSpec): Promise<ModelBackend> {
     switch (spec.provider) {
       case "anthropic": {
         const { vercelBackend } = await import("@here.build/arrival-inference/backends/vercel");
-        return vercelBackend({ provider: "anthropic", ...(spec.apiKey ? { apiKey: spec.apiKey } : {}), ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}) });
+        return vercelBackend({
+          provider: "anthropic",
+          ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
+          ...(spec.maxTokens === undefined ? {} : { maxTokens: spec.maxTokens }),
+        });
       }
       case "ollama": {
         const { ollamaBackend } = await import("@here.build/arrival-inference/backends/ollama");
-        return ollamaBackend({ ...(spec.baseURL ? { baseURL: spec.baseURL } : {}), ...(spec.think !== undefined ? { think: spec.think } : {}), ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}) });
+        return ollamaBackend({
+          ...(spec.baseURL ? { baseURL: spec.baseURL } : {}),
+          ...(spec.think === undefined ? {} : { think: spec.think }),
+          ...(spec.temperature === undefined ? {} : { temperature: spec.temperature }),
+        });
       }
       case "openai-compatible":
       default: {
@@ -130,8 +137,8 @@ async function makeBackend(spec: ChainModelSpec): Promise<ModelBackend> {
           provider: "openai-compatible",
           ...(spec.baseURL ? { baseURL: spec.baseURL } : {}),
           ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
-          ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}),
-          ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}),
+          ...(spec.temperature === undefined ? {} : { temperature: spec.temperature }),
+          ...(spec.maxTokens === undefined ? {} : { maxTokens: spec.maxTokens }),
         });
       }
     }
@@ -151,7 +158,9 @@ async function makeBackend(spec: ChainModelSpec): Promise<ModelBackend> {
 function isTransient(e: unknown): boolean {
   const err = e as { cause?: unknown; code?: unknown; message?: string };
   const s = `${err?.message ?? ""} ${String(err?.cause ?? "")} ${String(err?.code ?? "")} ${String(e)}`.toLowerCase();
-  return /timeout|timedout|etimedout|terminated|aborted|econnreset|socket|fetch failed|und_err|network|503|502|429|unparseable|truncated|cut off|finish=length|streamed no content/.test(s);
+  return /timeout|timedout|etimedout|terminated|aborted|econnreset|socket|fetch failed|und_err|network|503|502|429|unparseable|truncated|cut off|finish=length|streamed no content/.test(
+    s,
+  );
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -172,22 +181,31 @@ function makeInfer(store: ReturnType<typeof createInferStore>, maxRetry: number,
     let lastErr: unknown;
     for (let attempt = 1; attempt <= maxRetry; attempt++) {
       const cell = store.get(
-        { model, prompt: String(prompt), schema: (schema ?? null) as string | null, ...(hasTools ? { tools } : {}), ...(params ?? {}) },
+        {
+          model,
+          prompt: String(prompt),
+          schema: (schema ?? null) as string | null,
+          ...(hasTools ? { tools } : {}),
+          ...(params ?? {}),
+        },
         idKey,
       );
       cell.acquire();
       try {
         const completion = await cell.done;
         if (trace) {
-          // eslint-disable-next-line no-console
-          console.error(`\x1b[36m[infer ${String(cacheKey)}]\x1b[0m ${JSON.stringify(completion.value).slice(0, 600)}`);
+          console.error(
+            `\u001B[36m[infer ${String(cacheKey)}]\u001B[0m ${JSON.stringify(completion.value).slice(0, 600)}`,
+          );
         }
         // Tool turn ⇒ an InferString carrying the toolCalls (the agentic loop reads them);
         // plain ⇒ the bare value, byte-identical to before.
-        return hasTools ? new InferString(String(completion.value ?? ""), "", [], completion.toolCalls ?? []) : completion.value;
-      } catch (e) {
-        lastErr = e;
-        if (!isTransient(e) || attempt === maxRetry) throw e;
+        return hasTools
+          ? new InferString(String(completion.value ?? ""), "", [], completion.toolCalls ?? [])
+          : completion.value;
+      } catch (error) {
+        lastErr = error;
+        if (!isTransient(error) || attempt === maxRetry) throw error;
         await sleep(1000 * attempt);
       } finally {
         cell.release();
@@ -216,9 +234,16 @@ export class ChainEnvironment {
     this.router = {
       async backendFor(modelId: string): Promise<ModelBackend> {
         const spec = models[modelId];
-        invariant(!!spec, () => `chain: model "${modelId}" is not configured — declared models: ${Object.keys(models).join(", ") || "(none)"}`);
+        invariant(
+          !!spec,
+          () =>
+            `chain: model "${modelId}" is not configured — declared models: ${Object.keys(models).join(", ") || "(none)"}`,
+        );
         let b = cache.get(modelId);
-        if (!b) { b = await makeBackend(spec); cache.set(modelId, b); }
+        if (!b) {
+          b = await makeBackend(spec);
+          cache.set(modelId, b);
+        }
         return b;
       },
     };
@@ -273,8 +298,8 @@ export class ChainEnvironment {
       let last: unknown = results.at(-1);
       if (last && typeof (last as { then?: unknown }).then === "function") last = await last;
       return { result: lipsToJs(last, {}), trace: this.tap };
-    } catch (e) {
-      return { result: ["error", e instanceof Error ? e.message : String(e)], trace: this.tap };
+    } catch (error) {
+      return { result: ["error", error instanceof Error ? error.message : String(error)], trace: this.tap };
     }
   }
 

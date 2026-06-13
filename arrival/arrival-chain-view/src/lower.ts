@@ -69,7 +69,8 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
    *  matches what's emitted. (Using `cleanName` for the await side instead would conflate a
    *  global predicate `picked?` with an in-scope param `picked`: both clean to `picked`, so
    *  the predicate call would be spuriously awaited. They agree only for collision-free names.) */
-  const emitParam = (p: { atom: Atom; rest: boolean }): string => (p.rest ? `...${emitName(p.atom)}` : emitName(p.atom));
+  const emitParam = (p: { atom: Atom; rest: boolean }): string =>
+    p.rest ? `...${emitName(p.atom)}` : emitName(p.atom);
 
   const lower = (n: Node): string => (isAtom(n) ? lowerAtom(n) : isList(n) ? lowerList(n) : "undefined");
 
@@ -191,12 +192,16 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     // run-view inference call: await, and take ONLY the inputs object — the content
     // cache-key the read-view keeps is the runtime's concern, not ax's.
     if (ctx.target === "run" && headName !== undefined && ctx.inferReqs.has(headName)) {
-      return `await ${lower(fn)}(${kwargs.length ? kwObj : ""})`;
+      return `await ${lower(fn)}(${kwargs.length > 0 ? kwObj : ""})`;
     }
     const argStrs = positional.map((p) => lower(p));
     if (kwargs.length > 0) argStrs.push(kwObj);
     const call = `${lower(fn)}(${argStrs.join(", ")})`;
-    if (ctx.target === "run" && headName !== undefined && (ctx.asyncNames.has(headName) || (headEmit !== undefined && inParams(headEmit)))) {
+    if (
+      ctx.target === "run" &&
+      headName !== undefined &&
+      (ctx.asyncNames.has(headName) || (headEmit !== undefined && inParams(headEmit)))
+    ) {
       return `await ${call}`;
     }
     return call;
@@ -218,7 +223,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
 
   function lowerIf(n: ListNode): string {
     const [, c, a, b] = n.list;
-    const els = b !== undefined ? lower(b) : "undefined";
+    const els = b === undefined ? "undefined" : lower(b);
     return `(${lower(c!)} ? ${lower(a!)} : ${els})`;
   }
 
@@ -246,7 +251,9 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
    *  (unwrapping into the arrow block would be a `const`-redeclares-param error). */
   function letShadowsParam(n: ListNode): boolean {
     const bindings = n.list[1];
-    return isList(bindings) && bindings.list.some((b) => isList(b) && isAtom(b.list[0]) && inParams(emitName(b.list[0])));
+    return (
+      isList(bindings) && bindings.list.some((b) => isList(b) && isAtom(b.list[0]) && inParams(emitName(b.list[0])))
+    );
   }
 
   /** Wrap a `{ … }` block as an immediately-invoked arrow for EXPRESSION position. When the
@@ -280,7 +287,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
       for (const b of bindings.list) {
         if (isList(b) && isAtom(b.list[0])) {
           varAtoms.push(b.list[0]);
-          inits.push(b.list[1] !== undefined ? lower(b.list[1]) : "undefined");
+          inits.push(b.list[1] === undefined ? "undefined" : lower(b.list[1]));
         }
       }
     }
@@ -291,7 +298,10 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
     if (isAsync) body = withParams([...emitParams, emitName(nameAtom)], () => lowerBody(bodyForms)); // recursive calls await
     const a = isAsync ? "async " : "";
     const call = `${name}(${inits.join(", ")})`;
-    return { block: `{ const ${name} = ${a}(${emitParams.join(", ")}) => ${body}; return ${isAsync ? `await ${call}` : call}; }`, isAsync };
+    return {
+      block: `{ const ${name} = ${a}(${emitParams.join(", ")}) => ${body}; return ${isAsync ? `await ${call}` : call}; }`,
+      isAsync,
+    };
   }
 
   /**
@@ -316,7 +326,7 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
   }
 
   function lowerSequence(forms: Node[], open: string, close: string): string {
-    const last = lower(forms[forms.length - 1]!);
+    const last = lower(forms.at(-1)!);
     const lead = forms.slice(0, -1).map(lowerStmt);
     return `${open} ${[...lead, `return ${last};`].join(" ")} ${close}`;
   }
@@ -426,7 +436,7 @@ function describe(n: Node): string {
 /** Decode a scheme string literal's escapes to runtime chars — the parser stores
  *  them raw (`\n` as backslash+n), so emitting `JSON.stringify(raw)` would double-escape. */
 function decodeString(raw: string): string {
-  return raw.replace(/\\(.)/g, (_m, c: string) => {
+  return raw.replaceAll(/\\(.)/g, (_m, c: string) => {
     switch (c) {
       case "n":
         return "\n";

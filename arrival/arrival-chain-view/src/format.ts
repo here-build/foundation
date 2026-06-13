@@ -35,12 +35,12 @@ export async function formatJs(code: string): Promise<string> {
     const [result] = await eslint.lintText(code, { filePath: "projection.mjs" });
     fixed = result?.output ?? code;
     return await prettier.format(fixed, { parser: "babel", semi: true, singleQuote: false, printWidth: 100 });
-  } catch (err) {
+  } catch (error) {
     // A format failure means the lowering emitted invalid JS — surface the offending
     // source, not an opaque parser stack trace.
     throw new Error(
       `arrival-chain-view: generated JS failed to format (likely an emit bug).\n` +
-        `--- generated ---\n${fixed}\n--- cause ---\n${(err as Error).message}`,
+        `--- generated ---\n${fixed}\n--- cause ---\n${(error as Error).message}`,
     );
   }
 }

@@ -19,8 +19,9 @@
 // forms — as the attestation per-leaf→read join key and a UI source-highlight seed.
 
 import invariant from "tiny-invariant";
-import type { EvalTrace, Invocation } from "./trace.js";
+
 import { scopeId } from "./scope-id.js";
+import type { EvalTrace, Invocation } from "./trace.js";
 
 // Datum kinds are discriminated on the authoritative `kind` tag every AValue carries — NOT on
 // structural duck-typing. (A SchemeCharacter carries `__name__` for its named form like #\space,
@@ -95,7 +96,7 @@ function writeDatum(node: unknown, seen: Set<unknown>): string {
       return `#(${(node as { __vector__: unknown[] }).__vector__.map((el) => writeDatum(el, seen)).join(" ")})`;
     }
     case "bytevector":
-      return `#u8(${Array.from((node as { __bytevector__: Uint8Array }).__bytevector__).join(" ")})`;
+      return `#u8(${[...(node as { __bytevector__: Uint8Array }).__bytevector__].join(" ")})`;
     case "number":
       return writeNumber(node);
     case "symbol":
@@ -252,7 +253,7 @@ export function buildSlice(trace: EvalTrace, outputNode: unknown): Slice {
   let changed = true;
   while (changed) {
     changed = false;
-    for (const node of [...kept]) {
+    for (const node of kept) {
       for (const sym of referencedSymbols(node)) {
         if (keepName(sym)) changed = true;
       }

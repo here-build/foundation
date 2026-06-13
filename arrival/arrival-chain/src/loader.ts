@@ -122,7 +122,7 @@ function normalizePath(p: string): string {
     if (seg === "" || seg === ".") continue;
     invariant(seg !== "\0" && !seg.includes("\0"), () => `require: invalid path (NUL byte): ${JSON.stringify(p)}`);
     if (seg === "..") {
-      invariant(out.length !== 0, () => `require: path escapes the project root: ${p}`);
+      invariant(out.length > 0, () => `require: path escapes the project root: ${p}`);
       out.pop();
     } else {
       out.push(seg);
@@ -248,7 +248,7 @@ function compileElement(val: unknown): string {
 }
 
 function compilePicoField(rawKey: string, val: unknown): string {
-  const m = rawKey.match(/^([A-Za-z_][\w-]*)(\??)(?:\(([^)]*)\))?$/);
+  const m = rawKey.match(/^([A-Z_][\w-]*)(\??)(?:\(([^)]*)\))?$/i);
   invariant(!!m, () => `.prompt: malformed schema key "${rawKey}"`);
   const name = m[1]!;
   invariant(!m[2], () => `.prompt: optional field "${name}" — optional schema fields aren't supported yet`);
@@ -336,7 +336,10 @@ export function defaultResolvers(): Map<string, ContentResolver> {
         // (or overridden) at the call site via `:meta (dict :model …)`. A literal
         // here is the fallback; absent is fine as long as the call supplies one.
         const model = fm.model ?? null;
-        invariant(model === null || typeof model === "string", '.prompt: frontmatter `model:` must be a model name string (e.g. "qwen3.5-9b") or omitted');
+        invariant(
+          model === null || typeof model === "string",
+          '.prompt: frontmatter `model:` must be a model name string (e.g. "qwen3.5-9b") or omitted',
+        );
         const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
         const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
         // `mcp:` (a name or a list of names) makes this an AGENTIC prompt. Normalise to a

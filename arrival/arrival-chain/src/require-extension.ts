@@ -11,9 +11,9 @@
 // require of the same extension is a no-op; two concurrent requires share one apply. Unknown name →
 // a teaching error listing the armed `:names` (errors-as-doors).
 
+import type { sandboxedEnv } from "@here.build/arrival-scheme";
 import invariant from "tiny-invariant";
 
-import type { sandboxedEnv } from "@here.build/arrival-scheme";
 import type { EnvPack, RuntimeAssembler } from "./env-pack.js";
 
 type EnvHandle = ReturnType<typeof sandboxedEnv.inherit>;

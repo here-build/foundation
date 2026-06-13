@@ -7,10 +7,12 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
+
 import { getPromptBackend, type PromptBackend } from "../prompt.js";
 
-const fixtureDir = fileURLToPath(new URL("./fixtures/", import.meta.url));
+const fixtureDir = fileURLToPath(new URL("fixtures/", import.meta.url));
 const read = (name: string) => readFileSync(fixtureDir + name, "utf8");
 const UPDATE = process.env.UPDATE_GOLDENS === "1";
 function golden(name: string, actual: string): void {
@@ -72,18 +74,22 @@ describe("prompt matrix — predict.prompt (var-only, no loop)", () => {
   it("langchain backends skip the loop pre-render when there's no each", () => {
     expect(getPromptBackend("langchain-js").compile(predict, "predict").code).toContain("return chain.invoke(args);");
     expect(getPromptBackend("langchain-js").compile(predict, "predict").code).not.toContain(".map((it)");
-    expect(getPromptBackend("langchain-py").compile(predict, "predict").code).not.toContain('"\\n".join(f"');
+    expect(getPromptBackend("langchain-py").compile(predict, "predict").code).not.toContain(String.raw`"\n".join(f"`);
   });
 });
 
 describe("prompt matrix — each-loop becomes a call-time pre-render", () => {
   it("langchain-js maps the array into a joined block, passes it through invoke", () => {
     const code = getPromptBackend("langchain-js").compile(improve, "improve").code;
-    expect(code).toContain("const failures = args.failures.map((it) => `  - ${it.input}  → expected: ${it.expected}`).join(\"\\n\");");
+    expect(code).toContain(
+      'const failures = args.failures.map((it) => `  - ${it.input}  → expected: ${it.expected}`).join("\\n");',
+    );
     expect(code).toContain("return chain.invoke({ ...args, failures });");
   });
   it("langchain-py joins an f-string comprehension over the list", () => {
     const code = getPromptBackend("langchain-py").compile(improve, "improve").code;
-    expect(code).toContain(`failures = "\\n".join(f"  - {it['input']}  → expected: {it['expected']}" for it in failures)`);
+    expect(code).toContain(
+      String.raw`failures = "\n".join(f"  - {it['input']}  → expected: {it['expected']}" for it in failures)`,
+    );
   });
 });

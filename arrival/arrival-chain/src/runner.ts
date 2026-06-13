@@ -1,7 +1,8 @@
-import invariant from "tiny-invariant";
-import { ArrivalChain } from "./arrival-chain.js";
 import { createInferStore } from "@here.build/arrival-inference";
 import type { ModelRouter } from "@here.build/arrival-inference";
+import invariant from "tiny-invariant";
+
+import { ArrivalChain } from "./arrival-chain.js";
 import { Project } from "./project.js";
 
 export interface PublishOptions {
@@ -60,9 +61,7 @@ export async function runPipeline(opts: RunPipelineOptions): Promise<unknown> {
     const projectDoc = new Y.Doc({ guid: opts.publish.projectDocId });
     chain = ArrivalChain.bootstrap(new Project(), opts.publish.projectDocId, projectDoc);
 
-    publishProviders = [
-      new WebsocketProvider(opts.publish.wsUrl, opts.publish.projectDocId, projectDoc) as Disposable,
-    ];
+    publishProviders = [new WebsocketProvider(opts.publish.wsUrl, opts.publish.projectDocId, projectDoc) as Disposable];
   } else {
     chain = ArrivalChain.bootstrap(new Project());
   }

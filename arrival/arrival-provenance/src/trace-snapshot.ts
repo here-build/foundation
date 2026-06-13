@@ -68,6 +68,7 @@
  * rewrite co-designs with `trace-to-regions.ts`, so it is A2's edit, not A1's.
  */
 import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
+
 import { scopeId } from "./scope-id.js";
 import type { EvalTrace, InvocationState } from "./trace.js";
 

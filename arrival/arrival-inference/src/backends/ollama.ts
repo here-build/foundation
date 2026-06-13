@@ -1,11 +1,13 @@
-import invariant from "tiny-invariant";
 // Namespace imports (not named): vite externalizes node:http(s) to a browser
 // stub with no NAMED exports, so `{ request }` hard-fails the SPA bundle even
 // though ollama is node-only and never selected there. A namespace import
 // resolves to the (empty) stub fine; `.request` is only touched in node.
 import * as nodeHttp from "node:http";
-import * as nodeHttps from "node:https";
 import type { IncomingMessage } from "node:http";
+import * as nodeHttps from "node:https";
+
+import invariant from "tiny-invariant";
+
 import type { Completion, ModelBackend, ModelSpec, ToolCall, ToolDescriptor } from "../model.js";
 import { coerceModelJson, renderSchema, specMessages, type ChatMessage } from "./_shared.js";
 
@@ -76,7 +78,11 @@ const toOllamaTool = (t: ToolDescriptor): Record<string, unknown> => ({
 });
 
 interface OllamaChatResponse {
-  message?: { content?: string; thinking?: string; tool_calls?: Array<{ function?: { name?: string; arguments?: unknown } }> };
+  message?: {
+    content?: string;
+    thinking?: string;
+    tool_calls?: Array<{ function?: { name?: string; arguments?: unknown } }>;
+  };
   done?: boolean;
   prompt_eval_count?: number;
   eval_count?: number;
@@ -113,12 +119,12 @@ export function ollamaBackend(opts: OllamaOptions = {}): ModelBackend {
         // (UND_ERR_HEADERS_TIMEOUT). Streaming sends NDJSON chunks as tokens generate, so headers
         // land at the first token — no timeout — and we accumulate the deltas ourselves.
         stream: true,
-        ...(think !== undefined ? { think } : {}),
+        ...(think === undefined ? {} : { think }),
         ...(schema ? { format: schema } : {}),
         ...(spec.tools && spec.tools.length > 0 ? { tools: spec.tools.map(toOllamaTool) } : {}),
         options: {
-          ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
-          ...(numPredict !== undefined ? { num_predict: numPredict } : {}),
+          ...(opts.temperature === undefined ? {} : { temperature: opts.temperature }),
+          ...(numPredict === undefined ? {} : { num_predict: numPredict }),
         },
       };
 
@@ -141,31 +147,34 @@ export function ollamaBackend(opts: OllamaOptions = {}): ModelBackend {
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       const armIdle = (): void => {
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => res.destroy(new Error(`infer idle ${idleMs}ms — stream stalled (aborted)`)), idleMs);
+        idleTimer = setTimeout(
+          () => res.destroy(new Error(`infer idle ${idleMs}ms — stream stalled (aborted)`)),
+          idleMs,
+        );
       };
       try {
         armIdle();
-      for await (const piece of res) {
-        armIdle(); // reset on every chunk — fires only on a true stall
-        buf += piece as string;
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
-          invariant(status < 400, () => `ollama /api/chat ${status}: ${line.slice(0, 300)}`);
-          const chunk = JSON.parse(line) as OllamaChatResponse;
-          const m = chunk.message;
-          if (m?.content) content += m.content;
-          if (m?.thinking) thinking += m.thinking;
-          if (m?.tool_calls) rawToolCalls.push(...m.tool_calls);
-          if (chunk.done) {
-            doneReason = chunk.done_reason;
-            usage.inputTokens = chunk.prompt_eval_count ?? 0;
-            usage.outputTokens = chunk.eval_count ?? 0;
+        for await (const piece of res) {
+          armIdle(); // reset on every chunk — fires only on a true stall
+          buf += piece as string;
+          let nl: number;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line) continue;
+            invariant(status < 400, () => `ollama /api/chat ${status}: ${line.slice(0, 300)}`);
+            const chunk = JSON.parse(line) as OllamaChatResponse;
+            const m = chunk.message;
+            if (m?.content) content += m.content;
+            if (m?.thinking) thinking += m.thinking;
+            if (m?.tool_calls) rawToolCalls.push(...m.tool_calls);
+            if (chunk.done) {
+              doneReason = chunk.done_reason;
+              usage.inputTokens = chunk.prompt_eval_count ?? 0;
+              usage.outputTokens = chunk.eval_count ?? 0;
+            }
           }
         }
-      }
       } finally {
         if (idleTimer) clearTimeout(idleTimer);
       }
@@ -182,7 +191,11 @@ export function ollamaBackend(opts: OllamaOptions = {}): ModelBackend {
 
       const toolCalls: ToolCall[] | undefined =
         rawToolCalls.length > 0
-          ? rawToolCalls.map((tc, i) => ({ id: `call_${i}`, name: String(tc.function?.name ?? ""), arguments: tc.function?.arguments ?? {} }))
+          ? rawToolCalls.map((tc, i) => ({
+              id: `call_${i}`,
+              name: String(tc.function?.name ?? ""),
+              arguments: tc.function?.arguments ?? {},
+            }))
           : undefined;
 
       return { value, usage, ...(toolCalls ? { toolCalls } : {}) };

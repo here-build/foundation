@@ -48,10 +48,11 @@
  * `Project.run` seam consults an `EffectLog` (see `opts.effectLog`); this file
  * owns the key algebra and the cone subtraction.
  */
-import type { DataEffect } from "./data-effects.js";
-import type { McpEffect } from "./mcp-effects.js";
 import { InferBinding } from "@here.build/arrival-inference";
 import { forwardCone, traceToStatechart, type Statechart, type EvalTrace } from "@here.build/arrival-provenance";
+
+import type { DataEffect } from "./data-effects.js";
+import type { McpEffect } from "./mcp-effects.js";
 
 /** Protocol family of an external effect. `infer` is the LLM plane; `http`/`sql`
  *  are the data planes the host-capability builtins (A3) inject; `mcp` is the tool

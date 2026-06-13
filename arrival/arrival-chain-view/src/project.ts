@@ -10,8 +10,6 @@ import { assemble } from "./assemble.js";
 import { formatJs } from "./format.js";
 import { type ProjectOptions } from "./imports.js";
 
-export type { ProjectOptions };
-
 /** Project arrival-chain scheme → formatted JS (read-view). */
 export async function projectToJs(source: string, opts: ProjectOptions = {}): Promise<string> {
   return formatJs(assemble(source, opts));
@@ -21,3 +19,5 @@ export async function projectToJs(source: string, opts: ProjectOptions = {}): Pr
 export function projectToJsRaw(source: string, opts: ProjectOptions = {}): string {
   return assemble(source, opts);
 }
+
+export { type ProjectOptions } from "./imports.js";

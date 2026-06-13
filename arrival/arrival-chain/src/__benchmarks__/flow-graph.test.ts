@@ -10,21 +10,23 @@
  * dependency-tracking — those are UI-coupled. Numbers here track algorithmic
  * progress on the build itself; for the full render cost, profile the studio.
  */
+
+import type { ModelSpec } from "@here.build/arrival-inference";
+import { createInferStore, singletonRouter } from "@here.build/arrival-inference";
+import {
+  TraceRegionFold,
+  snapshotTrace,
+  traceToFlowGraph,
+  traceToFlowGraphNaive,
+  traceToForest,
+  traceToRegions,
+  traceToStatechart,
+  EvalTrace,
+} from "@here.build/arrival-provenance";
 import { describe, expect, test } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "@here.build/arrival-inference";
-import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "@here.build/arrival-inference";
-import { TraceRegionFold } from "@here.build/arrival-provenance";
-import { snapshotTrace } from "@here.build/arrival-provenance";
-import { traceToFlowGraph } from "@here.build/arrival-provenance";
-import { traceToFlowGraphNaive } from "@here.build/arrival-provenance";
-import { traceToForest } from "@here.build/arrival-provenance";
-import { traceToRegions } from "@here.build/arrival-provenance";
-import { traceToStatechart } from "@here.build/arrival-provenance";
-import { EvalTrace } from "@here.build/arrival-provenance";
 
 /** Deterministic stub: react → {verdict}, reflect → {next}. The tagline grows by
  *  one char per round, so every round mints distinct infers (no cache collisions

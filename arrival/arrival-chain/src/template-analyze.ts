@@ -15,8 +15,8 @@
  * Partials, sub-expressions (helpers with args), and `@` data variables are
  * ignored for the purpose of structure inference.
  */
-import invariant from "tiny-invariant";
 import Handlebars from "handlebars";
+import invariant from "tiny-invariant";
 
 export type Shape =
   | { kind: "any"; optional?: boolean }
@@ -35,14 +35,21 @@ export interface TemplateInfo {
 
 const KNOWN_BLOCK_HELPERS = new Set(["if", "unless", "each", "with"]);
 
-interface HbsNode { type: string; [k: string]: unknown }
+interface HbsNode {
+  type: string;
+  [k: string]: unknown;
+}
 
 function asNode(n: unknown): HbsNode {
   return n as HbsNode;
 }
 
-function objShape(optional = false): Shape { return { kind: "object", fields: new Map(), optional }; }
-function anyShape(optional = false): Shape { return { kind: "any", optional }; }
+function objShape(optional = false): Shape {
+  return { kind: "object", fields: new Map(), optional };
+}
+function anyShape(optional = false): Shape {
+  return { kind: "any", optional };
+}
 
 function ensureObject(s: Shape): Map<string, Shape> {
   // Caller error — we should have created an object shape before descending.
@@ -105,15 +112,17 @@ function addArrayPath(root: Shape, path: string[], optional = false): Shape {
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i]!;
     const existing = cursor.get(key);
-    if (!existing || existing.kind !== "object") {
+    if (existing?.kind === "object") {
+      cursor = existing.fields;
+    } else {
       const next = { kind: "object" as const, fields: new Map<string, Shape>(), optional };
       cursor.set(key, next);
       cursor = next.fields;
-    } else cursor = existing.fields;
+    }
   }
-  const last = path[path.length - 1]!;
+  const last = path.at(-1)!;
   const existing = cursor.get(last);
-  if (existing && existing.kind === "array") return existing.element;
+  if (existing?.kind === "array") return existing.element;
   const arr: Shape = { kind: "array", element: anyShape(), optional };
   cursor.set(last, arr);
   return arr.element;
@@ -180,12 +189,12 @@ function walkStatement(stmt: unknown, scope: Shape, root: Shape, rootFields: str
               continue;
             }
             const next = cursor.fields.get(seg);
-            if (!next) {
+            if (next) {
+              cursor = next;
+            } else {
               const made = objShape(optional);
               cursor.fields.set(seg, made);
               cursor = made;
-            } else {
-              cursor = next;
             }
           }
           walkProgram(n.program, cursor, root, rootFields, optional);
@@ -231,8 +240,13 @@ export function analyzeTemplate(source: string): TemplateInfo {
 
 // ── runtime validator ──────────────────────────────────────────────────
 
-export interface ValidationOk { ok: true }
-export interface ValidationErr { ok: false; message: string }
+export interface ValidationOk {
+  ok: true;
+}
+export interface ValidationErr {
+  ok: false;
+  message: string;
+}
 
 /**
  * Verify `value` satisfies the required `shape`. Errors return a human-

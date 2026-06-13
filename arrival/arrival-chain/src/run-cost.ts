@@ -1,7 +1,5 @@
-import { InferBinding } from "@here.build/arrival-inference";
-import type { TokenUsage } from "@here.build/arrival-inference";
-import { referenceCost } from "@here.build/arrival-inference";
-import { type InferCost, type ProjectedCostStrategy, uncachedSumStrategy } from "@here.build/arrival-inference";
+import { uncachedSumStrategy, type InferCost, type ProjectedCostStrategy, type TokenUsage } from "@here.build/arrival-inference";
+import { InferBinding, referenceCost } from "@here.build/arrival-inference";
 import type { EvalTrace } from "@here.build/arrival-provenance";
 
 /**

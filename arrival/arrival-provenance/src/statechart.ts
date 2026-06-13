@@ -39,6 +39,7 @@
  * hierarchy and is the v1 follow-up; this v0 is the flat collapsed causal DAG.
  */
 import type { Pair, SchemeSymbol } from "@here.build/arrival-scheme";
+
 import { snapshotTrace, type PlainInv, type PlainTrace } from "./trace-snapshot.js";
 import type { EvalTrace } from "./trace.js";
 
@@ -126,11 +127,11 @@ function resolvePoint(
     result = { origin: u };
   } else {
     const meta = fieldPointMeta.get(u);
-    if (!meta) {
-      result = null;
-    } else {
+    if (meta) {
       const inner = resolvePoint(fieldPointMeta, points, meta.origin, memo);
       result = inner ? { origin: inner.origin, field: inner.field ?? meta.key } : null;
+    } else {
+      result = null;
     }
   }
   memo.set(u, result);
@@ -270,7 +271,7 @@ function cone(chart: Statechart, startId: number, direction: "forward" | "backwa
   }
   const out = new Set<number>();
   const queue = [startId];
-  while (queue.length) {
+  while (queue.length > 0) {
     for (const next of adj.get(queue.shift()!) ?? []) {
       if (next === startId || out.has(next)) continue;
       out.add(next);

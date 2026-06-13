@@ -13,6 +13,7 @@
  */
 import { parseSexprs } from "@here.build/arrival-sweet";
 import pluralize from "pluralize";
+
 import { desugar } from "./desugar.js";
 import {
   type Atom,
@@ -29,19 +30,57 @@ import {
 } from "./nodes.js";
 
 const PY_KEYWORDS = new Set([
-  "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def",
-  "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda",
-  "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield", "match", "case",
+  "False",
+  "None",
+  "True",
+  "and",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "try",
+  "while",
+  "with",
+  "yield",
+  "match",
+  "case",
 ]);
 
 /** Scheme identifier → snake_case Python identifier. `run-predict`→`run_predict`, `dominates?`→`dominates`. */
 export function pyName(scheme: string): string {
-  let s = scheme.replace(/->/g, "_to_").replace(/[?!]/g, "").replace(/\*/g, "");
-  s = s.replace(/([a-z0-9])([A-Z])/g, "$1_$2"); // camel → snake
-  s = s.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/-/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+  let s = scheme.replaceAll("->", "_to_").replaceAll(/[?!]/g, "").replaceAll("*", "");
+  s = s.replaceAll(/([a-z0-9])([A-Z])/g, "$1_$2"); // camel → snake
+  s = s
+    .replaceAll(/[^\w-]/g, "_")
+    .replaceAll("-", "_")
+    .replaceAll(/_+/g, "_")
+    .replaceAll(/^_+|_+$/g, "");
   s = s.toLowerCase();
   if (s === "") s = "_";
-  if (/^[0-9]/.test(s)) s = `_${s}`;
+  if (/^\d/.test(s)) s = `_${s}`;
   if (PY_KEYWORDS.has(s)) s = `${s}_`;
   return s;
 }
@@ -104,7 +143,7 @@ export function projectToPy(source: string, opts: PyOptions = {}): string {
   const { importLines, requireSubst, skipForms, inferLocals } = collectPyImports(forest, opts);
   const lower = makePyLower(requireSubst, inferLocals, opts.target ?? "read");
   const body = forest.filter((f) => !skipForms.has(f)).map((f) => lower.top(f));
-  return [importLines.join("\n"), body.join("\n\n")].filter((s) => s.length > 0).join("\n\n") + "\n";
+  return `${[importLines.join("\n"), body.join("\n\n")].filter((s) => s.length > 0).join("\n\n")}\n`;
 }
 
 function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>, target: "read" | "run") {
@@ -154,9 +193,10 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     if (!fn || lists.length === 0) return "[]";
     if (lists.length === 1) {
       const src = lower(lists[0]!);
-      const v = (isList(fn) && head(fn) === "lambda" && isAtom((fn.list[1] as ListNode).list[0])
-        ? pyName(((fn.list[1] as ListNode).list[0] as Atom).atom)
-        : (pyElement(lists[0]!) ?? "x"));
+      const v =
+        isList(fn) && head(fn) === "lambda" && isAtom((fn.list[1] as ListNode).list[0])
+          ? pyName(((fn.list[1] as ListNode).list[0] as Atom).atom)
+          : (pyElement(lists[0]!) ?? "x");
       const e = applyTo(fn, v);
       if (method === "map") return `[${e} for ${v} in ${src}]`;
       if (method === "filter") return `[${v} for ${v} in ${src} if ${e}]`;
@@ -174,7 +214,14 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
         : isAtom(fn) && PY_BINOP[fn.atom]
           ? PY_BINOP[fn.atom]!(vars[0]!, vars[1]!)
           : `${lower(fn)}(${vars.join(", ")})`;
-    const head2 = method === "map" ? `[${applied}` : method === "every" ? `all(${applied}` : method === "some" ? `any(${applied}` : `[${applied}`;
+    const head2 =
+      method === "map"
+        ? `[${applied}`
+        : method === "every"
+          ? `all(${applied}`
+          : method === "some"
+            ? `any(${applied}`
+            : `[${applied}`;
     const tail = method === "map" ? "]" : method === "filter" ? "]" : ")";
     return `${head2} for ${vars.join(", ")} in ${zipped}${tail}`;
   }
@@ -265,7 +312,7 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     if (hName !== undefined) {
       if (hName === "if") {
         const [, c, t, e] = n.list;
-        return `(${lower(t!)} if ${lower(c!)} else ${e !== undefined ? lower(e) : "None"})`;
+        return `(${lower(t!)} if ${lower(c!)} else ${e === undefined ? "None" : lower(e)})`;
       }
       if (hName === "lambda") {
         const params = (n.list[1] as ListNode).list.filter(isAtom).map((p) => pyName(p.atom));
@@ -286,7 +333,13 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     // Run-view: an infer primitive is called as `infer_<name>(**fields)` — drop the
     // read-view's leading content-derived cache-key positional (`(list a b)`).
     const headName = isAtom(fn) && !fn.str ? resolve(fn.atom) : undefined;
-    if (target === "run" && headName !== undefined && inferLocals.has(headName) && args.length > 0 && !isKeyword(args[0])) {
+    if (
+      target === "run" &&
+      headName !== undefined &&
+      inferLocals.has(headName) &&
+      args.length > 0 &&
+      !isKeyword(args[0])
+    ) {
       args = args.slice(1);
     }
     const pos: Node[] = [];
@@ -309,7 +362,10 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
       const sig = form.list[1];
       if (isList(sig)) {
         const name = isAtom(sig.list[0]) ? pyName(sig.list[0].atom) : "_";
-        const params = sig.list.slice(1).filter(isAtom).map((p) => pyName((p as Atom).atom));
+        const params = sig.list
+          .slice(1)
+          .filter(isAtom)
+          .map((p) => pyName((p as Atom).atom));
         code = `def ${name}(${params.join(", ")}):\n    return ${lower(form.list[2]!)}`;
       } else {
         code = `${isAtom(sig) ? pyName(sig.atom) : "_"} = ${lower(form.list[2]!)}`;

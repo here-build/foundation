@@ -30,9 +30,8 @@
  * `extract-defines.ts`. The `__location__` symbol is a registry symbol
  * (`Symbol.for("__location__")`) read off Pairs without importing primitives.
  */
-import { parseGenerator } from "@here.build/arrival-scheme";
-
 import type { SourceLocation } from "@here.build/arrival-provenance";
+import { parseGenerator } from "@here.build/arrival-scheme";
 
 export type { SourceLocation } from "@here.build/arrival-provenance";
 
@@ -75,7 +74,10 @@ const isSymbol = (v: unknown): v is { __name__: string | symbol } =>
   v !== null && typeof v === "object" && "__name__" in v;
 
 const isString = (v: unknown): v is { __string__: string } =>
-  v !== null && typeof v === "object" && "__string__" in v && typeof (v as { __string__: unknown }).__string__ === "string";
+  v !== null &&
+  typeof v === "object" &&
+  "__string__" in v &&
+  typeof (v as { __string__: unknown }).__string__ === "string";
 
 const symName = (s: { __name__: string | symbol }): string =>
   typeof s.__name__ === "string" ? s.__name__ : (s.__name__.description ?? String(s.__name__));
@@ -275,7 +277,7 @@ export interface ReachableExposed {
  * the caller records the default as absent rather than emitting wrong text.
  */
 function renderAtom(v: unknown): string | null {
-  if (isString(v)) return `"${v.__string__.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  if (isString(v)) return `"${v.__string__.replaceAll("\\", "\\\\").replaceAll('"', String.raw`\"`)}"`;
   if (isSymbol(v)) return symName(v);
   if (typeof v === "boolean") return v ? "#t" : "#f";
   if (typeof v === "number") return String(v);
@@ -341,8 +343,8 @@ function overridableInfoOf(form: unknown, source: string): OverridableInfo | nul
   };
   return {
     name,
-    defaultSrc: defForm !== undefined ? sliceOf(defForm) : null,
-    schemaSrc: schemaForm !== undefined ? sliceOf(schemaForm) : null,
+    defaultSrc: defForm === undefined ? null : sliceOf(defForm),
+    schemaSrc: schemaForm === undefined ? null : sliceOf(schemaForm),
     location: locationOf(form),
   };
 }

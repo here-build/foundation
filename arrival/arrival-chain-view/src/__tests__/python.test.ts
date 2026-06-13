@@ -4,6 +4,7 @@
  * fixtures/gepa.py golden — see gepa.test.ts.)
  */
 import { describe, expect, it } from "vitest";
+
 import { projectToPy, pyName } from "../python.js";
 
 const p = (src: string) => projectToPy(src);

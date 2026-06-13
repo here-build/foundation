@@ -44,7 +44,6 @@ import type { EvalTrace } from "./trace.js";
 // scopeId moved to a cycle-neutral leaf (trace-snapshot needs it too; trace-to-forest
 // imports trace-snapshot, so the reverse import would close a loop). Re-exported here
 // so the 8 downstream `from "./trace-to-forest.js"` importers stay unchanged.
-export { scopeId };
 
 const CONTROL_TYPE: Record<string, BoxType> = {
   map: "unfold",
@@ -98,7 +97,7 @@ interface PairLike {
 const isPair = (v: unknown): v is PairLike => v !== null && typeof v === "object" && "car" in v && "cdr" in v;
 const symName = (v: unknown): string | null =>
   v !== null && typeof v === "object" && "__name__" in v && typeof (v as { __name__: unknown }).__name__ === "string"
-    ? ((v as { __name__: string }).__name__)
+    ? (v as { __name__: string }).__name__
     : null;
 /** Proper-list elements of a Pair chain (stops at a non-pair cdr). */
 const listOf = (p: unknown): unknown[] => {
@@ -116,7 +115,7 @@ function tailCallsSelf(form: unknown, fname: string): boolean {
   if (!isPair(form)) return false;
   const items = listOf(form);
   const head = symName(form.car);
-  const last = (xs: unknown[]): boolean => xs.length > 0 && tailCallsSelf(xs[xs.length - 1], fname);
+  const last = (xs: unknown[]): boolean => xs.length > 0 && tailCallsSelf(xs.at(-1), fname);
   switch (head) {
     case "if": // (if c then else) — both arms are tail
       return tailCallsSelf(items[2], fname) || tailCallsSelf(items[3], fname);
@@ -163,7 +162,7 @@ export function staticRecursiveHeads(invs: PlainInv[]): Set<string> {
   const heads = new Set<string>();
   for (const inv of invs) {
     const d = defineShape(inv.node);
-    if (d && d.body.length > 0 && tailCallsSelf(d.body[d.body.length - 1], d.fname)) heads.add(d.fname);
+    if (d && d.body.length > 0 && tailCallsSelf(d.body.at(-1), d.fname)) heads.add(d.fname);
   }
   return heads;
 }
@@ -179,7 +178,7 @@ export function staticLoopBodyScopes(invs: PlainInv[]): Set<object> {
   const scopes = new Set<object>();
   for (const inv of invs) {
     const d = defineShape(inv.node);
-    if (!d || d.body.length === 0 || !tailCallsSelf(d.body[d.body.length - 1], d.fname)) continue;
+    if (!d || d.body.length === 0 || !tailCallsSelf(d.body.at(-1), d.fname)) continue;
     for (const form of d.body) if (form !== null && typeof form === "object") scopes.add(form as object);
   }
   return scopes;
@@ -298,3 +297,5 @@ export function traceToForest(trace: EvalTrace, opts: ForestOptions = {}): Candi
   }
   return roots;
 }
+
+export { scopeId } from "./scope-id.js";

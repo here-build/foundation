@@ -1,7 +1,16 @@
 import { jsonrepair } from "jsonrepair";
 import invariant from "tiny-invariant";
 
-import type { Completion, DeltaSink, ModelBackend, ModelSpec, NoticeSink, TokenUsage, ToolCall, ToolDescriptor } from "../model.js";
+import type {
+  Completion,
+  DeltaSink,
+  ModelBackend,
+  ModelSpec,
+  NoticeSink,
+  TokenUsage,
+  ToolCall,
+  ToolDescriptor,
+} from "../model.js";
 
 // ── Tolerant model-JSON coercion ──────────────────────────────────────
 //
@@ -425,8 +434,8 @@ export function messagesToAnthropic(messages: readonly ChatMessage[]): unknown[]
     if (m.role === "system") continue;
     if (m.role === "tool") {
       const block = { type: "tool_result", tool_use_id: m.toolCallId, content: m.content };
-      const last = out[out.length - 1];
-      if (last && last.role === "user" && Array.isArray(last.content)) {
+      const last = out.at(-1);
+      if (last?.role === "user" && Array.isArray(last.content)) {
         last.content.push(block);
       } else {
         out.push({ role: "user", content: [block] });
@@ -436,7 +445,8 @@ export function messagesToAnthropic(messages: readonly ChatMessage[]): unknown[]
     if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
       const blocks: unknown[] = [];
       if (m.content !== "") blocks.push({ type: "text", text: m.content });
-      for (const tc of m.toolCalls) blocks.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.arguments ?? {} });
+      for (const tc of m.toolCalls)
+        blocks.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.arguments ?? {} });
       out.push({ role: "assistant", content: blocks });
       continue;
     }

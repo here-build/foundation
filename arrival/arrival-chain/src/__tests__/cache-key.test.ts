@@ -1,10 +1,9 @@
+import type { ModelSpec } from "@here.build/arrival-inference";
+import { createInferStore, singletonRouter } from "@here.build/arrival-inference";
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "@here.build/arrival-inference";
-import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "@here.build/arrival-inference";
 import { inferKey as key, seededCache } from "./_seeded-cache.js";
 
 const counterStub = () => {

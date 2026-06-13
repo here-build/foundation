@@ -60,8 +60,7 @@ const isSymbol = (v: unknown): v is { __name__: string | symbol } =>
 // Nil is arrival-scheme's empty-list sentinel — an object with no car or cdr.
 // (SchemeSymbol is also a no-car/no-cdr object, so we check "is it a symbol?"
 // to detect a dotted-tail variadic arg.)
-const isNil = (v: unknown): boolean =>
-  v !== null && typeof v === "object" && !isPair(v) && !isSymbol(v);
+const isNil = (v: unknown): boolean => v !== null && typeof v === "object" && !isPair(v) && !isSymbol(v);
 
 const symName = (s: { __name__: string | symbol }): string =>
   typeof s.__name__ === "string" ? s.__name__ : (s.__name__.description ?? String(s.__name__));

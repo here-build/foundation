@@ -10,9 +10,10 @@
 import { parseGenerator } from "@here.build/arrival-scheme";
 import { describe, expect, it } from "vitest";
 
-import { cellTriggers, formsTrigger, rootEffectEnv } from "../effect-analysis.js";
+import { cellRunnable, cellTriggers, formsRunnable, formsTrigger, rootEffectEnv } from "../effect-analysis.js";
 
 const triggers = async (src: string) => formsTrigger(await parseGenerator(src));
+const runnable = async (src: string) => formsRunnable(await parseGenerator(src));
 
 describe("effect-analysis — direct penetration", () => {
   it("flags a bare (infer …)", async () => {
@@ -86,6 +87,51 @@ describe("effect-analysis — cross-cell taint (option B: threaded env)", () => 
     const defLater = await parseGenerator(`(define (ask q) (infer q))`);
     expect(cellTriggers(callFirst, env)).toBe(false); // TDZ — unbound, no penetration
     expect(cellTriggers(defLater, env)).toBe(false); // the define itself is pure
+  });
+});
+
+describe("effect-analysis — runnable = crosses OR reads an infer-derived value (the post-infer cell)", () => {
+  it("a bare penetration is both a cost AND runnable", async () => {
+    expect(await triggers(`(infer "q")`)).toBe(true);
+    expect(await runnable(`(infer "q")`)).toBe(true);
+  });
+  it("a genuinely pure cell is neither", async () => {
+    expect(await runnable(`(+ 1 2 3)`)).toBe(false);
+    expect(await runnable(`(define (double x) (* x 2))`)).toBe(false);
+  });
+  it("standalone `(car result)` (no upstream define) is NOT runnable — `result` is unbound, pure", async () => {
+    expect(await runnable(`(car result)`)).toBe(false);
+  });
+  it("`(car result)` AFTER `(define result (infer …))` is runnable but NOT a fresh cost", async () => {
+    const env = rootEffectEnv();
+    const def = await parseGenerator(`(define result (infer "what year is it?"))`);
+    const read = await parseGenerator(`(car result)`);
+    // the define crosses the membrane (cost) and binds `result` tainted
+    expect(cellTriggers(def, env)).toBe(true);
+    expect(cellRunnable(def, env)).toBe(true);
+    // reading the tainted result is free to re-run (no NEW crossing) but still wants a ▶
+    expect(cellTriggers(read, env)).toBe(false);
+    expect(cellRunnable(read, env)).toBe(true);
+  });
+  it("taint propagates through a pure define onward to later cells", async () => {
+    const env = rootEffectEnv();
+    cellRunnable(await parseGenerator(`(define answer (infer "q"))`), env);
+    const derive = await parseGenerator(`(define top (car answer))`); // pure op over tainted → tainted
+    const use = await parseGenerator(`(list top "label")`);
+    expect(cellTriggers(derive, env)).toBe(false);
+    expect(cellRunnable(derive, env)).toBe(true);
+    expect(cellRunnable(use, env)).toBe(true); // reads `top`, which is tainted
+  });
+  it("a quasiquote that splices a tainted value is runnable", async () => {
+    const env = rootEffectEnv();
+    cellRunnable(await parseGenerator(`(define result (infer "q"))`), env);
+    expect(cellRunnable(await parseGenerator("`(answer ,result)"), env)).toBe(true);
+    expect(cellTriggers(await parseGenerator("`(answer ,result)"), env)).toBe(false);
+  });
+  it("a cell reading an UNRELATED pure upstream define is not runnable", async () => {
+    const env = rootEffectEnv();
+    cellRunnable(await parseGenerator(`(define greeting "hello")`), env);
+    expect(cellRunnable(await parseGenerator(`(string-length greeting)`), env)).toBe(false);
   });
 });
 

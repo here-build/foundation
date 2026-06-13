@@ -22,8 +22,9 @@
  * version-gating here; downstream consumers take `{ graph }` and never branch on
  * the wire shape.
  */
-import invariant from "tiny-invariant";
 import { lipsToJs } from "@here.build/arrival-scheme";
+import invariant from "tiny-invariant";
+
 import { traceToRegions, type Region, type RegionGraph } from "./trace-to-regions.js";
 import type { EvalTrace } from "./trace.js";
 
@@ -88,7 +89,8 @@ export function serializeTrace(trace: EvalTrace): TraceArtifact {
 export function loadTraceArtifact(artifact: TraceArtifact): { graph: RegionGraph } {
   invariant(
     artifact.version <= TRACE_PROTOCOL_VERSION,
-    () => `Trace artifact version ${artifact.version} is newer than this visualizer supports (${TRACE_PROTOCOL_VERSION}). Update the visualizer.`,
+    () =>
+      `Trace artifact version ${artifact.version} is newer than this visualizer supports (${TRACE_PROTOCOL_VERSION}). Update the visualizer.`,
   );
   // v1 is the floor — no older format exists to migrate from yet. When one does,
   // migrate-forward by version here (additive fields need no migration).

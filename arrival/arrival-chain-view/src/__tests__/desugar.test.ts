@@ -7,15 +7,14 @@
  * Assertions are against the formatted projection (the whole pipeline).
  */
 import { describe, expect, it } from "vitest";
+
 import { projectToJs } from "../project.js";
 
 const p = (src: string) => projectToJs(src);
 
 describe("threading macros (positional, Clojure/Racket — not a `_` placeholder)", () => {
   it("`->` threads as the FIRST arg; bare symbols become unary calls", async () => {
-    expect(await p("(define (f persona) (-> persona state-of summarize))")).toContain(
-      "summarize(stateOf(persona))",
-    );
+    expect(await p("(define (f persona) (-> persona state-of summarize))")).toContain("summarize(stateOf(persona))");
   });
 
   it("`->` inserts as the first arg, before a call step's existing args", async () => {

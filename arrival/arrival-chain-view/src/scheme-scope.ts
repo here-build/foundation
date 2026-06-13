@@ -19,6 +19,7 @@
  * this work cross-scope despite parent-first resolution.
  */
 import { type Candidate, resolveLexicalNames, type ScopedEntity, type ScopeSpec } from "@here.build/lexical-namer";
+
 import { nameCandidates } from "./names.js";
 import { type Atom, head, isAtom, isKeyword, isList, type ListNode, type Node } from "./nodes.js";
 
@@ -47,9 +48,9 @@ function ladder(scheme: string, plainPrimaries: ReadonlySet<string>): Record<num
   if (isPred && cands.length > 1 && plainPrimaries.has(cands[0]!)) {
     cands = [cands[1]!, cands[0]!, ...cands.slice(2)]; // yield the contested bare name; isFoo on top
   }
-  cands.forEach((name, i) => {
+  for (const [i, name] of cands.entries()) {
     rec[base - i * 10] = name;
-  });
+  }
   return rec;
 }
 
@@ -85,7 +86,8 @@ function collectBindingAtoms(n: Node, out: Atom[]): void {
     if (named) out.push(n.list[1] as Atom);
     const bindings = named ? n.list[2] : n.list[1];
     out.push(...bindingAtoms(bindings));
-    if (isList(bindings)) for (const b of bindings.list) if (isList(b) && b.list[1]) collectBindingAtoms(b.list[1], out);
+    if (isList(bindings))
+      for (const b of bindings.list) if (isList(b) && b.list[1]) collectBindingAtoms(b.list[1], out);
     for (const c of n.list.slice(named ? 3 : 2)) collectBindingAtoms(c, out);
     return;
   }
@@ -103,7 +105,8 @@ function bindingAtoms(node: Node | undefined): Atom[] {
       if (isAtom(rest)) out.push(rest);
       break;
     }
-    if (isAtom(p)) out.push(p); // param atom
+    if (isAtom(p))
+      out.push(p); // param atom
     else if (isList(p) && isAtom(p.list[0])) out.push(p.list[0]); // (x init) → x
   }
   return out;
@@ -242,7 +245,12 @@ export function resolveNames(forest: Node[], reserved: readonly string[]): Map<A
   }
   stack.pop();
 
-  const root: ScopeSpec<Atom> = { id: "root", reservations: [...reserved], entities: rootEntities, children: rootChildren };
+  const root: ScopeSpec<Atom> = {
+    id: "root",
+    reservations: [...reserved],
+    entities: rootEntities,
+    children: rootChildren,
+  };
   const { assignments } = resolveLexicalNames(root, {
     postfixFor: (atom) => postfix.get(atom) ?? "0",
     resolveTie: (name, p) => `${name}_${p}`, // JS idents: no hyphens

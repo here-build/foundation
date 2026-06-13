@@ -20,6 +20,7 @@
  * (the GEPA-optimized candidate) actually reaches stdout.
  */
 import { parseSexprs } from "@here.build/arrival-sweet";
+
 import { cleanName } from "./names.js";
 import { head, isAtom, isList, type Node } from "./nodes.js";
 import { projectToJs } from "./project.js";
@@ -77,21 +78,24 @@ function topLevelDefineNames(src: string): string[] {
 /** Rewrite a JS module's require-derived imports to runnable forms. */
 function rewriteJsImports(code: string): string {
   let needsReadText = false;
-  let body = code.replace(/^import (.+) from "(\.\/[^"]+)";$/gm, (full: string, what: string, spec: string): string => {
-    switch (extOf(spec)) {
-      case "scm":
-        return `import ${what} from "${spec.replace(/\.scm$/, ".js")}";`;
-      case "prompt":
-        return `import ${what} from "${spec}.js";`; // ./predict.prompt → ./predict.prompt.js (tsx resolves .ts)
-      case "json":
-        return `import ${what} from "${spec}" with { type: "json" };`;
-      case "txt":
-        needsReadText = true;
-        return `const ${what} = __readText(new URL("${spec}", import.meta.url), "utf8");`;
-      default:
-        return full;
-    }
-  });
+  let body = code.replaceAll(
+    /^import (.+) from "(\.\/[^"]+)";$/gm,
+    (full: string, what: string, spec: string): string => {
+      switch (extOf(spec)) {
+        case "scm":
+          return `import ${what} from "${spec.replace(/\.scm$/, ".js")}";`;
+        case "prompt":
+          return `import ${what} from "${spec}.js";`; // ./predict.prompt → ./predict.prompt.js (tsx resolves .ts)
+        case "json":
+          return `import ${what} from "${spec}" with { type: "json" };`;
+        case "txt":
+          needsReadText = true;
+          return `const ${what} = __readText(new URL("${spec}", import.meta.url), "utf8");`;
+        default:
+          return full;
+      }
+    },
+  );
   if (needsReadText) body = `import { readFileSync as __readText } from "node:fs";\n${body}`;
   return body;
 }
@@ -99,7 +103,8 @@ function rewriteJsImports(code: string): string {
 /** Wrap the entry module's trailing expression so its value is printed. */
 function printEntryResult(code: string, lang: "js" | "py"): string {
   const lines = code.split("\n");
-  const isComment = (l: string): boolean => (lang === "py" ? l.trimStart().startsWith("#") : l.trimStart().startsWith("//"));
+  const isComment = (l: string): boolean =>
+    lang === "py" ? l.trimStart().startsWith("#") : l.trimStart().startsWith("//");
   let i = lines.length - 1;
   while (i >= 0 && (lines[i]!.trim() === "" || isComment(lines[i]!))) i--;
   if (i < 0) return code;
@@ -116,8 +121,7 @@ function manifest(target: CompileTarget, entryStem: string): EmittedFile {
     const reqs = target.prompts === "dspy" ? "dspy\n" : "langchain-core\nlangchain-openai\n";
     return { path: "requirements.txt", content: reqs };
   }
-  const deps =
-    target.prompts === "ax" ? dep("@ax-llm/ax") : { ...dep("@langchain/core"), ...dep("@langchain/openai") };
+  const deps = target.prompts === "ax" ? dep("@ax-llm/ax") : { ...dep("@langchain/core"), ...dep("@langchain/openai") };
   const pkg = {
     name: `host-${entryStem}`,
     private: true,
@@ -126,7 +130,7 @@ function manifest(target: CompileTarget, entryStem: string): EmittedFile {
     dependencies: deps,
     devDependencies: { ...dep("tsx"), ...dep("typescript") },
   };
-  return { path: "package.json", content: JSON.stringify(pkg, null, 2) + "\n" };
+  return { path: "package.json", content: `${JSON.stringify(pkg, null, 2)}\n` };
 }
 
 /**
@@ -164,7 +168,7 @@ export async function compileProject(
       if (isEntry) code = printEntryResult(code, "js");
       else {
         const names = topLevelDefineNames(files[f]!);
-        if (names.length) code += `\nexport { ${names.join(", ")} };\n`;
+        if (names.length > 0) code += `\nexport { ${names.join(", ")} };\n`;
       }
       out.push({ path: `${isEntry ? "main" : cleanName(stemOf(f))}.ts`, content: code });
     }

@@ -4,6 +4,7 @@
  */
 import { parseSexprs } from "@here.build/arrival-sweet";
 import { describe, expect, it } from "vitest";
+
 import { computeAsyncNames, inferPrimitives } from "../async-analysis.js";
 
 const analyze = (src: string) => {

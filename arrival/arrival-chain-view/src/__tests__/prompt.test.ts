@@ -3,6 +3,7 @@
  * `infer<Name>` module.
  */
 import { describe, expect, it } from "vitest";
+
 import { aiClientModule, compilePromptToTs } from "../prompt.js";
 
 const PREDICT = `---

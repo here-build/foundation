@@ -13,9 +13,16 @@
 // real SLICE (via `buildSlice`): only the top-level forms the effective value depends on, plus
 // the selector. Intra-form minimal slicing (sub-form re-synthesis) is the deferred increment.
 
-import { execGeneratorExpr as execExpr, parseGenerator as parse, AValue, lipsToJs, type Environment } from "@here.build/arrival-scheme";
-import type { EvalTrace } from "./trace.js";
+import {
+  execGeneratorExpr as execExpr,
+  parseGenerator as parse,
+  AValue,
+  lipsToJs,
+  type Environment,
+} from "@here.build/arrival-scheme";
+
 import { buildSlice, writeForm, defineNameOf, lastTopLevelForm } from "./slice.js";
+import type { EvalTrace } from "./trace.js";
 
 /** One reverse-chain answer: the effective value the selector produced, the origin reads it
  *  traces to, and a re-runnable Scheme program that re-derives it. */
@@ -66,12 +73,11 @@ export function buildUneval(opts: {
   // is what makes the slice CLOSED: its binding form + whole consumer chain are kept by reference.
   // The run's OUTPUT form — explicit `forms` if threaded, else the trace's last top-level form
   // (captured HERE, before any selector eval pollutes the trace with its own top-level form).
-  const outputForm = forms.length > 0 ? forms[forms.length - 1] : lastTopLevelForm(trace);
-  const outputName = outputForm !== undefined ? defineNameOf(outputForm) : null;
+  const outputForm = forms.length > 0 ? forms.at(-1) : lastTopLevelForm(trace);
+  const outputName = outputForm === undefined ? null : defineNameOf(outputForm);
   // `result` re-expressed in the slice's terms: the output's name if it's a define, else the
   // output expression rendered back to source.
-  const resultExpr =
-    outputForm === undefined ? "result" : (outputName ?? writeForm(outputForm));
+  const resultExpr = outputForm === undefined ? "result" : (outputName ?? writeForm(outputForm));
 
   return {
     result: lipsToJs(result, {}),
@@ -82,7 +88,7 @@ export function buildUneval(opts: {
       // becomes a trace node, exactly like any value the program itself computed.
       env.set("result", result as never);
       const sel = await parse(selector, env);
-      let v: unknown = await execExpr(sel[sel.length - 1], { env, tap: trace });
+      let v: unknown = await execExpr(sel.at(-1), { env, tap: trace });
       if (v != null && typeof (v as { then?: unknown }).then === "function") v = await (v as Promise<unknown>);
       const provenance = v instanceof AValue ? [...v.provenance] : [];
       // The SLICE: the reachable derivation of the run's output (static backward reference-closure

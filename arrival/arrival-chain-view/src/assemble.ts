@@ -4,13 +4,12 @@
  * Node formatter (`project.ts`) or the browser formatter (`browser.ts`).
  */
 import { parseSexprs } from "@here.build/arrival-sweet";
+
 import { computeAsyncNames, inferPrimitives } from "./async-analysis.js";
 import { desugar } from "./desugar.js";
 import { collectImports, type ProjectOptions } from "./imports.js";
 import { makeLowerer } from "./lower.js";
 import { resolveNames } from "./scheme-scope.js";
-
-export type { ProjectOptions };
 
 /** Parse → plan imports → lower body → join into one (unformatted) JS module string. */
 export function assemble(source: string, opts: ProjectOptions = {}): string {
@@ -25,3 +24,5 @@ export function assemble(source: string, opts: ProjectOptions = {}): string {
   const body = forest.filter((f) => !skipForms.has(f)).map((f) => lowerer.lowerTop(f));
   return [importLines.join("\n"), body.join("\n\n")].filter((s) => s.length > 0).join("\n\n");
 }
+
+export { type ProjectOptions } from "./imports.js";

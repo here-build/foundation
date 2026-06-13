@@ -15,13 +15,7 @@
  * loops to a joined string at call time (f-string templates don't iterate).
  */
 import { cleanName } from "./names.js";
-import {
-  type LoopSeg,
-  parsePrompt,
-  pascal,
-  type PromptInput,
-  renderMessages,
-} from "./prompt-ir.js";
+import { type LoopSeg, parsePrompt, pascal, type PromptInput, renderMessages } from "./prompt-ir.js";
 import { pyName } from "./python.js";
 
 export interface PromptModule {
@@ -47,23 +41,34 @@ export interface PromptBackend {
 // ── shared snippet helpers ───────────────────────────────────────────────────
 
 /** A line, escaped for use INSIDE a JS template literal. */
-const jsTpl = (s: string): string => s.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+const jsTpl = (s: string): string => s.replaceAll("\\", "\\\\").replaceAll("`", "\\`").replaceAll("${", "\\${");
 
 /** Render an each-loop body to a JS template-literal fragment (`it.field` interps). */
 function jsLoopItem(item: LoopSeg[]): string {
   let s = "";
   for (const seg of item) s += seg.kind === "text" ? jsTpl(seg.text) : seg.path ? `\${it.${seg.path}}` : "${it}";
-  return s.replace(/^\n+|\n+$/g, "");
+  return s.replaceAll(/^\n+|\n+$/g, "");
 }
 
 /** Render an each-loop body to a Python f-string fragment (`it['field']` interps). */
 function pyLoopItem(item: LoopSeg[]): string {
   let s = "";
   for (const seg of item) {
-    if (seg.kind === "text") s += seg.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\{/g, "{{").replace(/\}/g, "}}");
-    else s += seg.path ? `{it[${seg.path.split(".").map((p) => `'${p}'`).join("][")}]}` : "{it}";
+    if (seg.kind === "text")
+      s += seg.text
+        .replaceAll("\\", "\\\\")
+        .replaceAll('"', String.raw`\"`)
+        .replaceAll("{", "{{")
+        .replaceAll("}", "}}");
+    else
+      s += seg.path
+        ? `{it[${seg.path
+            .split(".")
+            .map((p) => `'${p}'`)
+            .join("][")}]}`
+        : "{it}";
   }
-  return s.replace(/^\n+|\n+$/g, "");
+  return s.replaceAll(/^\n+|\n+$/g, "");
 }
 
 /** A multi-line template → a readable joined string literal (single line stays inline). */
@@ -81,7 +86,11 @@ function pyTemplateLiteral(template: string): string {
 /** Frontmatter model → factory call argument: `"model"` or empty (factory env-defaults). */
 const modelArg = (model: string): string => (model ? JSON.stringify(model) : "");
 /** The authored template, preserved as a `//`/`#` comment block. */
-const commentBody = (body: string, mark: string): string => body.split("\n").map((l) => `${mark}   ${l}`).join("\n");
+const commentBody = (body: string, mark: string): string =>
+  body
+    .split("\n")
+    .map((l) => `${mark}   ${l}`)
+    .join("\n");
 
 // ── ax (JS, signature) ───────────────────────────────────────────────────────
 
@@ -129,10 +138,15 @@ function compileLangchainJs(source: string, name: string): PromptModule {
   const loopVars = new Set(loops.map((l) => l.var));
   const msgs = rendered.map((m) => `  [${JSON.stringify(m.role)}, ${jsTemplateLiteral(m.template)}]`).join(",\n");
   const argType = `{ ${doc.inputs
-    .map((f) => `${f.name}: ${loopVars.has(f.name) ? "Array<Record<string, unknown>>" : f.type === "json" ? "unknown" : "string"}`)
+    .map(
+      (f) =>
+        `${f.name}: ${loopVars.has(f.name) ? "Array<Record<string, unknown>>" : f.type === "json" ? "unknown" : "string"}`,
+    )
     .join("; ")} }`;
-  const pre = loops.map((l) => `  const ${l.var} = args.${l.var}.map((it) => \`${jsLoopItem(l.item)}\`).join("\\n");`).join("\n");
-  const invoke = loopVars.size ? `{ ...args, ${[...loopVars].join(", ")} }` : "args";
+  const pre = loops
+    .map((l) => `  const ${l.var} = args.${l.var}.map((it) => \`${jsLoopItem(l.item)}\`).join("\\n");`)
+    .join("\n");
+  const invoke = loopVars.size > 0 ? `{ ...args, ${[...loopVars].join(", ")} }` : "args";
   const code = `// Generated from ${name}.prompt by @here.build/arrival-chain-view — do not edit.
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
@@ -173,8 +187,10 @@ function compileDspy(source: string, name: string): PromptModule {
   const exportName = `infer_${stem}`;
   const cls = pascal(name);
   const params = doc.inputs.map((f) => pyName(f.raw));
-  const fields = doc.inputs.map((f) => `    ${pyName(f.raw)}: ${f.type === "json" ? "list" : "str"} = dspy.InputField()`).join("\n");
-  const docstring = (doc.description || `${name} prompt`).replace(/"""/g, "'''");
+  const fields = doc.inputs
+    .map((f) => `    ${pyName(f.raw)}: ${f.type === "json" ? "list" : "str"} = dspy.InputField()`)
+    .join("\n");
+  const docstring = (doc.description || `${name} prompt`).replaceAll('"""', "'''");
   const code = `# Generated from ${name}.prompt by @here.build/arrival-chain-view — do not edit.
 import dspy
 
@@ -230,7 +246,9 @@ function compileLangchainPy(source: string, name: string): PromptModule {
   const msgs = rendered.map((m) => `    (${JSON.stringify(m.role)}, ${pyTemplateLiteral(m.template)})`).join(",\n");
   const params = doc.inputs.map((f) => pyName(f.raw));
   // The f-string placeholder is the cleaned name (renderMessages), the value is the snake param.
-  const pre = loops.map((l) => `    ${pyName(l.raw)} = "\\n".join(f"${pyLoopItem(l.item)}" for it in ${pyName(l.raw)})`).join("\n");
+  const pre = loops
+    .map((l) => String.raw`    ${pyName(l.raw)} = "\n".join(f"${pyLoopItem(l.item)}" for it in ${pyName(l.raw)})`)
+    .join("\n");
   const invoke = doc.inputs.map((f) => `"${f.name}": ${pyName(f.raw)}`).join(", ");
   const code = `# Generated from ${name}.prompt by @here.build/arrival-chain-view — do not edit.
 from langchain_core.prompts import ChatPromptTemplate
@@ -270,9 +288,19 @@ def chat_model(model: str = ""):
 
 export const PROMPT_BACKENDS: Record<PromptBackend["id"], PromptBackend> = {
   ax: { id: "ax", lang: "js", compile: compileAx, client: () => ({ filename: "_ai.ts", code: axClient() }) },
-  "langchain-js": { id: "langchain-js", lang: "js", compile: compileLangchainJs, client: () => ({ filename: "_llm.ts", code: langchainJsClient() }) },
+  "langchain-js": {
+    id: "langchain-js",
+    lang: "js",
+    compile: compileLangchainJs,
+    client: () => ({ filename: "_llm.ts", code: langchainJsClient() }),
+  },
   dspy: { id: "dspy", lang: "py", compile: compileDspy, client: () => ({ filename: "_llm.py", code: dspyClient() }) },
-  "langchain-py": { id: "langchain-py", lang: "py", compile: compileLangchainPy, client: () => ({ filename: "_llm.py", code: langchainPyClient() }) },
+  "langchain-py": {
+    id: "langchain-py",
+    lang: "py",
+    compile: compileLangchainPy,
+    client: () => ({ filename: "_llm.py", code: langchainPyClient() }),
+  },
 };
 
 export function getPromptBackend(id: PromptBackend["id"]): PromptBackend {

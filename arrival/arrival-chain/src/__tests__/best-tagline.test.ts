@@ -13,15 +13,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import type { ModelSpec } from "@here.build/arrival-inference";
+import { createInferStore, parseChatPrompt, singletonRouter } from "@here.build/arrival-inference";
 import { describe, expect, it, vi } from "vitest";
 import { stringify as stringifyYaml } from "yaml";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "@here.build/arrival-inference";
-import { parseChatPrompt } from "@here.build/arrival-inference";
-import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "@here.build/arrival-inference";
 import { configScm } from "./fixtures/config-scm.js";
 
 const PROGRAMS_DIR = path.resolve(__dirname, "fixtures/programs");
@@ -109,14 +107,17 @@ describe("best-tagline.scm — integration smoke", () => {
 
     // System prompts live in the .scm as constants. Per-run knobs ship as a
     // config.scm the program (require "config.scm")s.
-    project.addFile("config.scm", configScm({
-      "initial-tagline": "t0",
-      "pov-count": 1,
-      "max-iter": 0,
-      "plateau-delta": -1,
-      "total-iter-cap": 5,
-      "bounce-threshold": 0.5,
-    }));
+    project.addFile(
+      "config.scm",
+      configScm({
+        "initial-tagline": "t0",
+        "pov-count": 1,
+        "max-iter": 0,
+        "plateau-delta": -1,
+        "total-iter-cap": 5,
+        "bounce-threshold": 0.5,
+      }),
+    );
 
     const backend = stub(() => "click");
     project.bindInfer(createInferStore(singletonRouter(backend)));
@@ -157,14 +158,17 @@ describe("best-tagline.scm — integration smoke", () => {
 
     // System prompts live in the .scm as constants. Per-run knobs ship as a
     // config.scm the program (require "config.scm")s.
-    project.addFile("config.scm", configScm({
-      "initial-tagline": "t0",
-      "pov-count": 1,
-      "max-iter": 1,
-      "plateau-delta": -1,
-      "total-iter-cap": 5,
-      "bounce-threshold": 0.5,
-    }));
+    project.addFile(
+      "config.scm",
+      configScm({
+        "initial-tagline": "t0",
+        "pov-count": 1,
+        "max-iter": 1,
+        "plateau-delta": -1,
+        "total-iter-cap": 5,
+        "bounce-threshold": 0.5,
+      }),
+    );
 
     const verdictFor = (name: string, tag: string): "click" | "bounce" => {
       if (name === "Maya") return "click";

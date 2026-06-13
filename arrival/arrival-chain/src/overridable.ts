@@ -36,9 +36,8 @@
  *
  * `schema` is REQUIRED. Keys/credentials are never in scope here.
  */
-import invariant from "tiny-invariant";
-
 import type { Environment } from "@here.build/arrival-scheme";
+import invariant from "tiny-invariant";
 
 import { schemaToZod } from "./schema-to-zod.js";
 
@@ -99,7 +98,8 @@ export function defineOverridableRosetta(opts: {
       const defParsed = zod.safeParse(def);
       invariant(
         defParsed.success,
-        () => `${OVERRIDABLE_FORM}: "${name}" default does not satisfy its schema: ${defParsed.success ? "" : defParsed.error.message}`,
+        () =>
+          `${OVERRIDABLE_FORM}: "${name}" default does not satisfy its schema: ${defParsed.success ? "" : defParsed.error.message}`,
       );
 
       if (onOverridable) {

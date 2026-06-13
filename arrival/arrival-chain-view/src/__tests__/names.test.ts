@@ -4,6 +4,7 @@
  * collision resolver (#76) walks before postfixing — see lexical-js-naming.md.
  */
 import { describe, expect, it } from "vitest";
+
 import { cleanName, nameCandidates } from "../names.js";
 
 describe("cleanName — base tier", () => {

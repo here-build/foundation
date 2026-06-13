@@ -27,6 +27,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./oracle": {
+      "types": "./dist/oracle/index.d.ts",
+      "import": "./dist/oracle/index.js"
+    },
     "./test-env": {
       "types": "./dist/custom-matchers.d.ts",
       "import": "./dist/custom-matchers.js"

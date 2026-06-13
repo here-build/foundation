@@ -33,7 +33,10 @@ const recv = (s: string): string => (/^await\b/.test(s) ? `(${s})` : s);
 const spread = (a: Node, E: Emit): string => {
   const h = isList(a) ? a.list[0] : undefined;
   if (isList(a) && isAtom(h) && !h.str && h.atom === "list") {
-    return a.list.slice(1).map((el) => E.lower(el)).join(", ");
+    return a.list
+      .slice(1)
+      .map((el) => E.lower(el))
+      .join(", ");
   }
   return `...${E.lower(a)}`;
 };
@@ -221,7 +224,11 @@ export const STDLIB: Record<string, Emitter> = {
   first: (args, E) => `${E.lower(args[0]!)}[0]`,
   length: (args, E) => `${E.lower(args[0]!)}.length`,
   reverse: (args, E) => `[...${E.lower(args[0]!)}].reverse()`,
-  append: (args, E) => `[${args.map((a) => spread(a, E)).filter((s) => s !== "").join(", ")}]`,
+  append: (args, E) =>
+    `[${args
+      .map((a) => spread(a, E))
+      .filter((s) => s !== "")
+      .join(", ")}]`,
   min: (args, E) => `Math.min(${args.map((a) => E.lower(a)).join(", ")})`,
   max: (args, E) => `Math.max(${args.map((a) => E.lower(a)).join(", ")})`,
 
@@ -272,7 +279,8 @@ export const STDLIB: Record<string, Emitter> = {
     const [fn, xs] = args;
     const list = recv(E.lower(xs!));
     const el = elementName(xs!) ?? "__x";
-    const key = (v: string) => (isList(fn) && head(fn) === "lambda" ? inlineUnaryLambda(fn!, v, E) : applyFn(fn!, [v], E));
+    const key = (v: string) =>
+      isList(fn) && head(fn) === "lambda" ? inlineUnaryLambda(fn!, v, E) : applyFn(fn!, [v], E);
     return `${list}.reduce((acc, ${el}) => (${key(el)} > ${key("acc")} ? ${el} : acc))`;
   },
 

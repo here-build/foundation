@@ -18,8 +18,8 @@
  * real boundary, computed once.
  */
 import type { CandidateBox } from "./mdl-collapse.js";
-import { snapshotTrace, type PlainInv } from "./trace-snapshot.js";
 import { traceToStatechart } from "./statechart.js";
+import { snapshotTrace, type PlainInv } from "./trace-snapshot.js";
 import { scopeId, traceToForest } from "./trace-to-forest.js";
 import type { EvalTrace } from "./trace.js";
 

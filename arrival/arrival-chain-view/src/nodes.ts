@@ -4,8 +4,6 @@
  */
 import type { Node } from "@here.build/arrival-sweet";
 
-export type { Node };
-
 /** An atom node: a symbol, keyword, number, string (`str:true`), or `#t`/`#f`. */
 export type Atom = { atom: string; str?: boolean; span?: readonly [number, number] };
 /** A list node `(…)`. Quote/quasiquote desugar to `(quote x)` lists in the parser. */
@@ -26,9 +24,11 @@ export const isKeyword = (n: Node | undefined): n is Atom =>
 export const keywordName = (a: Atom): string => a.atom.slice(1);
 
 /** A numeric literal atom (int / float / signed / exponent). A symbol is not a number. */
-export const isNumber = (a: Atom): boolean => !a.str && /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(a.atom);
+export const isNumber = (a: Atom): boolean => !a.str && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(a.atom);
 
 export const isBool = (a: Atom): boolean => !a.str && (a.atom === "#t" || a.atom === "#f");
 
 /** The empty list `()` / `'()`. */
 export const isNil = (n: Node | undefined): boolean => isList(n) && n.list.length === 0;
+
+export { type Node } from "@here.build/arrival-sweet";

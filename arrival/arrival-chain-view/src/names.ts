@@ -17,11 +17,55 @@ import pluralize from "pluralize";
 import { isAtom, isKeyword, isList, keywordName, type Node } from "./nodes.js";
 
 const RESERVED = new Set([
-  "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else",
-  "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new",
-  "null", "return", "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while",
-  "with", "yield", "let", "static", "enum", "await", "async", "implements", "interface", "package",
-  "private", "protected", "public", "arguments", "eval",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "import",
+  "in",
+  "instanceof",
+  "new",
+  "null",
+  "return",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+  "let",
+  "static",
+  "enum",
+  "await",
+  "async",
+  "implements",
+  "interface",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "arguments",
+  "eval",
 ]);
 
 /**
@@ -33,14 +77,14 @@ const RESERVED = new Set([
  */
 export function cleanName(scheme: string): string {
   let s = scheme;
-  s = s.replace(/->/g, "-to-"); // string->list → string-to-list
-  s = s.replace(/[?!]/g, ""); // predicate? / mutate! markers carry no JS meaning
-  s = s.replace(/\*/g, ""); // earmuffed *globals*
-  s = s.replace(/[^a-zA-Z0-9_-]/g, "-"); // any other punctuation → separator
-  s = s.replace(/[-_]+([a-zA-Z0-9])/g, (_m, c: string) => c.toUpperCase()); // kebab/snake → camel
-  s = s.replace(/[-_]+$/g, ""); // trailing separators
+  s = s.replaceAll("->", "-to-"); // string->list → string-to-list
+  s = s.replaceAll(/[?!]/g, ""); // predicate? / mutate! markers carry no JS meaning
+  s = s.replaceAll("*", ""); // earmuffed *globals*
+  s = s.replaceAll(/[^\w-]/g, "-"); // any other punctuation → separator
+  s = s.replaceAll(/[-_]+([a-z0-9])/gi, (_m, c: string) => c.toUpperCase()); // kebab/snake → camel
+  s = s.replaceAll(/[-_]+$/g, ""); // trailing separators
   if (s === "") s = "_";
-  if (/^[0-9]/.test(s)) s = `_${s}`;
+  if (/^\d/.test(s)) s = `_${s}`;
   if (RESERVED.has(s)) s = `${s}_`;
   return s;
 }
@@ -81,7 +125,8 @@ export function nameCandidates(scheme: string): string[] {
 export function elementName(list: Node): string | null {
   let base: string | undefined;
   if (isAtom(list) && !list.str) base = cleanName(list.atom);
-  else if (isList(list) && isKeyword(list.list[0])) base = cleanName(keywordName(list.list[0])); // (:scores c)
+  else if (isList(list) && isKeyword(list.list[0]))
+    base = cleanName(keywordName(list.list[0])); // (:scores c)
   else if (isList(list) && isAtom(list.list[0]) && !list.list[0].str) base = cleanName(list.list[0].atom); // (scores a)
   if (base === undefined || base === "") return null;
   const singular = pluralize.singular(base);
@@ -103,12 +148,12 @@ const ordinal = (k: number): string => ORDINALS[k] ?? `item${k + 1}`;
  * a malformed match (param[N] inside a string literal) is the known limit.
  */
 export function destructureTuple(param: string, body: string): { pattern: string; body: string } | null {
-  const esc = param.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const idxRe = new RegExp(`\\b${esc}\\[(\\d+)\\]`, "g");
+  const esc = param.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  const idxRe = new RegExp(String.raw`\b${esc}\[(\d+)\]`, "g");
   const indices = [...body.matchAll(idxRe)].map((m) => Number(m[1]));
   if (indices.length === 0) return null;
   // Used whole somewhere (outside an index) → can't destructure.
-  if (new RegExp(`\\b${esc}\\b`).test(body.replace(idxRe, ""))) return null;
+  if (new RegExp(String.raw`\b${esc}\b`).test(body.replace(idxRe, ""))) return null;
   const max = Math.max(...indices);
   const nameAt = (k: number): string => (max === 0 ? "head" : ordinal(k));
   const slots = max === 0 ? ["head"] : Array.from({ length: max + 1 }, (_v, k) => ordinal(k));

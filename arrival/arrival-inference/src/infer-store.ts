@@ -1,4 +1,5 @@
 import invariant from "tiny-invariant";
+
 import type { Completion, ModelSpec } from "./model.js";
 import type { ModelRouter } from "./registry.js";
 
@@ -165,11 +166,11 @@ class Cell implements InferCell {
       await cache.write(contentKey, [spec.model, spec.prompt, spec.schema, cacheKey], completion);
       onSettle(true);
       return completion;
-    })().catch((e: unknown) => {
+    })().catch((error: unknown) => {
       this.settled = true;
-      vlog(`✗ ${spec.model}  ${Date.now() - t0}ms  ${this.ac.signal.aborted ? "aborted" : errMsg(e)}`);
+      vlog(`✗ ${spec.model}  ${Date.now() - t0}ms  ${this.ac.signal.aborted ? "aborted" : errMsg(error)}`);
       onSettle(false); // error / abort → evict so a re-request retries fresh
-      throw e;
+      throw error;
     });
   }
 

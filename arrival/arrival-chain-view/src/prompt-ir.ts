@@ -54,7 +54,7 @@ export function parseFrontmatter(src: string): { meta: Record<string, string>; b
   const meta: Record<string, string> = {};
   for (const line of m[1]!.split("\n")) {
     const kv = /^(\w[\w-]*):\s*(.*)$/.exec(line.trim());
-    if (kv) meta[kv[1]!] = kv[2]!.replace(/^["']|["']$/g, "");
+    if (kv) meta[kv[1]!] = kv[2]!.replaceAll(/^["']|["']$/g, "");
   }
   return { meta, body: src.slice(m[0].length) };
 }
@@ -79,8 +79,8 @@ function extractInputs(body: string): PromptInput[] {
 /** First body line with letters once `{{…}}` markers are stripped — the natural task description. */
 function firstProse(body: string): string {
   for (const line of body.split("\n")) {
-    const stripped = line.replace(/\{\{[\s\S]*?\}\}/g, "").trim();
-    if (stripped && /[a-zA-Z]/.test(stripped)) return stripped;
+    const stripped = line.replaceAll(/\{\{[\s\S]*?\}\}/g, "").trim();
+    if (stripped && /[a-z]/i.test(stripped)) return stripped;
   }
   return "";
 }
@@ -109,7 +109,10 @@ export function parsePrompt(source: string): PromptDoc {
       if (cur) messages.push(cur);
       cur = { role: /["']([^"']+)["']/.exec(inner)?.[1] ?? "user", segs: [] };
     } else if (/^#each\b/.test(inner)) {
-      const list = inner.replace(/^#each\s+/, "").split(/\s+/)[0]!.split(".")[0]!;
+      const list = inner
+        .replace(/^#each\s+/, "")
+        .split(/\s+/)[0]!
+        .split(".")[0]!;
       loop = { list: cleanName(list), raw: list, item: [] };
     } else if (/^\/each\b/.test(inner)) {
       if (loop) ensure().segs.push({ kind: "loop", ...loop });
@@ -145,7 +148,7 @@ export interface RenderedMessage {
   loops: { var: string; raw: string; item: LoopSeg[] }[];
 }
 
-const escapeBraces = (s: string): string => s.replace(/\{/g, "{{").replace(/\}/g, "}}");
+const escapeBraces = (s: string): string => s.replaceAll("{", "{{").replaceAll("}", "}}");
 
 /** Flatten messages to f-string templates; loops collapse to a single `{loopVar}` placeholder. */
 export function renderMessages(messages: Message[]): RenderedMessage[] {
@@ -160,7 +163,7 @@ export function renderMessages(messages: Message[]): RenderedMessage[] {
         template += `{${seg.list}}`;
       }
     }
-    return { role: msg.role, template: template.replace(/^\n+|\n+$/g, ""), loops };
+    return { role: msg.role, template: template.replaceAll(/^\n+|\n+$/g, ""), loops };
   });
 }
 

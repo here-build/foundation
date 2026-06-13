@@ -212,8 +212,24 @@ export {
 // tagged-list signature the registry stores: evaluates ONLY the pure
 // `:input`/`:output` schema slices (never the handler), so a config-plane
 // registry sync can run it on every draft edit safely. Feeds `schemaToZod`.
-export { compileExposeSig, extractFormSpec, type ExposeSig, type FormFieldKind, type FormHole, type FormSpecOptions } from "./compile-expose-sig.js";
-export { cellTriggers, formsTrigger, rootEffectEnv, EffectEnv, evalForm, PENETRATING_FORMS } from "./effect-analysis.js";
+export {
+  compileExposeSig,
+  extractFormSpec,
+  type ExposeSig,
+  type FormFieldKind,
+  type FormHole,
+  type FormSpecOptions,
+} from "./compile-expose-sig.js";
+export {
+  cellTriggers,
+  cellRunnable,
+  formsTrigger,
+  formsRunnable,
+  rootEffectEnv,
+  EffectEnv,
+  evalForm,
+  PENETRATING_FORMS,
+} from "./effect-analysis.js";
 export { inferTasksByScope } from "./infer-content.js";
 
 // ── Sweet-expression lens ─────────────────────────────────────────────

@@ -2,13 +2,12 @@
 // packs, not an inherit-the-monolith. A reduced root-set yields a narrower env: the capabilities you
 // didn't assemble are simply not bound (the membrane is the pack list).
 
-import { describe, expect, it } from "vitest";
-
+import { EvalTrace } from "@here.build/arrival-provenance";
 import { execGeneratorFromString, lipsToJs, sandboxedEnv } from "@here.build/arrival-scheme";
+import { describe, expect, it } from "vitest";
 
 import { assembleEnvSync, type EnvPack } from "../env-pack.js";
 import { arrivalInferPack, arrivalUtilsPack, type ArrivalEnv } from "../project.js";
-import { EvalTrace } from "@here.build/arrival-provenance";
 
 const stubInfer = (async () => [""]) as unknown as Parameters<typeof arrivalInferPack>[0]["infer"];
 

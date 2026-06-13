@@ -44,12 +44,12 @@
  * re-exported here so the barrel + existing importers keep the same surface;
  * `traceToFlowGraph` (the EvalTrace producer) stays here, where the engine is.
  */
+import type { FlowGraph, FlowGraphEdge, FlowGraphNode, FlowNodeKind } from "./flow-graph.js";
 import { collapseMDL, type CandidateBox, type CollapseParams } from "./mdl-collapse.js";
 import { regionBoundariesFromEdges } from "./region-boundaries.js";
 import { traceToStatechart } from "./statechart.js";
 import { scopeId, traceToForest, type ForestOptions } from "./trace-to-forest.js";
 import type { EvalTrace, Invocation } from "./trace.js";
-import type { FlowGraph, FlowGraphEdge, FlowGraphNode, FlowNodeKind } from "./flow-graph.js";
 
 export type { FlowGraph, FlowGraphEdge, FlowGraphNode, FlowNodeKind } from "./flow-graph.js";
 export { flowForwardCone, flowBackwardCone } from "./flow-graph.js";

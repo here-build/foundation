@@ -80,7 +80,8 @@ export function anthropicBackend(opts: AnthropicOptions = {}): ModelBackend {
       },
       // Non-streamed body ⇒ a `Message`; cast through unknown to the structural raw
       // shape (the SDK's `Message | Stream` return isn't a member of RawAnthropicResponse).
-      call: async (body) => (await client.messages.create(body as unknown as CreateBody)) as unknown as RawAnthropicResponse,
+      call: async (body) =>
+        (await client.messages.create(body as unknown as CreateBody)) as unknown as RawAnthropicResponse,
       toolCalls: (raw) => toolCallsFromAnthropic(raw.content),
       text: (raw) => textFromAnthropic(raw.content),
       // Anthropic returns usage.{input,output}_tokens — capture it (unrecoverable once

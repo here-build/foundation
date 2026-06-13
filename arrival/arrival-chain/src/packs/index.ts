@@ -1,6 +1,5 @@
 import type { EnvPack } from "../env-pack.js";
 import { type ArrivalEnv, type BuildArrivalEnvOpts } from "../infer-kernel.js";
-
 import { arrivalAgenticPack } from "./agentic.js";
 import { arrivalBudgetPack } from "./budget.js";
 import { arrivalDataPack } from "./data.js";
@@ -16,17 +15,7 @@ import { arrivalUtilsPack } from "./utils.js";
 // consumer assembles a SUBSET (e.g. just `[arrivalUtilsPack()]` for a pure-compute sandbox with no
 // infer/effects). `config` carries host arming so divergent-config dedup is real.
 
-export type { ArrivalEnv };
-export {
-  arrivalAgenticPack,
-  arrivalBudgetPack,
-  arrivalDataPack,
-  arrivalInferPack,
-  arrivalLoaderCorePack,
-  arrivalMcpPack,
-  arrivalSuperDefinePack,
-  arrivalUtilsPack,
-};
+
 
 /**
  * The default arrival capability root-set. Builds each atomic pack from `opts` and wires the one
@@ -49,3 +38,14 @@ export function arrivalPacks(opts: BuildArrivalEnvOpts): EnvPack<ArrivalEnv>[] {
     arrivalLoaderCorePack(opts),
   ];
 }
+
+export { type ArrivalEnv } from "../infer-kernel.js";
+export { arrivalAgenticPack } from "./agentic.js";
+export { arrivalDataPack } from "./data.js";
+export { arrivalBudgetPack } from "./budget.js";
+
+export {arrivalInferPack} from "./infer.js";
+export {arrivalMcpPack} from "./mcp.js";
+export {arrivalLoaderCorePack} from "./loader-core.js";
+export {arrivalUtilsPack} from "./utils.js";
+export {arrivalSuperDefinePack} from "./superdefine.js";

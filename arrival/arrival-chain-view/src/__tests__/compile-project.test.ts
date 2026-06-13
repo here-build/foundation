@@ -6,10 +6,12 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
+
 import { compileProject } from "../compile-project.js";
 
-const fixtureDir = fileURLToPath(new URL("./fixtures/", import.meta.url));
+const fixtureDir = fileURLToPath(new URL("fixtures/", import.meta.url));
 const fx = (name: string): string => readFileSync(fixtureDir + name, "utf8");
 
 const FILES: Record<string, string> = {
@@ -27,7 +29,16 @@ describe("compileProject — python + dspy", () => {
   it("assembles a runnable tree with no specifier rewriting needed", async () => {
     const files = await compileProject(FILES, "gepa.scm", { language: "py", prompts: "dspy" });
     expect(pathsOf(files)).toEqual(
-      ["_llm.py", "examples.json", "improve_prompt.py", "main.py", "metric.py", "predict_prompt.py", "requirements.txt", "seed.txt"].sort(),
+      [
+        "_llm.py",
+        "examples.json",
+        "improve_prompt.py",
+        "main.py",
+        "metric.py",
+        "predict_prompt.py",
+        "requirements.txt",
+        "seed.txt",
+      ].sort(),
     );
     const gepa = files.find((f) => f.path === "main.py")!.content; // entry → main (collision-safe)
     expect(gepa).toContain("from metric import metric");
@@ -63,6 +74,8 @@ describe("compileProject — js + ax", () => {
 
 describe("compileProject — guards", () => {
   it("rejects a backend that doesn't match the language", async () => {
-    await expect(compileProject(FILES, "gepa.scm", { language: "py", prompts: "ax" })).rejects.toThrow(/not a py backend/);
+    await expect(compileProject(FILES, "gepa.scm", { language: "py", prompts: "ax" })).rejects.toThrow(
+      /not a py backend/,
+    );
   });
 });

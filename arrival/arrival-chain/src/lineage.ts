@@ -13,14 +13,14 @@
  * are the design; the .spec.ts file exercises the contract.
  */
 
+import { createInferStore, InferBinding } from "@here.build/arrival-inference";
+import type { ModelRouter } from "@here.build/arrival-inference";
+import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
 import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
 import { reaction } from "mobx";
 
 import { ArrivalChain } from "./arrival-chain.js";
-import { createInferStore, InferBinding } from "@here.build/arrival-inference";
 import { Project } from "./project.js";
-import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
-import type { ModelRouter } from "@here.build/arrival-inference";
 
 // ════════════════════════════════════════════════════════════════════
 // PUBLIC SURFACE — the three functions everything else exists to serve.
@@ -378,9 +378,9 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
     const invs = trace.invocationsFor(task);
     if (invs.length === 0) continue;
     const result: SiteResult =
-      task.completion !== undefined
-        ? { kind: "value", value: task.completion.value }
-        : { kind: "error", message: "inference did not resolve before recordSession returned" };
+      task.completion === undefined
+        ? { kind: "error", message: "inference did not resolve before recordSession returned" }
+        : { kind: "value", value: task.completion.value };
     const taskId = taskIdOf(task);
     // Map taskId → canonical (first) invocation for traceForOutput.
     invByTaskId.set(taskId, invs[0]!);
@@ -420,7 +420,9 @@ export async function recordSession(config: TraceConfig): Promise<TraceSession> 
  * shape `filesHashOf` and the cache-invalidation reaction both consume. Reads
  * each Program's latest version source (the form `require` would load).
  */
-function sourcesByPath(project: { files: ReadonlyMap<string, { versions: ReadonlyArray<{ source: string }> }> }): Map<string, string> {
+function sourcesByPath(project: {
+  files: ReadonlyMap<string, { versions: ReadonlyArray<{ source: string }> }>;
+}): Map<string, string> {
   const out = new Map<string, string>();
   for (const [path, program] of project.files) {
     out.set(path, program.versions.at(-1)?.source ?? "");
@@ -691,10 +693,7 @@ export function programHashOf(source: string): string {
  * already captured by `programHash`) so the two version axes stay orthogonal:
  * `programHash` = the entry, `filesHash` = everything it requires.
  */
-export function filesHashOf(
-  sourcesByPath: ReadonlyMap<string, string>,
-  opts: { exclude?: string } = {},
-): string {
+export function filesHashOf(sourcesByPath: ReadonlyMap<string, string>, opts: { exclude?: string } = {}): string {
   const entries: Array<readonly [string, string]> = [];
   for (const [path, source] of sourcesByPath) {
     if (path === opts.exclude) continue;

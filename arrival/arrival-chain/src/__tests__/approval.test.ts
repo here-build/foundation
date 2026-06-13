@@ -15,18 +15,16 @@ import { execGeneratorFromString as exec, lipsToJs } from "@here.build/arrival-s
 import { describe, expect, it, vi } from "vitest";
 
 import { type FunctionRunApprovalRequest, type OnApprovalRequest } from "../approval.js";
-import { BUILTIN_PREAMBLE, buildArrivalEnv } from "../project.js";
 import { loaderFromResolver } from "../loader.js";
+import { BUILTIN_PREAMBLE, buildArrivalEnv } from "../project.js";
 
 /** Evaluate a program and bridge the LAST top-level form's value to plain JS. */
 const run = async (src: string, env: ReturnType<typeof buildArrivalEnv>): Promise<unknown> => {
   const results = lipsToJs(await exec(src, { env }), {});
-  return Array.isArray(results) ? results[results.length - 1] : results;
+  return Array.isArray(results) ? results.at(-1) : results;
 };
 
-async function envWith(opts?: {
-  onApprovalRequest?: OnApprovalRequest;
-}): Promise<ReturnType<typeof buildArrivalEnv>> {
+async function envWith(opts?: { onApprovalRequest?: OnApprovalRequest }): Promise<ReturnType<typeof buildArrivalEnv>> {
   const env = buildArrivalEnv({
     name: "approval-test",
     infer: async () => "stub",
@@ -42,10 +40,7 @@ async function envWith(opts?: {
 describe("run/continue-after-approval (local auto-approve)", () => {
   it("auto-approves locally — the thunk runs and the result flows", async () => {
     const env = await envWith();
-    const out = await run(
-      `(run/continue-after-approval (list "deploy") (+ 1 2))`,
-      env,
-    );
+    const out = await run(`(run/continue-after-approval (list "deploy") (+ 1 2))`, env);
     expect(out).toBe(3);
   });
 
@@ -93,9 +88,9 @@ describe("run/continue-after-approval (wired approver)", () => {
     // The thunk increments a JS-visible counter via an injected proc. We model
     // the side effect with a rosetta so we can observe it from JS.
     env.defineRosetta("test/side-effect", { fn: () => (ran(), "did-run") });
-    await expect(
-      exec(`(run/continue-after-approval (list "x") (test/side-effect))`, { env }),
-    ).rejects.toThrow(/approval rejected: not allowed/i);
+    await expect(exec(`(run/continue-after-approval (list "x") (test/side-effect))`, { env })).rejects.toThrow(
+      /approval rejected: not allowed/i,
+    );
     expect(ran).not.toHaveBeenCalled();
   });
 

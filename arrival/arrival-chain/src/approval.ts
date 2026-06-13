@@ -26,9 +26,8 @@
  * LOCAL-FIRST: when no real approver is wired (`onApprovalRequest` absent), the
  * request auto-approves immediately so local/sandbox runs never block.
  */
-import { action, makeObservable, observable, when } from "mobx";
-
 import type { Environment } from "@here.build/arrival-scheme";
+import { action, makeObservable, observable, when } from "mobx";
 
 /** The form head the preamble macro lowers to. */
 export const APPROVAL_FORM = "approval/await";
@@ -136,7 +135,7 @@ export function defineApprovalRosetta(opts: {
   env.defineRosetta(APPROVAL_FORM, {
     fn: async (spec: unknown, thunk: unknown): Promise<unknown> => {
       if (typeof thunk !== "function") {
-        throw new Error(`${APPROVAL_FORM}: result must be thunked (a (lambda () …)) — got ${typeof thunk}`);
+        throw new TypeError(`${APPROVAL_FORM}: result must be thunked (a (lambda () …)) — got ${typeof thunk}`);
       }
       const proc = thunk as () => unknown | Promise<unknown>;
 

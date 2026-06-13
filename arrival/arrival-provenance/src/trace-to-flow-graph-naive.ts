@@ -23,8 +23,8 @@
  * its sibling, selected by the trace view's builder toggle. Emits the identical
  * `FlowGraph` types so the renderer needs no changes.
  */
-import type { BoxType, CandidateBox } from "./mdl-collapse.js";
 import type { FlowGraph, FlowGraphEdge, FlowGraphNode } from "./flow-graph.js";
+import type { BoxType, CandidateBox } from "./mdl-collapse.js";
 import { regionBoundariesFromEdges } from "./region-boundaries.js";
 import { traceToStatechart } from "./statechart.js";
 import { scopeId, traceToForest, type ForestOptions } from "./trace-to-forest.js";
@@ -40,8 +40,7 @@ const labelOf = (id: string): string => id.split("@")[0] ?? id;
 
 /** A box that is itself a container type AND actually nests other boxes — the
  *  shape that "stacks" with a same-kind parent (the merge target). */
-const isContainerRegion = (b: CandidateBox): boolean =>
-  b.children.length > 0 && CONTAINER_TYPES.has(b.type);
+const isContainerRegion = (b: CandidateBox): boolean => b.children.length > 0 && CONTAINER_TYPES.has(b.type);
 
 export function traceToFlowGraphNaive(trace: EvalTrace, opts: ForestOptions = {}): FlowGraph {
   const forest = traceToForest(trace, opts);
@@ -62,7 +61,9 @@ export function traceToFlowGraphNaive(trace: EvalTrace, opts: ForestOptions = {}
     const sid = inv ? scopeId(inv.node) : `#${node.id}`;
     const prior = claimed.get(sid);
     if (prior !== undefined && prior !== node.id) {
-      warnings.push(`scope-id collision: "${sid}" maps to chart nodes ${prior} and ${node.id}; edges to the second are dropped.`);
+      warnings.push(
+        `scope-id collision: "${sid}" maps to chart nodes ${prior} and ${node.id}; edges to the second are dropped.`,
+      );
       sidOfChart.set(node.id, `${sid}#${node.id}`); // sentinel — routed out of edges
       continue;
     }

@@ -5,14 +5,13 @@
  * `{ x: x }` isn't collapsed to `{ x }` — but layout + wrapping (the legibility
  * that matters for a read-view) are fully applied.
  */
-import * as prettier from "prettier/standalone";
 import * as babel from "prettier/plugins/babel";
 import * as estree from "prettier/plugins/estree";
+import * as prettier from "prettier/standalone";
+
 import { assemble } from "./assemble.js";
 import { type ProjectOptions } from "./imports.js";
 
-export type { ProjectOptions };
-export { assemble as projectToJsRaw };
 // Browser-safe siblings (no eslint/prettier/fs): the Python program emitter and the
 // prompt backends, for the studio's python / *+lc target views.
 export { projectToPy, type PyOptions } from "./python.js";
@@ -29,3 +28,7 @@ export async function projectToJsBrowser(source: string, opts: ProjectOptions = 
     printWidth: 100,
   });
 }
+
+export { type ProjectOptions } from "./imports.js";
+
+export { assemble as projectToJsRaw } from "./assemble.js";

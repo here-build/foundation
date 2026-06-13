@@ -9,15 +9,15 @@ import {
 } from "@here.build/arrival-scheme";
 import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
+import { runAgenticLoop, InferString, RunSpend } from "@here.build/arrival-inference";
 
-import { runAgenticLoop } from "@here.build/arrival-inference";
 import type { OnApprovalRequest, ResolveApproval } from "./approval.js";
-import type { ChatMessage } from "@here.build/arrival-inference";
+import type { ChatMessage, Completion, LlmParams, ToolCall, ToolDescriptor } from "@here.build/arrival-inference";
+
 import { type DataEffectResolver } from "./data-effects.js";
 import { stableJson } from "./effect-log.js";
 import { type EnvPack, type RuntimeAssembler } from "./env-pack.js";
 import type { OnExpose } from "./expose.js";
-import { InferString } from "@here.build/arrival-inference";
 import { type Loader, type PromptUnit } from "./loader.js";
 import {
   DerivableEntity,
@@ -31,9 +31,7 @@ import {
   resolveTools,
   runMiddlewareChain,
 } from "./mcp-effects.js";
-import type { Completion, LlmParams, ToolCall, ToolDescriptor } from "@here.build/arrival-inference";
 import type { OnOverridable, ResolveOverride } from "./overridable.js";
-import { RunSpend } from "@here.build/arrival-inference";
 import { analyzeTemplate, coerceShape, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "@here.build/arrival-provenance";
 
@@ -427,7 +425,11 @@ export const BREAK_ON_SINGLE_INFER =
  *  cache-affecting (the infer path folds them into the key + sends them to the backend). A
  *  non-llm entity (e.g. an `(mcp …)` server) in model position is a misuse → legible error
  *  rather than a silent `[object Object]` model name. */
-export function asLlmModel(model: unknown): { name: string; middleware: readonly EntityMiddleware[]; params?: LlmParams } {
+export function asLlmModel(model: unknown): {
+  name: string;
+  middleware: readonly EntityMiddleware[];
+  params?: LlmParams;
+} {
   if (model instanceof DerivableEntity) {
     invariant(
       model.kind === "llm",
@@ -732,7 +734,15 @@ export function makeCompileInferUnit(
           }));
           return runAgenticInfer(opts.infer, opts.mcp ?? inertMcpResolver, ctx, model, chatMessages, servers);
         }
-        return opts.infer(ctx, model, canonicalizeMessages(messages), schemaSlotStr, nullable(key), undefined, metaParams);
+        return opts.infer(
+          ctx,
+          model,
+          canonicalizeMessages(messages),
+          schemaSlotStr,
+          nullable(key),
+          undefined,
+          metaParams,
+        );
       },
     });
   };

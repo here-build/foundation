@@ -75,9 +75,7 @@ describe("detectShape", () => {
 
 describe("isTailRecursive", () => {
   it("detects (define (loop n) (if … (loop (- n 1)))) as tail-recursive", async () => {
-    const form = await parseFirst(
-      `(define (loop n) (if (= n 0) 'done (loop (- n 1))))`,
-    );
+    const form = await parseFirst(`(define (loop n) (if (= n 0) 'done (loop (- n 1))))`);
     const shape = detectShape(form);
     expect(shape.kind).toBe("define");
     if (shape.kind !== "define" || !shape.name) throw new Error("expected define");
@@ -85,9 +83,7 @@ describe("isTailRecursive", () => {
   });
 
   it("rejects non-tail recursion (recursive call inside an operator arg)", async () => {
-    const form = await parseFirst(
-      `(define (sum n) (if (= n 0) 0 (+ n (sum (- n 1)))))`,
-    );
+    const form = await parseFirst(`(define (sum n) (if (= n 0) 0 (+ n (sum (- n 1)))))`);
     const shape = detectShape(form);
     if (shape.kind !== "define" || !shape.name) throw new Error("expected define");
     // `(+ n (sum …))` — `sum` is not in tail position because `+` consumes it.
@@ -95,9 +91,7 @@ describe("isTailRecursive", () => {
   });
 
   it("detects tail recursion through cond clauses", async () => {
-    const form = await parseFirst(
-      `(define (walk x) (cond ((null? x) 'done) (else (walk (cdr x)))))`,
-    );
+    const form = await parseFirst(`(define (walk x) (cond ((null? x) 'done) (else (walk (cdr x)))))`);
     const shape = detectShape(form);
     if (shape.kind !== "define" || !shape.name) throw new Error("expected define");
     expect(isTailRecursive(shape.name, shape.body)).toBe(true);

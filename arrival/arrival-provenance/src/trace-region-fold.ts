@@ -31,6 +31,7 @@
  * deferred Phase-2 concern (the worker boundary); see `trace-snapshot.ts`'s header.
  */
 import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
+
 import type { PlainInv } from "./trace-snapshot.js";
 import { scopeId, staticLoopBodyScopes, staticRecursiveHeads, STRUCTURAL_FORMS } from "./trace-to-forest.js";
 import {
@@ -101,7 +102,7 @@ function cloneRegion(r: Region): Region {
         stages: r.stages.map((s) => ({ ...s })),
         iterations: r.iterations.map(cloneRegions),
         incoming: r.incoming,
-        ...(r.loop !== undefined ? { loop: r.loop } : {}),
+        ...(r.loop === undefined ? {} : { loop: r.loop }),
         inputs: [],
         outputs: [],
       };
@@ -354,7 +355,7 @@ export class TraceRegionFold {
     const iterationCache = (key: number, freezable: boolean, compute: () => Region[]): Region[] => {
       if (freezable) {
         const hit = this.#iterCache.get(key);
-        if (hit && hit.gen === gen) {
+        if (hit?.gen === gen) {
           for (const k of hit.knotArm) knotArm.push(k);
           for (const k of hit.knotInputs) knotInputs.push(k);
           return cloneRegions(hit.template);
@@ -417,7 +418,7 @@ export class TraceRegionFold {
 
     // Decision wires, then the statement-output terminal (final = last top-level form).
     appendDecisionEdges(edges, knotArm, knotInputs);
-    appendOutput(roots, edges, tops[tops.length - 1], finalizeCtx);
+    appendOutput(roots, edges, tops.at(-1), finalizeCtx);
 
     // Stage 2a — container boundary ports (mutates the cloned/fresh fanout objects).
     derivePorts(roots, edges);
@@ -441,7 +442,7 @@ export class TraceRegionFold {
    *  arg subtree before parking, so its upstream is complete when first added. */
   #refreshRunning(): void {
     if (this.#runningIds.size === 0) return;
-    for (const id of [...this.#runningIds]) {
+    for (const id of this.#runningIds) {
       const live = this.#liveById.get(id);
       const plain = this.#invById.get(id);
       if (!live || !plain) {

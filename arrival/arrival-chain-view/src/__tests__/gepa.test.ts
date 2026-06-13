@@ -6,11 +6,13 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
+
 import { projectToJs } from "../project.js";
 import { projectToPy } from "../python.js";
 
-const fixtureDir = fileURLToPath(new URL("./fixtures/", import.meta.url));
+const fixtureDir = fileURLToPath(new URL("fixtures/", import.meta.url));
 const read = (name: string) => readFileSync(fixtureDir + name, "utf8");
 
 // `.scm` spill resolution reads sibling sources (here, metric.scm). Pure injection.

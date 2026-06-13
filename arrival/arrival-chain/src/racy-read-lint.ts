@@ -100,9 +100,10 @@ const isReflectiveRead = (form: unknown): { name: string; location?: SourceLocat
   // `(infer/spent)` — a call whose head is a reflective symbol.
   const head = headSymbolOf(form);
   if (head !== null && REFLECTIVE_READS.has(head)) {
-    const loc = isPair(form) && isSymbol((form as { car: unknown }).car)
-      ? ((form as { car: { __location__?: SourceLocation } }).car.__location__)
-      : undefined;
+    const loc =
+      isPair(form) && isSymbol((form as { car: unknown }).car)
+        ? (form as { car: { __location__?: SourceLocation } }).car.__location__
+        : undefined;
     return { name: head, location: loc };
   }
   // Bare `infer/spent` used as a value (e.g. passed as a HOF callback).

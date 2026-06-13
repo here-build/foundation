@@ -1,4 +1,10 @@
-import { execGeneratorExpr, execGeneratorFromString, lipsToJs, parseGenerator, sandboxedEnv } from "@here.build/arrival-scheme";
+import {
+  execGeneratorExpr,
+  execGeneratorFromString,
+  lipsToJs,
+  parseGenerator,
+  sandboxedEnv,
+} from "@here.build/arrival-scheme";
 
 import { extractOverridables, extractRequires, type ExposeInfo } from "./extract-expose.js";
 import { BUILTIN_PREAMBLE } from "./project.js";

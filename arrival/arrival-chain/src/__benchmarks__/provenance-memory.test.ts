@@ -43,14 +43,13 @@
  * See docs/working-proposals/trace-provenance-idempotence-fix-2026-06-04.md and the
  * heap-dump diagnosis (2026-06-08).
  */
+import type { ModelSpec } from "@here.build/arrival-inference";
+import { createInferStore, singletonRouter } from "@here.build/arrival-inference";
+import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
 import { describe, expect, test } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "@here.build/arrival-inference";
-import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
 
 /** Deterministic stub: react → {verdict}, reflect → {next} with a growing tagline
  *  so every round mints distinct infers (no cache collisions collapsing the trace). */
@@ -173,7 +172,9 @@ function growth(values: number[], axis: number[]): string {
   for (let i = 1; i < values.length; i++) {
     const axisFactor = axis[i]! / axis[i - 1]!;
     const valFactor = values[i - 1]! === 0 ? Infinity : values[i]! / values[i - 1]!;
-    parts.push(`×${valFactor.toFixed(2)} (axis ×${axisFactor.toFixed(2)}, sq ×${(axisFactor * axisFactor).toFixed(2)})`);
+    parts.push(
+      `×${valFactor.toFixed(2)} (axis ×${axisFactor.toFixed(2)}, sq ×${(axisFactor * axisFactor).toFixed(2)})`,
+    );
   }
   return parts.join("   ");
 }
@@ -189,8 +190,18 @@ describe("provenance memory — leak observatory", () => {
       censuses.push(c);
       lines.push(row("rounds", rounds, c));
     }
-    lines.push(`  maxSet  growth: ${growth(censuses.map((c) => c.maxSet), roundsSweep)}`);
-    lines.push(`  allMemb growth: ${growth(censuses.map((c) => c.allMemb), roundsSweep)}`);
+    lines.push(
+      `  maxSet  growth: ${growth(
+        censuses.map((c) => c.maxSet),
+        roundsSweep,
+      )}`,
+    );
+    lines.push(
+      `  allMemb growth: ${growth(
+        censuses.map((c) => c.allMemb),
+        roundsSweep,
+      )}`,
+    );
     console.log(lines.join("\n"));
 
     // The printed `growth` ratios ARE the signal: maxSet ≈ ×axis (linear in rounds —
@@ -213,8 +224,18 @@ describe("provenance memory — leak observatory", () => {
       censuses.push(c);
       lines.push(row("personas", personas, c));
     }
-    lines.push(`  maxSet  growth: ${growth(censuses.map((c) => c.maxSet), personasSweep)}`);
-    lines.push(`  allMemb growth: ${growth(censuses.map((c) => c.allMemb), personasSweep)}`);
+    lines.push(
+      `  maxSet  growth: ${growth(
+        censuses.map((c) => c.maxSet),
+        personasSweep,
+      )}`,
+    );
+    lines.push(
+      `  allMemb growth: ${growth(
+        censuses.map((c) => c.allMemb),
+        personasSweep,
+      )}`,
+    );
     console.log(lines.join("\n"));
 
     // The width axis reads DIFFERENTLY from depth, and that difference is the

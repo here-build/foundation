@@ -88,14 +88,14 @@ const toMessageContent = (result: unknown): string =>
   typeof result === "string" ? result : JSON.stringify(result ?? null);
 
 const toolCallChunk = (call: ToolCall): Chunk =>
-  call.id !== undefined
-    ? { kind: "tool_call", id: call.id, tool: call.name, arguments: call.arguments }
-    : { kind: "tool_call", tool: call.name, arguments: call.arguments };
+  call.id === undefined
+    ? { kind: "tool_call", tool: call.name, arguments: call.arguments }
+    : { kind: "tool_call", id: call.id, tool: call.name, arguments: call.arguments };
 
 const toolResultChunk = (call: ToolCall, result: unknown): Chunk =>
-  call.id !== undefined
-    ? { kind: "tool_result", id: call.id, tool: call.name, result }
-    : { kind: "tool_result", tool: call.name, result };
+  call.id === undefined
+    ? { kind: "tool_result", tool: call.name, result }
+    : { kind: "tool_result", id: call.id, tool: call.name, result };
 
 /**
  * Drive the agentic loop from an initial message list to a final answer. Returns the

@@ -49,30 +49,14 @@ function headSymbolOf(form: unknown): string | null {
  * (map vs for-each vs filter return shape) but the collapse-shape is the
  * same: render one container with N parallel iterations.
  */
-const PAR_HOFS = new Set([
-  "map",
-  "for-each",
-  "filter",
-  "filter-map",
-  "find",
-  "count-if",
-  "some",
-  "every",
-]);
+const PAR_HOFS = new Set(["map", "for-each", "filter", "filter-map", "find", "count-if", "some", "every"]);
 
 /**
  * Higher-order functions that fold a list into one value, sequentially
  * passing the accumulator. Collapse-shape: container with stepwise
  * accumulator evolution, not parallel iterations.
  */
-const FOLD_HOFS = new Set([
-  "reduce",
-  "fold",
-  "fold-left",
-  "fold-right",
-  "foldl",
-  "foldr",
-]);
+const FOLD_HOFS = new Set(["reduce", "fold", "fold-left", "fold-right", "foldl", "foldr"]);
 
 const COND_HEADS = new Set(["if", "cond", "when", "unless", "case"]);
 
@@ -107,7 +91,7 @@ export function detectShape(form: unknown): Shape {
     // dialects flip init/list order; we always take the last arg as the
     // list and the middle as init, which fits the bulk of the cohort.
     const last = args.at(-1);
-    const init = args.length >= 3 ? args[args.length - 2] : undefined;
+    const init = args.length >= 3 ? args.at(-2) : undefined;
     return { kind: "fold", head, fnArg: args[0], initArg: init, listArg: last };
   }
   if (COND_HEADS.has(head)) {
@@ -155,7 +139,7 @@ export function detectShape(form: unknown): Shape {
  */
 export function isTailRecursive(defineName: string, body: readonly unknown[]): boolean {
   if (body.length === 0) return false;
-  return isTailCallOf(defineName, body[body.length - 1]);
+  return isTailCallOf(defineName, body.at(-1));
 }
 
 function isTailCallOf(name: string, form: unknown): boolean {
@@ -166,8 +150,7 @@ function isTailCallOf(name: string, form: unknown): boolean {
     const args = isPair(form) ? toArray(form.cdr) : [];
     // (if cond then else?) — both arms are tail positions.
     return (
-      (args[1] !== undefined && isTailCallOf(name, args[1])) ||
-      (args[2] !== undefined && isTailCallOf(name, args[2]))
+      (args[1] !== undefined && isTailCallOf(name, args[1])) || (args[2] !== undefined && isTailCallOf(name, args[2]))
     );
   }
   if (head === "cond") {
@@ -176,14 +159,14 @@ function isTailCallOf(name: string, form: unknown): boolean {
       // Each clause: (cond-expr body...) ; tail is the last body form.
       if (isPair(clause)) {
         const parts = toArray(clause.cdr);
-        if (parts.length > 0 && isTailCallOf(name, parts[parts.length - 1])) return true;
+        if (parts.length > 0 && isTailCallOf(name, parts.at(-1))) return true;
       }
     }
     return false;
   }
   if (head === "begin" || head === "let" || head === "let*" || head === "letrec") {
     const args = isPair(form) ? toArray(form.cdr) : [];
-    const last = args[args.length - 1];
+    const last = args.at(-1);
     return last !== undefined && isTailCallOf(name, last);
   }
   return false;
