@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   assembleEnv,
+  assembleEnvSync,
   AssembleCycleError,
   AssembleConfigConflictError,
   AssembleLinearizationError,
@@ -118,6 +119,19 @@ describe("env-pack assembly core (P0)", () => {
     process.env.ASSEMBLE_PACK_TIMEOUT_MS = "40";
     const wedged: EnvPack<Stub> = { name: "wedged", apply: () => new Promise(() => {}) };
     await expect(assembleEnv(stub(), [wedged])).rejects.toBeInstanceOf(AssemblePackTimeoutError);
+  });
+
+  // ── assembleEnvSync (the P1 seam for sync buildArrivalEnv) ──
+  it("assembleEnvSync applies sync packs in C3 order and returns the env", () => {
+    const a = pack("a"); const b = pack("b", [a]);
+    const r = assembleEnvSync(stub(), [b]);
+    expect(r.order).toEqual(["b", "a"]);
+    expect(r.env.appliedOrder).toEqual(["a", "b"]);
+  });
+
+  it("assembleEnvSync throws AssemblePackError if a pack's apply returns a Promise", () => {
+    const asyncPack: EnvPack<Stub> = { name: "async", apply: async () => { await Promise.resolve(); } };
+    expect(() => assembleEnvSync(stub(), [asyncPack])).toThrow(AssemblePackError);
   });
 
   // ── C3 SPEC-PARITY (G9): our linearization == Python's C3 on canonical cases ──

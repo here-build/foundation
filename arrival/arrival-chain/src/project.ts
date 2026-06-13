@@ -25,6 +25,7 @@ import {
 } from "./data-effects.js";
 import { Draft } from "./draft.js";
 import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey, stableJson } from "./effect-log.js";
+import { assembleEnvSync, type EnvPack } from "./env-pack.js";
 import { defineExposeRosetta, type OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "./infer-store.js";
 import { InferString } from "./infer-string.js";
@@ -652,7 +653,11 @@ export function buildArrivalEnv(opts: {
    */
   resolveApproval?: ResolveApproval;
 }): ReturnType<typeof sandboxedEnv.inherit> {
-  const env = sandboxedEnv.inherit(opts.name);
+  // P1 (env-pack seam): the entire legacy registration below is ONE pack applied to the base via
+  // assembleEnvSync — behavior-identical to inlined registration, but routed through the capability-
+  // DAG engine. P2 splits this `arrival/legacy-core` pack into real packs (infer/mcp/data/schema/…).
+  const base = sandboxedEnv.inherit(opts.name);
+  const legacyCorePack: EnvPack<typeof base> = { name: "arrival/legacy-core", apply: (env) => {
   // Every (infer …) yields a list to scheme; the resolver returns the raw value.
   const list = (v: unknown): unknown => (Array.isArray(v) ? v : [v]);
 
@@ -863,7 +868,8 @@ export function buildArrivalEnv(opts: {
     compileInferUnit,
   });
   opts.onRequireCache?.(clearRequireCache);
-  return env;
+  } };
+  return assembleEnvSync(base, [legacyCorePack]).env;
 }
 
 /**

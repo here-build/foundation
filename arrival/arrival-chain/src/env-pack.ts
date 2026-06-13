@@ -186,19 +186,35 @@ function withTimeout<T>(p: Promise<T> | T, ms: number, name: string): Promise<T>
  * (least-precedence first ⇒ last-write-wins matches C3). On any apply failure, runs the disposers
  * collected so far (LIFO) and rejects — no half-built env escapes.
  */
-export async function assembleEnv<E>(base: E, roots: readonly EnvPack<E>[]): Promise<AssembledEnv<E>> {
+/** Shared sync core: closure + cycle-detect + dedup + C3 linearization. Returns the apply order
+ *  (highest precedence first) and the deduped packs by name. */
+function linearize<E>(roots: readonly EnvPack<E>[]): { order: string[]; byName: Map<string, EnvPack<E>> } {
   const byName = closure(roots);
-  const order = c3Linearize(roots, byName); // highest precedence first
+  const order = c3Linearize(roots, byName);
+  return { order, byName };
+}
+
+function makeCtx(order: string[]): { ctx: PackContext; runDisposers: () => Promise<void> } {
   const disposers: Array<() => void | Promise<void>> = [];
   const ctx: PackContext = { onDispose: (fn) => disposers.push(fn), order };
-
   const runDisposers = async () => {
     for (let i = disposers.length - 1; i >= 0; i--) {
       try { await disposers[i](); } catch { /* best-effort teardown */ }
     }
   };
+  return { ctx, runDisposers };
+}
 
-  // Apply least-precedence first (reverse of the C3 order) so dependents' writes win.
+const isThenable = (v: unknown): boolean => v != null && typeof (v as { then?: unknown }).then === "function";
+
+/**
+ * Assemble `base` into a capability-scoped env by resolving the pack DAG. Async by construction.
+ * Applies each pack once in C3 order (least-precedence first ⇒ last-write-wins matches C3). On any
+ * apply failure, runs disposers collected so far (LIFO) and rejects — no half-built env escapes.
+ */
+export async function assembleEnv<E>(base: E, roots: readonly EnvPack<E>[]): Promise<AssembledEnv<E>> {
+  const { order, byName } = linearize(roots);
+  const { ctx, runDisposers } = makeCtx(order);
   for (const name of [...order].reverse()) {
     const pack = byName.get(name)!;
     try {
@@ -209,6 +225,36 @@ export async function assembleEnv<E>(base: E, roots: readonly EnvPack<E>[]): Pro
       throw new AssemblePackError(name, e);
     }
   }
+  return { env: base, order, dispose: runDisposers };
+}
 
+/**
+ * Synchronous assembly — for envs whose packs are all sync (e.g. the legacy core that only
+ * registers rosettas). Shares the same linearize core. Throws AssemblePackError if any pack's
+ * apply returns a thenable (use the async `assembleEnv` for async packs). This is the sync seam
+ * that keeps `buildArrivalEnv` callable from a sync constructor until chain construction itself
+ * is moved into an async `init()` (the point at which async packs — e.g. the progress server —
+ * become expressible and the sync path retires).
+ */
+export function assembleEnvSync<E>(base: E, roots: readonly EnvPack<E>[]): AssembledEnv<E> {
+  const { order, byName } = linearize(roots);
+  const { ctx, runDisposers } = makeCtx(order);
+  for (const name of [...order].reverse()) {
+    const pack = byName.get(name)!;
+    let result: void | Promise<void>;
+    try {
+      result = pack.apply(base, ctx);
+    } catch (e) {
+      void runDisposers();
+      throw new AssemblePackError(name, e);
+    }
+    if (isThenable(result)) {
+      void runDisposers();
+      throw new AssemblePackError(
+        name,
+        new Error("assembleEnvSync requires synchronous apply; this pack returned a Promise — use assembleEnv (async)."),
+      );
+    }
+  }
   return { env: base, order, dispose: runDisposers };
 }
