@@ -139,7 +139,11 @@ const baseConfig = [
       ],
       "import-x/first": "error",
       "import-x/newline-after-import": "error",
-      "import-x/no-duplicates": "error",
+      // `prefer-inline` is load-bearing, not cosmetic: without it, the autofix that merges
+      // multiple imports from one module hoists everything into `import type { … }` and drags
+      // VALUE specifiers in with it — producing invalid `import type { …, aValue }` (TS2206/
+      // TS1361). Inline `type` markers keep values as values. (eslint-plugin-import-x ≤4.16.2.)
+      "import-x/no-duplicates": ["error", { "prefer-inline": true }],
       "import-x/no-useless-path-segments": "off",
       "import-x/no-relative-packages": "error",
 

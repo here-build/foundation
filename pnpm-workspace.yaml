@@ -1,6 +1,7 @@
 packages:
   - plexus
   - y-messageport
+  - editor-theme
   - mcp-typescript-lsp
   - envelope-crypto
   - device-frame
