@@ -662,188 +662,209 @@ export function buildArrivalEnv(opts: {
   const list = (v: unknown): unknown => (Array.isArray(v) ? v : [v]);
 
   // (P2) Inference verbs (infer, infer/chat) — armed by opts.infer.
-  const inferPack: EnvPack<typeof base> = { name: "arrival/infer", config: opts.infer, apply: (env) => {
-    env.defineRosetta("infer", {
-      withContext: true,
-      options: { provenancePoint: true },
-      fn: async (ctx, model, prompt, schema, cacheKey) => {
-        const { name, middleware, params } = asLlmModel(model);
-        const honest = () =>
-          opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey), undefined, params);
-        const out = await inferThroughChain(honest, middleware, String(prompt), {});
-        if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
-        return list(out);
-      },
-    });
-    env.defineRosetta("infer/chat", {
-      withContext: true,
-      options: { provenancePoint: true },
-      fn: async (ctx, model, messages, schema, cacheKey) => {
-        const { name, middleware, params } = asLlmModel(model);
-        const prompt = canonicalizeMessages(messages);
-        const honest = () => opts.infer(ctx, name, prompt, schemaSlot(schema), nullable(cacheKey), undefined, params);
-        const out = await inferThroughChain(honest, middleware, prompt, {});
-        if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
-        return list(out);
-      },
-    });
-  } };
+  const inferPack: EnvPack<typeof base> = {
+    name: "arrival/infer",
+    config: opts.infer,
+    apply: (env) => {
+      env.defineRosetta("infer", {
+        withContext: true,
+        options: { provenancePoint: true },
+        fn: async (ctx, model, prompt, schema, cacheKey) => {
+          const { name, middleware, params } = asLlmModel(model);
+          const honest = () =>
+            opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey), undefined, params);
+          const out = await inferThroughChain(honest, middleware, String(prompt), {});
+          if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
+          return list(out);
+        },
+      });
+      env.defineRosetta("infer/chat", {
+        withContext: true,
+        options: { provenancePoint: true },
+        fn: async (ctx, model, messages, schema, cacheKey) => {
+          const { name, middleware, params } = asLlmModel(model);
+          const prompt = canonicalizeMessages(messages);
+          const honest = () => opts.infer(ctx, name, prompt, schemaSlot(schema), nullable(cacheKey), undefined, params);
+          const out = await inferThroughChain(honest, middleware, prompt, {});
+          if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
+          return list(out);
+        },
+      });
+    },
+  };
   // (P2) Pure string/json/template utilities — no deps, no arming.
-  const utilsPack: EnvPack<typeof base> = { name: "arrival/utils", apply: (env) => {
-    env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)), type: "(s: SStr): unknown" });
-    env.defineRosetta("string-dedent", { fn: (s: unknown) => dedent(String(s)), type: "(s: SStr): SStr" });
-    env.defineRosetta("template/handlebars", {
-      fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
-      type: "(source: SStr, args: unknown): SStr",
-    });
-  } };
+  const utilsPack: EnvPack<typeof base> = {
+    name: "arrival/utils",
+    apply: (env) => {
+      env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)), type: "(s: SStr): unknown" });
+      env.defineRosetta("string-dedent", { fn: (s: unknown) => dedent(String(s)), type: "(s: SStr): SStr" });
+      env.defineRosetta("template/handlebars", {
+        fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
+        type: "(source: SStr, args: unknown): SStr",
+      });
+    },
+  };
   // (P2) Reflective inference-budget reads — armed by opts.spend (inert → 0 when absent).
-  const budgetPack: EnvPack<typeof base> = { name: "arrival/infer-budget", apply: (env) => {
-    env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0, type: "(): SNum" });
-    env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0, type: "(): SNum" });
-  } };
+  const budgetPack: EnvPack<typeof base> = {
+    name: "arrival/infer-budget",
+    apply: (env) => {
+      env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0, type: "(): SNum" });
+      env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0, type: "(): SNum" });
+    },
+  };
 
   // arrival/loader-core: the irreducible plumbing left after P2 — compileInferUnit (.prompt sealer)
   // + import/require loader wiring. NOT a capability; the env's core. Applies last (lowest precedence).
-  const loaderCorePack: EnvPack<typeof base> = { name: "arrival/loader-core", apply: (env) => {
-
-  // (P2) infer + infer/chat + json/parse + string-dedent + template/handlebars + infer/spent +
-  // infer/calls are EXTRACTED to the arrival/infer, arrival/utils, and arrival/infer-budget packs
-  // (defined above, listed in the assembleEnvSync roots below).
-  // Seal a `.prompt` PromptUnit into a provenance-point native proc. The output
-  // schema is evaluated ONCE here (the `s/…` rosettas live on this env) and
-  // slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)`
-  // folds the kwargs, renders its sections, and infers AT JS LEVEL — and because
-  // it's a `provenancePoint`, ITS OWN call-site invocation becomes the provenance
-  // point. So a `.prompt` traces as ONE node at the real `(run-x …)` site with
-  // the infer sealed inside it — no unwrapped line-1 `(infer/chat …)` lambda. The
-  // task it mints is byte-identical to the equivalent `infer/chat` (shared
-  // canonicalize + schemaSlot + nullable), so cache + replay are preserved.
-  const compileInferUnit = async (unit: PromptUnit): Promise<unknown> => {
-    let schemaSlotStr: string | null = null;
-    if (unit.schemaSrc !== null) {
-      const [form] = await parse(unit.schemaSrc);
-      schemaSlotStr = schemaSlot(lipsToJs(await execExpr(form, { env })));
-    }
-    return createRosettaWrapper({
-      withContext: true,
-      options: { provenancePoint: true, argProvenance: true },
-      fn: async (ctx, key, ...kv: unknown[]) => {
-        const folded = buildDict(kv);
-        // `:meta` is the inference-CONFIG channel (model override, future temp/
-        // maxTokens) — kept separate from the template-INPUT namespace, so a
-        // `.prompt` can still have any template var name. Strip it from `inputs`
-        // before rendering; it's plumbing, not a hole the template fills.
-        const meta = isPlainRecord(folded.meta) ? folded.meta : {};
-        const { meta: _metaSlot, ...inputs } = folded;
-        // Model = materialization: call-time `meta.model` wins, else the
-        // frontmatter default, else a hard error (nothing to route to). `meta.model`
-        // may be a bare string OR an `(llm …)` entity (so a program can `(define ideator
-        // (llm "id"))` and pass `:meta (dict :model ideator)`) — `asLlmModel` extracts the
-        // routing name and any `llm/with` content params either way.
-        const metaModel = meta.model === undefined ? null : asLlmModel(meta.model);
-        const model = metaModel ? metaModel.name : unit.model;
-        const metaParams = metaModel?.params;
-        invariant(
-          model !== null,
-          () =>
-            `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
-        );
-        // ctx.argProvenance aligns to the scheme args [key, ...kv]; drop the
-        // leading `key` slot so it lines up with `kv` for buildInputsProvenance.
-        // `meta` is config, not an input, so drop it from the per-field provenance.
-        const argProv = (ctx as { argProvenance?: ReadonlySet<number>[] } | undefined)?.argProvenance;
-        const inputsProvenanceAll = argProv ? buildInputsProvenance(kv, argProv.slice(1)) : undefined;
-        const inputsProvenance = inputsProvenanceAll
-          ? Object.fromEntries(Object.entries(inputsProvenanceAll).filter(([k]) => k !== "meta"))
-          : undefined;
-        // Bind the node's story (file, model, the structured inputs) to its
-        // provenance node NOW, before the inference runs. It's all known at call
-        // time, so the card renders its header + init fields WHILE the answer is
-        // still streaming — not only once it resolves. `result` flows on as the
-        // ordinary value. Same setMetadata-vs-POJO story as `markProvenancePoint`:
-        // a real Invocation is a MobX observable (action), a plain test ctx is a
-        // bare object.
-        const inv = (ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined)
-          ?.currentInvocation;
-        if (inv) {
-          const nodeMeta = {
-            kind: "prompt",
-            path: unit.path,
-            model,
-            inputs,
-            inputsProvenance,
-            reads: templateReads(unit.sections),
-          };
-          if (typeof inv.setMetadata === "function") inv.setMetadata(nodeMeta);
-          else inv.metadata = nodeMeta;
+  const loaderCorePack: EnvPack<typeof base> = {
+    name: "arrival/loader-core",
+    apply: (env) => {
+      // (P2) infer + infer/chat + json/parse + string-dedent + template/handlebars + infer/spent +
+      // infer/calls are EXTRACTED to the arrival/infer, arrival/utils, and arrival/infer-budget packs
+      // (defined above, listed in the assembleEnvSync roots below).
+      // Seal a `.prompt` PromptUnit into a provenance-point native proc. The output
+      // schema is evaluated ONCE here (the `s/…` rosettas live on this env) and
+      // slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)`
+      // folds the kwargs, renders its sections, and infers AT JS LEVEL — and because
+      // it's a `provenancePoint`, ITS OWN call-site invocation becomes the provenance
+      // point. So a `.prompt` traces as ONE node at the real `(run-x …)` site with
+      // the infer sealed inside it — no unwrapped line-1 `(infer/chat …)` lambda. The
+      // task it mints is byte-identical to the equivalent `infer/chat` (shared
+      // canonicalize + schemaSlot + nullable), so cache + replay are preserved.
+      const compileInferUnit = async (unit: PromptUnit): Promise<unknown> => {
+        let schemaSlotStr: string | null = null;
+        if (unit.schemaSrc !== null) {
+          const [form] = await parse(unit.schemaSrc);
+          schemaSlotStr = schemaSlot(lipsToJs(await execExpr(form, { env })));
         }
-        const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
-        // `mcp:` frontmatter ⇒ an AGENTIC prompt: list those servers' tools and loop
-        // infer↔dispatch through the shared engine, returning the final answer. (Schema'd
-        // agentic output isn't supported in v1 — error rather than silently drop the schema.)
-        if (unit.mcpServers) {
-          invariant(
-            schemaSlotStr === null,
-            () =>
-              `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
-          );
-          const servers = unit.mcpServers.map((name) => new DerivableEntity("mcp", name));
-          const chatMessages: ChatMessage[] = messages.map(([role, content]) => ({
-            role: String(role) as ChatMessage["role"],
-            content: String(content),
-          }));
-          return runAgenticInfer(opts.infer, opts.mcp ?? inertMcpResolver, ctx, model, chatMessages, servers);
-        }
-        return opts.infer(
-          ctx,
-          model,
-          canonicalizeMessages(messages),
-          schemaSlotStr,
-          nullable(key),
-          undefined,
-          metaParams,
-        );
-      },
-    });
+        return createRosettaWrapper({
+          withContext: true,
+          options: { provenancePoint: true, argProvenance: true },
+          fn: async (ctx, key, ...kv: unknown[]) => {
+            const folded = buildDict(kv);
+            // `:meta` is the inference-CONFIG channel (model override, future temp/
+            // maxTokens) — kept separate from the template-INPUT namespace, so a
+            // `.prompt` can still have any template var name. Strip it from `inputs`
+            // before rendering; it's plumbing, not a hole the template fills.
+            const meta = isPlainRecord(folded.meta) ? folded.meta : {};
+            const { meta: _metaSlot, ...inputs } = folded;
+            // Model = materialization: call-time `meta.model` wins, else the
+            // frontmatter default, else a hard error (nothing to route to). `meta.model`
+            // may be a bare string OR an `(llm …)` entity (so a program can `(define ideator
+            // (llm "id"))` and pass `:meta (dict :model ideator)`) — `asLlmModel` extracts the
+            // routing name and any `llm/with` content params either way.
+            const metaModel = meta.model === undefined ? null : asLlmModel(meta.model);
+            const model = metaModel ? metaModel.name : unit.model;
+            const metaParams = metaModel?.params;
+            invariant(
+              model !== null,
+              () =>
+                `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
+            );
+            // ctx.argProvenance aligns to the scheme args [key, ...kv]; drop the
+            // leading `key` slot so it lines up with `kv` for buildInputsProvenance.
+            // `meta` is config, not an input, so drop it from the per-field provenance.
+            const argProv = (ctx as { argProvenance?: ReadonlySet<number>[] } | undefined)?.argProvenance;
+            const inputsProvenanceAll = argProv ? buildInputsProvenance(kv, argProv.slice(1)) : undefined;
+            const inputsProvenance = inputsProvenanceAll
+              ? Object.fromEntries(Object.entries(inputsProvenanceAll).filter(([k]) => k !== "meta"))
+              : undefined;
+            // Bind the node's story (file, model, the structured inputs) to its
+            // provenance node NOW, before the inference runs. It's all known at call
+            // time, so the card renders its header + init fields WHILE the answer is
+            // still streaming — not only once it resolves. `result` flows on as the
+            // ordinary value. Same setMetadata-vs-POJO story as `markProvenancePoint`:
+            // a real Invocation is a MobX observable (action), a plain test ctx is a
+            // bare object.
+            const inv = (
+              ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined
+            )?.currentInvocation;
+            if (inv) {
+              const nodeMeta = {
+                kind: "prompt",
+                path: unit.path,
+                model,
+                inputs,
+                inputsProvenance,
+                reads: templateReads(unit.sections),
+              };
+              if (typeof inv.setMetadata === "function") inv.setMetadata(nodeMeta);
+              else inv.metadata = nodeMeta;
+            }
+            const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
+            // `mcp:` frontmatter ⇒ an AGENTIC prompt: list those servers' tools and loop
+            // infer↔dispatch through the shared engine, returning the final answer. (Schema'd
+            // agentic output isn't supported in v1 — error rather than silently drop the schema.)
+            if (unit.mcpServers) {
+              invariant(
+                schemaSlotStr === null,
+                () =>
+                  `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
+              );
+              const servers = unit.mcpServers.map((name) => new DerivableEntity("mcp", name));
+              const chatMessages: ChatMessage[] = messages.map(([role, content]) => ({
+                role: String(role) as ChatMessage["role"],
+                content: String(content),
+              }));
+              return runAgenticInfer(opts.infer, opts.mcp ?? inertMcpResolver, ctx, model, chatMessages, servers);
+            }
+            return opts.infer(
+              ctx,
+              model,
+              canonicalizeMessages(messages),
+              schemaSlotStr,
+              nullable(key),
+              undefined,
+              metaParams,
+            );
+          },
+        });
+      };
+      // (P2) The data-effect verbs, MCP dispatch verbs (incl. mcp/break), and infer/agentic/end-to-end
+      // were EXTRACTED from this function body to the arrival/data-effects, arrival/mcp-effects, and
+      // arrival/infer-agentic packs (defined near the assembleEnvSync roots below). The effect verbs keep
+      // the disarmed-default posture (inert until the host arms opts.data/opts.mcp); infer-agentic deps
+      // [infer, mcp] — the first real dep edge in the live assembly.
+      // (P2) The superpowered-define family (declare/expose, define/exposed, define/overridable) and the
+      // approval verbs are EXTRACTED to the arrival/superdefine pack (see roots below). What remains in
+      // this pack is the irreducible loader/prompt core: compileInferUnit + import/require wiring.
+      defineImportRosetta({ env, loader: opts.loader });
+      const clearRequireCache = defineRequireRosetta({
+        env,
+        loader: opts.loader,
+        tap: opts.tap,
+        baseDir: opts.dirname ?? "",
+        compileInferUnit,
+      });
+      opts.onRequireCache?.(clearRequireCache);
+    },
   };
-  // (P2) The data-effect verbs, MCP dispatch verbs (incl. mcp/break), and infer/agentic/end-to-end
-  // were EXTRACTED from this function body to the arrival/data-effects, arrival/mcp-effects, and
-  // arrival/infer-agentic packs (defined near the assembleEnvSync roots below). The effect verbs keep
-  // the disarmed-default posture (inert until the host arms opts.data/opts.mcp); infer-agentic deps
-  // [infer, mcp] — the first real dep edge in the live assembly.
-  // (P2) The superpowered-define family (declare/expose, define/exposed, define/overridable) and the
-  // approval verbs are EXTRACTED to the arrival/superdefine pack (see roots below). What remains in
-  // this pack is the irreducible loader/prompt core: compileInferUnit + import/require wiring.
-  defineImportRosetta({ env, loader: opts.loader });
-  const clearRequireCache = defineRequireRosetta({
-    env,
-    loader: opts.loader,
-    tap: opts.tap,
-    baseDir: opts.dirname ?? "",
-    compileInferUnit,
-  });
-  opts.onRequireCache?.(clearRequireCache);
-  } };
   // (P2) Standalone capability packs carved out of loader-core. `config` is the host-injected
   // arming (the resolver) — two same-name packs armed differently in one assembly would conflict.
   // No deps, disjoint symbols ⇒ C3 order among them is immaterial; loader-core applies last.
   const dataPack: EnvPack<typeof base> = {
     name: "arrival/data-effects",
     config: opts.data,
-    apply: (env) => { defineDataEffectRosettas(env, opts.data ?? inertDataResolver); },
+    apply: (env) => {
+      defineDataEffectRosettas(env, opts.data ?? inertDataResolver);
+    },
   };
   const mcpPack: EnvPack<typeof base> = {
     name: "arrival/mcp-effects",
     config: opts.mcp,
-    apply: (env) => { defineMcpRosettas(env, opts.mcp ?? inertMcpResolver); env.set("mcp/break", MCP_BREAK); },
+    apply: (env) => {
+      defineMcpRosettas(env, opts.mcp ?? inertMcpResolver);
+      env.set("mcp/break", MCP_BREAK);
+    },
   };
   // (P2) Superpowered-define family + approval verbs — no deps, registers via the host sinks.
-  const superDefinePack: EnvPack<typeof base> = { name: "arrival/superdefine", apply: (env) => {
-    defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose });
-    defineOverridableRosetta({ env, onOverridable: opts.onOverridable, resolveOverride: opts.resolveOverride });
-    defineApprovalRosetta({ env, onApprovalRequest: opts.onApprovalRequest, resolveApproval: opts.resolveApproval });
-  } };
+  const superDefinePack: EnvPack<typeof base> = {
+    name: "arrival/superdefine",
+    apply: (env) => {
+      defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose });
+      defineOverridableRosetta({ env, onOverridable: opts.onOverridable, resolveOverride: opts.resolveOverride });
+      defineApprovalRosetta({ env, onApprovalRequest: opts.onApprovalRequest, resolveApproval: opts.resolveApproval });
+    },
+  };
   // (P2) The first DEP-BEARING pack: agentic inference deps BOTH infer and mcp. C3 orders
   // inferPack + mcpPack before it in the live assembly (the engine's DAG resolution in the real path).
   const agenticPack: EnvPack<typeof base> = {
@@ -871,10 +892,16 @@ export function buildArrivalEnv(opts: {
   // Root order is C3-consistent: a dependent (agenticPack) must precede its deps (inferPack, mcpPack)
   // — listing a dep first would contradict the dependent's linearization and throw
   // AssembleLinearizationError. Symbols are disjoint, so precedence is otherwise immaterial.
-  return assembleEnvSync(
-    base,
-    [utilsPack, budgetPack, dataPack, superDefinePack, agenticPack, inferPack, mcpPack, loaderCorePack],
-  ).env;
+  return assembleEnvSync(base, [
+    utilsPack,
+    budgetPack,
+    dataPack,
+    superDefinePack,
+    agenticPack,
+    inferPack,
+    mcpPack,
+    loaderCorePack,
+  ]).env;
 }
 
 /**
