@@ -812,23 +812,9 @@ export function buildArrivalEnv(opts: {
   // (no deps, disjoint symbols); the dep-bearing agentic verb below still lives in legacy-core.
   // (P2) infer/agentic/end-to-end is EXTRACTED to the arrival/infer-agentic pack (deps: arrival/infer
   // + arrival/mcp-effects — the first real dep edge in the live assembly), defined near the roots below.
-  // `(declare/expose …)` — the sealed-skill registration form. Reuses the same
-  // `buildDict` keyword folder as `dict`/the `.prompt` proc so `:input`/`:output`/
-  // `:handler` resolve identically; the host's `onExpose` sink receives the typed
-  // declaration. Inert (handler-factory only) when no sink is supplied. The
-  // superpowered-define family (`define/exposed`, `define/overridable`) registers
-  // on the same sinks, keyed by name (the identity — no derived token).
-  defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose });
-  defineOverridableRosetta({
-    env,
-    onOverridable: opts.onOverridable,
-    resolveOverride: opts.resolveOverride,
-  });
-  defineApprovalRosetta({
-    env,
-    onApprovalRequest: opts.onApprovalRequest,
-    resolveApproval: opts.resolveApproval,
-  });
+  // (P2) The superpowered-define family (declare/expose, define/exposed, define/overridable) and the
+  // approval verbs are EXTRACTED to the arrival/superdefine pack (see roots below). What remains in
+  // this pack is the irreducible loader/prompt core: compileInferUnit + import/require wiring.
   defineImportRosetta({ env, loader: opts.loader });
   const clearRequireCache = defineRequireRosetta({
     env,
@@ -852,6 +838,12 @@ export function buildArrivalEnv(opts: {
     config: opts.mcp,
     apply: (env) => { defineMcpRosettas(env, opts.mcp ?? inertMcpResolver); env.set("mcp/break", MCP_BREAK); },
   };
+  // (P2) Superpowered-define family + approval verbs — no deps, registers via the host sinks.
+  const superDefinePack: EnvPack<typeof base> = { name: "arrival/superdefine", apply: (env) => {
+    defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose });
+    defineOverridableRosetta({ env, onOverridable: opts.onOverridable, resolveOverride: opts.resolveOverride });
+    defineApprovalRosetta({ env, onApprovalRequest: opts.onApprovalRequest, resolveApproval: opts.resolveApproval });
+  } };
   // (P2) The first DEP-BEARING pack: agentic inference deps BOTH infer and mcp. C3 orders
   // inferPack + mcpPack before it in the live assembly (the engine's DAG resolution in the real path).
   const agenticPack: EnvPack<typeof base> = {
@@ -881,7 +873,7 @@ export function buildArrivalEnv(opts: {
   // AssembleLinearizationError. Symbols are disjoint, so precedence is otherwise immaterial.
   return assembleEnvSync(
     base,
-    [utilsPack, budgetPack, dataPack, agenticPack, inferPack, mcpPack, legacyCorePack],
+    [utilsPack, budgetPack, dataPack, superDefinePack, agenticPack, inferPack, mcpPack, legacyCorePack],
   ).env;
 }
 
