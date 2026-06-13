@@ -45,7 +45,7 @@
  */
 import { lipsToJs } from "@here.build/arrival-scheme";
 import { snapshotTrace, type PlainInv, type PlainTrace } from "./trace-snapshot.js";
-import { schemeToSweet } from "./sweet-render.js";
+import { schemeToSweet } from "@here.build/arrival-scheme";
 import { scopeId, staticLoopBodyScopes, staticRecursiveHeads, STRUCTURAL_FORMS } from "./trace-to-forest.js";
 import type { EvalTrace } from "./trace.js";
 

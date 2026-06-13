@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { paramHints, paramHintsSweet } from "../param-hints.js";
 import { sweetToScheme } from "../sweet-read.js";
-import { schemeToSweet } from "../sweet-render.js";
+import { schemeToSweet } from "@here.build/arrival-scheme";
 
 /** The char immediately at a hint's pos — should be the first char of its arg. */
 const charAt = (src: string, pos: number): string => src[pos];

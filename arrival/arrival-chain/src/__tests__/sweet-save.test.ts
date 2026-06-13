@@ -15,7 +15,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { parseSexprs, printScheme, nodeEq, schemeToSweet, type Node } from "../sweet-render.js";
+import { parseSexprs, printScheme, nodeEq, schemeToSweet, type Node } from "@here.build/arrival-scheme";
 import { sweetToScheme, topFormSpans } from "../sweet-read.js";
 
 const FIX = path.resolve(import.meta.dirname, "fixtures/programs");

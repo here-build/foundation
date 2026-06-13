@@ -17,7 +17,7 @@
  * token equal to an operator string (so `config/min-for-boundary` is one atom).
  */
 import invariant from "tiny-invariant";
-import { parseSexprs, nodeEq, printScheme, type Node } from "./sweet-render.js";
+import { parseSexprs, nodeEq, printScheme, type Node } from "@here.build/arrival-scheme";
 
 // glyph → canonical op (inverse of INFIX_GLYPH). INJECTIVE: only ==←equal?, &&←and,
 // ||←or are remapped; everything else (=, eq?, eqv?, arithmetic, comparison) is its

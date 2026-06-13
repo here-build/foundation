@@ -22,7 +22,7 @@
  */
 
 import { readSweet } from "./sweet-read.js";
-import { parseSexprs, printScheme, type Node } from "./sweet-render.js";
+import { parseSexprs, printScheme, type Node } from "@here.build/arrival-scheme";
 
 /** One paired node: the same datum's span in both projections. `exact` means
  *  both sides are the SAME atom text (so positions translate offset-precise);

@@ -9,7 +9,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { parseSexprs, schemeToSweet, inlineSweet, DEFAULT_OPTS, nodeEq, type Node } from "../sweet-render.js";
+import { parseSexprs, schemeToSweet, inlineSweet, DEFAULT_OPTS, nodeEq, type Node } from "@here.build/arrival-scheme";
 import { readSweetExpr, readSweet } from "../sweet-read.js";
 
 const classic = (src: string): Node => parseSexprs(src)[0];

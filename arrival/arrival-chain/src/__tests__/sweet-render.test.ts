@@ -24,7 +24,7 @@ import path from "node:path";
 import {
   schemeToSweet, parseSexprs, collectKwargHeads, inflateKwargs, flattenKwargs,
   type Node,
-} from "../sweet-render.js";
+} from "@here.build/arrival-scheme";
 import { readSweet } from "../sweet-read.js";
 
 const FIX = path.resolve(import.meta.dirname, "fixtures/programs");

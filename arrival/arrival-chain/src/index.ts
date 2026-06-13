@@ -295,7 +295,7 @@ export { inferTasksByScope } from "./infer-content.js";
 // reprinting only what changed (canonical reprint when the form correspondence is
 // uncertain). Stored entities stay raw scheme — sweet is a derived editing lens.
 // Studio's [scheme]/[sweet] editor toggle renders + saves the program through them.
-export { schemeToSweet, type SweetOpts } from "./sweet-render.js";
+export { schemeToSweet, type SweetOpts } from "@here.build/arrival-scheme";
 export { sweetToScheme } from "./sweet-read.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────

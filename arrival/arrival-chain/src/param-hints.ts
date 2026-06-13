@@ -1,5 +1,5 @@
 import { readSweet, splitFormsWithBase } from "./sweet-read.js";
-import { type Node, parseSexprs } from "./sweet-render.js";
+import { type Node, parseSexprs } from "@here.build/arrival-scheme";
 
 /**
  * Parameter-name inlay hints. For a call to a `(define (f a b c) …)`, place a hint
