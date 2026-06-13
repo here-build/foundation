@@ -87,6 +87,7 @@
     "@here.build/arrival-scheme": "workspace:^",
     "@here.build/plexus": "workspace:^",
     "ai": "^6.0.201",
+    "dedent": "1.7.2",
     "handlebars": "4.7.9",
     "jsonrepair": "3.13.0",
     "smol-toml": "1.6.1",

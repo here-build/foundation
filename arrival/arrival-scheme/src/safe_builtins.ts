@@ -9,6 +9,12 @@ export const SAFE_BUILTINS = [
   "reverse",
   "nth",
 
+  // Open-key map construction — `(dict :k v …)`, companion to the `(:key d)`
+  // accessor. The native constructor (stdlib operators) folds alternating
+  // key/value args, resolving keyword accessors via KEYWORD_ACCESSOR_FIELD.
+  // (Was a chain-layer rosetta; promoted to a first-class scheme builtin.)
+  "dict",
+
   // List predicates
   "empty?",
   "list?",

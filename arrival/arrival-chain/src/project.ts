@@ -10,15 +10,33 @@ import {
   type Environment,
 } from "@here.build/arrival-scheme";
 import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
+import dedent from "dedent";
 import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
 
+import { runAgenticLoop } from "./agentic-loop.js";
+import { defineApprovalRosetta, type OnApprovalRequest, type ResolveApproval } from "./approval.js";
+import type { ChatMessage } from "./backends/_shared.js";
 import {
   type DataEffectResolver,
   type DataEffectResult,
   defineDataEffectRosettas,
   inertDataResolver,
 } from "./data-effects.js";
+import { Draft } from "./draft.js";
+import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey, stableJson } from "./effect-log.js";
+import { defineExposeRosetta, type OnExpose } from "./expose.js";
+import { InferBinding, type InferStoreLike } from "./infer-store.js";
+import { InferString } from "./infer-string.js";
+import {
+  defineImportRosetta,
+  defineRequireRosetta,
+  loaderFromResolver,
+  makeProjectLoader,
+  type Loader,
+  type PromptUnit,
+  type RequireResolver,
+} from "./loader.js";
 import {
   DerivableEntity,
   defineMcpRosettas,
@@ -34,28 +52,11 @@ import {
   runMiddlewareChain,
   wrapMcpResolver,
 } from "./mcp-effects.js";
-import { runAgenticLoop } from "./agentic-loop.js";
-import type { ChatMessage } from "./backends/_shared.js";
-import { Draft } from "./draft.js";
-import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey, stableJson } from "./effect-log.js";
-import { defineExposeRosetta, type OnExpose } from "./expose.js";
-import { defineOverridableRosetta, type OnOverridable, type ResolveOverride } from "./overridable.js";
-import { defineApprovalRosetta, type OnApprovalRequest, type ResolveApproval } from "./approval.js";
-import { InferBinding, type InferStoreLike } from "./infer-store.js";
-import { InferString } from "./infer-string.js";
 import type { Completion, LlmParams, ToolCall, ToolDescriptor } from "./model.js";
-import { RunSpend } from "./run-spend.js";
+import { defineOverridableRosetta, type OnOverridable, type ResolveOverride } from "./overridable.js";
 import { Program, ProgramVersion } from "./program.js";
+import { RunSpend } from "./run-spend.js";
 import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
-import {
-  defineImportRosetta,
-  defineRequireRosetta,
-  loaderFromResolver,
-  makeProjectLoader,
-  type Loader,
-  type PromptUnit,
-  type RequireResolver,
-} from "./loader.js";
 import { analyzeTemplate, coerceShape, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "./trace.js";
 
@@ -206,7 +207,7 @@ function templateReads(sections: { source: string }[]): Record<string, string[]>
         } else {
           // Inside `#each ideas`: `{{this.idea}}`/`{{idea}}` → ideas reads `idea`;
           // `{{this}}` (no parts) → whole element use.
-          add(scope, parts.length >= 1 ? parts[0]! : null);
+          add(scope, parts.length > 0 ? parts[0]! : null);
         }
         // helper arguments are read too
         for (const p of (n.params as HbsNode[] | undefined) ?? []) walk([p], scope);
@@ -240,7 +241,7 @@ type HbsNode = { type: string; path?: unknown; params?: unknown; program?: unkno
  *  Handlebars into `parts`. */
 function pathOf(node: unknown): string[] {
   const n = node as { type?: string; parts?: unknown } | undefined;
-  if (!n || n.type !== "PathExpression") return [];
+  if (n?.type !== "PathExpression") return [];
   return Array.isArray(n.parts) ? (n.parts as string[]) : [];
 }
 
@@ -267,7 +268,7 @@ const isDictLike = (v: unknown): v is Record<string, unknown> =>
  * Anything else throws with a structured message.
  */
 function resolveTemplateInput(args: unknown[], info: TemplateInfo): Record<string, unknown> {
-  invariant(args.length !== 0, "template: expected at least one argument");
+  invariant(args.length > 0, "template: expected at least one argument");
   if (args.length === 1) {
     const a = args[0];
     if (isDictLike(a)) return a;
@@ -532,7 +533,10 @@ async function runAgenticInfer(
     },
     dispatch: async (call, progress) => {
       const server = serverOf.get(call.name);
-      invariant(server !== undefined, () => `infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`);
+      invariant(
+        server !== undefined,
+        () => `infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`,
+      );
       return dispatchThroughChain(
         server,
         "tools/call",
@@ -549,8 +553,9 @@ async function runAgenticInfer(
 
 /**
  * Build a sandboxed arrival-chain environment with the standard rosettas —
- * `infer`, `infer/chat`, `json/parse`, `dict`, `template/handlebars`, plus
+ * `infer`, `infer/chat`, `json/parse`, `template/handlebars`, plus
  * `require`/`import` — EXCEPT inference resolution, which is injected via `infer`.
+ * (`dict` is a native arrival-scheme builtin, inherited via `sandboxedEnv`.)
  *
  * This is the seam that lets a host route `(infer …)` into its own task store
  * without arrival-chain hardcoding where tasks live: `Project.run` passes a
@@ -656,16 +661,23 @@ export function buildArrivalEnv(opts: {
     options: { provenancePoint: true },
     fn: async (ctx, model, prompt, schema, cacheKey) => {
       const { name, middleware, params } = asLlmModel(model);
-      const honest = () => opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey), undefined, params);
+      const honest = () =>
+        opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey), undefined, params);
       const out = await inferThroughChain(honest, middleware, String(prompt), {});
       if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
       return list(out);
     },
   });
-  env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)) });
-  env.defineRosetta("dict", { fn: (...args: unknown[]) => buildDict(args) });
+  env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)), type: "(s: SStr): unknown" });
+  // `(string-dedent s)` — strip the common leading indentation plus the leading/trailing
+  // blank line from a multi-line literal, so an in-scheme BRIEF / prompt can be written as a
+  // naturally-indented block in the .scm artifact yet emit flush-left text. Wraps the `dedent`
+  // npm package. Pure string→string, no host effect — the readable replacement for hand-split
+  // `(string-append "…" "…")` ladders.
+  env.defineRosetta("string-dedent", { fn: (s: unknown) => dedent(String(s)), type: "(s: SStr): SStr" });
   env.defineRosetta("template/handlebars", {
     fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
+    type: "(source: SStr, args: unknown): SStr",
   });
   env.defineRosetta("infer/chat", {
     withContext: true,
@@ -685,8 +697,8 @@ export function buildArrivalEnv(opts: {
   // produce an inference. Inert (→ 0) when no accumulator is bound. The racy-read
   // lint flags these reads inside a parallel HOF arm, where the fold is meaningless
   // (see `racy-read-lint.ts`); here we just vend the value.
-  env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0 });
-  env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0 });
+  env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0, type: "(): SNum" });
+  env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0, type: "(): SNum" });
   // Seal a `.prompt` PromptUnit into a provenance-point native proc. The output
   // schema is evaluated ONCE here (the `s/…` rosettas live on this env) and
   // slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)`
@@ -723,7 +735,8 @@ export function buildArrivalEnv(opts: {
         const metaParams = metaModel?.params;
         invariant(
           model !== null,
-          () => `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
+          () =>
+            `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
         );
         // ctx.argProvenance aligns to the scheme args [key, ...kv]; drop the
         // leading `key` slot so it lines up with `kv` for buildInputsProvenance.
@@ -743,7 +756,14 @@ export function buildArrivalEnv(opts: {
         const inv = (ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined)
           ?.currentInvocation;
         if (inv) {
-          const nodeMeta = { kind: "prompt", path: unit.path, model, inputs, inputsProvenance, reads: templateReads(unit.sections) };
+          const nodeMeta = {
+            kind: "prompt",
+            path: unit.path,
+            model,
+            inputs,
+            inputsProvenance,
+            reads: templateReads(unit.sections),
+          };
           if (typeof inv.setMetadata === "function") inv.setMetadata(nodeMeta);
           else inv.metadata = nodeMeta;
         }
@@ -754,7 +774,8 @@ export function buildArrivalEnv(opts: {
         if (unit.mcpServers) {
           invariant(
             schemaSlotStr === null,
-            () => `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
+            () =>
+              `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
           );
           const servers = unit.mcpServers.map((name) => new DerivableEntity("mcp", name));
           const chatMessages: ChatMessage[] = messages.map(([role, content]) => ({
@@ -763,7 +784,15 @@ export function buildArrivalEnv(opts: {
           }));
           return runAgenticInfer(opts.infer, opts.mcp ?? inertMcpResolver, ctx, model, chatMessages, servers);
         }
-        return opts.infer(ctx, model, canonicalizeMessages(messages), schemaSlotStr, nullable(key), undefined, metaParams);
+        return opts.infer(
+          ctx,
+          model,
+          canonicalizeMessages(messages),
+          schemaSlotStr,
+          nullable(key),
+          undefined,
+          metaParams,
+        );
       },
     });
   };
@@ -803,7 +832,9 @@ export function buildArrivalEnv(opts: {
       // `runAgenticInfer` (reused by the `.prompt mcp:` proc). `model` is passed RAW so an
       // (llm …) entity's observe-only middleware runs per turn; `list` wraps the final
       // InferString the same way `(infer …)` wraps its value.
-      return list(await runAgenticInfer(opts.infer, mcpResolve, ctx, model, parseSchemeChatMessages(messages), serverVals));
+      return list(
+        await runAgenticInfer(opts.infer, mcpResolve, ctx, model, parseSchemeChatMessages(messages), serverVals),
+      );
     },
   });
   // `(declare/expose …)` — the sealed-skill registration form. Reuses the same
@@ -824,7 +855,13 @@ export function buildArrivalEnv(opts: {
     resolveApproval: opts.resolveApproval,
   });
   defineImportRosetta({ env, loader: opts.loader });
-  const clearRequireCache = defineRequireRosetta({ env, loader: opts.loader, tap: opts.tap, baseDir: opts.dirname ?? "", compileInferUnit });
+  const clearRequireCache = defineRequireRosetta({
+    env,
+    loader: opts.loader,
+    tap: opts.tap,
+    baseDir: opts.dirname ?? "",
+    compileInferUnit,
+  });
   opts.onRequireCache?.(clearRequireCache);
   return env;
 }
@@ -962,7 +999,7 @@ export class Project extends PlexusModel<null> {
     const prefix = `${path}/`;
     this.transact(() => {
       if (this.files.has(path)) this.files.delete(path);
-      for (const p of [...this.files.keys()]) if (p.startsWith(prefix)) this.files.delete(p);
+      for (const p of this.files.keys()) if (p.startsWith(prefix)) this.files.delete(p);
     });
   }
 
@@ -1076,6 +1113,16 @@ export class Project extends PlexusModel<null> {
        * beyond whatever the file's OTHER top-level forms do.
        */
       onExpose?: OnExpose;
+      /**
+       * Host override channel for `(define/overridable …)`: name →
+       * externally-supplied value (deployment env / caller args). A matching,
+       * schema-valid value replaces the hole's default; absent or invalid ⇒ the
+       * default. Forwarded straight to `buildArrivalEnv` (which wires the
+       * overridable rosetta) — the run-level twin of the same `buildArrivalEnv`
+       * option, so a `project.run` exposes the override seam the env already
+       * supports. v1 per-name; an in-program per-key table is deferred.
+       */
+      resolveOverride?: ResolveOverride;
       /** Host hook to inject extra rosettas onto the pipeline env after the
        *  standard ones are wired and before the program runs — e.g. a bridge into
        *  another sandbox. Keeps `.prompt`/`require`/trace machinery intact while
@@ -1197,6 +1244,7 @@ export class Project extends PlexusModel<null> {
       data,
       mcp,
       onExpose: opts.onExpose,
+      resolveOverride: opts.resolveOverride,
     });
     opts.extendEnv?.(env);
     const results = await exec(BUILTIN_PREAMBLE + source, {
@@ -1354,7 +1402,9 @@ export class Project extends PlexusModel<null> {
     invariant(program, `Project.editDraftSource: file "${opts.file}" not found`);
     const draft = program.draft ?? this.createDraft({ file: opts.file });
     if (draft.source !== opts.source) {
-      this.transact(() => { draft.source = opts.source; });
+      this.transact(() => {
+        draft.source = opts.source;
+      });
       console.log(`[draft] editDraftSource "${opts.file}" sourceLen=${opts.source.length}`);
     }
     return draft;
@@ -1378,7 +1428,9 @@ export class Project extends PlexusModel<null> {
   discardDraft(opts: { file: string }): void {
     const program = this.files.get(opts.file);
     invariant(program, `Project.discardDraft: file "${opts.file}" not found`);
-    this.transact(() => { program.draft = null; });
+    this.transact(() => {
+      program.draft = null;
+    });
   }
 
   /**
@@ -1386,12 +1438,10 @@ export class Project extends PlexusModel<null> {
    * Mints a sandbox Run under the file's Draft (auto-creates the draft
    * if missing). Returns the Run + the finished promise.
    */
-  sandboxRun(opts: {
-    id: string;
-    file: string;
-    trace?: EvalTrace;
-    resolver?: RequireResolver;
-  }): { run: Run; finished: Promise<unknown> } {
+  sandboxRun(opts: { id: string; file: string; trace?: EvalTrace; resolver?: RequireResolver }): {
+    run: Run;
+    finished: Promise<unknown>;
+  } {
     const program = this.files.get(opts.file);
     invariant(program, `Project.sandboxRun: file "${opts.file}" not found`);
     const draft = program.draft ?? this.createDraft({ file: opts.file });
@@ -1427,18 +1477,13 @@ export class Project extends PlexusModel<null> {
     // Failure is already recorded on the Run by #runIntoRun; swallow here
     // so the void-call from invoke() doesn't produce an unhandled rejection.
     try {
-      await this.#runIntoRun(run, body + "\n" + this.#callForm(name, args), opts);
+      await this.#runIntoRun(run, `${body}\n${this.#callForm(name, args)}`, opts);
     } catch {
       /* recorded on run.output */
     }
   }
 
-  async #executeSandbox(
-    run: Run,
-    body: string,
-    trace?: EvalTrace,
-    resolver?: RequireResolver,
-  ): Promise<unknown> {
+  async #executeSandbox(run: Run, body: string, trace?: EvalTrace, resolver?: RequireResolver): Promise<unknown> {
     return this.#runIntoRun(run, body, { trace, resolver });
   }
 
@@ -1527,9 +1572,7 @@ export class Project extends PlexusModel<null> {
     });
 
     const body = version.source;
-    const source = run.hasInput
-      ? body + "\n" + this.#callForm(run.name, run.args)
-      : body;
+    const source = run.hasInput ? `${body}\n${this.#callForm(run.name, run.args)}` : body;
     // Replay every `(require)` at the Run's pinned version-set, so a transitive
     // library is read at the bytes the original saw. An empty set (a Run minted
     // before A7, or one with no captured files) falls back to the default loader
@@ -1582,10 +1625,7 @@ export class Project extends PlexusModel<null> {
     const program = this.files.get(opts.file);
     invariant(program, `Project.sandboxRunTraced: file "${opts.file}" not found`);
     const draft = this.editDraftSource({ file: opts.file, source: opts.source });
-    invariant(
-      !draft.sandbox.has(opts.id),
-      `Project.sandboxRunTraced: id "${opts.id}" already exists`,
-    );
+    invariant(!draft.sandbox.has(opts.id), `Project.sandboxRunTraced: id "${opts.id}" already exists`);
 
     const run = new Run();
     this.transact(() => {
@@ -1629,7 +1669,7 @@ export class Project extends PlexusModel<null> {
 
   #callForm(name: string, args: readonly unknown[]): string {
     const argExprs = args.map((a) => `(json/parse ${JSON.stringify(JSON.stringify(a))})`);
-    return `(${name}${argExprs.length ? " " + argExprs.join(" ") : ""})`;
+    return `(${name}${argExprs.length > 0 ? ` ${argExprs.join(" ")}` : ""})`;
   }
 
   /**
@@ -1774,7 +1814,7 @@ export class Project extends PlexusModel<null> {
  * runtime (instead of forcing every program to `(require "_lib.scm")`)
  * keeps short programs short and makes the DSL feel native.
  */
-export const BUILTIN_PREAMBLE =`
+export const BUILTIN_PREAMBLE = `
 ;; ── numeric helpers ────────────────────────────────────────────────
 ;; (range 3) → (0 1 2)
 (define (range n)
