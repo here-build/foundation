@@ -657,53 +657,57 @@ export function buildArrivalEnv(opts: {
   // assembleEnvSync — behavior-identical to inlined registration, but routed through the capability-
   // DAG engine. P2 splits this `arrival/legacy-core` pack into real packs (infer/mcp/data/schema/…).
   const base = sandboxedEnv.inherit(opts.name);
-  const legacyCorePack: EnvPack<typeof base> = { name: "arrival/legacy-core", apply: (env) => {
-  // Every (infer …) yields a list to scheme; the resolver returns the raw value.
+  // (infer …) yields a list to scheme; the resolver returns the raw value. Hoisted to function
+  // scope so the inference packs carved out of legacy-core can share it.
   const list = (v: unknown): unknown => (Array.isArray(v) ? v : [v]);
 
-  env.defineRosetta("infer", {
-    withContext: true,
-    options: { provenancePoint: true },
-    fn: async (ctx, model, prompt, schema, cacheKey) => {
-      const { name, middleware, params } = asLlmModel(model);
-      const honest = () =>
-        opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey), undefined, params);
-      const out = await inferThroughChain(honest, middleware, String(prompt), {});
-      if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
-      return list(out);
-    },
-  });
-  env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)), type: "(s: SStr): unknown" });
-  // `(string-dedent s)` — strip the common leading indentation plus the leading/trailing
-  // blank line from a multi-line literal, so an in-scheme BRIEF / prompt can be written as a
-  // naturally-indented block in the .scm artifact yet emit flush-left text. Wraps the `dedent`
-  // npm package. Pure string→string, no host effect — the readable replacement for hand-split
-  // `(string-append "…" "…")` ladders.
-  env.defineRosetta("string-dedent", { fn: (s: unknown) => dedent(String(s)), type: "(s: SStr): SStr" });
-  env.defineRosetta("template/handlebars", {
-    fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
-    type: "(source: SStr, args: unknown): SStr",
-  });
-  env.defineRosetta("infer/chat", {
-    withContext: true,
-    options: { provenancePoint: true },
-    fn: async (ctx, model, messages, schema, cacheKey) => {
-      const { name, middleware, params } = asLlmModel(model);
-      const prompt = canonicalizeMessages(messages);
-      const honest = () => opts.infer(ctx, name, prompt, schemaSlot(schema), nullable(cacheKey), undefined, params);
-      const out = await inferThroughChain(honest, middleware, prompt, {});
-      if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
-      return list(out);
-    },
-  });
-  // Reflective budget: `(infer/spent)` folds over the run's OWN prior inference
-  // costs (reference USD, fresh calls only — cache hits are free); `(infer/calls)`
-  // counts them. NOT provenance points — they read the run's history, they don't
-  // produce an inference. Inert (→ 0) when no accumulator is bound. The racy-read
-  // lint flags these reads inside a parallel HOF arm, where the fold is meaningless
-  // (see `racy-read-lint.ts`); here we just vend the value.
-  env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0, type: "(): SNum" });
-  env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0, type: "(): SNum" });
+  // (P2) Inference verbs (infer, infer/chat) — armed by opts.infer.
+  const inferPack: EnvPack<typeof base> = { name: "arrival/infer", config: opts.infer, apply: (env) => {
+    env.defineRosetta("infer", {
+      withContext: true,
+      options: { provenancePoint: true },
+      fn: async (ctx, model, prompt, schema, cacheKey) => {
+        const { name, middleware, params } = asLlmModel(model);
+        const honest = () =>
+          opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey), undefined, params);
+        const out = await inferThroughChain(honest, middleware, String(prompt), {});
+        if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
+        return list(out);
+      },
+    });
+    env.defineRosetta("infer/chat", {
+      withContext: true,
+      options: { provenancePoint: true },
+      fn: async (ctx, model, messages, schema, cacheKey) => {
+        const { name, middleware, params } = asLlmModel(model);
+        const prompt = canonicalizeMessages(messages);
+        const honest = () => opts.infer(ctx, name, prompt, schemaSlot(schema), nullable(cacheKey), undefined, params);
+        const out = await inferThroughChain(honest, middleware, prompt, {});
+        if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
+        return list(out);
+      },
+    });
+  } };
+  // (P2) Pure string/json/template utilities — no deps, no arming.
+  const utilsPack: EnvPack<typeof base> = { name: "arrival/utils", apply: (env) => {
+    env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)), type: "(s: SStr): unknown" });
+    env.defineRosetta("string-dedent", { fn: (s: unknown) => dedent(String(s)), type: "(s: SStr): SStr" });
+    env.defineRosetta("template/handlebars", {
+      fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
+      type: "(source: SStr, args: unknown): SStr",
+    });
+  } };
+  // (P2) Reflective inference-budget reads — armed by opts.spend (inert → 0 when absent).
+  const budgetPack: EnvPack<typeof base> = { name: "arrival/infer-budget", apply: (env) => {
+    env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0, type: "(): SNum" });
+    env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0, type: "(): SNum" });
+  } };
+
+  const legacyCorePack: EnvPack<typeof base> = { name: "arrival/legacy-core", apply: (env) => {
+
+  // (P2) infer + infer/chat + json/parse + string-dedent + template/handlebars + infer/spent +
+  // infer/calls are EXTRACTED to the arrival/infer, arrival/utils, and arrival/infer-budget packs
+  // (defined above, listed in the assembleEnvSync roots below).
   // Seal a `.prompt` PromptUnit into a provenance-point native proc. The output
   // schema is evaluated ONCE here (the `s/…` rosettas live on this env) and
   // slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)`
@@ -806,34 +810,8 @@ export function buildArrivalEnv(opts: {
   // packs — see the assembleEnvSync roots at the end of this function. Both keep the disarmed-default
   // posture (present-but-inert until the host arms `opts.data`/`opts.mcp`). They are standalone
   // (no deps, disjoint symbols); the dep-bearing agentic verb below still lives in legacy-core.
-  // `(infer/agentic/end-to-end model messages servers)` — the ONE explicit agentic verb
-  // (V's framing: run the loop end-to-end, return the FINAL answer; a single `(infer …)`
-  // never carries tool calls). `servers` is a list of `(mcp …)` handles. We list their
-  // tools once (→ the model's tool set + toolName→server routing), then drive the JS loop:
-  // each turn infers WITH the tools (W1 returns an InferString carrying `__toolCalls__`),
-  // each tool call dispatches across the SAME mcp resolver (middleware [C3] + server tape),
-  // and the loop finalizes on a no-tool turn. The whole run is ONE provenance node — the
-  // per-turn inferences receive `undefined` ctx so they record as effects WITHOUT
-  // re-binding this node's trace; the trajectory rides the final InferString as
-  // external-only `chunks`.
-  const mcpResolve = opts.mcp ?? inertMcpResolver;
-  env.defineRosetta("infer/agentic/end-to-end", {
-    withContext: true,
-    options: { provenancePoint: true },
-    fn: async (ctx, model, messages, servers) => {
-      // `servers` are tool sources → mcp entities only (an (llm …) is a model, not a server).
-      const serverVals = (Array.isArray(servers) ? servers : [servers])
-        .filter(isDerivableEntity)
-        .filter((s) => s.kind === "mcp");
-      // The loop, dispatch, break-handling + trajectory all live in the shared
-      // `runAgenticInfer` (reused by the `.prompt mcp:` proc). `model` is passed RAW so an
-      // (llm …) entity's observe-only middleware runs per turn; `list` wraps the final
-      // InferString the same way `(infer …)` wraps its value.
-      return list(
-        await runAgenticInfer(opts.infer, mcpResolve, ctx, model, parseSchemeChatMessages(messages), serverVals),
-      );
-    },
-  });
+  // (P2) infer/agentic/end-to-end is EXTRACTED to the arrival/infer-agentic pack (deps: arrival/infer
+  // + arrival/mcp-effects — the first real dep edge in the live assembly), defined near the roots below.
   // `(declare/expose …)` — the sealed-skill registration form. Reuses the same
   // `buildDict` keyword folder as `dict`/the `.prompt` proc so `:input`/`:output`/
   // `:handler` resolve identically; the host's `onExpose` sink receives the typed
@@ -874,7 +852,37 @@ export function buildArrivalEnv(opts: {
     config: opts.mcp,
     apply: (env) => { defineMcpRosettas(env, opts.mcp ?? inertMcpResolver); env.set("mcp/break", MCP_BREAK); },
   };
-  return assembleEnvSync(base, [dataPack, mcpPack, legacyCorePack]).env;
+  // (P2) The first DEP-BEARING pack: agentic inference deps BOTH infer and mcp. C3 orders
+  // inferPack + mcpPack before it in the live assembly (the engine's DAG resolution in the real path).
+  const agenticPack: EnvPack<typeof base> = {
+    name: "arrival/infer-agentic",
+    deps: [inferPack, mcpPack],
+    config: opts.infer,
+    apply: (env) => {
+      const mcpResolve = opts.mcp ?? inertMcpResolver;
+      env.defineRosetta("infer/agentic/end-to-end", {
+        withContext: true,
+        options: { provenancePoint: true },
+        fn: async (ctx, model, messages, servers) => {
+          const serverVals = (Array.isArray(servers) ? servers : [servers])
+            .filter(isDerivableEntity)
+            .filter((s) => s.kind === "mcp");
+          return list(
+            await runAgenticInfer(opts.infer, mcpResolve, ctx, model, parseSchemeChatMessages(messages), serverVals),
+          );
+        },
+      });
+    },
+  };
+  // legacy-core applies LAST (lowest precedence) so any symbol it still registers is shadowed by an
+  // extracted pack — though the extracted symbols no longer appear in legacy-core, so there is no clash.
+  // Root order is C3-consistent: a dependent (agenticPack) must precede its deps (inferPack, mcpPack)
+  // — listing a dep first would contradict the dependent's linearization and throw
+  // AssembleLinearizationError. Symbols are disjoint, so precedence is otherwise immaterial.
+  return assembleEnvSync(
+    base,
+    [utilsPack, budgetPack, dataPack, agenticPack, inferPack, mcpPack, legacyCorePack],
+  ).env;
 }
 
 /**
