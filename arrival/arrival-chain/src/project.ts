@@ -766,17 +766,22 @@ function makeCompileInferUnit(
   };
 }
 
-export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sandboxedEnv.inherit> {
-  // P1 (env-pack seam): the entire legacy registration below is ONE pack applied to the base via
-  // assembleEnvSync — behavior-identical to inlined registration, but routed through the capability-
-  // DAG engine. P2 splits this `arrival/loader-core` pack into real packs (infer/mcp/data/schema/…).
-  const base = sandboxedEnv.inherit(opts.name);
-  // (infer …) yields a list to scheme; the resolver returns the raw value. Hoisted to function
-  // scope so the inference packs carved out of loader-core can share it.
-  const list = (v: unknown): unknown => (Array.isArray(v) ? v : [v]);
+/** The arrival env handle — a sandbox-inherited Environment the packs contribute rosettas to. */
+export type ArrivalEnv = ReturnType<typeof sandboxedEnv.inherit>;
 
-  // (P2) Inference verbs (infer, infer/chat) — armed by opts.infer.
-  const inferPack: EnvPack<typeof base> = {
+/** `(infer …)` yields a LIST to scheme (the resolver returns the raw value); shared by every
+ *  inference pack so the scheme-facing arity is identical across infer / infer/chat / agentic. */
+const inferList = (v: unknown): unknown => (Array.isArray(v) ? v : [v]);
+
+// ─── Atomic capability packs (P5) ────────────────────────────────────────────
+// Each pack is a module-level factory over `opts`: a named, independently-composable contribution to
+// an ArrivalEnv. `buildArrivalEnv` assembles the default root-set (`arrivalPacks`); a capability-scoped
+// consumer assembles a SUBSET (e.g. just `[arrivalUtilsPack()]` for a pure-compute sandbox with no
+// infer/effects). `config` carries host arming so divergent-config dedup is real.
+
+/** Inference verbs (`infer`, `infer/chat`) — armed by `opts.infer`. */
+export function arrivalInferPack(opts: Pick<BuildArrivalEnvOpts, "infer">): EnvPack<ArrivalEnv> {
+  return {
     name: "arrival/infer",
     config: opts.infer,
     apply: (env) => {
@@ -789,7 +794,7 @@ export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sa
             opts.infer(ctx, name, String(prompt), schemaSlot(schema), nullable(cacheKey), undefined, params);
           const out = await inferThroughChain(honest, middleware, String(prompt), {});
           if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
-          return list(out);
+          return inferList(out);
         },
       });
       env.defineRosetta("infer/chat", {
@@ -801,13 +806,16 @@ export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sa
           const honest = () => opts.infer(ctx, name, prompt, schemaSlot(schema), nullable(cacheKey), undefined, params);
           const out = await inferThroughChain(honest, middleware, prompt, {});
           if (isMcpBreak(out)) throw new Error(BREAK_ON_SINGLE_INFER);
-          return list(out);
+          return inferList(out);
         },
       });
     },
   };
-  // (P2) Pure string/json/template utilities — no deps, no arming.
-  const utilsPack: EnvPack<typeof base> = {
+}
+
+/** Pure string/json/template utilities — no deps, no arming. */
+export function arrivalUtilsPack(): EnvPack<ArrivalEnv> {
+  return {
     name: "arrival/utils",
     apply: (env) => {
       env.defineRosetta("json/parse", { fn: (s: unknown) => JSON.parse(String(s)), type: "(s: SStr): unknown" });
@@ -818,33 +826,97 @@ export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sa
       });
     },
   };
-  // (P2) Reflective inference-budget reads — armed by opts.spend (inert → 0 when absent).
-  const budgetPack: EnvPack<typeof base> = {
+}
+
+/** Reflective inference-budget reads — armed by `opts.spend` (inert → 0 when absent). */
+export function arrivalBudgetPack(opts: Pick<BuildArrivalEnvOpts, "spend">): EnvPack<ArrivalEnv> {
+  return {
     name: "arrival/infer-budget",
     apply: (env) => {
       env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0, type: "(): SNum" });
       env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0, type: "(): SNum" });
     },
   };
+}
 
-  // arrival/loader-core: the irreducible plumbing left after P2 — compileInferUnit (.prompt sealer)
-  // + import/require loader wiring. NOT a capability; the env's core. Applies last (lowest precedence).
-  const loaderCorePack: EnvPack<typeof base> = {
+/** Data-effect verbs (`http/*`, `sql/query`) — INERT until the host arms `opts.data`. */
+export function arrivalDataPack(opts: Pick<BuildArrivalEnvOpts, "data">): EnvPack<ArrivalEnv> {
+  return {
+    name: "arrival/data-effects",
+    config: opts.data,
+    apply: (env) => {
+      defineDataEffectRosettas(env, opts.data ?? inertDataResolver);
+    },
+  };
+}
+
+/** MCP dispatch verbs (`mcp/call`, `mcp/list`, `mcp/break`) — INERT until the host arms `opts.mcp`. */
+export function arrivalMcpPack(opts: Pick<BuildArrivalEnvOpts, "mcp">): EnvPack<ArrivalEnv> {
+  return {
+    name: "arrival/mcp-effects",
+    config: opts.mcp,
+    apply: (env) => {
+      defineMcpRosettas(env, opts.mcp ?? inertMcpResolver);
+      env.set("mcp/break", MCP_BREAK);
+    },
+  };
+}
+
+/** The superpowered-define family — `declare/expose` + `define/overridable` + approval verbs. One
+ *  conceptual capability (the public-surface declaration family), so one pack. */
+export function arrivalSuperDefinePack(
+  opts: Pick<
+    BuildArrivalEnvOpts,
+    "onExpose" | "onOverridable" | "resolveOverride" | "onApprovalRequest" | "resolveApproval"
+  >,
+): EnvPack<ArrivalEnv> {
+  return {
+    name: "arrival/superdefine",
+    apply: (env) => {
+      defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose });
+      defineOverridableRosetta({ env, onOverridable: opts.onOverridable, resolveOverride: opts.resolveOverride });
+      defineApprovalRosetta({ env, onApprovalRequest: opts.onApprovalRequest, resolveApproval: opts.resolveApproval });
+    },
+  };
+}
+
+/** Agentic inference (`infer/agentic/end-to-end`) — the first DEP-BEARING pack: deps BOTH infer and
+ *  mcp, so C3 orders them before it. The caller passes the SAME pack instances it lists as roots. */
+export function arrivalAgenticPack(
+  opts: Pick<BuildArrivalEnvOpts, "infer" | "mcp">,
+  deps: readonly EnvPack<ArrivalEnv>[],
+): EnvPack<ArrivalEnv> {
+  return {
+    name: "arrival/infer-agentic",
+    deps,
+    config: opts.infer,
+    apply: (env) => {
+      const mcpResolve = opts.mcp ?? inertMcpResolver;
+      env.defineRosetta("infer/agentic/end-to-end", {
+        withContext: true,
+        options: { provenancePoint: true },
+        fn: async (ctx, model, messages, servers) => {
+          const serverVals = (Array.isArray(servers) ? servers : [servers])
+            .filter(isDerivableEntity)
+            .filter((s) => s.kind === "mcp");
+          return inferList(
+            await runAgenticInfer(opts.infer, mcpResolve, ctx, model, parseSchemeChatMessages(messages), serverVals),
+          );
+        },
+      });
+    },
+  };
+}
+
+/** The irreducible loader/prompt core — `.prompt` sealer + `import`/`require` + (when armed)
+ *  `require/extension`. NOT a capability the way the others are; the env's plumbing floor. Applies
+ *  LAST (lowest precedence), so anything an extracted pack registers shadows it (in practice their
+ *  symbols are disjoint, so there is no clash). */
+export function arrivalLoaderCorePack(opts: BuildArrivalEnvOpts): EnvPack<ArrivalEnv> {
+  return {
     name: "arrival/loader-core",
     apply: (env) => {
-      // (P2) infer + infer/chat + json/parse + string-dedent + template/handlebars + infer/spent +
-      // infer/calls are EXTRACTED to the arrival/infer, arrival/utils, and arrival/infer-budget packs
-      // (defined above, listed in the assembleEnvSync roots below). The `.prompt` sealer is module-level
-      // (`makeCompileInferUnit`) so this pack's apply stays shallow.
       const compileInferUnit = makeCompileInferUnit(env, opts);
-      // (P2) The data-effect verbs, MCP dispatch verbs (incl. mcp/break), and infer/agentic/end-to-end
-      // were EXTRACTED from this function body to the arrival/data-effects, arrival/mcp-effects, and
-      // arrival/infer-agentic packs (defined near the assembleEnvSync roots below). The effect verbs keep
-      // the disarmed-default posture (inert until the host arms opts.data/opts.mcp); infer-agentic deps
-      // [infer, mcp] — the first real dep edge in the live assembly.
-      // (P2) The superpowered-define family (declare/expose, define/exposed, define/overridable) and the
-      // approval verbs are EXTRACTED to the arrival/superdefine pack (see roots below). What remains in
-      // this pack is the irreducible loader/prompt core: compileInferUnit + import/require wiring.
       defineImportRosetta({ env, loader: opts.loader });
       const clearRequireCache = defineRequireRosetta({
         env,
@@ -856,8 +928,8 @@ export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sa
       opts.onRequireCache?.(clearRequireCache);
       // (P4) `(require/extension :name)` — host-armed pack registry, applied onto THIS live env via a
       // runtime assembler (idempotent + single-flight). Registered only when the host arms a registry;
-      // absent ⇒ the verb is unbound (calling it errors like any unarmed capability). The assembler is
-      // handed to the lifecycle owner so its runtime disposers fold into env teardown.
+      // absent ⇒ the verb is unbound. The assembler is handed to the lifecycle owner so its runtime
+      // disposers fold into env teardown.
       if (opts.extensionRegistry) {
         const assembler = createRuntimeAssembler(env);
         defineRequireExtensionRosetta({ env, registry: opts.extensionRegistry, assembler });
@@ -865,70 +937,36 @@ export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sa
       }
     },
   };
-  // (P2) Standalone capability packs carved out of loader-core. `config` is the host-injected
-  // arming (the resolver) — two same-name packs armed differently in one assembly would conflict.
-  // No deps, disjoint symbols ⇒ C3 order among them is immaterial; loader-core applies last.
-  const dataPack: EnvPack<typeof base> = {
-    name: "arrival/data-effects",
-    config: opts.data,
-    apply: (env) => {
-      defineDataEffectRosettas(env, opts.data ?? inertDataResolver);
-    },
-  };
-  const mcpPack: EnvPack<typeof base> = {
-    name: "arrival/mcp-effects",
-    config: opts.mcp,
-    apply: (env) => {
-      defineMcpRosettas(env, opts.mcp ?? inertMcpResolver);
-      env.set("mcp/break", MCP_BREAK);
-    },
-  };
-  // (P2) Superpowered-define family + approval verbs — no deps, registers via the host sinks.
-  const superDefinePack: EnvPack<typeof base> = {
-    name: "arrival/superdefine",
-    apply: (env) => {
-      defineExposeRosetta({ env, buildDict, onExpose: opts.onExpose });
-      defineOverridableRosetta({ env, onOverridable: opts.onOverridable, resolveOverride: opts.resolveOverride });
-      defineApprovalRosetta({ env, onApprovalRequest: opts.onApprovalRequest, resolveApproval: opts.resolveApproval });
-    },
-  };
-  // (P2) The first DEP-BEARING pack: agentic inference deps BOTH infer and mcp. C3 orders
-  // inferPack + mcpPack before it in the live assembly (the engine's DAG resolution in the real path).
-  const agenticPack: EnvPack<typeof base> = {
-    name: "arrival/infer-agentic",
-    deps: [inferPack, mcpPack],
-    config: opts.infer,
-    apply: (env) => {
-      const mcpResolve = opts.mcp ?? inertMcpResolver;
-      env.defineRosetta("infer/agentic/end-to-end", {
-        withContext: true,
-        options: { provenancePoint: true },
-        fn: async (ctx, model, messages, servers) => {
-          const serverVals = (Array.isArray(servers) ? servers : [servers])
-            .filter(isDerivableEntity)
-            .filter((s) => s.kind === "mcp");
-          return list(
-            await runAgenticInfer(opts.infer, mcpResolve, ctx, model, parseSchemeChatMessages(messages), serverVals),
-          );
-        },
-      });
-    },
-  };
-  // loader-core applies LAST (lowest precedence) so any symbol it still registers is shadowed by an
-  // extracted pack — though the extracted symbols no longer appear in loader-core, so there is no clash.
-  // Root order is C3-consistent: a dependent (agenticPack) must precede its deps (inferPack, mcpPack)
-  // — listing a dep first would contradict the dependent's linearization and throw
-  // AssembleLinearizationError. Symbols are disjoint, so precedence is otherwise immaterial.
-  return assembleEnvSync(base, [
-    utilsPack,
-    budgetPack,
-    dataPack,
-    superDefinePack,
-    agenticPack,
-    inferPack,
-    mcpPack,
-    loaderCorePack,
-  ]).env;
+}
+
+/**
+ * The default arrival capability root-set. Builds each atomic pack from `opts` and wires the one
+ * dep edge (agentic → infer, mcp). Root order is C3-consistent: a dependent (agentic) precedes its
+ * deps in the list, or C3 throws `AssembleLinearizationError`. A capability-scoped consumer can
+ * instead hand-pick a subset of these factories and assemble that.
+ */
+export function arrivalPacks(opts: BuildArrivalEnvOpts): EnvPack<ArrivalEnv>[] {
+  const infer = arrivalInferPack(opts);
+  const mcp = arrivalMcpPack(opts);
+  const agentic = arrivalAgenticPack(opts, [infer, mcp]);
+  return [
+    arrivalUtilsPack(),
+    arrivalBudgetPack(opts),
+    arrivalDataPack(opts),
+    arrivalSuperDefinePack(opts),
+    agentic,
+    infer,
+    mcp,
+    arrivalLoaderCorePack(opts),
+  ];
+}
+
+export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sandboxedEnv.inherit> {
+  // The env = the sandbox base (SAFE_BUILTINS, lexically inherited) assembled with the arrival
+  // capability packs via the env-pack capability-DAG engine. Capability scoping is `arrivalPacks`:
+  // swap it for a reduced root-set to build a narrower env.
+  const base = sandboxedEnv.inherit(opts.name);
+  return assembleEnvSync(base, arrivalPacks(opts)).env;
 }
 
 /**

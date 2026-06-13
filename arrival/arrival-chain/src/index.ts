@@ -82,7 +82,26 @@ export { lipsToJs } from "@here.build/arrival-scheme";
 // consumers like sift can brand entities with the correct boundary symbol, not the forgeable hack).
 export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
-export { Project, buildArrivalEnv, BUILTIN_PREAMBLE, type BuildArrivalEnvOpts, type InferFn } from "./project.js";
+export {
+  Project,
+  buildArrivalEnv,
+  BUILTIN_PREAMBLE,
+  type BuildArrivalEnvOpts,
+  type InferFn,
+  // Atomic capability packs (P5): the composable arrival capability vocabulary. `arrivalPacks(opts)`
+  // is the default root-set buildArrivalEnv assembles; the individual factories let a consumer
+  // assemble a capability-scoped subset.
+  type ArrivalEnv,
+  arrivalPacks,
+  arrivalInferPack,
+  arrivalUtilsPack,
+  arrivalBudgetPack,
+  arrivalDataPack,
+  arrivalMcpPack,
+  arrivalSuperDefinePack,
+  arrivalAgenticPack,
+  arrivalLoaderCorePack,
+} from "./project.js";
 // Env-pack capability-DAG assembly (P0–P4): the pack type + the construction/runtime assemblers, so a
 // host can author extension packs and arm a `(require/extension :name)` registry.
 export {
