@@ -26,6 +26,6 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/*", "dist/*", "**/*.config.*"],
+    ignores: ["node_modules/*", "dist/*", "**/*.config.*", "src/**/fixtures/**", "**/*.js"],
   },
 ];

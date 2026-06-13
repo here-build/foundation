@@ -39,8 +39,8 @@
  *
  * ── where the pure model lives ───────────────────────────────────────────────
  * The render-ready value types (`FlowGraph*`) and the causal cones moved to
- * `flow-graph.ts` — an engine-free leaf the `@here.build/arrival-chain/flow`
- * subpath exposes (a UI renders the graph without the interpreter). They're
+ * `flow-graph.ts` — an engine-free leaf (a UI renders the graph without the
+ * interpreter). They're
  * re-exported here so the barrel + existing importers keep the same surface;
  * `traceToFlowGraph` (the EvalTrace producer) stays here, where the engine is.
  */

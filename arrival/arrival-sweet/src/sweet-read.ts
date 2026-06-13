@@ -57,8 +57,9 @@ const isOp = (w: string): boolean => w in GLYPH_PREC;
 const atom2 = (w: string): Node => ({ atom: w });
 /** `{a ?? b}` → (if a a b); right-folds a chain `{a ?? b ?? c}` → (if a a (if b b c)). */
 function coalesceNode(ops: Node[]): Node {
-  let acc = ops.at(-1);
-  for (let i = ops.length - 2; i >= 0; i--) acc = { list: [atom2("if"), ops[i], ops[i], acc] };
+  // ops is always a non-empty `??` chain (≥1 operand) — `.at(-1)` is the seed.
+  let acc: Node = ops.at(-1)!;
+  for (let i = ops.length - 2; i >= 0; i--) acc = { list: [atom2("if"), ops[i]!, ops[i]!, acc] };
   return acc;
 }
 

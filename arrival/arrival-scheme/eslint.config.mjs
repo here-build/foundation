@@ -24,7 +24,7 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["**/__tests__/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
+          allowDefaultProject: ["src/__tests__/*.ts", "src/__benchmarks__/*.ts"],
         },
         tsconfigRootDir: dirname,
       },
@@ -81,6 +81,6 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/*", "dist/*", "**/*.config.*", "debug-*.ts", "lib/**"],
+    ignores: ["node_modules/*", "dist/*", "**/*.config.*", "debug-*.ts", "lib/**", "vendor/**", "src/__benchmarks__/**", "src/__tests__/**", "**/*.test.ts", "**/*.spec.ts"],
   },
 ];

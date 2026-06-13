@@ -1,13 +1,12 @@
 {
   "name": "@here.build/arrival-chain",
   "version": "0.1.0",
-  "description": "Distributed, content-addressed, write-once inference substrate built on Plexus + arrival-scheme",
+  "description": "Arrival orchestration core — the Project model, evaluator wiring, capability env-packs, loader/module system, effect membrane, and superpowered-define forms. Composes arrival-scheme + the arrival-inference runtime + arrival-provenance analysis.",
   "keywords": [
     "ai",
-    "inference",
-    "llm",
     "agent",
     "scheme",
+    "orchestration",
     "crdt",
     "plexus",
     "arrival"

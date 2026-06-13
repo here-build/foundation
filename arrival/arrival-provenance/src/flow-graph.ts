@@ -4,9 +4,9 @@
  * No eval engine: just the node/edge value types (`BoxType`/`EdgeKind` come in
  * type-only, so this leaf imports nothing at runtime) and the cone traversals
  * (pure over `edges`). The EvalTrace → graph PRODUCER (`traceToFlowGraph`) lives
- * in `trace-to-flow-graph.ts` and imports these; this leaf is what the
- * `@here.build/arrival-chain/flow` subpath surfaces — so a UI can render and
- * select over the graph without pulling the interpreter.
+ * in `trace-to-flow-graph.ts` and imports these; this leaf is the engine-free model
+ * `@here.build/arrival-provenance` surfaces — so a UI can render and select over the
+ * graph without pulling the interpreter.
  */
 import type { BoxType } from "./mdl-collapse.js";
 import type { EdgeKind } from "./statechart.js";

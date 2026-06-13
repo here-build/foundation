@@ -19,17 +19,17 @@ import type { ModelRouter } from "./registry.js";
  * warrant: a run is a pure function of the body, so a cached completion equals a
  * fresh call's.
  *
- * This lives in arrival-chain (not the OSS runner) so every host shares ONE plane:
+ * This lives in arrival-inference (not the OSS runner) so every host shares ONE plane:
  * the headless `evalBody` path, the browser's `POST /infer` SSE path, and the saas
  * Durable Object all resolve inference through the same single-flight cells. The
- * Node disk-cache implementation (`fileCache`) stays host-side; arrival-chain only
+ * Node disk-cache implementation (`fileCache`) stays host-side; this package only
  * owns the injectable `InferCache` contract + a `noopCache` default.
  */
 
 /** A persisted inference cache: content-keyed read/write of completed `Completion`s,
  *  for cross-restart replay. A miss — or any IO / parse error — resolves to
  *  `undefined`; a failed write is swallowed (the next run just re-infers). The Node
- *  file-backed implementation lives host-side; arrival-chain ships only the contract. */
+ *  file-backed implementation lives host-side; this package ships only the contract. */
 export interface InferCache {
   read(contentKey: string): Promise<Completion | undefined>;
   write(
