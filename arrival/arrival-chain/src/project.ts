@@ -571,7 +571,7 @@ async function runAgenticInfer(
  * the credentialed resolver. The verb BODIES (`http/get`, `sql/query`, …) are
  * registered by node A3 over the `data` capability resolved here.
  */
-export function buildArrivalEnv(opts: {
+export interface BuildArrivalEnvOpts {
   name: string;
   infer: InferFn;
   loader: Loader;
@@ -652,7 +652,106 @@ export function buildArrivalEnv(opts: {
    * auto-approve.
    */
   resolveApproval?: ResolveApproval;
-}): ReturnType<typeof sandboxedEnv.inherit> {
+}
+
+/**
+ * Seal a `.prompt` PromptUnit into a provenance-point native proc — module-level so the loader-core
+ * pack's `apply` stays shallow (the prompt-fn's inner thunks would otherwise nest >4 deep under the
+ * pack wrapper). The output schema is evaluated ONCE here (the `s/…` rosettas live on `env`) and
+ * slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)` folds the kwargs,
+ * renders its sections, and infers AT JS LEVEL — and because it's a `provenancePoint`, ITS OWN
+ * call-site invocation becomes the provenance point. So a `.prompt` traces as ONE node at the real
+ * `(run-x …)` site with the infer sealed inside it — no unwrapped line-1 `(infer/chat …)` lambda. The
+ * task it mints is byte-identical to the equivalent `infer/chat` (shared canonicalize + schemaSlot +
+ * nullable), so cache + replay are preserved.
+ */
+function makeCompileInferUnit(
+  env: ReturnType<typeof sandboxedEnv.inherit>,
+  opts: Pick<BuildArrivalEnvOpts, "infer" | "mcp">,
+): (unit: PromptUnit) => Promise<unknown> {
+  return async (unit: PromptUnit): Promise<unknown> => {
+    let schemaSlotStr: string | null = null;
+    if (unit.schemaSrc !== null) {
+      const [form] = await parse(unit.schemaSrc);
+      schemaSlotStr = schemaSlot(lipsToJs(await execExpr(form, { env })));
+    }
+    return createRosettaWrapper({
+      withContext: true,
+      options: { provenancePoint: true, argProvenance: true },
+      fn: async (ctx, key, ...kv: unknown[]) => {
+        const folded = buildDict(kv);
+        // `:meta` is the inference-CONFIG channel (model override, future temp/
+        // maxTokens) — kept separate from the template-INPUT namespace, so a
+        // `.prompt` can still have any template var name. Strip it from `inputs`
+        // before rendering; it's plumbing, not a hole the template fills.
+        const meta = isPlainRecord(folded.meta) ? folded.meta : {};
+        const { meta: _metaSlot, ...inputs } = folded;
+        // Model = materialization: call-time `meta.model` wins, else the
+        // frontmatter default, else a hard error (nothing to route to). `meta.model`
+        // may be a bare string OR an `(llm …)` entity (so a program can `(define ideator
+        // (llm "id"))` and pass `:meta (dict :model ideator)`) — `asLlmModel` extracts the
+        // routing name and any `llm/with` content params either way.
+        const metaModel = meta.model === undefined ? null : asLlmModel(meta.model);
+        const model = metaModel ? metaModel.name : unit.model;
+        const metaParams = metaModel?.params;
+        invariant(
+          model !== null,
+          () =>
+            `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
+        );
+        // ctx.argProvenance aligns to the scheme args [key, ...kv]; drop the
+        // leading `key` slot so it lines up with `kv` for buildInputsProvenance.
+        // `meta` is config, not an input, so drop it from the per-field provenance.
+        const argProv = (ctx as { argProvenance?: ReadonlySet<number>[] } | undefined)?.argProvenance;
+        const inputsProvenanceAll = argProv ? buildInputsProvenance(kv, argProv.slice(1)) : undefined;
+        const inputsProvenance = inputsProvenanceAll
+          ? Object.fromEntries(Object.entries(inputsProvenanceAll).filter(([k]) => k !== "meta"))
+          : undefined;
+        // Bind the node's story (file, model, the structured inputs) to its
+        // provenance node NOW, before the inference runs. It's all known at call
+        // time, so the card renders its header + init fields WHILE the answer is
+        // still streaming — not only once it resolves. `result` flows on as the
+        // ordinary value. Same setMetadata-vs-POJO story as `markProvenancePoint`:
+        // a real Invocation is a MobX observable (action), a plain test ctx is a
+        // bare object.
+        const inv = (ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined)
+          ?.currentInvocation;
+        if (inv) {
+          const nodeMeta = {
+            kind: "prompt",
+            path: unit.path,
+            model,
+            inputs,
+            inputsProvenance,
+            reads: templateReads(unit.sections),
+          };
+          if (typeof inv.setMetadata === "function") inv.setMetadata(nodeMeta);
+          else inv.metadata = nodeMeta;
+        }
+        const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
+        // `mcp:` frontmatter ⇒ an AGENTIC prompt: list those servers' tools and loop
+        // infer↔dispatch through the shared engine, returning the final answer. (Schema'd
+        // agentic output isn't supported in v1 — error rather than silently drop the schema.)
+        if (unit.mcpServers) {
+          invariant(
+            schemaSlotStr === null,
+            () =>
+              `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
+          );
+          const servers = unit.mcpServers.map((name) => new DerivableEntity("mcp", name));
+          const chatMessages: ChatMessage[] = messages.map(([role, content]) => ({
+            role: String(role) as ChatMessage["role"],
+            content: String(content),
+          }));
+          return runAgenticInfer(opts.infer, opts.mcp ?? inertMcpResolver, ctx, model, chatMessages, servers);
+        }
+        return opts.infer(ctx, model, canonicalizeMessages(messages), schemaSlotStr, nullable(key), undefined, metaParams);
+      },
+    });
+  };
+}
+
+export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sandboxedEnv.inherit> {
   // P1 (env-pack seam): the entire legacy registration below is ONE pack applied to the base via
   // assembleEnvSync — behavior-identical to inlined registration, but routed through the capability-
   // DAG engine. P2 splits this `arrival/loader-core` pack into real packs (infer/mcp/data/schema/…).
@@ -720,105 +819,9 @@ export function buildArrivalEnv(opts: {
     apply: (env) => {
       // (P2) infer + infer/chat + json/parse + string-dedent + template/handlebars + infer/spent +
       // infer/calls are EXTRACTED to the arrival/infer, arrival/utils, and arrival/infer-budget packs
-      // (defined above, listed in the assembleEnvSync roots below).
-      // Seal a `.prompt` PromptUnit into a provenance-point native proc. The output
-      // schema is evaluated ONCE here (the `s/…` rosettas live on this env) and
-      // slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)`
-      // folds the kwargs, renders its sections, and infers AT JS LEVEL — and because
-      // it's a `provenancePoint`, ITS OWN call-site invocation becomes the provenance
-      // point. So a `.prompt` traces as ONE node at the real `(run-x …)` site with
-      // the infer sealed inside it — no unwrapped line-1 `(infer/chat …)` lambda. The
-      // task it mints is byte-identical to the equivalent `infer/chat` (shared
-      // canonicalize + schemaSlot + nullable), so cache + replay are preserved.
-      const compileInferUnit = async (unit: PromptUnit): Promise<unknown> => {
-        let schemaSlotStr: string | null = null;
-        if (unit.schemaSrc !== null) {
-          const [form] = await parse(unit.schemaSrc);
-          schemaSlotStr = schemaSlot(lipsToJs(await execExpr(form, { env })));
-        }
-        return createRosettaWrapper({
-          withContext: true,
-          options: { provenancePoint: true, argProvenance: true },
-          fn: async (ctx, key, ...kv: unknown[]) => {
-            const folded = buildDict(kv);
-            // `:meta` is the inference-CONFIG channel (model override, future temp/
-            // maxTokens) — kept separate from the template-INPUT namespace, so a
-            // `.prompt` can still have any template var name. Strip it from `inputs`
-            // before rendering; it's plumbing, not a hole the template fills.
-            const meta = isPlainRecord(folded.meta) ? folded.meta : {};
-            const { meta: _metaSlot, ...inputs } = folded;
-            // Model = materialization: call-time `meta.model` wins, else the
-            // frontmatter default, else a hard error (nothing to route to). `meta.model`
-            // may be a bare string OR an `(llm …)` entity (so a program can `(define ideator
-            // (llm "id"))` and pass `:meta (dict :model ideator)`) — `asLlmModel` extracts the
-            // routing name and any `llm/with` content params either way.
-            const metaModel = meta.model === undefined ? null : asLlmModel(meta.model);
-            const model = metaModel ? metaModel.name : unit.model;
-            const metaParams = metaModel?.params;
-            invariant(
-              model !== null,
-              () =>
-                `.prompt: "${unit.path}" has no model — set frontmatter \`model:\` or pass \`:meta (dict :model "…")\` at the call site`,
-            );
-            // ctx.argProvenance aligns to the scheme args [key, ...kv]; drop the
-            // leading `key` slot so it lines up with `kv` for buildInputsProvenance.
-            // `meta` is config, not an input, so drop it from the per-field provenance.
-            const argProv = (ctx as { argProvenance?: ReadonlySet<number>[] } | undefined)?.argProvenance;
-            const inputsProvenanceAll = argProv ? buildInputsProvenance(kv, argProv.slice(1)) : undefined;
-            const inputsProvenance = inputsProvenanceAll
-              ? Object.fromEntries(Object.entries(inputsProvenanceAll).filter(([k]) => k !== "meta"))
-              : undefined;
-            // Bind the node's story (file, model, the structured inputs) to its
-            // provenance node NOW, before the inference runs. It's all known at call
-            // time, so the card renders its header + init fields WHILE the answer is
-            // still streaming — not only once it resolves. `result` flows on as the
-            // ordinary value. Same setMetadata-vs-POJO story as `markProvenancePoint`:
-            // a real Invocation is a MobX observable (action), a plain test ctx is a
-            // bare object.
-            const inv = (
-              ctx as { currentInvocation?: { setMetadata?(m: unknown): void; metadata?: unknown } } | undefined
-            )?.currentInvocation;
-            if (inv) {
-              const nodeMeta = {
-                kind: "prompt",
-                path: unit.path,
-                model,
-                inputs,
-                inputsProvenance,
-                reads: templateReads(unit.sections),
-              };
-              if (typeof inv.setMetadata === "function") inv.setMetadata(nodeMeta);
-              else inv.metadata = nodeMeta;
-            }
-            const messages = unit.sections.map((s) => [s.role, renderTemplateCall(s.source, [inputs])]);
-            // `mcp:` frontmatter ⇒ an AGENTIC prompt: list those servers' tools and loop
-            // infer↔dispatch through the shared engine, returning the final answer. (Schema'd
-            // agentic output isn't supported in v1 — error rather than silently drop the schema.)
-            if (unit.mcpServers) {
-              invariant(
-                schemaSlotStr === null,
-                () =>
-                  `.prompt: "${unit.path}" combines \`mcp:\` (agentic) with \`output:\` (schema) — structured agentic output is not supported in v1`,
-              );
-              const servers = unit.mcpServers.map((name) => new DerivableEntity("mcp", name));
-              const chatMessages: ChatMessage[] = messages.map(([role, content]) => ({
-                role: String(role) as ChatMessage["role"],
-                content: String(content),
-              }));
-              return runAgenticInfer(opts.infer, opts.mcp ?? inertMcpResolver, ctx, model, chatMessages, servers);
-            }
-            return opts.infer(
-              ctx,
-              model,
-              canonicalizeMessages(messages),
-              schemaSlotStr,
-              nullable(key),
-              undefined,
-              metaParams,
-            );
-          },
-        });
-      };
+      // (defined above, listed in the assembleEnvSync roots below). The `.prompt` sealer is module-level
+      // (`makeCompileInferUnit`) so this pack's apply stays shallow.
+      const compileInferUnit = makeCompileInferUnit(env, opts);
       // (P2) The data-effect verbs, MCP dispatch verbs (incl. mcp/break), and infer/agentic/end-to-end
       // were EXTRACTED from this function body to the arrival/data-effects, arrival/mcp-effects, and
       // arrival/infer-agentic packs (defined near the assembleEnvSync roots below). The effect verbs keep
