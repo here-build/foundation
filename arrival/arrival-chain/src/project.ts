@@ -703,7 +703,9 @@ export function buildArrivalEnv(opts: {
     env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0, type: "(): SNum" });
   } };
 
-  const legacyCorePack: EnvPack<typeof base> = { name: "arrival/legacy-core", apply: (env) => {
+  // arrival/loader-core: the irreducible plumbing left after P2 — compileInferUnit (.prompt sealer)
+  // + import/require loader wiring. NOT a capability; the env's core. Applies last (lowest precedence).
+  const loaderCorePack: EnvPack<typeof base> = { name: "arrival/loader-core", apply: (env) => {
 
   // (P2) infer + infer/chat + json/parse + string-dedent + template/handlebars + infer/spent +
   // infer/calls are EXTRACTED to the arrival/infer, arrival/utils, and arrival/infer-budget packs
@@ -873,7 +875,7 @@ export function buildArrivalEnv(opts: {
   // AssembleLinearizationError. Symbols are disjoint, so precedence is otherwise immaterial.
   return assembleEnvSync(
     base,
-    [utilsPack, budgetPack, dataPack, superDefinePack, agenticPack, inferPack, mcpPack, legacyCorePack],
+    [utilsPack, budgetPack, dataPack, superDefinePack, agenticPack, inferPack, mcpPack, loaderCorePack],
   ).env;
 }
 
