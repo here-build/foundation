@@ -283,6 +283,7 @@ export { TraceRegionFold } from "./trace-region-fold.js";
 export { serializeTrace, loadTraceArtifact, TRACE_PROTOCOL_VERSION, type TraceArtifact } from "./trace-artifact.js";
 export { regionBoundaries, type RegionBoundary } from "./region-boundaries.js";
 export { buildSlice, writeForm, referencedSymbols, defineNameOf, lastTopLevelForm, resolveReadIds, type Slice } from "./slice.js";
+export { cellTriggers, formsTrigger, rootEffectEnv, EffectEnv, evalForm, PENETRATING_FORMS } from "./effect-analysis.js";
 export { buildUneval, type Uneval, type UnevalContainer } from "./uneval.js";
 export { inferTasksByScope } from "./infer-content.js";
 
