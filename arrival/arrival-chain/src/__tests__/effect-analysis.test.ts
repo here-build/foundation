@@ -75,6 +75,18 @@ describe("effect-analysis — cross-cell taint (option B: threaded env)", () => 
     await parseGenerator(`(define (ask q) (infer q))`); // not threaded
     expect(await triggers(`(ask "x")`)).toBe(false); // unknown symbol defaults pure
   });
+
+  it("temporal dead zone: a forward reference (helper defined in a LATER cell) does NOT trigger", async () => {
+    // The monotonic point: fold in DOCUMENT order. A cell calling `ask` BEFORE `ask` is defined
+    // sees an unbound symbol (its temporal dead zone) — running it top-to-bottom throws before
+    // reaching `infer`, so it must NOT show a button. The same name being latent in a *later*
+    // cell must not retroactively taint it (that was the non-monotonic bug).
+    const env = rootEffectEnv();
+    const callFirst = await parseGenerator(`(ask "early")`); // references ask before it exists
+    const defLater = await parseGenerator(`(define (ask q) (infer q))`);
+    expect(cellTriggers(callFirst, env)).toBe(false); // TDZ — unbound, no penetration
+    expect(cellTriggers(defLater, env)).toBe(false); // the define itself is pure
+  });
 });
 
 describe("effect-analysis — built-in HOF fn-arg latency", () => {
