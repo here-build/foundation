@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
+import { createInferStore } from "@here.build/arrival-inference";
 import { defineImport, makeProjectLoader } from "../loader.js";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 
 const newProject = () => {
   const project = ArrivalChain.bootstrap(new Project()).root;

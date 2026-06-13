@@ -9,10 +9,10 @@ import { describe, expect, it } from "vitest";
 import { autorun } from "mobx";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore, InferBinding } from "../infer-store.js";
-import type { ModelSpec } from "../model.js";
+import { createInferStore, InferBinding } from "@here.build/arrival-inference";
+import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 import { EvalTrace } from "../trace.js";
 
 // A backend whose completions stay pending until the test explicitly resolves

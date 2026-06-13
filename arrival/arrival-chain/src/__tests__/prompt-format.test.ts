@@ -6,10 +6,10 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-import { parseChatPrompt } from "../backends/_shared.js";
-import type { Completion, ModelSpec } from "../model.js";
+import { parseChatPrompt } from "@here.build/arrival-inference";
+import type { Completion, ModelSpec } from "@here.build/arrival-inference";
 import { runPipeline } from "../runner.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 
 const run = (files: Record<string, string>, complete: (s: ModelSpec) => Promise<Completion>) =>
   runPipeline({ files, entry: "main.scm", router: singletonRouter({ complete: vi.fn(complete) }) });

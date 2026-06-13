@@ -1,14 +1,14 @@
 // ── Core ─────────────────────────────────────────────────────────────
-export { type ModelBackend, type ModelSpec, type Completion, type TokenUsage, type DeltaSink, type NoticeSink, type StreamNotice, type ToolDescriptor, type ToolCall, type Chunk } from "./model.js";
-export { type ModelPrice, PRICE_MAP, priceFor, referenceCost, type ModelSpeed, SPEED_MAP, speedFor, effectiveCloudMs } from "./pricing.js";
+export { type ModelBackend, type ModelSpec, type Completion, type TokenUsage, type DeltaSink, type NoticeSink, type StreamNotice, type ToolDescriptor, type ToolCall, type Chunk } from "@here.build/arrival-inference";
+export { type ModelPrice, PRICE_MAP, priceFor, referenceCost, type ModelSpeed, SPEED_MAP, speedFor, effectiveCloudMs } from "@here.build/arrival-inference";
 export {
   type InferCost,
   type ProjectedCost,
   type ProjectedCostStrategy,
   uncachedSumStrategy,
-} from "./projected-cost.js";
+} from "@here.build/arrival-inference";
 export { type RunCost, runCostSummary, summarizeCosts, type TaskCost } from "./run-cost.js";
-export { RunSpend } from "./run-spend.js";
+export { RunSpend } from "@here.build/arrival-inference";
 export {
   lintRacyReads,
   lintRacyMcpCalls,
@@ -22,7 +22,7 @@ export {
   LayeredRouter,
   singletonRouter,
   emptyRouter,
-} from "./registry.js";
+} from "@here.build/arrival-inference";
 
 export {
   InferStore,
@@ -32,7 +32,7 @@ export {
   type InferCell,
   type InferCache,
   noopCache,
-} from "./infer-store.js";
+} from "@here.build/arrival-inference";
 
 export { Run, Hypothesis, RunResult, RunError, formatRunError, type RunStatus } from "./run.js";
 export { Draft } from "./draft.js";
@@ -165,7 +165,7 @@ export {
 } from "./mcp-effects.js";
 // The rich inference response — a string-transparent value carrying `reasoning` +
 // `chunks` as external-only side-data. See `infer-string.ts`.
-export { InferString } from "./infer-string.js";
+export { InferString } from "@here.build/arrival-inference";
 // The agentic-loop driver (the core of `infer/agentic/end-to-end`), exported so a host can
 // run a tool-using agent over its own infer + MCP dispatch without going through project.run.
 export {
@@ -174,7 +174,7 @@ export {
   type AgenticTurn,
   type AgenticDeps,
   type AgenticResult,
-} from "./agentic-loop.js";
+} from "@here.build/arrival-inference";
 export { ArrivalChain } from "./arrival-chain.js";
 // `runPipeline` (the Node/CLI top-to-bottom entry) is deliberately NOT in this
 // barrel: it lazy-imports yjs + y-websocket for the publish path, which the
@@ -326,7 +326,7 @@ export {
   type OpenAICompatBackendOptions,
   type CostFromUsage,
   type ParseDiag,
-} from "./backends/_shared.js";
+} from "@here.build/arrival-inference";
 // schema DSL → zod, routed through the single `tagToJsonSchema` lowering (no
 // parallel recursion). Lets the SaaS validate exposed-fn request bodies against
 // the same `(s/object …)` signature the inference path uses — wire schema and

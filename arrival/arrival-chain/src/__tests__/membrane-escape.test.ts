@@ -16,8 +16,8 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-import type { ModelSpec } from "../model.js";
-import { singletonRouter } from "../registry.js";
+import type { ModelSpec } from "@here.build/arrival-inference";
+import { singletonRouter } from "@here.build/arrival-inference";
 import { runPipeline } from "../runner.js";
 
 // A canary the host side knows but the sandbox must never see. Assembled so the

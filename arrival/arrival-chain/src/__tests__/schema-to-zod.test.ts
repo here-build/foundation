@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderSchema, tagToJsonSchema } from "../backends/_shared.js";
+import { renderSchema, tagToJsonSchema } from "@here.build/arrival-inference";
 import { schemaSlotToZod, schemaToZod } from "../schema-to-zod.js";
 
 /**

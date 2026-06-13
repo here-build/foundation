@@ -19,11 +19,11 @@ import invariant from "tiny-invariant";
 import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
 import { buildArrivalEnv, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
 import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "./env-pack.js";
-import { InferString } from "./infer-string.js";
+import { InferString } from "@here.build/arrival-inference";
 import { EvalTrace } from "./trace.js";
-import { createInferStore } from "./infer-store.js";
-import type { ModelRouter } from "./registry.js";
-import type { ModelBackend } from "./model.js";
+import { createInferStore } from "@here.build/arrival-inference";
+import type { ModelRouter } from "@here.build/arrival-inference";
+import type { ModelBackend } from "@here.build/arrival-inference";
 import type { Loader } from "./loader.js";
 import type { McpEffectResolver } from "./mcp-effects.js";
 

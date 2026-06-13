@@ -14,11 +14,11 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
+import { createInferStore } from "@here.build/arrival-inference";
 import { EvalTrace } from "../trace.js";
-import type { ModelSpec } from "../model.js";
+import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 import { backwardCone, forwardCone, traceToStatechart, type Statechart } from "../statechart.js";
 
 // Trimmed gepa harness — react fans out over personas, reflect proposes the

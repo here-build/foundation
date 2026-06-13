@@ -10,14 +10,14 @@ import {
 import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
 
-import { runAgenticLoop } from "./agentic-loop.js";
+import { runAgenticLoop } from "@here.build/arrival-inference";
 import type { OnApprovalRequest, ResolveApproval } from "./approval.js";
-import type { ChatMessage } from "./backends/_shared.js";
+import type { ChatMessage } from "@here.build/arrival-inference";
 import { type DataEffectResolver } from "./data-effects.js";
 import { stableJson } from "./effect-log.js";
 import { type EnvPack, type RuntimeAssembler } from "./env-pack.js";
 import type { OnExpose } from "./expose.js";
-import { InferString } from "./infer-string.js";
+import { InferString } from "@here.build/arrival-inference";
 import { type Loader, type PromptUnit } from "./loader.js";
 import {
   DerivableEntity,
@@ -31,9 +31,9 @@ import {
   resolveTools,
   runMiddlewareChain,
 } from "./mcp-effects.js";
-import type { Completion, LlmParams, ToolCall, ToolDescriptor } from "./model.js";
+import type { Completion, LlmParams, ToolCall, ToolDescriptor } from "@here.build/arrival-inference";
 import type { OnOverridable, ResolveOverride } from "./overridable.js";
-import { RunSpend } from "./run-spend.js";
+import { RunSpend } from "@here.build/arrival-inference";
 import { analyzeTemplate, coerceShape, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "./trace.js";
 

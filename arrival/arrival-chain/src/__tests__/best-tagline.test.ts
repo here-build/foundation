@@ -17,11 +17,11 @@ import { describe, expect, it, vi } from "vitest";
 import { stringify as stringifyYaml } from "yaml";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
-import { parseChatPrompt } from "../backends/_shared.js";
-import type { ModelSpec } from "../model.js";
+import { createInferStore } from "@here.build/arrival-inference";
+import { parseChatPrompt } from "@here.build/arrival-inference";
+import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 import { configScm } from "./fixtures/config-scm.js";
 
 const PROGRAMS_DIR = path.resolve(__dirname, "fixtures/programs");

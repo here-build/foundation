@@ -8,8 +8,8 @@
  *
  * NOT a `.test.ts` file, so vitest's include glob never runs it as a suite.
  */
-import type { InferCache } from "../infer-store.js";
-import type { Completion } from "../model.js";
+import type { InferCache } from "@here.build/arrival-inference";
+import type { Completion } from "@here.build/arrival-inference";
 
 /** Build the content key for a `(infer model prompt schema cache-key)` call.
  *  Omitted schema / cache-key are `null` (the `#f` lowering). */

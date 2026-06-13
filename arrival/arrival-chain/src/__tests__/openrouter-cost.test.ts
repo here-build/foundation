@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { openAICompatBackend, type ChatCompletionsClient } from "../backends/_shared.js";
-import { openRouterCostMicroUsd } from "../backends/openrouter.js";
-import type { ModelSpec } from "../model.js";
+import { openAICompatBackend, type ChatCompletionsClient } from "@here.build/arrival-inference";
+import { openRouterCostMicroUsd } from "@here.build/arrival-inference/backends/openrouter";
+import type { ModelSpec } from "@here.build/arrival-inference";
 
 const spec = (over: Partial<ModelSpec> = {}): ModelSpec => ({
   model: "openai/gpt-4o-mini",

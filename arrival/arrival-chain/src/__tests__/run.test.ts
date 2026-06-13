@@ -5,9 +5,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
+import { createInferStore } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 import { RunError, RunResult } from "../run.js";
 import { EvalTrace } from "../trace.js";
 

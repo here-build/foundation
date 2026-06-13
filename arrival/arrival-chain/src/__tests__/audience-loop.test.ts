@@ -9,14 +9,14 @@
  *   - boundary returns #f when below threshold
  */
 import { readFileSync } from "node:fs";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 import { stringify as stringifyYaml } from "yaml";
 
-import { parseChatPrompt } from "../backends/_shared.js";
-import type { ModelSpec } from "../model.js";
+import { parseChatPrompt } from "@here.build/arrival-inference";
+import type { ModelSpec } from "@here.build/arrival-inference";
 import { runPipeline } from "../runner.js";
 import { configScm } from "./fixtures/config-scm.js";
 

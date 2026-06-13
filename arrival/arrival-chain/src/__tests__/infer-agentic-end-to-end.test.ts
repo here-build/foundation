@@ -9,11 +9,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
-import type { Completion, ModelBackend, ModelSpec, ToolDescriptor } from "../model.js";
+import { createInferStore } from "@here.build/arrival-inference";
+import type { Completion, ModelBackend, ModelSpec, ToolDescriptor } from "@here.build/arrival-inference";
 import type { McpEffect, McpEffectResolver } from "../mcp-effects.js";
 import { Project } from "../project.js";
-import { StaticRouter } from "../registry.js";
+import { StaticRouter } from "@here.build/arrival-inference";
 
 const freshRoot = (backend: ModelBackend) => {
   const root = ArrivalChain.bootstrap(new Project()).root;

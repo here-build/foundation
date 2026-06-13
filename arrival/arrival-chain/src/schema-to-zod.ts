@@ -1,6 +1,6 @@
 import * as z from "zod";
 
-import { tagToJsonSchema } from "./backends/_shared.js";
+import { tagToJsonSchema } from "@here.build/arrival-inference";
 
 // ── schema DSL → zod bridge ────────────────────────────────────────────
 //

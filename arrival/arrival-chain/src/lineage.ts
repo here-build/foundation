@@ -17,10 +17,10 @@ import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
 import { reaction } from "mobx";
 
 import { ArrivalChain } from "./arrival-chain.js";
-import { createInferStore, InferBinding } from "./infer-store.js";
+import { createInferStore, InferBinding } from "@here.build/arrival-inference";
 import { Project } from "./project.js";
 import { EvalTrace, Invocation } from "./trace.js";
-import type { ModelRouter } from "./registry.js";
+import type { ModelRouter } from "@here.build/arrival-inference";
 
 // ════════════════════════════════════════════════════════════════════
 // PUBLIC SURFACE — the three functions everything else exists to serve.

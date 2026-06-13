@@ -8,11 +8,11 @@
  * directly through a let-binding in tests yet.
  */
 import { describe, expect, it, vi } from "vitest";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 
 import { runPipeline } from "../runner.js";
-import type { ModelSpec } from "../model.js";
-import { parseChatPrompt } from "../backends/_shared.js";
+import type { ModelSpec } from "@here.build/arrival-inference";
+import { parseChatPrompt } from "@here.build/arrival-inference";
 
 // SUBSTRATE NOTE: chaining `(let ((q (infer ...))) (infer ... q))` so the
 // inner infer sees the OUTER's resolved value goes through arrival-

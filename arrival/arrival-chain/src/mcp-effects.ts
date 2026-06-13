@@ -31,7 +31,7 @@ import { lipsToJs, Nil } from "@here.build/arrival-scheme";
 
 import type { RosettaHost } from "./data-effects.js";
 import { mcpEffectKey, stableJson } from "./effect-log.js";
-import { LLM_PARAM_TYPES, type LlmParams, type ToolDescriptor } from "./model.js";
+import { LLM_PARAM_TYPES, type LlmParams, type ToolDescriptor } from "@here.build/arrival-inference";
 
 /** The MCP protocol methods the runner invokes. `tools/list` + `tools/call` are the v1
  *  surface; the rest are reserved so the membrane's method namespace is complete and

@@ -10,10 +10,10 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
+import { createInferStore } from "@here.build/arrival-inference";
 import { makeProjectLoader } from "../loader.js";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 import { RunResult } from "../run.js";
 
 const neverBackend = singletonRouter({

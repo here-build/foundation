@@ -50,7 +50,7 @@
  */
 import type { DataEffect } from "./data-effects.js";
 import type { McpEffect } from "./mcp-effects.js";
-import { InferBinding } from "./infer-store.js";
+import { InferBinding } from "@here.build/arrival-inference";
 import { forwardCone, traceToStatechart, type Statechart } from "./statechart.js";
 import type { EvalTrace } from "./trace.js";
 

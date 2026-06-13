@@ -9,10 +9,10 @@
  * can migrate to this when next touched.
  */
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
-import type { ModelSpec } from "../model.js";
+import { createInferStore } from "@here.build/arrival-inference";
+import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 import { EvalTrace } from "../trace.js";
 
 export const GEPA_PROGRAM = `

@@ -15,7 +15,7 @@
  * `InferStore` already merges identical prompts onto one cell, so the deduped
  * list is "the distinct calls this node made."
  */
-import { InferBinding } from "./infer-store.js";
+import { InferBinding } from "@here.build/arrival-inference";
 import { scopeId } from "./trace-to-forest.js";
 import type { EvalTrace } from "./trace.js";
 

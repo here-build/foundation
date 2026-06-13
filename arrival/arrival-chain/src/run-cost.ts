@@ -1,7 +1,7 @@
-import { InferBinding } from "./infer-store.js";
-import type { TokenUsage } from "./model.js";
-import { referenceCost } from "./pricing.js";
-import { type InferCost, type ProjectedCostStrategy, uncachedSumStrategy } from "./projected-cost.js";
+import { InferBinding } from "@here.build/arrival-inference";
+import type { TokenUsage } from "@here.build/arrival-inference";
+import { referenceCost } from "@here.build/arrival-inference";
+import { type InferCost, type ProjectedCostStrategy, uncachedSumStrategy } from "@here.build/arrival-inference";
 import type { EvalTrace } from "./trace.js";
 
 /**

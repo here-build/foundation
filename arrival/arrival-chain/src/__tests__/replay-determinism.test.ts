@@ -29,10 +29,10 @@ import { describe, expect, it, vi } from "vitest";
 import { ArrivalChain } from "../arrival-chain.js";
 import type { DataEffect, DataEffectResolver } from "../data-effects.js";
 import { effectLogCollector, inferEffectKey, sqlEffectKey, type EffectLog } from "../effect-log.js";
-import { createInferStore } from "../infer-store.js";
-import type { ModelSpec } from "../model.js";
+import { createInferStore } from "@here.build/arrival-inference";
+import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 
 const fresh = () => ArrivalChain.bootstrap(new Project()).root;
 

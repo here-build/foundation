@@ -12,9 +12,9 @@
  * objects only. Use whichever reads best at the call site.
  */
 import { describe, expect, it, vi } from "vitest";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 
-import type { ModelSpec } from "../model.js";
+import type { ModelSpec } from "@here.build/arrival-inference";
 import { runPipeline } from "../runner.js";
 
 const NESTED = {

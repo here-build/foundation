@@ -9,10 +9,10 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
-import type { ModelSpec } from "../model.js";
+import { createInferStore } from "@here.build/arrival-inference";
+import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 import { loadTraceArtifact, serializeTrace, TRACE_PROTOCOL_VERSION } from "../trace-artifact.js";
 import { traceToRegions, type Region } from "../trace-to-regions.js";
 import { EvalTrace } from "../trace.js";

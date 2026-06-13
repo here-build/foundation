@@ -1,0 +1,98 @@
+{
+  "name": "@here.build/arrival-inference",
+  "version": "0.1.0",
+  "description": "Inference runtime for Arrival — the 'talk to LLMs' layer: model router, provider backends (anthropic/openai-compatible/openrouter/ollama/vercel), pricing/cost, single-flight infer cache, and the agentic tool-loop. Knows ModelSpec (data), never the scheme evaluator.",
+  "keywords": [
+    "arrival",
+    "llm",
+    "inference",
+    "model-router",
+    "ai"
+  ],
+  "homepage": "https://github.com/here-build/foundation#readme",
+  "bugs": {
+    "url": "https://github.com/here-build/foundation/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "arrival/arrival-inference"
+  },
+  "license": "FSL-1.1-MIT",
+  "author": "here.build",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./backends/openai": {
+      "types": "./dist/backends/openai.d.ts",
+      "import": "./dist/backends/openai.js"
+    },
+    "./backends/anthropic": {
+      "types": "./dist/backends/anthropic.d.ts",
+      "import": "./dist/backends/anthropic.js"
+    },
+    "./backends/openrouter": {
+      "types": "./dist/backends/openrouter.d.ts",
+      "import": "./dist/backends/openrouter.js"
+    },
+    "./backends/ollama": {
+      "types": "./dist/backends/ollama.d.ts",
+      "import": "./dist/backends/ollama.js"
+    },
+    "./backends/vercel": {
+      "types": "./dist/backends/vercel.d.ts",
+      "import": "./dist/backends/vercel.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.82",
+    "@ai-sdk/openai-compatible": "^2.0.48",
+    "@here.build/arrival-scheme": "workspace:^",
+    "ai": "^6.0.201",
+    "jsonrepair": "3.13.0",
+    "tiny-invariant": "1.3.3",
+    "tslib": "2.8.1"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.92.0",
+    "openai": "^5.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "0.92.0",
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@types/node": "24.0.0",
+    "eslint": "9.39.2",
+    "globals": "17.3.0",
+    "openai": "6.32.0",
+    "prettier": "3.8.1",
+    "typescript": "6.0.2",
+    "vitest": "4.1.0"
+  }
+}

@@ -11,11 +11,11 @@
 import { describe, expect, it } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { createInferStore } from "../infer-store.js";
-import type { Completion, ModelSpec } from "../model.js";
-import { referenceCost } from "../pricing.js";
+import { createInferStore } from "@here.build/arrival-inference";
+import type { Completion, ModelSpec } from "@here.build/arrival-inference";
+import { referenceCost } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
-import { singletonRouter } from "../registry.js";
+import { singletonRouter } from "@here.build/arrival-inference";
 
 /** A backend that answers every call with a fixed value + usage, counting calls.
  *  Usage is reported so `(infer/spent)` has a non-zero cost to fold. */

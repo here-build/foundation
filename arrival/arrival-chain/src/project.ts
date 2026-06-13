@@ -15,7 +15,7 @@ import { Draft } from "./draft.js";
 import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey } from "./effect-log.js";
 import { assembleEnvSync } from "./env-pack.js";
 import type { OnExpose } from "./expose.js";
-import { InferBinding, type InferStoreLike } from "./infer-store.js";
+import { InferBinding, type InferStoreLike } from "@here.build/arrival-inference";
 // The infer/template/dict kernel + env-construction opts now live in `infer-kernel.ts`.
 // Re-export `* from` keeps project.js's public surface (the barrel consumes it) identical.
 export * from "./infer-kernel.js";
@@ -51,7 +51,7 @@ export {
 } from "./packs/index.js";
 import { arrivalPacks } from "./packs/index.js";
 import { Program, ProgramVersion } from "./program.js";
-import { RunSpend } from "./run-spend.js";
+import { RunSpend } from "@here.build/arrival-inference";
 import { formatRunError, Hypothesis, Run, RunError, RunResult } from "./run.js";
 import type { EvalTrace } from "./trace.js";
 

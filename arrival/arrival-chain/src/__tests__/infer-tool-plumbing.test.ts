@@ -7,8 +7,8 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { InferString } from "../infer-string.js";
-import type { Completion, ToolDescriptor } from "../model.js";
+import { InferString } from "@here.build/arrival-inference";
+import type { Completion, ToolDescriptor } from "@here.build/arrival-inference";
 import { freshInfer, inferIdentityKey, recordInfer, reviveInfer } from "../project.js";
 
 const tools: ToolDescriptor[] = [

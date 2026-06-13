@@ -16,7 +16,7 @@
  *   - new TODO tests for nested map, exceptions, filter index, etc.
  *     (see G1–G8 in lineage.ts review findings)
  */
-import { StaticRouter } from "../registry.js";
+import { StaticRouter } from "@here.build/arrival-inference";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -25,7 +25,7 @@ import {
   traceForOutput,
   type TraceConfig,
 } from "../lineage.js";
-import type { ModelSpec } from "../model.js";
+import type { ModelSpec } from "@here.build/arrival-inference";
 
 // ── A small program with known choice-point structure ───────────────
 //

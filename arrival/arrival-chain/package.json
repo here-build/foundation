@@ -79,6 +79,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.82",
     "@ai-sdk/openai-compatible": "^2.0.48",
+    "@here.build/arrival-inference": "workspace:^",
     "@here.build/arrival-scheme": "workspace:^",
     "@here.build/arrival-sweet": "workspace:^",
     "@here.build/plexus": "workspace:^",

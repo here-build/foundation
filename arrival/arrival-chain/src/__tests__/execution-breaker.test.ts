@@ -26,8 +26,8 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { runPipeline } from "../runner.js";
-import { singletonRouter } from "../registry.js";
-import type { ModelSpec } from "../model.js";
+import { singletonRouter } from "@here.build/arrival-inference";
+import type { ModelSpec } from "@here.build/arrival-inference";
 
 const router = () => singletonRouter({ complete: vi.fn(async (_s: ModelSpec) => ({ value: "x" })) });
 const SPIN = `(define (spin) (spin)) (spin)`;

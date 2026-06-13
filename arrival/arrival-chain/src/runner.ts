@@ -1,7 +1,7 @@
 import invariant from "tiny-invariant";
 import { ArrivalChain } from "./arrival-chain.js";
-import { createInferStore } from "./infer-store.js";
-import type { ModelRouter } from "./registry.js";
+import { createInferStore } from "@here.build/arrival-inference";
+import type { ModelRouter } from "@here.build/arrival-inference";
 import { Project } from "./project.js";
 
 export interface PublishOptions {

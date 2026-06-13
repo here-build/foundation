@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ModelSpec } from "../model.js";
-import { singletonRouter, StaticRouter } from "../registry.js";
+import type { ModelSpec } from "@here.build/arrival-inference";
+import { singletonRouter, StaticRouter } from "@here.build/arrival-inference";
 import { runPipeline } from "../runner.js";
 
 const stubBackend = (impl?: (s: ModelSpec) => unknown) => {
