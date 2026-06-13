@@ -18,6 +18,7 @@
 import invariant from "tiny-invariant";
 import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
 import { buildArrivalEnv, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
+import { assembleEnv, type AssembledEnv, type EnvPack } from "./env-pack.js";
 import { InferString } from "./infer-string.js";
 import { EvalTrace } from "./trace.js";
 import { createInferStore } from "./infer-store.js";
@@ -67,6 +68,22 @@ export interface ChainExtension {
   register(env: ChainEnv): void;
   init?(ctx: ChainInitContext): void | Promise<void>;
   dispose?(): void | Promise<void>;
+}
+
+/** Adapt a `ChainExtension` to an `EnvPack` (P3: the register/init/dispose triad dissolves into one
+ *  capability `apply`). The extension's register → init runs in a single pass, and its `dispose`
+ *  becomes an `onDispose` thunk torn down LIFO by the assembled env. Extensions carry no `deps`
+ *  (their registrations are disjoint — order-immaterial); a future coupled extension declares a dep
+ *  rather than relying on array order. The name is positional (extensions are anonymous). */
+function extensionToPack(ext: ChainExtension, index: number, initCtx: ChainInitContext): EnvPack<ChainEnv> {
+  return {
+    name: `chain/extension-${index}`,
+    apply: async (env, ctx) => {
+      ext.register(env);
+      await ext.init?.(initCtx);
+      if (ext.dispose) ctx.onDispose(ext.dispose.bind(ext));
+    },
+  };
 }
 
 export interface ChainConfig {
@@ -187,6 +204,7 @@ export class ChainEnvironment {
   private readonly runId: string;
   private readonly tap: EvalTrace;
   private started = false;
+  private assembledExts?: AssembledEnv<ChainEnv>;
 
   constructor(config: ChainConfig) {
     const models = config.models;
@@ -215,15 +233,22 @@ export class ChainEnvironment {
       ...(config.mcp ? { mcp: config.mcp } : {}),
     });
     this.exts = config.extensions ?? [];
-    for (const e of this.exts) e.register(this.env);
+    // P3: registration is deferred to async init() — the env-pack assembly is the single pass that
+    // registers, initializes, and records teardown for every extension. Nothing touches the env
+    // between construction and init() (run() awaits init() first), so deferring register is safe.
   }
 
-  /** Bridge boot + every extension's `init` (servers, connections — each gated by itself). */
+  /** Bridge boot + the extension capability-DAG assembly (register + init + dispose, one pass). */
   async init(): Promise<void> {
     if (this.started) return;
     this.started = true;
     await this.env.init();
-    for (const e of this.exts) await e.init?.({ env: this.env, router: this.router, runId: this.runId, infer: this.infer });
+    const initCtx: ChainInitContext = { env: this.env, router: this.router, runId: this.runId, infer: this.infer };
+    // Roots reversed so the least-precedence-first apply order matches the extensions' array order
+    // (C3 applies highest-precedence root last). Order is immaterial for disjoint registrations, but
+    // preserving array order keeps behavior identical to the pre-P3 register/init loops.
+    const packs = this.exts.map((ext, i) => extensionToPack(ext, i, initCtx)).reverse();
+    this.assembledExts = await assembleEnv(this.env, packs);
   }
 
   /** Run a scheme program string (already loaded). Returns the JS-projected last value + trace.
@@ -241,9 +266,9 @@ export class ChainEnvironment {
     }
   }
 
-  /** Tear down extension resources (progress servers, etc.). */
+  /** Tear down extension resources (progress servers, etc.) — LIFO via the assembled env's dispose. */
   async dispose(): Promise<void> {
-    for (const e of this.exts) await e.dispose?.();
+    await this.assembledExts?.dispose();
   }
 }
 
