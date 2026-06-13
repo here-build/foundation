@@ -41,33 +41,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./flow": {
-      "types": "./dist/flow.d.ts",
-      "import": "./dist/flow.js"
-    },
     "./runner": {
       "types": "./dist/runner.d.ts",
       "import": "./dist/runner.js"
-    },
-    "./backends/openai": {
-      "types": "./dist/backends/openai.d.ts",
-      "import": "./dist/backends/openai.js"
-    },
-    "./backends/anthropic": {
-      "types": "./dist/backends/anthropic.d.ts",
-      "import": "./dist/backends/anthropic.js"
-    },
-    "./backends/openrouter": {
-      "types": "./dist/backends/openrouter.d.ts",
-      "import": "./dist/backends/openrouter.js"
-    },
-    "./backends/ollama": {
-      "types": "./dist/backends/ollama.d.ts",
-      "import": "./dist/backends/ollama.js"
-    },
-    "./backends/vercel": {
-      "types": "./dist/backends/vercel.d.ts",
-      "import": "./dist/backends/vercel.js"
     }
   },
   "main": "./dist/index.js",

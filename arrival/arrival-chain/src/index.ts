@@ -1,14 +1,5 @@
 // ── Core ─────────────────────────────────────────────────────────────
-export { type ModelBackend, type ModelSpec, type Completion, type TokenUsage, type DeltaSink, type NoticeSink, type StreamNotice, type ToolDescriptor, type ToolCall, type Chunk } from "@here.build/arrival-inference";
-export { type ModelPrice, PRICE_MAP, priceFor, referenceCost, type ModelSpeed, SPEED_MAP, speedFor, effectiveCloudMs } from "@here.build/arrival-inference";
-export {
-  type InferCost,
-  type ProjectedCost,
-  type ProjectedCostStrategy,
-  uncachedSumStrategy,
-} from "@here.build/arrival-inference";
 export { type RunCost, runCostSummary, summarizeCosts, type TaskCost } from "./run-cost.js";
-export { RunSpend } from "@here.build/arrival-inference";
 export {
   lintRacyReads,
   lintRacyMcpCalls,
@@ -16,23 +7,6 @@ export {
   type RacyMcpCallFinding,
   type SourceLocation,
 } from "./racy-read-lint.js";
-export {
-  type ModelRouter,
-  StaticRouter,
-  LayeredRouter,
-  singletonRouter,
-  emptyRouter,
-} from "@here.build/arrival-inference";
-
-export {
-  InferStore,
-  type InferStoreLike,
-  createInferStore,
-  InferBinding,
-  type InferCell,
-  type InferCache,
-  noopCache,
-} from "@here.build/arrival-inference";
 
 export { Run, Hypothesis, RunResult, RunError, formatRunError, type RunStatus } from "./run.js";
 export { Draft } from "./draft.js";
@@ -78,10 +52,16 @@ export {
 // values (Pair / cons cells captured in trace.Invocation.value) into plain JS
 // without taking a direct dep on arrival-scheme.
 export { lipsToJs } from "@here.build/arrival-scheme";
+// NOTE: lipsToJs above is from arrival-scheme (stays). The inference-runtime and
+// provenance-analysis clusters are NOT re-exported here — import them directly from
+// `@here.build/arrival-inference` and `@here.build/arrival-provenance`.
 // `@arrival.private` — seal a host class opaque to Scheme (re-exported so `@here.build/arrival`
 // consumers like sift can brand entities with the correct boundary symbol, not the forgeable hack).
 export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
+// NOTE: provenance trace-capture + analysis (EvalTrace, extractDefines, traceTo*,
+// collapseMDL, slice/uneval, region tooling, trace-artifact, snapshotTrace) moved to
+// `@here.build/arrival-provenance` — import directly from there.
 export {
   Project,
   buildArrivalEnv,
@@ -163,18 +143,6 @@ export {
   inertMcpResolver,
   wrapMcpResolver,
 } from "./mcp-effects.js";
-// The rich inference response — a string-transparent value carrying `reasoning` +
-// `chunks` as external-only side-data. See `infer-string.ts`.
-export { InferString } from "@here.build/arrival-inference";
-// The agentic-loop driver (the core of `infer/agentic/end-to-end`), exported so a host can
-// run a tool-using agent over its own infer + MCP dispatch without going through project.run.
-export {
-  runAgenticLoop,
-  DEFAULT_AGENTIC_MAX_ROUNDS,
-  type AgenticTurn,
-  type AgenticDeps,
-  type AgenticResult,
-} from "@here.build/arrival-inference";
 export { ArrivalChain } from "./arrival-chain.js";
 // `runPipeline` (the Node/CLI top-to-bottom entry) is deliberately NOT in this
 // barrel: it lazy-imports yjs + y-websocket for the publish path, which the
@@ -194,10 +162,6 @@ export {
   type RequireResolver,
   type ResolverResult,
 } from "./loader.js";
-// Provenance-analysis cluster — moved to `@here.build/arrival-provenance`; these
-// re-exports keep the arrival-chain barrel back-compat for existing consumers.
-export { EvalTrace, Invocation, NodeRecord, type InvocationState } from "@here.build/arrival-provenance";
-export { extractDefines, type DefineInfo } from "@here.build/arrival-provenance";
 // `(declare/expose …)` — the sealed-skill form. Static signature extraction
 // (the config-plane sync path; the handler never runs) + the runtime
 // declaration the host registry consumes (`OnExpose`, wired into
@@ -249,44 +213,7 @@ export {
 // `:input`/`:output` schema slices (never the handler), so a config-plane
 // registry sync can run it on every draft edit safely. Feeds `schemaToZod`.
 export { compileExposeSig, extractFormSpec, type ExposeSig, type FormFieldKind, type FormHole, type FormSpecOptions } from "./compile-expose-sig.js";
-export {
-  traceToStatechart,
-  forwardCone,
-  backwardCone,
-  type Statechart,
-  type ChartNode,
-  type ChartEdge,
-  type EdgeKind,
-} from "@here.build/arrival-provenance";
-export {
-  collapseMDL,
-  type CandidateBox,
-  type BoxType,
-  type CollapseParams,
-  type CollapseResult,
-  type Decision,
-} from "@here.build/arrival-provenance";
-export { traceToForest, scopeId, type ForestOptions } from "@here.build/arrival-provenance";
-export {
-  traceToFlowGraph,
-  flowForwardCone,
-  flowBackwardCone,
-  type FlowGraph,
-  type FlowGraphNode,
-  type FlowGraphEdge,
-  type FlowNodeKind,
-  type FlowGraphOptions,
-} from "@here.build/arrival-provenance";
-export { traceToFlowGraphNaive } from "@here.build/arrival-provenance";
-export { traceToChain, type ProvenanceChain, type ChainNode, type ChainEdge } from "@here.build/arrival-provenance";
-export { traceToRegions, type Region, type RegionGraph } from "@here.build/arrival-provenance";
-// Incremental twin of `traceToRegions` — maintains the same RegionGraph in O(Δ) per streamed tick (vs O(N) full rebuild) for the live blueprint render. Parity-locked to traceToRegions.
-export { TraceRegionFold } from "@here.build/arrival-provenance";
-export { serializeTrace, loadTraceArtifact, TRACE_PROTOCOL_VERSION, type TraceArtifact } from "@here.build/arrival-provenance";
-export { regionBoundaries, type RegionBoundary } from "@here.build/arrival-provenance";
-export { buildSlice, writeForm, referencedSymbols, defineNameOf, lastTopLevelForm, resolveReadIds, type Slice } from "@here.build/arrival-provenance";
 export { cellTriggers, formsTrigger, rootEffectEnv, EffectEnv, evalForm, PENETRATING_FORMS } from "./effect-analysis.js";
-export { buildUneval, type Uneval, type UnevalContainer } from "@here.build/arrival-provenance";
 export { inferTasksByScope } from "./infer-content.js";
 
 // ── Sweet-expression lens ─────────────────────────────────────────────
@@ -296,39 +223,12 @@ export { inferTasksByScope } from "./infer-content.js";
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //
-// Concrete backends live as individual subpath modules:
-//   import { openaiBackend }     from "@here.build/arrival-chain/backends/openai";
-//   import { anthropicBackend }  from "@here.build/arrival-chain/backends/anthropic";
-//   import { openrouterBackend } from "@here.build/arrival-chain/backends/openrouter";
+// The inference runtime — model spec/router, provider backends (openaiBackend /
+// anthropicBackend / openrouterBackend / ollamaBackend / vercelBackend), pricing,
+// the infer store, InferString, the agentic loop, and the chat-protocol kernel
+// (chatBackend / openAICompatBackend / ChatProtocol) — lives in
+// `@here.build/arrival-inference`. Import it directly.
 //
-// `openrouterBackend` is the OpenAI-compatible backend plus provider-cost capture
-// (`usage.cost` → `providerCostMicroUsd`) — the resale-billing path; direct
-// `openaiBackend`/`anthropicBackend` report tokens only (billing on referenceCost).
-//
-// Compose them into a ModelRouter (StaticRouter / LayeredRouter) and pass to
-// `createInferStore`. The shared helpers below are the kernel for callers writing
-// their own backends: a backend is a `ChatProtocol` (five seams — buildBody / call /
-// toolCalls / text / usage, + optional stream) handed to `chatBackend`, which supplies
-// the shared completion arc (retry, tool-vs-text, coercion ladder). `openAICompatBackend`
-// is the OpenAI-protocol instance every chat-completions endpoint reuses.
-export {
-  chatBackend,
-  lazyBackend,
-  openAICompatBackend,
-  openAIRequestBody,
-  parseModelValue,
-  parseChatPrompt,
-  renderSchema,
-  tagToJsonSchema,
-  specMessages,
-  type ChatProtocol,
-  type ChatMessage,
-  type JsonSchema,
-  type OpenAICompatUsage,
-  type OpenAICompatBackendOptions,
-  type CostFromUsage,
-  type ParseDiag,
-} from "@here.build/arrival-inference";
 // schema DSL → zod, routed through the single `tagToJsonSchema` lowering (no
 // parallel recursion). Lets the SaaS validate exposed-fn request bodies against
 // the same `(s/object …)` signature the inference path uses — wire schema and

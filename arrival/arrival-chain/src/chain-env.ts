@@ -116,16 +116,16 @@ async function makeBackend(spec: ChainModelSpec): Promise<ModelBackend> {
   const inner = await (async (): Promise<ModelBackend> => {
     switch (spec.provider) {
       case "anthropic": {
-        const { vercelBackend } = await import("./backends/vercel.js");
+        const { vercelBackend } = await import("@here.build/arrival-inference/backends/vercel");
         return vercelBackend({ provider: "anthropic", ...(spec.apiKey ? { apiKey: spec.apiKey } : {}), ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}) });
       }
       case "ollama": {
-        const { ollamaBackend } = await import("./backends/ollama.js");
+        const { ollamaBackend } = await import("@here.build/arrival-inference/backends/ollama");
         return ollamaBackend({ ...(spec.baseURL ? { baseURL: spec.baseURL } : {}), ...(spec.think !== undefined ? { think: spec.think } : {}), ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}) });
       }
       case "openai-compatible":
       default: {
-        const { vercelBackend } = await import("./backends/vercel.js");
+        const { vercelBackend } = await import("@here.build/arrival-inference/backends/vercel");
         return vercelBackend({
           provider: "openai-compatible",
           ...(spec.baseURL ? { baseURL: spec.baseURL } : {}),

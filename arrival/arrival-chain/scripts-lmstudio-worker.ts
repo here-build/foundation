@@ -8,14 +8,9 @@
  *     [--doc trace-demo] [--ws ws://localhost:1235] \
  *     [--base http://localhost:1234/v1] [--model gemma-4-e4b-it]
  */
-import {
-  ArrivalChain,
-  type ModelBackend,
-  type ModelSpec,
-  Project,
-  runProjectWorker,
-} from "@here.build/arrival-chain";
-import { lazyBackend, specMessages } from "@here.build/arrival-chain";
+import { ArrivalChain, Project, runProjectWorker } from "@here.build/arrival-chain";
+import { type ModelBackend, type ModelSpec } from "@here.build/arrival-inference";
+import { lazyBackend, specMessages } from "@here.build/arrival-inference";
 import ws from "ws";
 
 const arg = (name: string, fallback: string): string => {

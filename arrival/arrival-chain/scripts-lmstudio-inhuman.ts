@@ -11,16 +11,8 @@
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import {
-  ArrivalChain,
-  type ModelBackend,
-  type ModelSpec,
-  Project,
-  lazyBackend,
-  renderSchema,
-  runProjectWorker,
-  specMessages,
-} from "@here.build/arrival-chain";
+import { ArrivalChain, Project, runProjectWorker } from "@here.build/arrival-chain";
+import { type ModelBackend, type ModelSpec, lazyBackend, renderSchema, specMessages } from "@here.build/arrival-inference";
 import ws from "ws";
 
 const arg = (name: string, fallback: string): string => {
