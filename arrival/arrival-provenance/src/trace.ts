@@ -259,6 +259,12 @@ export class NodeRecord {
   // Plain object — see the de-MobXed-hot-machinery note at the top of the file.
 }
 
+/** The default trace-entry cap (see {@link EvalTrace} constructor). Generous enough for any legitimate
+ *  traced run (the interpreter is ~100k reductions/s; 500k entries ≈ several seconds of pure tracing),
+ *  tight enough to stop a runaway loop before it OOMs the isolate or freezes a browser canvas. The run
+ *  plane overrides via `ARRIVAL_TRACE_MAX`; a caller wanting no bound passes `Infinity`. */
+export const DEFAULT_TRACE_CAP = 500_000;
+
 export class EvalTrace implements EvalTap {
   readonly records = new Map<Pair, NodeRecord>();
   /**
@@ -422,15 +428,17 @@ export class EvalTrace implements EvalTap {
   // `action` (strict mode rejects a bare observed write). `exit`/`markProvenancePoint`
   // touch only plain fields, so they stay bare.
 
-  /** Optional cap on total trace entries (invocations + field-points share `#nextId`). The trace
-   *  retains an Invocation PER reduction with its value/children — monotonic, never GC'd — so a long
-   *  or runaway loop grows the trace unboundedly even when the program's own data is bounded. When a
-   *  cap is set, `enter` throws once it's hit: the run aborts with the partial trace up to the cap
-   *  (the half-baked graph), instead of OOMing the shared isolate. `undefined` ⇒ unbounded (legacy). */
-  constructor(readonly maxEntries?: number) {}
+  /** Cap on total trace entries (invocations + field-points share `#nextId`). The trace retains an
+   *  Invocation PER reduction with its value/children — monotonic, never GC'd — so a long or runaway
+   *  loop grows the trace unboundedly even when the program's own data is bounded. `enter` throws once
+   *  the cap is hit: the run aborts with the partial trace (the half-baked graph), instead of OOMing
+   *  the shared isolate (or freezing a browser canvas). DEFAULTS to a bound — the safe default IS the
+   *  default, so a caller that forgets a cap (e.g. the studio's `new EvalTrace()`) is still protected.
+   *  Pass an explicit `Infinity` for a deliberately-unbounded full-fidelity capture. */
+  constructor(readonly maxEntries: number = DEFAULT_TRACE_CAP) {}
 
   enter = action((node: Pair, parent: unknown, tailPosition?: boolean): Invocation => {
-    if (this.maxEntries !== undefined && this.#nextId >= this.maxEntries) {
+    if (this.#nextId >= this.maxEntries) {
       // "budget exceeded" in the message so run-isolated's detector returns a partial handle.
       throw new Error(
         `trace step budget exceeded (${this.maxEntries} entries) — run produced too many steps to ` +
