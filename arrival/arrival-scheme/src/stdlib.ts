@@ -85,33 +85,50 @@ type SchemeFunction = (...args: any[]) => any;
 let env: Environment;
 // -------------------------------------------------------------------------
 
-/* c8 ignore next 13 */
-function log(x: SchemeValue, ...args: SchemeValue[]): void {
-  if (is_plain_object(x) && is_debug(args[0])) {
-    console.log(
-      map_object(x, function (value) {
-        return toString(value, true);
-      }),
-    );
-  } else if (is_debug()) {
-    console.log(
-      toString(x, true),
-      ...args.map((item) => {
-        return toString(item, true);
-      }),
-    );
-  }
-}
-
-// ----------------------------------------------------------------------
-/* c8 ignore next */
-function is_debug(n: SchemeValue = null): boolean {
-  const debug = user_env?.get("DEBUG", { throwError: false });
-  if (n === null) {
-    return !is_false(debug);
-  }
-  return debug?.valueOf() === n.valueOf();
-}
+// Structured tracer for the syntax-rules expander, gated by the Scheme `DEBUG`
+// variable (`(define DEBUG #t)` to enable; `(define DEBUG n)` to enable only the
+// `enabled(n)` channel). Inert when off — every method short-circuits before
+// touching the console. Mirrors the native console API so traces NEST
+// (group/groupEnd) and are TIMED (time/timeEnd) rather than flat spew; `dir`
+// renders the binding maps with full depth. JS-string args are treated as labels
+// (passed through); SchemeValues are formatted via `toString`/`map_object`.
+/* c8 ignore start */
+let debugSeq = 0;
+const debug = {
+  enabled(n: SchemeValue = null): boolean {
+    const flag = user_env?.get("DEBUG", { throwError: false });
+    if (n === null) {
+      return !is_false(flag);
+    }
+    return flag?.valueOf() === n.valueOf();
+  },
+  fmt(x: SchemeValue): unknown {
+    return typeof x === "string"
+      ? x
+      : is_plain_object(x)
+        ? map_object(x, (value: SchemeValue) => toString(value, true))
+        : toString(x, true);
+  },
+  log(...args: SchemeValue[]): void {
+    if (this.enabled()) console.log(...args.map((a) => this.fmt(a)));
+  },
+  dir(x: unknown): void {
+    if (this.enabled()) console.dir(x, { depth: null });
+  },
+  group(label: SchemeValue): void {
+    if (this.enabled()) console.group(this.fmt(label));
+  },
+  groupEnd(): void {
+    if (this.enabled()) console.groupEnd();
+  },
+  time(label: string): void {
+    if (this.enabled()) console.time(label);
+  },
+  timeEnd(label: string): void {
+    if (this.enabled()) console.timeEnd(label);
+  },
+};
+/* c8 ignore stop */
 
 // ----------------------------------------------------------------------
 function escape_regex(str: SchemeValue): SchemeValue {
@@ -1440,9 +1457,10 @@ export const global_env = new Environment(
         validate_identifiers(macro.car);
       }
       const syntax = new Syntax(function (this: Environment, code: SchemeValue, { macro_expand }: SchemeValue) {
-        log(">> SYNTAX");
-        log(code);
-        log(macro);
+        const trace = `syntax-expand #${++debugSeq}`;
+        debug.group(code);
+        debug.time(trace);
+        debug.log("macro:", macro);
         const scope = env.inherit("syntax");
         const dynamic_env = scope;
         let var_scope: Environment = this;
@@ -1470,20 +1488,17 @@ export const global_env = new Environment(
           while (!is_nil(rules)) {
             const rule = rules.car.car;
             let expr = rules.car.cdr.car;
-            log("[[[ RULE");
-            log(rule);
+            debug.log("try rule:", rule);
             const bindings = extract_patterns(rule, code, symbols, ellipsis, {
               expansion: this,
               define: env,
               globalEnv: global_env,
             });
             if (bindings) {
-              /* c8 ignore next 5 */
-              if (is_debug()) {
-                console.log(JSON.stringify(symbolize(bindings), null, 2));
-                console.log(`PATTERN: ${rule.toString(true)}`);
-                console.log(`MACRO: ${code.toString(true)}`);
-              }
+              debug.group("match");
+              debug.dir(symbolize(bindings));
+              debug.log("pattern:", rule);
+              debug.log("macro:", code);
               // name is modified in transform_syntax
               const names = [];
               const new_expr = transform_syntax({
@@ -1495,7 +1510,8 @@ export const global_env = new Environment(
                 names,
                 ellipsis,
               });
-              log("OUPUT>>> ", new_expr);
+              debug.log("output:", new_expr);
+              debug.groupEnd();
               // TODO: if expression is undefined throw an error
               if (new_expr) {
                 expr = new_expr;
@@ -1520,6 +1536,12 @@ export const global_env = new Environment(
         } catch (error_) {
           (error_ as Error).message += `\nin macro:\n  ${macro.toString(true)}`;
           throw error_;
+        } finally {
+          // Balances `debug.group(code)` opened at entry on every exit path — the two
+          // returns and the catch-rethrow all run this; the no-match `throw` below is
+          // reached only after `finally`, so its group is already closed.
+          debug.timeEnd(trace);
+          debug.groupEnd();
         }
         throw new Error(`syntax-rules: no matching syntax in macro ${code.toString(true)}`);
       }, env);
