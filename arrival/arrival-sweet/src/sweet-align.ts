@@ -72,7 +72,7 @@ function collectPairs(sweet: Node, classic: Node, out: SweetSpanPair[]): void {
   }
   if (sAtom || cAtom) return;
   const a = sweet.list;
-  const b = (classic as { list: Node[] }).list;
+  const b = classic.list;
   if (a.length !== b.length) return;
   for (let i = 0; i < a.length; i++) collectPairs(a[i], b[i], out);
 }

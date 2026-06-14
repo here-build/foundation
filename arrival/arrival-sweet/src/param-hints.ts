@@ -51,20 +51,22 @@ const positional = (names: string[]): string[] => {
 function defOf(nd: Node): { name: string; params: string[] } | null {
   if (!isList(nd) || nd.list.length < 2 || !isAtom(nd.list[0]) || nd.list[0].atom !== "define") return null;
   const sig = nd.list[1];
-  if (isList(sig) && sig.list.length > 0 && sig.list.every(isAtom)) {
-    const names = (sig.list as Atom[]).map((a) => a.atom);
-    return { name: names[0], params: positional(names.slice(1)) };
+  // (define (f a b c) …) — flat-list signature. Bind the list first so `.every`'s
+  // type-guard overload narrows it to Atom[] (it can't narrow a `sig.list` access).
+  if (isList(sig)) {
+    const formals = sig.list;
+    if (formals.length > 0 && formals.every(isAtom)) {
+      const names = formals.map((a) => a.atom);
+      return { name: names[0], params: positional(names.slice(1)) };
+    }
   }
+  // (define f (lambda (a b) …))
   const val = nd.list[2];
-  if (
-    isAtom(sig) &&
-    isList(val) &&
-    isAtom(val.list[0]) &&
-    val.list[0].atom === "lambda" &&
-    isList(val.list[1]) &&
-    val.list[1].list.every(isAtom)
-  ) {
-    return { name: sig.atom, params: positional((val.list[1].list as Atom[]).map((a) => a.atom)) };
+  if (isAtom(sig) && isList(val) && isAtom(val.list[0]) && val.list[0].atom === "lambda" && isList(val.list[1])) {
+    const formals = val.list[1].list;
+    if (formals.every(isAtom)) {
+      return { name: sig.atom, params: positional(formals.map((a) => a.atom)) };
+    }
   }
   return null;
 }

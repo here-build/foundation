@@ -193,7 +193,7 @@ function tokenize(src: string, base?: number): Tok[] {
 }
 
 const atom = (w: string, str?: boolean): Node => (str ? { atom: w, str: true } : { atom: w });
-const isColonKey = (t: Tok): boolean =>
+const isColonKey = (t: Tok): t is Extract<Tok, { t: "word" }> =>
   t.t === "word" && !t.str && t.v.length > 1 && t.v.endsWith(":") && !t.v.slice(0, -1).includes(":");
 
 /** Parse a token array into a SEQUENCE of classic elements: `(…)` lists, `{…}`
@@ -320,7 +320,7 @@ function parseElements(toks: Tok[], accessorDepth: number = R7RS_ACCESSOR_DEPTH)
       const glyph = t.v;
       const p = GLYPH_PREC[glyph];
       const operands = [left];
-      while (peek() && (peek() as Tok).t === "word" && (peek() as { v: string }).v === glyph) {
+      for (let tk = peek(); tk?.t === "word" && tk.v === glyph; tk = peek()) {
         next();
         operands.push(infix(p + 1));
       }
@@ -446,11 +446,12 @@ function parseNode(lines: LogLine[], idx: number, accessorDepth?: number): { ele
   // colon-pair: a line whose FIRST token is a TRAILING-colon key (`summary:`) is a
   // kwarg pair → :summary + value. Value = rest-of-line ++ children (one expr).
   // (Leading-colon `:personas` is an accessor HEAD, not a key — it falls through.)
-  if (toks.length > 0 && isColonKey(toks[0])) {
-    const key = atom(`:${(toks[0] as { v: string }).v.slice(0, -1)}`);
+  const head0 = toks[0];
+  if (toks.length > 0 && isColonKey(head0)) {
+    const key = atom(`:${head0.v.slice(0, -1)}`);
     const valueElems = parseElements(toks.slice(1), accessorDepth);
     const all = [...valueElems, ...childElems];
-    invariant(all.length > 0, () => `colon key '${(toks[0] as { v: string }).v}' has no value`);
+    invariant(all.length > 0, () => `colon key '${head0.v}' has no value`);
     return { elems: [key, all.length === 1 ? all[0] : { list: all }], next: j };
   }
 

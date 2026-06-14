@@ -34,6 +34,21 @@ export type Node =
 // be false, not throw ('in' on undefined). Empty lists come from `'()` folds.
 const isAtom = (n: Node | undefined): n is { atom: string; str?: boolean } => n != null && "atom" in n;
 
+// Post-guard arm accessors. A head/child whose arm was already proven by a
+// boolean predicate (isInfix, isQuoteForm, isLetElidable, isKeyword, …) that TS
+// can't carry through — re-assert via the isAtom guard so the read stays anchored
+// to Node's shape. A future field rename then breaks HERE, loudly, where a
+// `(x as { atom }).atom` cast would silently read undefined. The invariant never
+// fires (every caller is already inside the matching guard).
+const atomText = (nd: Node): string => {
+  invariant(isAtom(nd), "expected an atom node");
+  return nd.atom;
+};
+const childList = (nd: Node): Node[] => {
+  invariant(!isAtom(nd), "expected a list node");
+  return nd.list;
+};
+
 // ── parser: source text → plain tree, capturing comments ──────────────────────
 //
 // A `;`-line-comment on its OWN line(s) before a datum becomes that datum's
@@ -274,7 +289,7 @@ const precOf = (op: string): number => INFIX_PREC[op] ?? 3;
 /** Render the INSIDE of an infix node (no outer braces): `a glyph b glyph …`,
  *  recursing through operands at this op's precedence. */
 function infixContent(items: Node[], o: SweetOpts): string {
-  const op = (items[0] as { atom: string }).atom;
+  const op = atomText(items[0]);
   const myPrec = precOf(op);
   return items
     .slice(1)
@@ -288,7 +303,7 @@ function infixContent(items: Node[], o: SweetOpts): string {
  *  shares the zone. Non-infix operands render normally. */
 function infixOperand(nd: Node, parentPrec: number, o: SweetOpts): string {
   if (!isAtom(nd) && nd.list.length >= 3 && isInfix(nd.list, o)) {
-    const opPrec = precOf((nd.list[0] as { atom: string }).atom);
+    const opPrec = precOf(atomText(nd.list[0]));
     const content = infixContent(nd.list, o);
     return opPrec <= parentPrec ? `{${content}}` : content;
   }
@@ -418,7 +433,7 @@ export function inlineSweet(nd: Node, o: SweetOpts): string {
   if (isAtom(nd)) return nd.str ? `"${nd.atom}"` : nd.atom;
   const items = nd.list;
   if (items.length === 0) return "()";
-  if (isQuoteForm(items)) return QUOTE_PREFIX[(items[0] as { atom: string }).atom] + inlineSweet(items[1], o);
+  if (isQuoteForm(items)) return QUOTE_PREFIX[atomText(items[0])] + inlineSweet(items[1], o);
   if (isInfix(items, o)) {
     return `{${infixContent(items, o)}}`;
   }
@@ -508,7 +523,7 @@ const isLetElidable = (nd: Node): boolean => {
  *  `{`, each subsequent on its own line prefixed with the operator. Recurses, so a
  *  nested long curly (e.g. `{{a - b} < c}`) breaks at every level that overflows. */
 function formatInfix(items: Node[], col: number, o: SweetOpts): string {
-  const op = (items[0] as { atom: string }).atom;
+  const op = atomText(items[0]);
   const operands = items.slice(1);
   let out = `{${formatSweet(operands[0], col + 1, o)}`;
   const contCol = col + 2;
@@ -560,12 +575,12 @@ function formatSweetCore(nd: Node, col: number, o: SweetOpts): string {
   if (isLetElidable(nd)) {
     const pad2 = " ".repeat(col + 2);
     const pad4 = " ".repeat(col + 4);
-    const out = [(items[0] as { atom: string }).atom];
+    const out = [atomText(items[0])];
     // isLetElidable guarantees items[1] is a non-empty list of binding-shaped
     // `(name value)` 2-lists (see its `binds.list.every(isBindingShaped)` gate),
-    // so these narrowing casts are sound — same idiom as items[0] above.
-    for (const b of (items[1] as { list: Node[] }).list) {
-      const bind = (b as { list: Node[] }).list;
+    // so childList re-asserts that proven arm — same idiom as items[0] above.
+    for (const b of childList(items[1])) {
+      const bind = childList(b);
       out.push(pad2 + formatSweet(bind[0], col + 2, o)); // binding name
       out.push(pad4 + formatSweet(bind[1], col + 4, o)); // binding value
     }
@@ -592,7 +607,7 @@ function formatSweetCore(nd: Node, col: number, o: SweetOpts): string {
   }
 
   if (isQuoteForm(items)) {
-    const pre = QUOTE_PREFIX[(items[0] as { atom: string }).atom];
+    const pre = QUOTE_PREFIX[atomText(items[0])];
     return pre + formatSweet(items[1], col + pre.length, o);
   }
   if (isInfix(items, o)) return formatInfix(items, col, o); // operator-led break when over width
@@ -616,7 +631,7 @@ function formatSweetCore(nd: Node, col: number, o: SweetOpts): string {
     while (i < items.length) {
       if (isKeyword(items[i]) && i + 1 < items.length) {
         // "=>" keeps the keyword as-is; ":" flips leading→trailing colon (JSON/YAML).
-        const raw = (items[i] as { atom: string }).atom;
+        const raw = atomText(items[i]);
         const keyPart = o.pairGlyph === ":" ? `${raw.slice(1)}:` : `${raw} =>`;
         const vFlat = inlineSweet(items[i + 1], o);
         if (col + 2 + keyPart.length + 1 + vFlat.length <= o.width) {
@@ -700,8 +715,7 @@ export function flattenKwargs(nd: Node): Node {
   if (isAtom(nd)) return nd;
   const out: Node[] = [];
   for (const c of nd.list) {
-    if (isPairNode(c))
-      out.push(flattenKwargs((c as { list: Node[] }).list[1]), flattenKwargs((c as { list: Node[] }).list[2]));
+    if (isPairNode(c)) out.push(flattenKwargs(childList(c)[1]), flattenKwargs(childList(c)[2]));
     else out.push(flattenKwargs(c));
   }
   return { list: out };
