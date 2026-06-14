@@ -53,6 +53,15 @@ export interface ExecOptions {
    */
   budgetMs?: number;
   /**
+   * Per-run ALLOCATION budget — the memory analogue of `budgetMs`. Caps the cumulative number of list
+   * cells materialized through `to_array` (the choke point every collection op funnels through). The
+   * wall-clock budget is checked at trampoline TICKs, which a single native list pass (`filter`/
+   * `append` over a large list) never hits — so an O(K²)-churn loop runs uninterruptibly until it
+   * stack-overflows. This bound IS checked inside that loop. Undefined ⇒ unbounded (the default; only
+   * sandbox / agent runs opt in). Composable with `budgetMs`/`signal` — whichever fires first wins.
+   */
+  heapBudget?: number;
+  /**
    * Opt into Tier-2 speculative evaluation (latency-only; Scheme-invisible).
    * When true, producers (filter/map) may emit a lazy `HalfBaked` carrier so
    * control-flow over a still-filling promise fan can collapse early. With the
@@ -84,7 +93,7 @@ export interface ExecOptions {
  */
 export async function exec(
   code: string | SchemeValue,
-  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal, budgetMs, speculate }: ExecOptions = {},
+  { env, dynamic_env, use_dynamic, tap, nodeFilter, signal, budgetMs, heapBudget, speculate }: ExecOptions = {},
 ): Promise<SchemeValue[]> {
   const lips = await getLips();
 
@@ -112,24 +121,35 @@ export async function exec(
   // (all top-level forms share one deadline) — a sandbox program that splits a
   // hang across several forms is still bounded. Recompute the remaining budget
   // per form from a single start so we don't reset the clock between forms.
+  // Install the per-run allocation meter on the run's top env AFTER parse/init (so bootstrap + parse
+  // allocations don't count against the user program), spanning the WHOLE exec like the wall-clock
+  // budget. Save/restore the prior meter so a nested exec on the same env can't clobber the outer
+  // one. `to_array` finds it by walking the parent chain from the calling scope.
+  const priorMeter = actualEnv.__heapMeter__;
+  if (heapBudget !== undefined) actualEnv.__heapMeter__ = { used: 0, max: heapBudget };
+
   const results: SchemeValue[] = [];
   const start = budgetMs === undefined ? 0 : performance.now();
-  for (const expr of parsed) {
-    const remaining =
-      budgetMs === undefined ? undefined : budgetMs - (performance.now() - start);
-    const result = await run(
-      evaluate(expr, {
-        env: actualEnv,
-        dynamic_env,
-        use_dynamic,
-        tap,
-        nodeFilter,
-        signal,
-        speculate,
-      }),
-      { signal, budgetMs: remaining },
-    );
-    results.push(result);
+  try {
+    for (const expr of parsed) {
+      const remaining =
+        budgetMs === undefined ? undefined : budgetMs - (performance.now() - start);
+      const result = await run(
+        evaluate(expr, {
+          env: actualEnv,
+          dynamic_env,
+          use_dynamic,
+          tap,
+          nodeFilter,
+          signal,
+          speculate,
+        }),
+        { signal, budgetMs: remaining },
+      );
+      results.push(result);
+    }
+  } finally {
+    if (heapBudget !== undefined) actualEnv.__heapMeter__ = priorMeter;
   }
 
   return results;

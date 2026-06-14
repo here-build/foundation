@@ -129,6 +129,10 @@ export function parseSchemeChatMessages(messages: unknown): ChatMessage[] {
 export interface ExecBudget {
   signal?: AbortSignal;
   budgetMs?: number;
+  /** Per-run allocation bound (cumulative list cells materialized through `to_array`) — the memory
+   *  analogue of `budgetMs`, catching the native-collection-op runaway the TICK-cadence wall-clock
+   *  can't preempt. Undefined ⇒ unbounded. See `arrival-scheme/heap-budget.ts`. */
+  heapBudget?: number;
 }
 
 // Cache compiled+analyzed templates by source string. Templates are pure

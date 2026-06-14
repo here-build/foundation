@@ -7,6 +7,7 @@
 import invariant from "tiny-invariant";
 import { AValue, unionProvenance } from "./AValue.js";
 import { Environment, KEYWORD_ACCESSOR_FIELD, setLipsRuntime } from "./Environment.js";
+import { findHeapMeter, heapBudgetMessage } from "./heap-budget.js";
 import { eof } from "./EOF.js";
 import { HalfBaked, is_half_baked } from "./HalfBaked.js";
 import { Lexer } from "./Lexer.js";
@@ -317,6 +318,12 @@ function to_array(name: string, deep = false): SchemeFunction {
     if (isCircularList(list)) {
       invariant(false, `${name}: can't convert a circular list`);
     }
+    // Per-run allocation bound: `to_array` is the choke point every collection op (filter/map/append/
+    // join) funnels through, so charging materialized elements HERE catches the O(K²)-churn runaway
+    // that the TICK-cadence wall-clock budget can't preempt (a single native list pass emits no TICK).
+    // Look the meter up ONCE (O(depth)); the per-element check is a bare int compare. Undefined ⇒ no
+    // budget requested ⇒ zero overhead beyond the lookup.
+    const meter = findHeapMeter(this);
     const result: SchemeValue[] = [];
     let node = list;
     while (true) {
@@ -329,6 +336,9 @@ function to_array(name: string, deep = false): SchemeFunction {
           car = (this.get(name) as SchemeFunction).call(this, car);
         }
         result.push(car);
+        if (meter !== undefined && ++meter.used > meter.max) {
+          throw new SchemeError(heapBudgetMessage(meter.max), []);
+        }
         node = node.cdr;
       } else {
         invariant(is_nil(node), `${name}: can't convert improper list`);
@@ -1568,13 +1578,13 @@ export const global_env = new Environment(
       }, nil);
     }),
     // ------------------------------------------------------------------
-    reverse: doc("reverse", function reverse(arg) {
+    reverse: doc("reverse", function reverse(this: Environment, arg) {
       typecheck("reverse", arg, ["array", "pair", "nil"]);
       if (is_nil(arg)) {
         return nil;
       }
       if (is_pair(arg)) {
-        const arr = (global_env.get("list->array") as SchemeFunction)(arg).toReversed();
+        const arr = (global_env.get("list->array") as SchemeFunction).call(this, arg).toReversed();
         return (global_env.get("array->list") as SchemeFunction)(arr);
       } else if (Array.isArray(arg)) {
         return arg.toReversed();
@@ -1621,10 +1631,10 @@ export const global_env = new Environment(
       return args.join("");
     }),
     // ------------------------------------------------------------------
-    join: doc("join", function join(separator, list) {
+    join: doc("join", function join(this: Environment, separator, list) {
       typecheck("join", separator, "string");
       typecheck("join", list, ["pair", "nil"]);
-      return (global_env.get("list->array") as SchemeFunction)(list).join(separator);
+      return (global_env.get("list->array") as SchemeFunction).call(this, list).join(separator);
     }),
     // ------------------------------------------------------------------
     split: doc("split", function split(separator, string) {
@@ -2001,10 +2011,12 @@ export const global_env = new Environment(
       }),
     ),
     // ------------------------------------------------------------------
-    filter: doc("filter", function filter(arg, list) {
+    filter: doc("filter", function filter(this: Environment, arg, list) {
       typecheck("filter", arg, ["regex", "function"]);
       typecheck("filter", list, ["pair", "nil"]);
-      const array = (global_env.get("list->array") as SchemeFunction)(list);
+      // `.call(this, …)` forwards the run env so `to_array` finds this run's heap meter (the per-run
+      // allocation bound). Bare `(…)(list)` would drop `this` → the meter goes uncharged.
+      const array = (global_env.get("list->array") as SchemeFunction).call(this, list);
       if (array.length === 0) {
         return nil;
       }

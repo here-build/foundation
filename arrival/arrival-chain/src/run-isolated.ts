@@ -38,6 +38,15 @@ function traceMax(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 500_000;
 }
 
+/** Per-run ALLOCATION cap (cumulative list cells materialized through `to_array`) for the CAUSAL value
+ *  run — the bound the TICK-cadence wall-clock budget can't give, since a native collection op over a
+ *  large list (`filter`/`append`) runs as one uninterruptible reduction. Catches the O(K²)-churn
+ *  runaway while leaving generous headroom for legitimate linear passes. Override `ARRIVAL_HEAP_MAX`. */
+function heapMax(): number {
+  const raw = typeof process !== "undefined" ? Number(process.env?.ARRIVAL_HEAP_MAX) : NaN;
+  return Number.isFinite(raw) && raw > 0 ? raw : 100_000_000;
+}
+
 const dirOf = (path: string): string => {
   const i = path.lastIndexOf("/");
   return i <= 0 ? "" : path.slice(0, i);
@@ -92,6 +101,7 @@ async function runCausal(
       imports: extra.imports,
       signal: fanOut(ac.signal, extra.signal),
       budgetMs,
+      heapBudget: heapMax(),
       onEffectResult: record,
     });
     const hardWall = new Promise<"__hard__">((res) => setTimeout(() => res("__hard__"), budgetMs + 500));

@@ -44,28 +44,40 @@ const HUGE_BUT_FINISHES = `
 (sum 50000 0)
 `;
 
+// A legitimately large but LINEAR pass: materialize a 50k list a couple of times. Cumulative cells
+// charged ≈ 100k — comfortably under a 1M cap — so the heap budget must let it FINISH with its real
+// value. This is the false-positive guard: the cap distinguishes O(K²) churn from honest linear work.
+const LINEAR_OK = `
+(define (range n) (let loop ((i n) (acc (list))) (if (= i 0) acc (loop (- i 1) (cons i acc)))))
+(length (filter (lambda (x) (> x 49995)) (range 50000)))
+`;
+
 describe("run plane — containment + lazy-provenance property", () => {
-  // KNOWN GAP — causal-mode wall-clock budget does NOT preempt a native-op-dominated runaway.
-  // Empirically (tsx repro, 2026-06-14): this loop grows `seen` by one per iteration, but every
-  // iteration's work is a SINGLE synchronous native stdlib call (`filter`/`equal?`/`append`/`length`)
-  // over the whole list. That native call blocks the event loop with no `await` boundary, so neither
-  // the evaluator's internal `performance.now() > deadline` check (it rides the trampoline TICK) nor
-  // runCausal's `setTimeout` hardWall can fire. It only stops at ~86s when the native recursion finally
-  // overflows the JS stack. The TELEOLOGICAL (trace) path caught this because EvalTrace's per-`enter`
-  // entry-cap is a per-REDUCTION synchronous bound; causal mode has no per-reduction hook by design
-  // (that hook IS the tracing overhead we're avoiding). The principled fix is a synchronous
-  // per-reduction step counter in the causal trampoline (cheap integer increment, no Set growth) OR
-  // bounding native list ops — an evaluator-hot-path decision for V, not a test-level patch. Skipped
-  // until that lands so the suite stays honest about what causal containment currently guarantees.
-  it.skip("non-converging loop is contained by the causal budget (KNOWN GAP: native-op runaway)", async () => {
-    const prev = process.env.ARRIVAL_RUN_BUDGET_MS;
-    process.env.ARRIVAL_RUN_BUDGET_MS = "800";
+  // The native-op runaway, contained by the HEAP budget (the gap the wall-clock budget can't close).
+  // This loop grows `seen` by one per iteration; every iteration re-materializes it through a native
+  // `filter`/`append` — ONE synchronous JS pass with no trampoline TICK, so the wall-clock deadline
+  // (checked only at TICKs) can't preempt it: empirically it ran ~30–86s before the JS stack finally
+  // overflowed. The heap budget charges every cell materialized through `to_array`, so the cumulative
+  // O(K²) churn trips a SMALL cap fast — bounding allocation, not reductions, is what catches a runaway
+  // trapped inside a single native op. Asserted to contain QUICKLY (≪ the old 86s), proving it's the
+  // heap cap doing the work, not the eventual stack overflow.
+  it("non-converging loop is contained by the heap budget (native-op O(K^2) churn)", async () => {
+    const prevBudget = process.env.ARRIVAL_RUN_BUDGET_MS;
+    const prevHeap = process.env.ARRIVAL_HEAP_MAX;
+    process.env.ARRIVAL_RUN_BUDGET_MS = "15000"; // generous wall-clock — prove the HEAP cap fires first
+    process.env.ARRIVAL_HEAP_MAX = "200000"; // 200k cells: O(K^2) churn trips this quickly + deterministically
+    const t0 = performance.now();
     try {
       const h = await runNamed(projectWith({ "crasher.scm": NEVER_CONVERGES }), "crasher.scm");
       expect(h.value).toMatchObject({ __timeout__: true });
+      // Completing at all (vs the test's 20s timeout) already rules out the old ~86s stack-overflow;
+      // the bound stays loose because the materialization cost is sensitive to parallel test load.
+      expect(performance.now() - t0).toBeLessThan(15000);
     } finally {
-      if (prev === undefined) delete process.env.ARRIVAL_RUN_BUDGET_MS;
-      else process.env.ARRIVAL_RUN_BUDGET_MS = prev;
+      if (prevBudget === undefined) delete process.env.ARRIVAL_RUN_BUDGET_MS;
+      else process.env.ARRIVAL_RUN_BUDGET_MS = prevBudget;
+      if (prevHeap === undefined) delete process.env.ARRIVAL_HEAP_MAX;
+      else process.env.ARRIVAL_HEAP_MAX = prevHeap;
     }
   }, 20_000);
 
@@ -78,6 +90,18 @@ describe("run plane — containment + lazy-provenance property", () => {
     } finally {
       if (prev === undefined) delete process.env.ARRIVAL_RUN_BUDGET_MS;
       else process.env.ARRIVAL_RUN_BUDGET_MS = prev;
+    }
+  }, 20_000);
+
+  it("a large LINEAR pass is NOT falsely contained by the heap budget", async () => {
+    const prevHeap = process.env.ARRIVAL_HEAP_MAX;
+    process.env.ARRIVAL_HEAP_MAX = "1000000"; // 1M cap; ~100k cumulative charge stays well under
+    try {
+      const h = await runNamed(projectWith({ "ok.scm": LINEAR_OK }), "ok.scm");
+      expect(h.value).toBe(5); // 49996..50000 → the real value comes back, no false trip
+    } finally {
+      if (prevHeap === undefined) delete process.env.ARRIVAL_HEAP_MAX;
+      else process.env.ARRIVAL_HEAP_MAX = prevHeap;
     }
   }, 20_000);
 

@@ -136,6 +136,14 @@ export class Environment {
    */
   __rosettaTypes__: Map<string, string> = new Map();
 
+  /**
+   * Per-run allocation meter (see `heap-budget.ts`). Installed by `exec` on the run's top env when a
+   * `heapBudget` is requested, and found by `to_array` walking the parent chain from the calling
+   * scope. Absent ⇒ no allocation bound (the default for un-budgeted callers). Run-scoped, not
+   * chained-and-shared: the nearest one up the chain wins, so concurrent runs meter independently.
+   */
+  __heapMeter__?: import("./heap-budget.js").HeapMeter;
+
   // -------------------------------------------------------------------------
   // :: Fallback Resolver Management
   // -------------------------------------------------------------------------

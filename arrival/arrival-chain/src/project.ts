@@ -457,6 +457,7 @@ export class Project extends PlexusModel<null> {
       tap: opts.trace,
       signal: opts.signal,
       budgetMs: opts.budgetMs,
+      heapBudget: opts.heapBudget,
     });
     let last: unknown = results.at(-1);
     if (isThenable(last)) last = await last;
