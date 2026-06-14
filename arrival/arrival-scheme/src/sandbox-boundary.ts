@@ -9,11 +9,13 @@
  * are blocked to prevent sandbox escapes.
  */
 
+// Installs the global `Error.invariant` / `TypeError.invariant` assertion helper used
+// throughout this module and the interpreter at large (side-effect import).
+import "@here.build/error-invariant";
+
 // ============================================================================
 // Sandbox Boundary Marker
 // ============================================================================
-
-import invariant from "tiny-invariant";
 
 /**
  * Symbol used to mark classes/prototypes as sandbox boundaries.
@@ -32,27 +34,6 @@ import invariant from "tiny-invariant";
 // which would let hostile code stamp its own boundary markers or strip ours.
 // A module-private Symbol is unreachable from outside this module's closure.
 export const SANDBOX_BOUNDARY = Symbol("scheme:sandbox-boundary");
-
-const isProduction: boolean = process.env.NODE_ENV === "production";
-const prefix: string = "Invariant failed";
-
-declare global {
-  interface ErrorConstructor {
-    invariant(condition: any, message?: string | (() => string)): asserts condition;
-  }
-}
-
-Error.invariant = function invariant(condition: any, message?: string | (() => string)): asserts condition {
-  if (condition) {
-    return;
-  }
-  if (isProduction) {
-    throw new TypeError(prefix);
-  }
-  const provided: string | undefined = typeof message === "function" ? message() : message;
-  const value: string = provided ? `${prefix}: ${provided}` : prefix;
-  throw new TypeError(value);
-};
 
 // ============================================================================
 // Sandbox Violation Error
@@ -217,7 +198,10 @@ export function isSandboxBoundary(proto: object | null): boolean {
 
   // Check for explicit boundary marker on the prototype itself (OWN property only)
   // Use hasOwnProperty to avoid inheriting boundary status from parent prototypes
-  if (Object.prototype.hasOwnProperty.call(proto, SANDBOX_BOUNDARY) && (proto as Record<symbol, unknown>)[SANDBOX_BOUNDARY] === true) {
+  if (
+    Object.prototype.hasOwnProperty.call(proto, SANDBOX_BOUNDARY) &&
+    (proto as Record<symbol, unknown>)[SANDBOX_BOUNDARY] === true
+  ) {
     boundaryCache.set(proto, true);
     return true;
   }
@@ -229,7 +213,10 @@ export function isSandboxBoundary(proto: object | null): boolean {
   const ctor = Reflect.getOwnPropertyDescriptor(proto, "constructor")?.value;
   if (ctor && typeof ctor === "function") {
     // Again, use hasOwnProperty to avoid inheritance issues
-    if (Object.prototype.hasOwnProperty.call(ctor, SANDBOX_BOUNDARY) && (ctor as unknown as Record<symbol, unknown>)[SANDBOX_BOUNDARY] === true) {
+    if (
+      Object.prototype.hasOwnProperty.call(ctor, SANDBOX_BOUNDARY) &&
+      (ctor as unknown as Record<symbol, unknown>)[SANDBOX_BOUNDARY] === true
+    ) {
       boundaryCache.set(proto, true);
       return true;
     }
