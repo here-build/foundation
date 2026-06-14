@@ -94,14 +94,33 @@ export type ResolverResult =
 
 export type ContentResolver = (contents: string | Uint8Array, ctx: { path: string }) => MaybePromise<ResolverResult>;
 
+/** The EDITOR twin of a {@link ContentResolver}: given a `(require)`d file's raw
+ *  source, synthesize the TS type the lens should give `(require "path")` —
+ *  expressed in the lens vocabulary (`SStr`/`SNum`/`SBool`/`List<…>`/object
+ *  literals), the same dialect rosetta `type:` strings already speak. Returns
+ *  `null` when the handler has no static shape to offer (the lens falls back to
+ *  `unknown`). PURE — it parses the source the same way `resolve` does, but
+ *  never touches the runtime env. Co-located with `resolve` so a single
+ *  registration teaches BOTH the runtime parse and the editor shape: register
+ *  once → runtime + editor both updated, no drift. */
+export type RequireTypeProvider = (source: string, ctx: { path: string }) => string | null;
+
+/** An extension's handler: its runtime `resolve` and its optional editor `type`
+ *  provider (the require analogue of a rosetta's `{ fn, type }`). */
+export interface ExtensionHandler {
+  resolve: ContentResolver;
+  type?: RequireTypeProvider;
+}
+
 export interface Loader {
   /** Pure path math: specifier resolved against the importing module's dir →
    *  canonical root-relative key. Throws on escape above the root. */
   resolve(specifier: string, fromDir: string): MaybePromise<string>;
   /** The one IO call + the jail. Throws (located) if the key isn't in the root. */
   read(path: string): MaybePromise<string | Uint8Array>;
-  /** extension → terminal resolver. Longest matching suffix wins. */
-  resolvers: Map<string, ContentResolver>;
+  /** extension → terminal handler (runtime resolve + editor type). Longest
+   *  matching suffix wins. */
+  resolvers: Map<string, ExtensionHandler>;
   /** `import` name → host-provided value (a membrane namespace, a proc, any
    *  value). Evaluate-once — holds already-built values. This is the curated
    *  capability set a run is granted; `require` is FS, `import` is the registry. */
@@ -162,6 +181,58 @@ const DATA_PARSERS: Record<string, (text: string) => unknown> = {
  *  deep clone — `structuredClone` would preserve the non-JSON types we want gone. */
 // eslint-disable-next-line unicorn/prefer-structured-clone -- JSON projection, not a clone
 const normalizeToJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
+
+// ── value → lens TS type ──────────────────────────────────────────────────────
+//
+// Synthesize the TS type string the lens gives `(require "data.json")`. Mirrors
+// the runtime wrap (`jsToLips`): a JS array becomes a scheme LIST (`List<T>`), a
+// plain object an accessible record (`{ "k": T; … }`), scalars the branded base
+// types. Pure + recursive with depth/breadth guards so a pathological blob
+// degrades to `unknown` instead of emitting a megabyte of types. The output is
+// the lens dialect (`SStr`/`SNum`/`SBool`/`List`), the same vocabulary rosetta
+// `type:` strings are written in.
+
+const TS_TYPE_MAX_DEPTH = 8;
+const TS_TYPE_MAX_KEYS = 200;
+
+/** Union the distinct element types of an array (order-preserving, deduped). */
+function unionElementTypes(items: readonly unknown[], depth: number): string {
+  const seen = new Set<string>();
+  for (const item of items) {
+    seen.add(valueToTsType(item, depth + 1));
+    if (seen.size > 24) return "unknown"; // too many distinct shapes — give up cleanly
+  }
+  if (seen.size === 0) return "unknown"; // empty array — element type unknown
+  return [...seen].join(" | ");
+}
+
+/** Project a parsed (JSON-shaped) value onto its lens TS type string. */
+export function valueToTsType(value: unknown, depth = 0): string {
+  if (depth > TS_TYPE_MAX_DEPTH) return "unknown";
+  if (value === null) return "null";
+  switch (typeof value) {
+    case "string":
+      return "SStr";
+    case "number":
+      return "SNum";
+    case "boolean":
+      return "SBool";
+    default:
+      break;
+  }
+  if (Array.isArray(value)) {
+    const elem = unionElementTypes(value, depth);
+    return `List<${elem.includes(" | ") ? `(${elem})` : elem}>`;
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length > TS_TYPE_MAX_KEYS) return "unknown";
+    if (entries.length === 0) return "{}";
+    const fields = entries.map(([k, v]) => `${JSON.stringify(k)}: ${valueToTsType(v, depth + 1)}`);
+    return `{ ${fields.join("; ")} }`;
+  }
+  return "unknown";
+}
 
 /** A `.chat.hbs` file is split into role-tagged sections by `{{role "x"}}`
  *  markers — the dotprompt convention. The split happens HERE, at load time,
@@ -293,29 +364,47 @@ function parsePromptMcp(raw: unknown, path: string): string[] | null {
 /** The default extension registry: `.scm` loads (spill), data files parse to a
  *  value (bound explicitly via `(define x (require …))`), `.txt` to a string,
  *  `.hbs` evaluates to a render lambda. */
-export function defaultResolvers(): Map<string, ContentResolver> {
-  const dataResolvers = Object.keys(DATA_PARSERS).map((ext): [string, ContentResolver] => [
+export function defaultResolvers(): Map<string, ExtensionHandler> {
+  // Data files share ONE parser per extension across both faces: `resolve`
+  // parses + normalizes to the runtime value, `type` parses + synthesizes the
+  // editor shape. Same `DATA_PARSERS[ext]` on both sides — the registration is
+  // the single source, so the lens shape can never drift from the runtime value.
+  const dataHandlers = Object.keys(DATA_PARSERS).map((ext): [string, ExtensionHandler] => [
     ext,
-    (contents) => ({
-      kind: "value",
-      value: normalizeToJson(DATA_PARSERS[ext]!(String(contents))),
-    }),
+    {
+      resolve: (contents) => ({
+        kind: "value",
+        value: normalizeToJson(DATA_PARSERS[ext]!(String(contents))),
+      }),
+      type: (source) => {
+        try {
+          return valueToTsType(normalizeToJson(DATA_PARSERS[ext]!(source)));
+        } catch {
+          return null; // unparseable mid-edit — no shape, lens falls back to unknown
+        }
+      },
+    },
   ]);
-  return new Map<string, ContentResolver>([
+  return new Map<string, ExtensionHandler>([
     // Pass the module path as `source` so a throw inside this file reads as
     // `path:line` in the scheme stack (L3). `.hbs` deliberately omits it — its
     // parsed forms are a synthetic `(lambda …)`, not the file's own content.
-    [".scm", async (contents, { path }) => ({ kind: "load", forms: await parse(String(contents), undefined, path) })],
-    ...dataResolvers,
-    [".txt", (contents) => ({ kind: "value", value: String(contents) })],
+    [
+      ".scm",
+      { resolve: async (contents, { path }) => ({ kind: "load", forms: await parse(String(contents), undefined, path) }) },
+    ],
+    ...dataHandlers,
+    [".txt", { resolve: (contents) => ({ kind: "value", value: String(contents) }), type: () => "SStr" }],
     // `.hbs` evaluates to a SCHEME lambda (not a raw JS fn — membrane-safe): the
     // call site does `((require "x.hbs") args)` or `(define f (require "x.hbs"))`.
     [
       ".hbs",
-      async (contents) => ({
-        kind: "eval",
-        forms: await parse(`(lambda args (template/handlebars ${JSON.stringify(String(contents))} args))`),
-      }),
+      {
+        resolve: async (contents) => ({
+          kind: "eval",
+          forms: await parse(`(lambda args (template/handlebars ${JSON.stringify(String(contents))} args))`),
+        }),
+      },
     ],
     // `.prompt` (dotprompt) is a SEALED inference unit — parsed HERE into a pure
     // `PromptUnit` descriptor (model name + Picoschema-compiled output schema + the
@@ -330,38 +419,57 @@ export function defaultResolvers(): Map<string, ContentResolver> {
     // never forge a turn. Longest-suffix resolution routes `*.prompt` here.
     [
       ".prompt",
-      (contents, { path }) => {
-        const { fm, body } = parsePromptFile(String(contents));
-        // `model:` is an OPTIONAL default — model is materialization, supplied
-        // (or overridden) at the call site via `:meta (dict :model …)`. A literal
-        // here is the fallback; absent is fine as long as the call supplies one.
-        const model = fm.model ?? null;
-        invariant(
-          model === null || typeof model === "string",
-          '.prompt: frontmatter `model:` must be a model name string (e.g. "qwen3.5-9b") or omitted',
-        );
-        const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
-        const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
-        // `mcp:` (a name or a list of names) makes this an AGENTIC prompt. Normalise to a
-        // string[] | null; each entry is a roster server name resolved at run time.
-        const mcpServers = parsePromptMcp(fm.mcp, path);
-        return { kind: "infer-unit", unit: { path, model, schemaSrc, sections, mcpServers } };
+      {
+        resolve: (contents, { path }) => {
+          const { fm, body } = parsePromptFile(String(contents));
+          // `model:` is an OPTIONAL default — model is materialization, supplied
+          // (or overridden) at the call site via `:meta (dict :model …)`. A literal
+          // here is the fallback; absent is fine as long as the call supplies one.
+          const model = fm.model ?? null;
+          invariant(
+            model === null || typeof model === "string",
+            '.prompt: frontmatter `model:` must be a model name string (e.g. "qwen3.5-9b") or omitted',
+          );
+          const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
+          const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
+          // `mcp:` (a name or a list of names) makes this an AGENTIC prompt. Normalise to a
+          // string[] | null; each entry is a roster server name resolved at run time.
+          const mcpServers = parsePromptMcp(fm.mcp, path);
+          return { kind: "infer-unit", unit: { path, model, schemaSrc, sections, mcpServers } };
+        },
       },
     ],
   ]);
 }
 
 /** Longest registered suffix that the basename ends with (extensions begin with
- *  `.`, so the match is dot-bounded). Terminal — one resolver, no chaining. */
-function pickResolver(path: string, resolvers: Map<string, ContentResolver>): ContentResolver | undefined {
+ *  `.`, so the match is dot-bounded). Terminal — one handler, no chaining. */
+function pickHandler(path: string, resolvers: Map<string, ExtensionHandler>): ExtensionHandler | undefined {
   const base = path.slice(path.lastIndexOf("/") + 1);
-  let best: { ext: string; fn: ContentResolver } | undefined;
-  for (const [ext, fn] of resolvers) {
+  let best: { ext: string; handler: ExtensionHandler } | undefined;
+  for (const [ext, handler] of resolvers) {
     if (base.length > ext.length && base.endsWith(ext) && (!best || ext.length > best.ext.length)) {
-      best = { ext, fn };
+      best = { ext, handler };
     }
   }
-  return best?.fn;
+  return best?.handler;
+}
+
+/** The editor seam: synthesize the TS type for `(require "path")` by routing the
+ *  file's source through the SAME registry the runtime resolves with — so a
+ *  custom extension registered with a `type` provider teaches the lens too. The
+ *  studio calls this per data file and pushes the resulting `{ path → tsType }`
+ *  to the lens. Returns `null` when no handler claims the path or its handler has
+ *  no `type` provider (a `.scm` library, an opaque blob) — the lens then emits
+ *  no `require` overload and the value stays `unknown`. */
+export function resolveRequireType(loader: Loader, path: string, source: string): string | null {
+  const handler = pickHandler(path, loader.resolvers);
+  if (handler?.type === undefined) return null;
+  try {
+    return handler.type(source, { path });
+  } catch {
+    return null; // a throwing provider must never break the editor — degrade to unknown
+  }
 }
 
 /** Default loader over a Project's VFS, confined to the flat key space.
@@ -457,6 +565,7 @@ export function defineRequireRosetta(opts: {
   const dirStack: string[] = [baseDir];
 
   env.defineRosetta("require", {
+    type: "(specifier: SStr): unknown",
     fn: async (specifierArg: unknown) => {
       const path = await loader.resolve(String(specifierArg), dirStack.at(-1)!);
 
@@ -470,9 +579,9 @@ export function defineRequireRosetta(opts: {
 
       const load = (async (): Promise<{ value: unknown }> => {
         const contents = await loader.read(path);
-        const resolver = pickResolver(path, loader.resolvers);
-        invariant(resolver, `require: no resolver for ${path}`);
-        const result = await resolver(contents, { path });
+        const handler = pickHandler(path, loader.resolvers);
+        invariant(handler, `require: no resolver for ${path}`);
+        const result = await handler.resolve(contents, { path });
 
         let value: unknown;
         if (result.kind === "value") {
@@ -572,6 +681,7 @@ export function defineImport(exports: Record<string, unknown>): unknown {
 export function defineImportRosetta(opts: { env: Environment; loader: Loader }): void {
   const { env, loader } = opts;
   env.defineRosetta("import", {
+    type: "(specifier: SStr): unknown",
     fn: (nameArg: unknown) => {
       const name = String(nameArg);
       invariant(loader.imports.has(name), () => {

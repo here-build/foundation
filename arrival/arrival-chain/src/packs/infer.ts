@@ -21,6 +21,8 @@ export function arrivalInferPack(opts: Pick<BuildArrivalEnvOpts, "infer">): EnvP
       env.defineRosetta("infer", {
         withContext: true,
         options: { provenancePoint: true },
+        // `withContext` consumes `ctx` host-side — the scheme-facing arity is (model, prompt, …).
+        type: "(model: unknown, prompt: SStr, schema?: unknown, cacheKey?: unknown): List<SStr>",
         fn: async (ctx, model, prompt, schema, cacheKey) => {
           const { name, middleware, params } = asLlmModel(model);
           const honest = () =>
@@ -33,6 +35,7 @@ export function arrivalInferPack(opts: Pick<BuildArrivalEnvOpts, "infer">): EnvP
       env.defineRosetta("infer/chat", {
         withContext: true,
         options: { provenancePoint: true },
+        type: "(model: unknown, messages: unknown, schema?: unknown, cacheKey?: unknown): List<SStr>",
         fn: async (ctx, model, messages, schema, cacheKey) => {
           const { name, middleware, params } = asLlmModel(model);
           const prompt = canonicalizeMessages(messages);

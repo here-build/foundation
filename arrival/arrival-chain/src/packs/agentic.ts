@@ -23,6 +23,7 @@ export function arrivalAgenticPack(
       env.defineRosetta("infer/agentic/end-to-end", {
         withContext: true,
         options: { provenancePoint: true },
+        type: "(model: unknown, messages: unknown, servers: unknown): List<SStr>",
         fn: async (ctx, model, messages, servers) => {
           const serverVals = (Array.isArray(servers) ? servers : [servers])
             .filter(isDerivableEntity)

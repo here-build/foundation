@@ -448,6 +448,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   // `:tools` and `derive` consume. The getter is the ONLY kind-specific verb — it binds
   // `kind`, which picks the honest bottom at dispatch (here: the credentialed mcp resolver).
   env.defineRosetta("mcp", {
+    type: "(name: unknown): unknown",
     fn: (name: unknown) => new DerivableEntity("mcp", serverNameOf(name)),
   });
   // (llm :name) / (llm "name") — the opaque llm-entity getter, the SECOND kind. Same shape
@@ -455,6 +456,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   // call as the honest bottom (wired in the infer path). Proves the getter is the only
   // kind-aware verb; everything downstream (`derive`, the chain) is kind-agnostic.
   env.defineRosetta("llm", {
+    type: "(name: unknown): unknown",
     fn: (name: unknown) => new DerivableEntity("llm", serverNameOf(name)),
   });
   // (llm/with base :temperature 0.7 :system "…") — bind CONTENT params to an (llm …) entity
@@ -464,6 +466,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   // or a wrong-typed value is a legible error (validated against LLM_PARAM_TYPES), never a
   // silent no-op. Returns a NEW entity (immutable, via withParams; params shallow-merge).
   env.defineRosetta("llm/with", {
+    type: "(base: unknown, ...pairs: unknown[]): unknown",
     fn: (base: unknown, ...pairs: unknown[]) => {
       invariant(base instanceof DerivableEntity, "llm/with: first arg must be an (llm …) entity");
       invariant(base.kind === "llm", `llm/with: base must be an (llm …), got kind "${base.kind}"`);
@@ -488,6 +491,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   // `next` is the honest membrane. Generic because the honest bottom is supplied at dispatch
   // by the entity's kind — `derive` never needs it, it only appends.
   env.defineRosetta("derive", {
+    type: "(base: unknown, method: unknown, handler: unknown): unknown",
     fn: (base: unknown, method: unknown, handler: unknown) => {
       invariant(
         base instanceof DerivableEntity,
@@ -507,6 +511,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   // STAYS kind-prefixed (unlike `derive`): fabrication makes an entity from nothing, so it
   // must DECLARE its kind — there's no base value to carry it.
   env.defineRosetta("mcp/define", {
+    type: "(name: unknown, ...pairs: unknown[]): unknown",
     fn: (name: unknown, ...pairs: unknown[]) => {
       invariant(pairs.length % 2 === 0, "mcp/define: expects a name then :method handler pairs");
       const defined: Partial<Record<McpMethod, McpDefinedMethod>> = {};
@@ -520,6 +525,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   });
   env.defineRosetta("mcp/call", {
     withContext: true,
+    type: "(server: unknown, tool: unknown, args?: unknown): unknown",
     fn: (ctx: McpEffectContext, server: unknown, tool: unknown, args?: unknown): Promise<unknown> =>
       resolve(ctx, {
         kind: "mcp",
@@ -530,6 +536,7 @@ export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver):
   });
   env.defineRosetta("mcp/list", {
     withContext: true,
+    type: "(server: unknown): unknown",
     fn: (ctx: McpEffectContext, server: unknown): Promise<unknown> =>
       resolve(ctx, { kind: "mcp", server: String(server), method: "tools/list", request: {} }),
   });

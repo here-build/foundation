@@ -236,7 +236,7 @@ export const inertDataResolver: DataEffectResolver = (_ctx, effect) => {
 export interface RosettaHost {
   defineRosetta(
     name: string,
-    config: { fn: (...args: any[]) => any; withContext?: boolean; options?: Record<string, unknown> },
+    config: { fn: (...args: any[]) => any; withContext?: boolean; options?: Record<string, unknown>; type?: string },
   ): void;
 }
 
@@ -413,11 +413,12 @@ export function defineDataEffectRosettas(env: RosettaHost, resolve: DataEffectRe
     (ctx: DataEffectContext, label: unknown, path: unknown, opts?: unknown): Promise<DataEffectResult> =>
       resolve(ctx, { kind: "http", method, label: String(label), path: String(path), ...httpOptions(method, opts) });
 
-  env.defineRosetta("http/get", { withContext: true, fn: httpVerb("GET") });
-  env.defineRosetta("http/post", { withContext: true, fn: httpVerb("POST") });
+  env.defineRosetta("http/get", { withContext: true, type: "(label: SStr, path: SStr, opts?: unknown): unknown", fn: httpVerb("GET") });
+  env.defineRosetta("http/post", { withContext: true, type: "(label: SStr, path: SStr, opts?: unknown): unknown", fn: httpVerb("POST") });
 
   env.defineRosetta("sql/query", {
     withContext: true,
+    type: "(label: SStr, query: SStr, params?: unknown): unknown",
     fn: (ctx: DataEffectContext, label: unknown, query: unknown, params?: unknown): Promise<DataEffectResult> =>
       resolve(ctx, { kind: "sql", label: String(label), query: String(query), params: sqlParams(params) }),
   });

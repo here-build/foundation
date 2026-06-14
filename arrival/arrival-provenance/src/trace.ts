@@ -422,7 +422,21 @@ export class EvalTrace implements EvalTap {
   // `action` (strict mode rejects a bare observed write). `exit`/`markProvenancePoint`
   // touch only plain fields, so they stay bare.
 
+  /** Optional cap on total trace entries (invocations + field-points share `#nextId`). The trace
+   *  retains an Invocation PER reduction with its value/children — monotonic, never GC'd — so a long
+   *  or runaway loop grows the trace unboundedly even when the program's own data is bounded. When a
+   *  cap is set, `enter` throws once it's hit: the run aborts with the partial trace up to the cap
+   *  (the half-baked graph), instead of OOMing the shared isolate. `undefined` ⇒ unbounded (legacy). */
+  constructor(readonly maxEntries?: number) {}
+
   enter = action((node: Pair, parent: unknown, tailPosition?: boolean): Invocation => {
+    if (this.maxEntries !== undefined && this.#nextId >= this.maxEntries) {
+      // "budget exceeded" in the message so run-isolated's detector returns a partial handle.
+      throw new Error(
+        `trace step budget exceeded (${this.maxEntries} entries) — run produced too many steps to ` +
+          `trace; bound the loop or raise ARRIVAL_TRACE_MAX.`,
+      );
+    }
     const inv = new Invocation(this.#nextId++, node, parent as Invocation | null);
     if (tailPosition) inv.tailPosition = true;
     let rec = this.records.get(node);
@@ -505,6 +519,14 @@ export class EvalTrace implements EvalTap {
       // A point's own set is {self} (tiny + read as a point); never prune it.
       if (child.isProvenancePoint) continue;
       if (child.provenance.size > 0) child.provenance = EMPTY_PROVENANCE;
+      // GC the retained scheme VALUE too, not just the provenance Set. This child is pure scaffolding
+      // (neither a point nor a point's direct child, by the same keep-predicate the snapshot uses), so
+      // its value is never read again by anyone — yet `Invocation.value` would pin it (and its whole
+      // object graph) for the trace's lifetime. On a long/looping run that retained value graph IS the
+      // leak. Releasing it lets a streamed/large intermediate collect mid-run. The parent already
+      // folded this child at exit, and if the parent RETURNS the child's value it holds its own
+      // reference (separate field) — so clearing here only frees values nothing else needs.
+      child.value = undefined;
     }
   }
 

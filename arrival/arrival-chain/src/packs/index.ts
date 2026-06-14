@@ -6,8 +6,12 @@ import { arrivalDataPack } from "./data.js";
 import { arrivalInferPack } from "./infer.js";
 import { arrivalLoaderCorePack } from "./loader-core.js";
 import { arrivalMcpPack } from "./mcp.js";
+import { arrivalReflectPack } from "./reflect.js";
+import { arrivalRunPack } from "./run.js";
+import { arrivalSourceReadPack } from "./source-read.js";
 import { arrivalSuperDefinePack } from "./superdefine.js";
 import { arrivalUtilsPack } from "./utils.js";
+import type { Project } from "../project.js";
 
 // ─── Atomic capability packs (P5) ────────────────────────────────────────────
 // Each pack is a module-level factory over `opts`: a named, independently-composable contribution to
@@ -39,7 +43,21 @@ export function arrivalPacks(opts: BuildArrivalEnvOpts): EnvPack<ArrivalEnv>[] {
   ];
 }
 
+/**
+ * The DISCOVERY plane root-set — source reads (`require/ast`/`require/string`), run launchers
+ * (`require/eval`/`require/call`) and provenance reflection (`why`/`where`/`how`/`result-value`).
+ * Deliberately has NO infer, NO loader-core (so no anonymous `(require …)`/`(import …)`): the only
+ * way to run is to NAME a file, and that launch goes through the isolated run plane. Assemble this
+ * onto a fresh `sandboxedEnv.inherit(...)` for the read tier.
+ */
+export function discoveryPacks(project: Project): EnvPack<ArrivalEnv>[] {
+  return [arrivalSourceReadPack(project), arrivalRunPack(project), arrivalReflectPack()];
+}
+
 export { type ArrivalEnv } from "../infer-kernel.js";
+export { arrivalReflectPack } from "./reflect.js";
+export { arrivalRunPack } from "./run.js";
+export { arrivalSourceReadPack } from "./source-read.js";
 export { arrivalAgenticPack } from "./agentic.js";
 export { arrivalDataPack } from "./data.js";
 export { arrivalBudgetPack } from "./budget.js";

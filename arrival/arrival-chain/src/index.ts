@@ -81,6 +81,22 @@ export {
   arrivalSuperDefinePack,
   arrivalAgenticPack,
   arrivalLoaderCorePack,
+  // Discovery plane: source reads + isolated run launchers + provenance reflection (why/where/how).
+  discoveryPacks,
+  arrivalSourceReadPack,
+  arrivalRunPack,
+  arrivalReflectPack,
+  runNamed,
+  runNamedCall,
+  whyOf,
+  whereOf,
+  howOf,
+  dagOf,
+  ResultHandle,
+  is_result_handle,
+  isWireSafe,
+  assertWireSafe,
+  WireUnsafeError,
 } from "./project.js";
 // Env-pack capability-DAG assembly (P0–P4): the pack type + the construction/runtime assemblers, so a
 // host can author extension packs and arm a `(require/extension :name)` registry.
@@ -157,9 +173,13 @@ export {
   defineRequireRosetta,
   loaderFromResolver,
   makeProjectLoader,
+  resolveRequireType,
+  valueToTsType,
   type ContentResolver,
+  type ExtensionHandler,
   type Loader,
   type RequireResolver,
+  type RequireTypeProvider,
   type ResolverResult,
 } from "./loader.js";
 // `(declare/expose …)` — the sealed-skill form. Static signature extraction

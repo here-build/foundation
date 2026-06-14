@@ -48,9 +48,17 @@ export {
   arrivalLoaderCorePack,
   arrivalMcpPack,
   arrivalPacks,
+  arrivalReflectPack,
+  arrivalRunPack,
+  arrivalSourceReadPack,
   arrivalSuperDefinePack,
   arrivalUtilsPack,
+  discoveryPacks,
 } from "./packs/index.js";
+export { runNamed, runNamedCall } from "./run-isolated.js";
+export { whyOf, whereOf, howOf, dagOf } from "./handle-provenance.js";
+export { ResultHandle, is_result_handle } from "./result-handle.js";
+export { isWireSafe, assertWireSafe, WireUnsafeError } from "./wire-safe.js";
 
 const isThenable = (v: unknown): v is PromiseLike<unknown> =>
   v != null && typeof (v as { then?: unknown }).then === "function";
