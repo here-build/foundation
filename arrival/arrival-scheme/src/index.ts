@@ -1,6 +1,5 @@
 // Re-export all LIPS interpreter functionality
 import { initBridge } from "./bridge.js";
-import { applyFantasyLandPatches } from "./fantasy-land.js";
 
 export * from "./stdlib.js";
 export * from "./safe_builtins.js";
@@ -57,7 +56,6 @@ export { Pair } from "./Pair.js";
 //        const n = new Scheme.Exact(42n)
 export * as Scheme from "./Scheme.js";
 
-applyFantasyLandPatches();
 void initBridge();
 
 // Classes that may be needed for type checking or extension

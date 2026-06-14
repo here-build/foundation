@@ -31,7 +31,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { applyFantasyLandPatches } from "../fantasy-land";
 import { is_nil } from "../guards";
 import { isSchemeValue, toJS, fromJS } from "../membrane";
 import { lipsToJs, jsToLips } from "../rosetta";
@@ -292,7 +291,7 @@ describe("ramda-functions.ts — `=== nil` identity-equality sites", () => {
 // =========================================================================
 
 describe("fantasy-land-lips.ts — `=== nil` identity-equality sites", () => {
-  // The FL helpers are called on Pair.prototype after `applyFantasyLandPatches()`.
+  // The FL helpers live on Pair.prototype (declared in the Pair class body).
   // For unit-level granularity we exercise the recursion through a Pair
   // whose cdr is a nil-clone — every FL helper recurses on `pair.cdr` and
   // hits the base case there.
@@ -305,8 +304,6 @@ describe("fantasy-land-lips.ts — `=== nil` identity-equality sites", () => {
   // `!pair` returning nil — but a phantom undefined was passed through `f`.
   it("mapPair(f, Pair(1, nil-clone)) — should produce (1) only, fn called once (fantasy-land-lips.ts:89)", () => {
     // mapPair is not exported; invoke via the FL protocol installed on Pair.prototype.
-    // Re-trigger the patch defensively in case the patch hasn't been applied yet.
-    applyFantasyLandPatches();
     const calls: unknown[] = [];
     const p = new Pair(1, cloneNil());
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -322,9 +319,7 @@ describe("fantasy-land-lips.ts — `=== nil` identity-equality sites", () => {
   // fantasy-land-lips.ts:94 — same shape as 89 but for `filterPair`. The
   // base case misses on a clone, leading to predicate being called with
   // undefined and a phantom Pair node being added to the result.
-  it("filterPair(_, Pair(1, nil-clone)) — predicate called once (fantasy-land-lips.ts:94)", () => {
-    applyFantasyLandPatches();
-    let predCalls = 0;
+  it("filterPair(_, Pair(1, nil-clone)) — predicate called once (fantasy-land-lips.ts:94)", () => {    let predCalls = 0;
     const p = new Pair(1, cloneNil());
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (p as any)["fantasy-land/filter"](() => {
@@ -340,9 +335,7 @@ describe("fantasy-land-lips.ts — `=== nil` identity-equality sites", () => {
   // undefined, hitting the `!pair` branch — so the bug is "one phantom
   // f-invocation with `undefined`." Expected: f called once with the
   // genuine element only.
-  it("reducePair(f, init, Pair(1, nil-clone)) — f called once (fantasy-land-lips.ts:102)", () => {
-    applyFantasyLandPatches();
-    const collected: unknown[] = [];
+  it("reducePair(f, init, Pair(1, nil-clone)) — f called once (fantasy-land-lips.ts:102)", () => {    const collected: unknown[] = [];
     const p = new Pair(1, cloneNil());
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (p as any)["fantasy-land/reduce"]((acc: unknown[], v: unknown) => {
@@ -363,9 +356,7 @@ describe("fantasy-land-lips.ts — `=== nil` identity-equality sites", () => {
   // pre-existing assertion `ofCalls.length === 1` reflected the broken-
   // termination shape rather than the algorithm's correct invariant, so we
   // keep it `.fails` until the assertion is rewritten.
-  it.fails("traversePair(of, f, Pair(1, nil-clone)) — of-nil called once (fantasy-land-lips.ts:108)", () => {
-    applyFantasyLandPatches();
-    const ofCalls: unknown[] = [];
+  it.fails("traversePair(of, f, Pair(1, nil-clone)) — of-nil called once (fantasy-land-lips.ts:108)", () => {    const ofCalls: unknown[] = [];
     const of = (v: unknown) => {
       ofCalls.push(v);
       return v;
@@ -380,9 +371,7 @@ describe("fantasy-land-lips.ts — `=== nil` identity-equality sites", () => {
   // fantasy-land-lips.ts:120 — `chainPair`'s base case
   // `if (!pair || pair === nil) return nil`. Same pattern: a phantom
   // f-invocation on undefined when the cdr is a Nil clone.
-  it("chainPair(f, Pair(1, nil-clone)) — f called once (fantasy-land-lips.ts:120)", () => {
-    applyFantasyLandPatches();
-    const calls: unknown[] = [];
+  it("chainPair(f, Pair(1, nil-clone)) — f called once (fantasy-land-lips.ts:120)", () => {    const calls: unknown[] = [];
     const p = new Pair(1, cloneNil());
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (p as any)["fantasy-land/chain"]((x: unknown) => {
