@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { lmStudioRouter, probeLmStudio } from "../connectors/lmstudio.js";
+import { lazyLmStudioRouter, localEndpointsRouter, lmStudioRouter, probeLmStudio } from "../connectors/lmstudio.js";
 
 const jsonResponse = (body: unknown, ok = true): Response =>
   ({ ok, json: async () => body }) as unknown as Response;
@@ -142,5 +142,65 @@ describe("lmStudioRouter — probe result → routable transport", () => {
       ],
     });
     expect(await router.backendFor("a")).toBe(await router.backendFor("b"));
+  });
+});
+
+describe("lazyLmStudioRouter — lazy probe + memoization", () => {
+  it("does not probe until the first backendFor, then memoizes the probe", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(url).toBe("http://localhost:1234/api/v0/models");
+      return jsonResponse({ data: [{ id: "qwen", state: "loaded", type: "llm" }] });
+    }) as unknown as typeof fetch;
+    const router = lazyLmStudioRouter("http://localhost:1234", fetchImpl);
+    expect(fetchImpl).not.toHaveBeenCalled(); // construction probes nothing
+    expect(await router.backendFor("qwen")).not.toBeNull();
+    expect(await router.backendFor("qwen")).not.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // probe memoized across calls
+  });
+
+  it("memoizes a probe MISS as the empty router (every lookup falls through)", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("connection refused"); // tunnel 503 / offline, indistinguishable
+    }) as unknown as typeof fetch;
+    const router = lazyLmStudioRouter("http://localhost:1234", fetchImpl);
+    expect(await router.backendFor("qwen")).toBeNull();
+    expect(await router.backendFor("qwen")).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("localEndpointsRouter — precedence by user-config order", () => {
+  it("first endpoint serving a model wins (LM Studio above Ollama both serving qwen)", async () => {
+    const seen: string[] = [];
+    const fetchFor = (endpoint: string): typeof fetch =>
+      (async (url: string) => {
+        seen.push(endpoint);
+        // Both serve "qwen"; only the second also serves "extra".
+        const models =
+          endpoint === "http://localhost:1234"
+            ? [{ id: "qwen", state: "loaded", type: "llm" }]
+            : [
+                { id: "qwen", state: "loaded", type: "llm" },
+                { id: "extra", state: "loaded", type: "llm" },
+              ];
+        expect(url).toBe(`${endpoint}/api/v0/models`);
+        return jsonResponse({ data: models });
+      }) as unknown as typeof fetch;
+    const router = localEndpointsRouter(
+      ["http://localhost:1234", "http://localhost:11434"], // precedence order
+      fetchFor,
+    );
+    // qwen resolves to the FIRST endpoint; the second isn't even probed for it
+    // (LayeredRouter short-circuits on first non-null).
+    expect(await router.backendFor("qwen")).not.toBeNull();
+    expect(seen).toEqual(["http://localhost:1234"]);
+    // a model only the second serves falls through to it.
+    expect(await router.backendFor("extra")).not.toBeNull();
+    expect(seen).toContain("http://localhost:11434");
+  });
+
+  it("empty endpoint list → empty router", async () => {
+    const router = localEndpointsRouter([], () => undefined);
+    expect(await router.backendFor("anything")).toBeNull();
   });
 });

@@ -21,7 +21,7 @@
  * load. The only durable footprint is the endpoint, stored as connection intent.
  */
 import { openaiBackend } from "../backends/openai.js";
-import { type ModelRouter, StaticRouter } from "../registry.js";
+import { emptyRouter, LayeredRouter, type ModelRouter, StaticRouter } from "../registry.js";
 
 /** The default LM Studio server address. Browsers tolerate `localhost` (happy-eyeballs
  *  falls back to IPv4 when the server binds 127.0.0.1 only); a native client should
@@ -177,4 +177,53 @@ export function lmStudioRouter(
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
   });
   return new StaticRouter(status.models.map((m) => [m.id, transport] as const));
+}
+
+/**
+ * A router that probes ONE LM Studio endpoint LAZILY — on the first `backendFor`,
+ * not at construction. This is the resolver's discovery decision in code: no
+ * model list is held server-side, and nothing reaches the endpoint until an
+ * `(infer …)` actually asks for a model. The probe (and its resulting
+ * `StaticRouter`) is memoized for this router's lifetime, so a run touching the
+ * same endpoint twice probes once.
+ *
+ * A probe miss (`null` — endpoint offline / not LM Studio / unreachable, e.g. a
+ * 503 from the reverse tunnel when no node serves it) memoizes the EMPTY router:
+ * every `backendFor` returns null and the lookup falls through to the next layer
+ * (a lower-precedence local endpoint, then the team router). The endpoint coming
+ * online later needs a fresh router (a new request builds one) — correct for the
+ * per-request overlay, which is rebuilt each call anyway.
+ *
+ * `fetchImpl` injects the transport for BOTH probe and run — server-side this is
+ * the reverse-tunnel adapter, so discovery and inference both ride the user's own
+ * tunnel and the "server is sole initiator" asymmetry holds end to end.
+ */
+export function lazyLmStudioRouter(base = LM_STUDIO_DEFAULT_BASE, fetchImpl?: typeof fetch): ModelRouter {
+  let resolved: Promise<ModelRouter> | undefined;
+  const resolve = (): Promise<ModelRouter> => {
+    resolved ??= probeLmStudio(base, undefined, fetchImpl).then((status) =>
+      status ? lmStudioRouter(status, base, fetchImpl) : emptyRouter,
+    );
+    return resolved;
+  };
+  return {
+    async backendFor(modelId) {
+      return (await resolve()).backendFor(modelId);
+    },
+  };
+}
+
+/**
+ * Compose a precedence-ordered local router over several endpoints — the user's
+ * personal config order IS the precedence (first endpoint serving a model wins,
+ * so LM Studio above Ollama both serving `qwen` resolves to LM Studio). Each
+ * endpoint becomes a {@link lazyLmStudioRouter} layer via `fetchFor(endpoint)`,
+ * which supplies that endpoint's transport (server-side: a tunnel adapter pinned
+ * to `(userId, endpoint)`). Empty list ⇒ the empty router (no local models).
+ */
+export function localEndpointsRouter(
+  endpoints: readonly string[],
+  fetchFor: (endpoint: string) => typeof fetch | undefined,
+): ModelRouter {
+  return new LayeredRouter(endpoints.map((ep) => lazyLmStudioRouter(ep, fetchFor(ep))));
 }
