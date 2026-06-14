@@ -31,10 +31,15 @@ describe("SchemeString Setoid/Ord — totality boundaries", () => {
     expect((a as never)[FL](b)).toBe(true);
   });
 
-  it("non-SchemeString other → false for both equals and lte", () => {
+  it("equals is representation-blind (plain string matches by content); lte stays type-strict", () => {
     const a = new SchemeString("a");
-    expect((a as never)[FL]("a")).toBe(false);
-    expect((a as never)[FL](42)).toBe(false);
+    // equals: a boxed string equals the SAME value UNBOXED (a plain JS string) — the representation-
+    // blindness that fixes dedup over chain-boxed strings (sift/closure.scm). Content still discriminates.
+    expect((a as never)[FL]("a")).toBe(true); // plain string, equal content → equal (was false)
+    expect((a as never)[FL]("b")).toBe(false); // plain string, different content → not equal
+    expect((a as never)[FL](42)).toBe(false); // non-string → not equal (total)
+    // lte (Ord) is unchanged: still type-strict. Cross-representation ORDERING is a separate question
+    // from the equality bug; left strict deliberately.
     expect((a as never)[LTE]("a")).toBe(false);
     expect((a as never)[LTE](null)).toBe(false);
   });

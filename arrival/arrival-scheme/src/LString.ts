@@ -97,12 +97,17 @@ export class SchemeString extends AValue {
     }
   }
 
-  // Setoid (Fantasy Land). Value equality on the underlying string — matches how
-  // structuralEqual compares strings via __string__. structuralEqual consults
-  // fantasy-land/equals FIRST, so this preserves equal? string semantics.
-  // (algebras-in-entities migration — plan-2026-06-10-algebras-in-entities.md.)
+  // Setoid (Fantasy Land). REPRESENTATION-BLIND value equality: a boxed SchemeString equals BOTH
+  // another SchemeString of the same content AND the same value UNBOXED (a plain JS string). A string
+  // has no exact/inexact-style grade, so its identity is purely its characters — and the chain plane
+  // boxes inconsistently (provenance-carrying op → boxed; literal/rosetta-unwrap → plain), so equal?
+  // routinely meets a boxed string against a plain one. Comparing only `instanceof SchemeString` made
+  // `(equal? boxed "x")` ⇒ #f, silently breaking every dedup/`member?` over derived strings (the
+  // sift/closure.scm browser hang). `this.__string__ === other` lets a plain-string `other` match by
+  // content and a non-string `other` (number/object) fall through to #f. structuralEqual consults the
+  // Setoid before its valueOf check, so this is THE place string equality is decided.
   ["fantasy-land/equals"](other: unknown): boolean {
-    return other instanceof SchemeString && this.__string__ === other.__string__;
+    return this.__string__ === (other instanceof SchemeString ? other.__string__ : other);
   }
 
   // Ord (Fantasy Land, extends Setoid). Lexicographic via JS `<=`, a total

@@ -25,9 +25,12 @@ export class SchemeBool extends AValue {
     return new SchemeBool(this.value, p);
   }
 
-  // Fantasy Land Setoid: total over any input, guards on the brand first.
+  // Fantasy Land Setoid: REPRESENTATION-BLIND — a boxed SchemeBool equals another SchemeBool of the
+  // same value AND the same value UNBOXED (a plain JS boolean). Booleans carry no grade, so identity
+  // is the truth value alone; the chain plane boxes inconsistently, so equal? meets boxed vs plain.
+  // `this.value === other` matches a plain-boolean `other` and rejects non-booleans (1, "true").
   ["fantasy-land/equals"](other: unknown): boolean {
-    return other instanceof SchemeBool && this.value === other.value;
+    return this.value === (other instanceof SchemeBool ? other.value : other);
   }
 }
 
