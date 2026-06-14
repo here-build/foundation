@@ -108,7 +108,7 @@ export function is_false(o: unknown): o is false | null | SchemeBool {
     case o === null:
       return true;
     case o instanceof SchemeBool:
-      return (o as SchemeBool).value === false;
+      return o.value === false;
     default:
       return false;
   }

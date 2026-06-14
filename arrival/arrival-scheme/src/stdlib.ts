@@ -38,9 +38,7 @@ import { clear_gensyms, extract_patterns, macro_expand, transform_syntax } from 
 import { gensym, hidden_prop, quote } from "./values-repr.js";
 import {
   __context__,
-  __data__,
   __fn__,
-  __lambda__,
   __prototype__,
   complex_bare_re,
   complex_re,
@@ -55,7 +53,7 @@ import { nil, SchemeCharacter } from "./types.js";
 import * as specials from "./specials.js";
 import { call_function } from "./call-function.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
-import { type, typecheck, typecheck_args, typeErrorMessage } from "./utils/typecheck.js";
+import { type, typecheck, typeErrorMessage } from "./utils/typecheck.js";
 import { parse_complex, parse_float, parse_integer, parse_rational } from "./utils/parsing.js";
 import { Values } from "./Values.js";
 import { available_class, class_map, unserialize } from "./serialize.js";
@@ -69,7 +67,7 @@ import { SchemeBool } from "./LBool.js";
 import { SchemeBytevector } from "./LBytevector.js";
 import { SchemeString } from "./LString.js";
 import { SchemeVector } from "./LVector.js";
-import { NOT_FOUND, SandboxViolationError, SchemeJSFunction, SchemeJSObject, sandboxedAccess } from "./membrane.js";
+import { NOT_FOUND, sandboxedAccess, SandboxViolationError, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
 import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./evaluator.js";
 
 // Declare jQuery for browser environments
@@ -936,7 +934,7 @@ function genMacroWrapper(name: string): Macro {
     // (list "a" "b") would be treated as a function call ("a" "b").
     return genRun(genEvaluate(form, ctx)).then((value: SchemeValue) => {
       if (is_pair(value)) {
-        (value as Pair).mark_cycles();
+        value.mark_cycles();
         return quote(value);
       }
       return value;
@@ -1700,8 +1698,7 @@ export const global_env = new Environment(
         constructor = constructor.source;
       }
       constructor = unbind(constructor);
-      const instance = new constructor(...args.map((x) => unbox(x)));
-      return instance;
+      return new constructor(...args.map((x) => unbox(x)));
     }),
     // ------------------------------------------------------------------
     typecheck: doc(null, typecheck),

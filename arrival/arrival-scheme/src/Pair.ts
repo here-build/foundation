@@ -148,7 +148,7 @@ function mark_cycles(pair: Pair): void {
   function mark_node(node: PairWithMetadata, type: "car" | "cdr"): void {
     const cycleData = node[__cycles__];
     if (cycleData && is_pair(cycleData[type])) {
-      const count = ref_nodes.indexOf(cycleData[type] as Pair);
+      const count = ref_nodes.indexOf(cycleData[type]);
       cycleData[type] = `#${count}#`;
     }
   }
@@ -579,7 +579,7 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
   }
 
   set(prop: "car" | "cdr", value: unknown): void {
-    (this as Pair<unknown, unknown>)[prop] = value;
+    (this as Pair)[prop] = value;
     if (is_pair(value)) {
       this.mark_cycles();
     }
@@ -589,7 +589,7 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
     if (Array.isArray(arg)) {
       return this.append(Pair.fromArray(arg));
     }
-    const self = this as Pair<unknown, unknown>;
+    const self = this as Pair;
     let p: Pair = self;
     if (p.car === undefined) {
       if (is_pair(arg)) {
@@ -606,7 +606,7 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
           break;
         }
       }
-      (p as Pair<unknown, unknown>).cdr = arg;
+      (p as Pair).cdr = arg;
     }
     return this;
   }
