@@ -13,7 +13,7 @@ import {
   AssemblePackTimeoutError,
   createRuntimeAssembler,
   type EnvPack,
-} from "../env-pack.js";
+} from "../kernel.js";
 
 // A stub env: records the order packs applied + the symbols they set.
 interface Stub {

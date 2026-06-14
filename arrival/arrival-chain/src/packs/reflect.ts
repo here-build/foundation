@@ -10,7 +10,7 @@
 // plane can't be tricked into running one (a handle isn't wire-safe). `(result-value h)` reads the
 // transparent value.
 
-import type { EnvPack } from "../env-pack.js";
+import type { EnvPack } from "@here.build/arrival-scheme/env";
 import { dagOf, howOf, whereOf, whyOf } from "../handle-provenance.js";
 import type { ArrivalEnv } from "../infer-kernel.js";
 import { is_result_handle, type ResultHandle } from "../result-handle.js";

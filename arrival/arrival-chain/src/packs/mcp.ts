@@ -1,4 +1,4 @@
-import type { EnvPack } from "../env-pack.js";
+import type { EnvPack } from "@here.build/arrival-scheme/env";
 import { type ArrivalEnv, type BuildArrivalEnvOpts } from "../infer-kernel.js";
 import { defineMcpRosettas, inertMcpResolver, MCP_BREAK } from "../mcp-effects.js";
 

@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 /** Evaluate a program and bridge the LAST top-level form's value to plain JS.
  *  `exec` returns the list of every top-level form's value; the trailing
  *  expression is the one under test (a leading `define` yields `undefined`). */
-const run = async (src: string, env: ReturnType<typeof buildArrivalEnv>): Promise<unknown> => {
+const run = async (src: string, env: Awaited<ReturnType<typeof buildArrivalEnv>>): Promise<unknown> => {
   const results = lipsToJs(await exec(src, { env }), {});
   return Array.isArray(results) ? results[results.length - 1] : results;
 };
@@ -31,13 +31,13 @@ import { BUILTIN_PREAMBLE, buildArrivalEnv } from "../project.js";
 import { loaderFromResolver } from "../loader.js";
 
 async function envWith(resolveOverride?: ResolveOverride): Promise<{
-  env: ReturnType<typeof buildArrivalEnv>;
+  env: Awaited<ReturnType<typeof buildArrivalEnv>>;
   exposes: ExposeDeclaration[];
   overridables: OverridableDescriptor[];
 }> {
   const exposes: ExposeDeclaration[] = [];
   const overridables: OverridableDescriptor[] = [];
-  const env = buildArrivalEnv({
+  const env = await buildArrivalEnv({
     name: "superdefine-test",
     infer: async () => "stub",
     loader: loaderFromResolver(async () => {

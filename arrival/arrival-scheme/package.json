@@ -34,6 +34,30 @@
     "./test-env": {
       "types": "./dist/custom-matchers.d.ts",
       "import": "./dist/custom-matchers.js"
+    },
+    "./env": {
+      "types": "./dist/env/kernel.d.ts",
+      "default": "./dist/env/kernel.js"
+    },
+    "./capability": {
+      "types": "./dist/env/capability.d.ts",
+      "default": "./dist/env/capability.js"
+    },
+    "./resources": {
+      "types": "./dist/env/resources.d.ts",
+      "default": "./dist/env/resources.js"
+    },
+    "./scheme-env": {
+      "types": "./dist/env/scheme-env.d.ts",
+      "default": "./dist/env/scheme-env.js"
+    },
+    "./srfi": {
+      "types": "./dist/env/srfi/index.d.ts",
+      "default": "./dist/env/srfi/index.js"
+    },
+    "./macros": {
+      "types": "./dist/env/macros.d.ts",
+      "default": "./dist/env/macros.js"
     }
   },
   "main": "./dist/index.js",
@@ -54,12 +78,15 @@
   },
   "dependencies": {
     "@here.build/arrival-env": "workspace:^",
+    "@here.build/error-invariant": "workspace:^",
     "fantasy-land": "5.0.1",
     "fold-case": "1.0.0",
     "ramda": "0.31.3",
     "ramda-adjunct": "5.1.0",
     "tiny-invariant": "1.3.3",
-    "unicode-properties": "1.4.1"
+    "unicode-properties": "1.4.1",
+    "zod": "4.3.6",
+    "tslib": "2.8.1"
   },
   "devDependencies": {
     "@here.build/eslint-configs": "workspace:^",

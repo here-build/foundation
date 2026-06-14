@@ -21,10 +21,10 @@ import { EvalTrace } from "@here.build/arrival-provenance";
 import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
 import invariant from "tiny-invariant";
 
-import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "./env-pack.js";
+import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "@here.build/arrival-scheme/env";
 import type { Loader } from "./loader.js";
 import type { McpEffectResolver } from "./mcp-effects.js";
-import { buildArrivalEnv, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
+import { buildArrivalEnv, type BuildArrivalEnvOpts, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";
 
 /** A configured model: the host-side materialization of a model id the program names. */
 export interface ChainModelSpec {
@@ -45,7 +45,7 @@ export interface ChainModelSpec {
   model?: string;
 }
 
-type ChainEnv = ReturnType<typeof buildArrivalEnv>;
+type ChainEnv = Awaited<ReturnType<typeof buildArrivalEnv>>;
 
 /** Context handed to an extension's `init` — enough to build a same-router narrator, read the
  *  run id, and register late rosettas. */
@@ -218,7 +218,10 @@ function makeInfer(store: ReturnType<typeof createInferStore>, maxRetry: number,
 /** A declaratively-configured arrival environment that runs chains. Owns the router, the
  *  infer-store, the env, the extension stack, and the init/dispose lifecycle. */
 export class ChainEnvironment {
-  readonly env: ChainEnv;
+  /** Built in `init()` (env assembly is async). `run()`/`dispose()` await `init()` first, so every
+   *  consumer sees it set; the `!` reflects that constructor-time absence. */
+  env!: ChainEnv;
+  private readonly envOpts: BuildArrivalEnvOpts;
   readonly router: ModelRouter;
   readonly infer: InferFn;
   private readonly exts: ChainExtension[];
@@ -254,7 +257,7 @@ export class ChainEnvironment {
     const store = createInferStore(this.router);
     const infer = config.infer ?? makeInfer(store, config.maxInferRetry ?? 3, Boolean(process.env.SIFT_TRACE));
     this.infer = infer;
-    this.env = buildArrivalEnv({
+    this.envOpts = {
       name: config.name,
       infer,
       loader: config.loader,
@@ -268,17 +271,19 @@ export class ChainEnvironment {
             },
           }
         : {}),
-    });
+    };
     this.exts = config.extensions ?? [];
-    // P3: registration is deferred to async init() — the env-pack assembly is the single pass that
-    // registers, initializes, and records teardown for every extension. Nothing touches the env
-    // between construction and init() (run() awaits init() first), so deferring register is safe.
+    // P3 + async env-build: both the env assembly and extension registration are deferred to async
+    // init() — capability lowering + DAG assembly are async by construction. Nothing touches the env
+    // between construction and init() (run() awaits init() first), so deferring the build is safe.
   }
 
-  /** Bridge boot + the extension capability-DAG assembly (register + init + dispose, one pass). */
+  /** Build the env (async capability assembly), bridge boot, then the extension capability-DAG
+   *  assembly (register + init + dispose, one pass). */
   async init(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    this.env = await buildArrivalEnv(this.envOpts);
     await this.env.init();
     const initCtx: ChainInitContext = { env: this.env, router: this.router, runId: this.runId, infer: this.infer };
     // Roots reversed so the least-precedence-first apply order matches the extensions' array order

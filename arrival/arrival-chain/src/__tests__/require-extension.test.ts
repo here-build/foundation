@@ -8,9 +8,9 @@ import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
 import { EvalTrace } from "@here.build/arrival-provenance";
 import { buildArrivalEnv } from "../project.js";
 import { loaderFromResolver } from "../loader.js";
-import type { EnvPack } from "../env-pack.js";
+import type { EnvPack } from "@here.build/arrival-scheme/env";
 
-type EnvHandle = ReturnType<typeof buildArrivalEnv>;
+type EnvHandle = Awaited<ReturnType<typeof buildArrivalEnv>>;
 
 const stubInfer = (async () => [""]) as unknown as Parameters<typeof buildArrivalEnv>[0]["infer"];
 const stubLoader = loaderFromResolver(() => {
@@ -19,7 +19,7 @@ const stubLoader = loaderFromResolver(() => {
 
 /** Build an env armed with `registry`, run `source`, return the JS-projected last value. */
 async function runWith(registry: Map<string, EnvPack<EnvHandle>>, source: string): Promise<unknown> {
-  const env = buildArrivalEnv({
+  const env = await buildArrivalEnv({
     name: "t",
     infer: stubInfer,
     loader: stubLoader,

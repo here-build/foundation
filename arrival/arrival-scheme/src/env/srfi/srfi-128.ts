@@ -1,0 +1,40 @@
+// SRFI-128 — comparators. Scheme-bootstrap capability. Source mirrors arrival-scheme/src/bootstrap.ts.
+import { EnvCapability } from "../capability.js";
+
+export default new EnvCapability("scheme/srfi-128", {
+  prelude: `
+(define (make-comparator type-test equality ordering . hash)
+  (list 'comparator type-test equality ordering))
+(define (comparator? x) (and (pair? x) (eq? (car x) 'comparator)))
+(define (comparator-type-test-predicate c) (cadr c))
+(define (comparator-equality-predicate c) (caddr c))
+(define (comparator-ordering-predicate c) (cadddr c))
+(define (comparator-hashable? c) #f)
+(define (%chain-rel rel a b rest)
+  (if (rel a b)
+      (if (null? rest) #t (%chain-rel rel b (car rest) (cdr rest)))
+      #f))
+(define (=? c a b . rest) (%chain-rel (comparator-equality-predicate c) a b rest))
+(define (<? c a b . rest) (%chain-rel (comparator-ordering-predicate c) a b rest))
+(define (>? c a b . rest)
+  (let ((lt (comparator-ordering-predicate c))) (%chain-rel (lambda (x y) (lt y x)) a b rest)))
+(define (<=? c a b . rest)
+  (let ((lt (comparator-ordering-predicate c))) (%chain-rel (lambda (x y) (not (lt y x))) a b rest)))
+(define (>=? c a b . rest)
+  (let ((lt (comparator-ordering-predicate c))) (%chain-rel (lambda (x y) (not (lt x y))) a b rest)))
+(define (%type-rank x)
+  (cond ((boolean? x) 0) ((number? x) 1) ((char? x) 2) ((string? x) 3)
+        ((symbol? x) 4) ((null? x) 5) ((pair? x) 6) (else 7)))
+(define (%default-less a b)
+  (let ((ra (%type-rank a)) (rb (%type-rank b)))
+    (if (not (= ra rb)) (< ra rb)
+        (cond ((number? a) (< a b))
+              ((char? a) (char<? a b))
+              ((string? a) (string<? a b))
+              ((symbol? a) (string<? (symbol->string a) (symbol->string b)))
+              ((boolean? a) (and (not a) b))
+              (else #f)))))
+(define (make-default-comparator) (make-comparator (lambda (x) #t) equal? %default-less))
+(define (default-comparator) (make-default-comparator))
+`,
+});

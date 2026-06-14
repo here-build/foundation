@@ -9,7 +9,7 @@
 
 import { KEYWORD_ACCESSOR_FIELD } from "@here.build/arrival-scheme";
 
-import type { EnvPack } from "../env-pack.js";
+import type { EnvPack } from "@here.build/arrival-scheme/env";
 import type { ArrivalEnv } from "../infer-kernel.js";
 import type { Project } from "../project.js";
 import { runNamed, runNamedCall } from "../run-isolated.js";

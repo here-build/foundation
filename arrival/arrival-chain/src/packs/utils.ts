@@ -1,6 +1,6 @@
 import dedent from "dedent";
 
-import type { EnvPack } from "../env-pack.js";
+import type { EnvPack } from "@here.build/arrival-scheme/env";
 import { type ArrivalEnv, renderTemplateCall } from "../infer-kernel.js";
 
 /** Pure string/json/template utilities — no deps, no arming. */

@@ -6,7 +6,7 @@ import { EvalTrace } from "@here.build/arrival-provenance";
 import { execGeneratorFromString, lipsToJs, sandboxedEnv } from "@here.build/arrival-scheme";
 import { describe, expect, it } from "vitest";
 
-import { assembleEnvSync, type EnvPack } from "../env-pack.js";
+import { assembleEnvSync, type EnvPack } from "@here.build/arrival-scheme/env";
 import { arrivalInferPack, arrivalUtilsPack, type ArrivalEnv } from "../project.js";
 
 const stubInfer = (async () => [""]) as unknown as Parameters<typeof arrivalInferPack>[0]["infer"];

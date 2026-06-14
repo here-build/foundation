@@ -19,13 +19,13 @@ import { loaderFromResolver } from "../loader.js";
 import { BUILTIN_PREAMBLE, buildArrivalEnv } from "../project.js";
 
 /** Evaluate a program and bridge the LAST top-level form's value to plain JS. */
-const run = async (src: string, env: ReturnType<typeof buildArrivalEnv>): Promise<unknown> => {
+const run = async (src: string, env: Awaited<ReturnType<typeof buildArrivalEnv>>): Promise<unknown> => {
   const results = lipsToJs(await exec(src, { env }), {});
   return Array.isArray(results) ? results.at(-1) : results;
 };
 
-async function envWith(opts?: { onApprovalRequest?: OnApprovalRequest }): Promise<ReturnType<typeof buildArrivalEnv>> {
-  const env = buildArrivalEnv({
+async function envWith(opts?: { onApprovalRequest?: OnApprovalRequest }): Promise<Awaited<ReturnType<typeof buildArrivalEnv>>> {
+  const env = await buildArrivalEnv({
     name: "approval-test",
     infer: async () => "stub",
     loader: loaderFromResolver(async () => {

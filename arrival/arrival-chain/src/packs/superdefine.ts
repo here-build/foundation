@@ -1,5 +1,5 @@
 import { defineApprovalRosetta } from "../approval.js";
-import type { EnvPack } from "../env-pack.js";
+import type { EnvPack } from "@here.build/arrival-scheme/env";
 import { defineExposeRosetta } from "../expose.js";
 import { type ArrivalEnv, buildDict, type BuildArrivalEnvOpts } from "../infer-kernel.js";
 import { defineOverridableRosetta } from "../overridable.js";

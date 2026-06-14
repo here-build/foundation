@@ -123,11 +123,11 @@ describe("extractExpose (static)", () => {
  *  sink that records every declaration. `infer` is a stub — these tests never
  *  call it. */
 async function envWithExpose(): Promise<{
-  env: ReturnType<typeof buildArrivalEnv>;
+  env: Awaited<ReturnType<typeof buildArrivalEnv>>;
   declarations: ExposeDeclaration[];
 }> {
   const declarations: ExposeDeclaration[] = [];
-  const env = buildArrivalEnv({
+  const env = await buildArrivalEnv({
     name: "expose-test",
     infer: async () => "stub",
     loader: loaderFromResolver(async () => {
@@ -226,7 +226,7 @@ describe("declare/expose (runtime form)", () => {
   it("evaluates the form (registering nowhere) when no onExpose sink is supplied", async () => {
     // Same "capability optional, verb always present" posture as import/data:
     // the form still produces its handler even with no host registry.
-    const env = buildArrivalEnv({
+    const env = await buildArrivalEnv({
       name: "expose-no-sink",
       infer: async () => "stub",
       loader: loaderFromResolver(async () => {

@@ -14,7 +14,7 @@ import invariant from "tiny-invariant";
 import type { DataEffectResolver, DataEffectResult } from "./data-effects.js";
 import { Draft } from "./draft.js";
 import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey } from "./effect-log.js";
-import { assembleEnvSync } from "@here.build/arrival-scheme-env";
+import { assembleEnv } from "@here.build/arrival-scheme/env";
 import type { OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "@here.build/arrival-inference";
 
@@ -30,7 +30,7 @@ import {
 import { loaderFromResolver, makeProjectLoader, type Loader, type RequireResolver } from "./loader.js";
 import { type McpEffectResolver, wrapMcpResolver } from "./mcp-effects.js";
 import type { ResolveOverride } from "./overridable.js";
-import { arrivalPacks } from "./packs/index.js";
+import { arrivalCapabilities, arrivalLoaderCorePack } from "./packs/index.js";
 import { Program, ProgramVersion } from "./program.js";
 import { RunSpend } from "@here.build/arrival-inference";
 
@@ -39,22 +39,24 @@ import type { EvalTrace } from "@here.build/arrival-provenance";
 // The infer/template/dict kernel + env-construction opts now live in `infer-kernel.ts`.
 // Re-export `* from` keeps project.js's public surface (the barrel consumes it) identical.
 export * from "./infer-kernel.js";
-// The 8 atomic capability packs + their assembler now live in `packs/`. Re-exported so
-// project.js's public surface (the barrel consumes it) is unchanged.
+// The capability registries + the transitional `*Pack` factories live in `packs/`. Re-exported so
+// project.js's public surface (the barrel consumes it) is unchanged. The capability SINGLETONS are
+// exported by the barrel directly from `./packs/*-capability.js`, so they are not re-listed here.
 export {
+  arrivalCapabilities,
+  discoveryCapabilities,
+  // transitional EnvPack factories (kept for the `arrival-scheme-env-*` plugin packages)
   arrivalAgenticPack,
   arrivalBudgetPack,
   arrivalDataPack,
   arrivalInferPack,
   arrivalLoaderCorePack,
   arrivalMcpPack,
-  arrivalPacks,
   arrivalReflectPack,
   arrivalRunPack,
   arrivalSourceReadPack,
   arrivalSuperDefinePack,
   arrivalUtilsPack,
-  discoveryPacks,
 } from "./packs/index.js";
 export { runNamed, runNamedCall } from "./run-isolated.js";
 export { whyOf, whereOf, howOf, dagOf } from "./handle-provenance.js";
@@ -72,12 +74,18 @@ const dirOf = (path: string): string => {
   return i <= 0 ? "" : path.slice(0, i);
 };
 
-export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sandboxedEnv.inherit> {
+export async function buildArrivalEnv(opts: BuildArrivalEnvOpts): Promise<ReturnType<typeof sandboxedEnv.inherit>> {
   // The env = the sandbox base (SAFE_BUILTINS, lexically inherited) assembled with the arrival
-  // capability packs via the env-pack capability-DAG engine. Capability scoping is `arrivalPacks`:
-  // swap it for a reduced root-set to build a narrower env.
+  // capability vocabulary via the capability-DAG engine. Each capability lowers to a kernel pack and
+  // validates its own slice of the SHARED `opts` config (reference-shared ⇒ closure dedup matches by
+  // identity). loader-core is the raw plumbing pack, appended last (lowest precedence). Capability
+  // scoping is `arrivalCapabilities()`: lower a reduced root-set to build a narrower env.
   const base = sandboxedEnv.inherit(opts.name);
-  return assembleEnvSync(base, arrivalPacks(opts)).env;
+  // Capabilities lower to `EnvPack<SchemeEnv>`; loader-core is `EnvPack<ArrivalEnv>`. Both apply over a
+  // concrete `Environment` (its SchemeEnv face), so pin `E` to the base's type for the mixed root list.
+  const capabilityPacks = arrivalCapabilities().map((cap) => cap.lower({ config: opts }));
+  const { env } = await assembleEnv<typeof base>(base, [...capabilityPacks, arrivalLoaderCorePack(opts)]);
+  return env;
 }
 
 /**
@@ -374,7 +382,7 @@ export class Project extends PlexusModel<null> {
        *  standard ones are wired and before the program runs — e.g. a bridge into
        *  another sandbox. Keeps `.prompt`/`require`/trace machinery intact while
        *  letting a host extend the env's capability surface. */
-      extendEnv?: (env: ReturnType<typeof buildArrivalEnv>) => void;
+      extendEnv?: (env: Awaited<ReturnType<typeof buildArrivalEnv>>) => void;
       /**
        * Per-run inference plane override. Each `(infer …)` resolves through this
        * store instead of the project-bound `this.infer` when supplied. Lets ONE
@@ -491,23 +499,28 @@ export class Project extends PlexusModel<null> {
           onEffectResult: opts.onEffectResult,
         })
       : undefined;
-    const env = buildArrivalEnv({
-      name: "arrival-chain",
-      infer: inferAndWait,
-      loader,
-      tap: opts.trace,
-      dirname: opts.dirname,
-      spend,
-      data,
-      mcp,
-      onExpose: opts.onExpose,
-      resolveOverride: opts.resolveOverride,
-    });
-    opts.extendEnv?.(env);
-    // Uniform allocation bound: bound the run env ONCE (spans preamble + every user form), so the
-    // per-form loop is bounded. `installHeapMeter` is THE one way to bound an env — the studio kernel
-    // calls the same primitive on its scope, so neither path is an ad-hoc exception.
-    if (opts.heapBudget !== undefined) installHeapMeter(env, opts.heapBudget);
+    // Env construction is async (capability lowering + DAG assembly). Build it behind a promise so
+    // the handle is still returned SYNCHRONOUSLY; `extendEnv` + the heap bound run once the env exists.
+    const envPromise = (async () => {
+      const env = await buildArrivalEnv({
+        name: "arrival-chain",
+        infer: inferAndWait,
+        loader,
+        tap: opts.trace,
+        dirname: opts.dirname,
+        spend,
+        data,
+        mcp,
+        onExpose: opts.onExpose,
+        resolveOverride: opts.resolveOverride,
+      });
+      opts.extendEnv?.(env);
+      // Uniform allocation bound: bound the run env ONCE (spans preamble + every user form), so the
+      // per-form loop is bounded. `installHeapMeter` is THE one way to bound an env — the studio kernel
+      // calls the same primitive on its scope, so neither path is an ad-hoc exception.
+      if (opts.heapBudget !== undefined) installHeapMeter(env, opts.heapBudget);
+      return env;
+    })();
     // The handle is returned SYNCHRONOUSLY; all evaluation runs async behind these promises (no sync
     // eval path). The preamble is evaluated tap-FREE (builtin helpers are trace noise — the unified
     // behaviour, matching what runTraced always did); the user body is then parsed (its forms exposed
@@ -520,6 +533,7 @@ export class Project extends PlexusModel<null> {
     });
     const result = (async () => {
       try {
+        const env = await envPromise;
         await exec(BUILTIN_PREAMBLE, { env, signal: opts.signal, budgetMs: opts.budgetMs });
         const forms = await parse(source, env);
         resolveForms(forms);
@@ -537,7 +551,7 @@ export class Project extends PlexusModel<null> {
     result.catch(() => {}); // consumers attach handling via the handle; never an unhandled rejection
     userForms.catch(() => {});
     const finished = result.then((last) => lipsToJs(last, {}));
-    return new RunHandle(userForms, finished, result, Promise.resolve(env));
+    return new RunHandle(userForms, finished, result, envPromise);
   }
 
   /**

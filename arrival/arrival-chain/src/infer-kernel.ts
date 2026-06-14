@@ -16,7 +16,7 @@ import type { ChatMessage, Completion, LlmParams, ToolCall, ToolDescriptor } fro
 
 import { type DataEffectResolver } from "./data-effects.js";
 import { stableJson } from "./effect-log.js";
-import { type EnvPack, type RuntimeAssembler } from "./env-pack.js";
+import { type EnvPack, type RuntimeAssembler } from "@here.build/arrival-scheme/env";
 import type { OnExpose } from "./expose.js";
 import { type Loader, type PromptUnit } from "./loader.js";
 import {

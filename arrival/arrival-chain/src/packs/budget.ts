@@ -1,4 +1,4 @@
-import type { EnvPack } from "../env-pack.js";
+import type { EnvPack } from "@here.build/arrival-scheme/env";
 import { type ArrivalEnv, type BuildArrivalEnvOpts } from "../infer-kernel.js";
 
 /** Reflective inference-budget reads — armed by `opts.spend` (inert → 0 when absent). */

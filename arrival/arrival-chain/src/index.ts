@@ -68,11 +68,11 @@ export {
   BUILTIN_PREAMBLE,
   type BuildArrivalEnvOpts,
   type InferFn,
-  // Atomic capability packs (P5): the composable arrival capability vocabulary. `arrivalPacks(opts)`
-  // is the default root-set buildArrivalEnv assembles; the individual factories let a consumer
-  // assemble a capability-scoped subset.
+  // The arrival capability vocabulary. `arrivalCapabilities()` is the default root-set buildArrivalEnv
+  // lowers + assembles; the capability singletons (exported below) let a consumer assemble a
+  // capability-scoped subset. The `*Pack` factories are transitional (kept for the plugin packages).
   type ArrivalEnv,
-  arrivalPacks,
+  arrivalCapabilities,
   arrivalInferPack,
   arrivalUtilsPack,
   arrivalBudgetPack,
@@ -82,7 +82,7 @@ export {
   arrivalAgenticPack,
   arrivalLoaderCorePack,
   // Discovery plane: source reads + isolated run launchers + provenance reflection (why/where/how).
-  discoveryPacks,
+  discoveryCapabilities,
   arrivalSourceReadPack,
   arrivalRunPack,
   arrivalReflectPack,
@@ -98,6 +98,24 @@ export {
   assertWireSafe,
   WireUnsafeError,
 } from "./project.js";
+// The capability-shaped palette: every chain pack reshaped onto the EnvCapability
+// surface (singleton-by-construction, zod config, lifecycle-bearing). Originals kept.
+export { arrivalInferCapability } from "./packs/infer-capability.js";
+export { arrivalUtilsCapability } from "./packs/utils-capability.js";
+export { arrivalReflectCapability } from "./packs/reflect-capability.js";
+export { arrivalBudgetCapability } from "./packs/budget-capability.js";
+export { arrivalRunCapability } from "./packs/run-capability.js";
+export { arrivalSourceReadCapability } from "./packs/source-read-capability.js";
+export { arrivalDataCapability } from "./packs/data-capability.js";
+export { arrivalMcpCapability } from "./packs/mcp-capability.js";
+// NOTE: loader-core has NO capability form. Its `wire` calls `makeCompileInferUnit(env, …)` + the
+// `defineRequire*Rosetta` helpers, all of which need the LIVE env at wire time. `symbols` only exposes
+// the env lazily via `withContext` ctx at CALL time, and the require rosetta (which would consume the
+// compileInferUnit) is baked by `defineRequireRosetta` with no ctx thread — so it can't be faithfully
+// expressed as symbols without re-homing the whole require machinery. It keeps its `arrivalLoaderCorePack`
+// (EnvPack) form, assembled in `packs/index.ts`.
+export { arrivalSuperDefineCapability } from "./packs/superdefine-capability.js";
+export { arrivalAgenticCapability } from "./packs/agentic-capability.js";
 // Env-pack capability-DAG assembly (P0–P4): the pack type + the construction/runtime assemblers, so a
 // host can author extension packs and arm a `(require/extension :name)` registry.
 export {
@@ -113,7 +131,7 @@ export {
   AssembleLinearizationError,
   AssemblePackError,
   AssemblePackTimeoutError,
-} from "./env-pack.js";
+} from "@here.build/arrival-scheme/env";
 export { defineRequireExtensionRosetta } from "./require-extension.js";
 export {
   buildChainEnv,

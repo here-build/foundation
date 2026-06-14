@@ -14,7 +14,7 @@
 import type { sandboxedEnv } from "@here.build/arrival-scheme";
 import invariant from "tiny-invariant";
 
-import type { EnvPack, RuntimeAssembler } from "./env-pack.js";
+import type { EnvPack, RuntimeAssembler } from "@here.build/arrival-scheme/env";
 
 type EnvHandle = ReturnType<typeof sandboxedEnv.inherit>;
 
