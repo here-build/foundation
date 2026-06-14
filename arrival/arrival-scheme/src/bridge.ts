@@ -370,7 +370,7 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
       const decided = SPECULATIVE_OPS.has(op.name) ? speculativeCompare(op.name, args) : undefined;
       if (decided !== undefined) return decided;
       return Promise.all(
-        args.map((a) => (is_half_baked(a) ? (a as HalfBaked).force() : a)),
+        args.map((a) => (is_half_baked(a) ? a.force() : a)),
       ).then(applyNumeric);
     }
     return applyNumeric(args);
@@ -732,7 +732,7 @@ export const wrappedOps = {
   inexact(z: unknown): SchemeInexact {
     const n = fromLIPS(z);
     if (n instanceof SchemeInexact) return n;
-    const exact = n as SchemeExact;
+    const exact = n;
     if (exact.denom === 1n) return new SchemeInexact(Number(exact.num));
     return new SchemeInexact(Number(exact.num) / Number(exact.denom));
   },
@@ -740,7 +740,7 @@ export const wrappedOps = {
   exact(z: unknown): SchemeExact {
     const n = fromLIPS(z);
     if (n instanceof SchemeExact) return n;
-    const inexact = n as SchemeInexact;
+    const inexact = n;
     invariant(inexact.imag === 0, "Cannot convert complex number with non-zero imaginary part to exact");
     const real = inexact.real;
     TypeError.invariant(Number.isFinite(real), "Cannot convert infinity or NaN to exact");
@@ -787,7 +787,7 @@ export const wrappedOps = {
       if (n.denom === 1n) return n.num.toString(base);
       return `${n.num.toString(base)}/${n.denom.toString(base)}`;
     }
-    const inexact = n as SchemeInexact;
+    const inexact = n;
     // Inexact mark preservation (R7RS § 6.2): `(number->string 5.0)` must NOT
     // return "5" — round-tripping through `string->number` would yield an
     // exact integer, violating the exactness contract. `SchemeInexact.toString()`
@@ -960,7 +960,7 @@ export const wrappedOps = {
   // are NOT Unicode scalars per the standard; reject explicitly.
   "integer->char"(n: unknown): SchemeCharacter {
     const num = fromLIPS(n);
-    const code = num instanceof SchemeExact ? Number(num.num) : Math.floor((num as SchemeInexact).real);
+    const code = num instanceof SchemeExact ? Number(num.num) : Math.floor(num.real);
     invariant(code >= 0 && code <= 0x10ffff, `integer->char: code point ${code} out of Unicode range`);
     invariant(code < 0xd800 || code > 0xdfff, `integer->char: surrogate code point ${code.toString(16)} is not a Unicode scalar`);
     return new SchemeCharacter(String.fromCodePoint(code));
