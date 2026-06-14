@@ -239,6 +239,80 @@ export const createInferStore = (router: ModelRouter, cache: InferCache = noopCa
   new InferStore(router, cache);
 
 /**
+ * A cell whose underlying plane is chosen ASYNCHRONOUSLY, behind the synchronous
+ * {@link InferCell} interface. {@link overlayInferStore} needs this: deciding
+ * whether a `(infer …)` rides the user's local plane or the team plane requires a
+ * probe (async), but `Project.run` calls `store.get(…)` synchronously and expects a
+ * cell back. So we return this façade immediately and resolve the real cell once
+ * `pick()` settles, forwarding everything to it.
+ *
+ * The run path uses exactly three members — `finished()`, `acquire()`, `await done`,
+ * then `release()` — so those are forwarded precisely (refs buffered until the inner
+ * cell exists, then applied net). `text()`/`onDelta` are forwarded best-effort for
+ * interface completeness; the live-streaming SSE path uses a concrete cell, not this
+ * façade, so no deltas are lost in practice.
+ */
+function deferredCell(pick: () => Promise<InferCell>): InferCell {
+  let inner: InferCell | undefined;
+  let refs = 0; // net acquire/release accumulated before the inner cell exists
+  const buffered = new Set<DeltaCb>();
+  const ready = pick().then((cell) => {
+    inner = cell;
+    for (let i = 0; i < refs; i++) cell.acquire();
+    for (const cb of buffered) cell.onDelta(cb);
+    buffered.clear();
+    return cell;
+  });
+  return {
+    text: () => inner?.text() ?? "",
+    finished: () => inner?.finished() ?? false,
+    done: ready.then((cell) => cell.done),
+    onDelta(cb) {
+      if (inner) return inner.onDelta(cb);
+      buffered.add(cb);
+      return () => buffered.delete(cb);
+    },
+    acquire() {
+      if (inner) inner.acquire();
+      else refs += 1;
+    },
+    release() {
+      if (inner) inner.release();
+      else refs -= 1;
+    },
+  };
+}
+
+/**
+ * Overlay a PRIMARY plane over a FALLBACK plane, choosing per `(infer …)` call by
+ * the requested model. `resolvePrimary(model)` returns the primary store to use when
+ * that model is served there, or `null` to fall through to `fallback`.
+ *
+ * The motivating use: a user's own local models (served through their reverse tunnel,
+ * billed at $0 on a bare {@link InferStore}) take precedence over the team's metered
+ * plane — explicit intent to use that machine. A model the user doesn't serve locally
+ * (primary → `null`) falls through to the team plane unchanged. The choice is lazy:
+ * nothing probes the local endpoints until a model is actually requested, and a run
+ * that never infers locally pays no probe cost.
+ *
+ * Single-flight still holds WITHIN each underlying store (the primary and the fallback
+ * each dedup their own content tuples); this combinator only routes between them.
+ */
+export function overlayInferStore(
+  resolvePrimary: (model: string) => Promise<InferStoreLike | null>,
+  fallback: InferStoreLike,
+): InferStoreLike {
+  return {
+    get(spec, cacheKey) {
+      return deferredCell(async () => {
+        const primary = await resolvePrimary(spec.model);
+        return (primary ?? fallback).get(spec, cacheKey);
+      });
+    },
+  };
+}
+
+/**
  * The trace-side record of ONE `(infer …)` invocation — the cell-plane replacement
  * for the old synced `InferenceTask`. Bound to its invocation(s) via
  * `trace.bindTask`, it carries the content tuple (for cost attribution + content
