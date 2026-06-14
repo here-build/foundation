@@ -101,3 +101,15 @@ describe("dot-split edge cases", () => {
     expect(read("(x ...)")).toBe("(x ...)");
   });
 });
+
+// A trailing lambda passes its body through un-wrapped only for the arrow shape
+// `(lambda (p…) …)` (param slot a LIST). A variadic `(lambda x)` body — a rest-symbol,
+// never produced by the arrow form — is a datum to wrap in the `it` pronoun, not skip.
+describe("trailing-lambda passthrough is arrow-shaped only", () => {
+  it("explicit param-list lambda passes through (no double-wrap)", () => {
+    expect(read("xs.map{(y) => y}")).toBe("(map (lambda (y) y) xs)");
+  });
+  it("a variadic (lambda x) body is wrapped in the pronoun, not mistaken for the arrow form", () => {
+    expect(read("xs.map{ (lambda x) }")).toBe("(map (lambda (it) (lambda x)) xs)");
+  });
+});

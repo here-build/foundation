@@ -439,8 +439,15 @@ function parseElements(toks: Tok[], accessorDepth: number = R7RS_ACCESSOR_DEPTH)
     const body = infix(0);
     invariant(peek()?.t === "}", "unbalanced { in trailing lambda");
     next();
+    // Pass a body through only when it's ALREADY the arrow-lambda shape `(lambda (p…) …)`
+    // — param slot a LIST. A variadic `(lambda x)` (x a rest-symbol atom) is NOT what the
+    // arrow form produces, so it's a body datum to wrap in the pronoun, not double-skip.
     const isLam =
-      !isAtomNode(body) && body.list.length >= 2 && isAtomNode(body.list[0]) && body.list[0].atom === "lambda";
+      !isAtomNode(body) &&
+      body.list.length >= 2 &&
+      isAtomNode(body.list[0]) &&
+      body.list[0].atom === "lambda" &&
+      !isAtomNode(body.list[1]);
     return isLam ? body : { list: [atom("lambda"), { list: [atom("it")] }, body] };
   }
 
