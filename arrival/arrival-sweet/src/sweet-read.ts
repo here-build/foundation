@@ -101,14 +101,24 @@ type Tok =
   | { t: "quote"; v: "'" | "`" | "," | ",@"; start?: number; end?: number }
   | { t: "word"; v: string; str?: boolean; start?: number; end?: number };
 
-/** `[k]` → PULL k (take element k); `[k:]` → DROP first k. One subscript = one
- *  PairStep, in operand order. Inverse of sweet-render's accessorSubscript. The
- *  fusion of a chain back into a single `c[ad]+r` word is withSubscripts' job. */
-function parseSubscript(idx: string): PairStep {
-  const slice = idx.endsWith(":");
-  const k = Number(slice ? idx.slice(0, -1) : idx);
-  invariant(Number.isInteger(k) && k >= (slice ? 1 : 0), () => `bad subscript '[${idx}]'`);
-  return slice ? { drop: k } : { pull: k };
+/** One `[…]` index, classified. Integers are PAIR access (`[k]`→pull, `[k:]`→drop,
+ *  fused into `c[ad]+r` words); a `:keyword` is STATIC key access (→ `(:k obj)`, the
+ *  recommended keyword-as-fn form); any other identifier or string is DYNAMIC key
+ *  access (→ `(@ obj key)`). One bracket surface, disambiguated purely by the index's
+ *  shape so the destinations can never collide. Inverse of sweet-render's emission. */
+type Subscript = PairStep | { key: string } | { dyn: Node };
+
+function parseSubscript(t: Extract<Tok, { t: "word" }>): Subscript {
+  const idx = t.v;
+  if (t.str) return { dyn: atom(idx, true) }; // "name" → dynamic string key
+  if (/^\d+$/.test(idx)) return { pull: Number(idx) }; // [k]  → take element k
+  if (/^\d+:$/.test(idx)) {
+    const k = Number(idx.slice(0, -1));
+    invariant(k >= 1, () => `bad subscript '[${idx}]'`); // [k:] → drop first k (k ≥ 1)
+    return { drop: k };
+  }
+  if (idx.startsWith(":") && idx.length > 1) return { key: idx }; // :verdict → static key
+  return { dyn: atom(idx) }; // identifier → dynamic key
 }
 
 /** r7rs `(scheme cxr)` defines accessor words of up to 4 letters (car … cddddr).
@@ -206,21 +216,22 @@ function parseElements(toks: Tok[], accessorDepth: number = R7RS_ACCESSOR_DEPTH)
     return node;
   };
 
-  // Postfix subscripts: consume any `[k]` / `[k:]` following an operand and FUSE the
-  // chain into pair-accessor words (`xs[0]`→(car xs), `xs[1:]`→(cdr xs), `xs[0][1]`
-  // →(cadar xs) — one word, not (cadr (car xs))). The fusion is capped at
-  // `accessorDepth` accessor-word letters: when the next step would overflow the
-  // current word, flush it and start a fresh one, so the default mode emits only
-  // portable standard words. Binds tighter than infix, so it's applied to each
-  // fully-read datum/operand before the infix climber sees it.
+  // Postfix subscripts: consume any `[…]` following an operand. Integer indices FUSE
+  // into pair-accessor words (`xs[0]`→(car xs), `xs[1:]`→(cdr xs), `xs[0][1]`→(cadar
+  // xs) — one word, not (cadr (car xs))), capped at `accessorDepth` accessor-word
+  // letters (overflow flushes the current word and starts fresh, so default mode
+  // emits only portable standard words). A KEY index (`[:k]` / `[ident]`) can't be
+  // part of a c[ad]+r word, so it flushes the pending pair run and wraps on its own:
+  // `xs[:verdict]`→(:verdict xs), `xs[k]`→(@ xs k). Binds tighter than infix, so it's
+  // applied to each fully-read datum/operand before the infix climber sees it.
   function withSubscripts(node: Node): Node {
     let n = node;
-    let steps: PairStep[] = [];
+    let pairs: PairStep[] = [];
     let letters = 0;
     const flush = (): void => {
-      if (steps.length === 0) return;
-      n = { list: [atom(encodeAccessor(steps)), n] };
-      steps = [];
+      if (pairs.length === 0) return;
+      n = { list: [atom(encodeAccessor(pairs)), n] };
+      pairs = [];
       letters = 0;
     };
     while (peek()?.t === "[") {
@@ -229,11 +240,19 @@ function parseElements(toks: Tok[], accessorDepth: number = R7RS_ACCESSOR_DEPTH)
       invariant(!!t && t.t === "word", "expected index inside '[ ]'");
       const close = next();
       invariant(!!close && close.t === "]", "unbalanced '['");
-      const step = parseSubscript(t.v);
-      const cost = accessorStepLetters(step);
-      if (letters > 0 && letters + cost > accessorDepth) flush();
-      steps.push(step);
-      letters += cost;
+      const sub = parseSubscript(t);
+      if ("pull" in sub || "drop" in sub) {
+        const cost = accessorStepLetters(sub);
+        if (letters > 0 && letters + cost > accessorDepth) flush();
+        pairs.push(sub);
+        letters += cost;
+      } else {
+        flush(); // a key access breaks the c[ad]+r run
+        n =
+          "key" in sub
+            ? { list: [atom(sub.key), n] } // (:verdict obj) — static keyword-as-fn
+            : { list: [atom("@"), n, sub.dyn] }; // (@ obj key)  — dynamic field access
+      }
     }
     flush();
     return n;

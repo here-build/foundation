@@ -428,11 +428,19 @@ export function inlineSweet(nd: Node, o: SweetOpts): string {
   if (isCoalesce(nd)) {
     return `{${infixOperand(items[1], 1, o)} ?? ${infixOperand(items[3], 1, o)}}`;
   }
-  // subscript accessor: (car X)→X[0], (cdr X)→X[1:], etc. Single-arg call form
-  // only; a bare `car` passed as a value (e.g. `(map car xs)`) is left untouched.
+  // subscript accessor: (car X)→X[0], (cdr X)→X[1:], etc. — and the SAME bracket
+  // surface for access-by-key: (:k X)→X[:k] (static keyword-as-fn). Single-operand
+  // call form only; a bare `car`/`:k` passed as a value (`(map car xs)`,
+  // `(map :k xs)`) keeps its head and is left untouched.
   if (items.length === 2 && isAtom(items[0]) && !items[0].str) {
     const sub = accessorSubscript(items[0].atom);
     if (sub) return inlineSweet(items[1], o) + sub;
+    if (isKeyword(items[0])) return inlineSweet(items[1], o) + `[${items[0].atom}]`;
+  }
+  // dynamic key access: (@ obj key)→obj[key]. The operand's own rendering parens it
+  // when needed; the key prints as an ordinary expression (a variable or string).
+  if (items.length === 3 && isAtom(items[0]) && !items[0].str && items[0].atom === "@") {
+    return inlineSweet(items[1], o) + `[${inlineSweet(items[2], o)}]`;
   }
   if (o.neoteric && !hasDot(items) && isAtom(items[0]) && !items[0].str && QUOTE_PREFIX[items[0].atom] === undefined) {
     return `${items[0].atom}(${items

@@ -121,13 +121,55 @@ describe("nested accessor calls fuse on the sweet side", () => {
   });
 });
 
-// Defensive: the subscript reader rejects nonsense indices.
+// Defensive: the subscript reader rejects nonsense numeric indices.
 describe("subscript validation", () => {
   it("rejects [0:] (drop 0 is not an accessor)", () => {
     expect(() => read("x[0:]")).toThrow();
   });
-  it("rejects non-integer indices", () => {
-    expect(() => read("x[a]")).toThrow();
+});
+
+// The SAME bracket surface carries access-by-key: a `:keyword` index is the
+// recommended STATIC form `(:k obj)`; any other identifier/string is the DYNAMIC
+// form `(@ obj key)`. Integer vs keyword vs identifier is the only discriminator —
+// the index's shape alone, so pair-access and key-access never collide.
+describe("key access reuses the subscript surface", () => {
+  describe("render: scheme → sweet", () => {
+    const cases: Array<[string, string]> = [
+      ["(:verdict f)", "f[:verdict]"], // static keyword-as-fn
+      ["(@ f key)", "f[key]"], // dynamic, variable key
+      ['(@ f "name")', 'f["name"]'], // dynamic, string key
+      ["(car (:verdict f))", "f[:verdict][0]"], // key then pair
+      ["(:verdict (car f))", "f[0][:verdict]"], // pair then key
+      ["(:b (:a f))", "f[:a][:b]"], // key then key
+    ];
+    for (const [scheme, sweet] of cases) {
+      it(`${scheme} → ${sweet}`, () => expect(render(scheme)).toBe(sweet));
+    }
+  });
+
+  describe("read: sweet → scheme", () => {
+    const cases: Array<[string, string]> = [
+      ["f[:verdict]", "(:verdict f)"],
+      ["f[key]", "(@ f key)"],
+      ['f["name"]', '(@ f "name")'],
+      ["f[:verdict][0]", "(car (:verdict f))"], // key breaks the pair run
+      ["f[0][:verdict]", "(:verdict (car f))"],
+      ["f[:a][:b]", "(:b (:a f))"],
+      // a key interrupts c[ad]+r fusion — the pairs on each side fuse independently
+      ["f[0][1][:k][1][0]", "(caadr (:k (cadar f)))"],
+      // and the depth cap still applies AFTER a key: [2][3] is 7 letters > 4, so it splits
+      ["f[:k][2][3]", "(cadddr (caddr (:k f)))"],
+    ];
+    for (const [sweet, scheme] of cases) {
+      it(`${sweet} → ${scheme}`, () => expect(read(sweet)).toBe(scheme));
+    }
+  });
+
+  // Cyclic idempotence holds across the mixed pair/key surface too.
+  describe("cyclic idempotence: sweet → scheme → sweet", () => {
+    for (const sweet of ["f[:verdict]", "f[key]", 'f["name"]', "f[:verdict][0]", "f[0][:verdict]", "f[:a][:b]"]) {
+      it(sweet, () => expect(render(read(sweet))).toBe(sweet));
+    }
   });
 });
 
