@@ -428,9 +428,127 @@ export function collectKwargHeads(forms: Node[]): Set<string> {
   return heads;
 }
 
+// ── method-dot chains (§2 Method, §4.3 receiver-last fold, §5 render gate) ──────
+//
+// The postfix dot is the visible pipe: `(g (f x))` ↔ `x.f.g`, `(map Λ xs)` ↔
+// `xs.map{…}`. Render PEELS a datum into `base + [step…]` by unwinding nested
+// single-receiver calls (the receiver always in the LAST arg slot), then emits the
+// chain iff there are ≥2 steps OR the single step is an accessor / key / braced
+// method. A lone bare unary (`(not p)`) stays prefix — exactly the §5 gate.
+
+// ident-start glyphs (R7RS initial set, minus digits) — mirror of sweet-read's;
+// a `.` is a method-split only before one of these, so escSym escapes exactly the
+// dots rewrite_L would otherwise split. (Producer side of the same rule.)
+const RENDER_IDENT_START = /[A-Za-z!$%&*/:<=>?^_~]/;
+
+/** Re-escape any `.` in a symbol that `rewrite_L` would treat as a method split, so
+ *  it reads back as a LITERAL dot in the symbol. No-op for the corpus (0 code dots);
+ *  applied only to sweet bare-atom / method-op emission, never to classic output. */
+function escSym(s: string): string {
+  let out = "";
+  for (let k = 0; k < s.length; k++) {
+    const c = s[k];
+    const next = s[k + 1];
+    if (
+      c === "." &&
+      k > 0 &&
+      s[k - 1] !== "." &&
+      next !== "." &&
+      next !== undefined &&
+      RENDER_IDENT_START.test(next) &&
+      !/[0-9]/.test(next)
+    )
+      out += "\\.";
+    else out += c;
+  }
+  return out;
+}
+
+// Heads that are NOT peelable receivers: special forms (the §5 carve-out) plus the
+// infix ops (rendered curly when arity ≥3, never a postfix method) and the access
+// heads `@`/`:k` (peeled by their own step branches, not as plain methods).
+const NEVER_METHOD = new Set<string>([
+  "quote", "quasiquote", "unquote", "unquote-splicing",
+  "lambda", "named-lambda", "define", "define-values", "define-syntax", "define-record-type",
+  "if", "cond", "case", "when", "unless", "and", "or", "begin", "do", "set!",
+  "let", "let*", "letrec", "letrec*", "let-values", "let*-values", "let-syntax", "letrec-syntax",
+  "else", "=>", "delay", "delay-force", "parameterize", "guard", "syntax-rules", "@",
+  "+", "-", "*", "/", "<", ">", "<=", ">=", "=", "equal?", "eq?", "eqv?", "modulo", "quotient", "remainder",
+]);
+
+/** A head usable as a bare/braced postfix method op: a plain symbol that is neither
+ *  a special form, an infix op, an access head, nor a pair-accessor word. */
+const isPlainMethodOp = (nd: Node): nd is { atom: string; str?: boolean } =>
+  isAtom(nd) && !nd.str && !NEVER_METHOD.has(nd.atom) && !nd.atom.startsWith(":") && decodeAccessor(nd.atom) === null;
+
+/** Render a `(lambda (p…) body)` as a trailing-lambda block (§3.3). Emits the
+ *  IMPLICIT `{ B }` only for the single param `it` AND a non-arrow body — otherwise
+ *  the bare body would re-read as the lambda itself (dropping the `it` wrapper), so
+ *  fall back to the explicit `{(p…) => B}`. ≥2 params always name (the pronoun
+ *  breaks on ≥2 antecedents). */
+function renderTrailingLambda(lam: Node, o: SweetOpts): string {
+  const params = childList(lam)[1];
+  const names = childList(params).map((p) => atomText(p));
+  const body = childList(lam)[2];
+  const bodyTxt = inlineArrowBody(body, o);
+  const implicit = names.length === 1 && names[0] === "it" && !(!isAtom(body) && isArrowLambda(body.list));
+  return implicit ? `{ ${bodyTxt} }` : `{(${names.join(" ")}) => ${bodyTxt}}`;
+}
+
+/** One postfix step on the render side: a subscript/key run (`[…]`), or a method
+ *  (`.op` bare, or `.op{B}` braced — its lambda carried for rendering). */
+type RStep = { sub: string } | { op: string; lam?: Node };
+
+/** Peel ONE outermost step off `nd`, returning the receiver + the step — or null if
+ *  `nd` isn't a single-receiver postfix application. Mirrors §4.3's constructors. */
+function asStep(nd: Node, o: SweetOpts): { recv: Node; step: RStep } | null {
+  if (isAtom(nd)) return null;
+  const items = nd.list;
+  // accessor `(c[ad]+r recv)` → subscript run; static key `(:k recv)` → `[:k]`.
+  if (items.length === 2 && isAtom(items[0]) && !items[0].str) {
+    const sub = accessorSubscript(items[0].atom);
+    if (sub) return { recv: items[1], step: { sub } };
+    if (isKeyword(items[0])) return { recv: items[1], step: { sub: `[${items[0].atom}]` } };
+  }
+  // dynamic key `(@ recv key)` → `[key]`.
+  if (items.length === 3 && isAtom(items[0]) && !items[0].str && items[0].atom === "@")
+    return { recv: items[1], step: { sub: `[${inlineSweet(items[2], o)}]` } };
+  // braced method `(op LAMBDA recv)` — exactly two args, lambda first (§5 gate).
+  if (items.length === 3 && isPlainMethodOp(items[0]) && !isAtom(items[1]) && isArrowLambda(items[1].list))
+    return { recv: items[2], step: { op: items[0].atom, lam: items[1] } };
+  // bare method `(op recv)`.
+  if (items.length === 2 && isPlainMethodOp(items[0])) return { recv: items[1], step: { op: items[0].atom } };
+  return null;
+}
+
+/** Peel `nd` fully into `base + [step…]` (base-first order) and decide whether to
+ *  surface it as a postfix chain (§5): ≥2 steps, or a single accessor/key/braced
+ *  step. A lone bare unary method canonicalizes to prefix (emit=false). */
+function peelChain(nd: Node, o: SweetOpts): { base: Node; steps: RStep[]; emit: boolean } {
+  const steps: RStep[] = [];
+  let cur = nd;
+  for (let s = asStep(cur, o); s; s = asStep(cur, o)) {
+    steps.unshift(s.step); // discovered outermost-first → unshift gives base-first
+    cur = s.recv;
+  }
+  const lone = steps.length === 1 ? steps[0] : null;
+  const emit = steps.length >= 2 || (lone != null && ("sub" in lone || lone.lam != null));
+  return { base: cur, steps, emit };
+}
+
+/** Render one step's surface text: `[…]` subscript, `.op`, or `.op{ B }`. The
+ *  lambda-brace binds TIGHT to the op (no space) — isomorphic to a tight arg-group
+ *  `fold(knil)`. This is load-bearing for round-trip: a loose `{…}` is a sibling
+ *  curly operand, so only a tight brace reads back as THIS step's trailing lambda
+ *  (else `recv.op {sibling}` would swallow the sibling — see sweet-read's brace gate). */
+function stepText(s: RStep, o: SweetOpts): string {
+  if ("sub" in s) return s.sub;
+  return s.lam ? `.${escSym(s.op)}${renderTrailingLambda(s.lam, o)}` : `.${escSym(s.op)}`;
+}
+
 /** One-line rendering, no width check. */
 export function inlineSweet(nd: Node, o: SweetOpts): string {
-  if (isAtom(nd)) return nd.str ? `"${nd.atom}"` : nd.atom;
+  if (isAtom(nd)) return nd.str ? `"${nd.atom}"` : escSym(nd.atom);
   const items = nd.list;
   if (items.length === 0) return "()";
   if (isQuoteForm(items)) return QUOTE_PREFIX[atomText(items[0])] + inlineSweet(items[1], o);
@@ -443,20 +561,14 @@ export function inlineSweet(nd: Node, o: SweetOpts): string {
   if (isCoalesce(nd)) {
     return `{${infixOperand(items[1], 1, o)} ?? ${infixOperand(items[3], 1, o)}}`;
   }
-  // subscript accessor: (car X)→X[0], (cdr X)→X[1:], etc. — and the SAME bracket
-  // surface for access-by-key: (:k X)→X[:k] (static keyword-as-fn). Single-operand
-  // call form only; a bare `car`/`:k` passed as a value (`(map car xs)`,
-  // `(map :k xs)`) keeps its head and is left untouched.
-  if (items.length === 2 && isAtom(items[0]) && !items[0].str) {
-    const sub = accessorSubscript(items[0].atom);
-    if (sub) return inlineSweet(items[1], o) + sub;
-    if (isKeyword(items[0])) return inlineSweet(items[1], o) + `[${items[0].atom}]`;
-  }
-  // dynamic key access: (@ obj key)→obj[key]. The operand's own rendering parens it
-  // when needed; the key prints as an ordinary expression (a variable or string).
-  if (items.length === 3 && isAtom(items[0]) && !items[0].str && items[0].atom === "@") {
-    return inlineSweet(items[1], o) + `[${inlineSweet(items[2], o)}]`;
-  }
+  // postfix chain (§4.3 + §5 gate): accessor/key subscripts (`(car X)`→`X[0]`,
+  // `(:k X)`→`X[:k]`, `(@ X k)`→`X[k]`) and method dots (`(map Λ xs)`→`xs.map{…}`,
+  // `(g (f x))`→`x.f.g`), unified — emit iff ≥2 steps or a single accessor/key/
+  // braced step. A lone bare unary (`(not p)`) canonicalizes to prefix (falls
+  // through). A bare `car`/`:k` passed as a VALUE (`(map car xs)`) has no receiver
+  // step and never enters a chain.
+  const chain = peelChain(nd, o);
+  if (chain.emit) return inlineSweet(chain.base, o) + chain.steps.map((s) => stepText(s, o)).join("");
   if (o.neoteric && !hasDot(items) && isAtom(items[0]) && !items[0].str && QUOTE_PREFIX[items[0].atom] === undefined) {
     return `${items[0].atom}(${items
       .slice(1)
@@ -611,6 +723,26 @@ function formatSweetCore(nd: Node, col: number, o: SweetOpts): string {
     return pre + formatSweet(items[1], col + pre.length, o);
   }
   if (isInfix(items, o)) return formatInfix(items, col, o); // operator-led break when over width
+
+  // long method chain (§3.4): base on the head line, one `.op` per indented line —
+  // where the pipe reads best. Only ALL-method chains break this way: a `[…]`
+  // subscript step can't lead a line (its first token is `[`, not `.`, so the reader
+  // wouldn't fold it back as a step). Require the base to render on one line, so its
+  // own indentation can't collide with the step lines; otherwise fall through to the
+  // generic prefix break (still faithful, just not dotted).
+  {
+    const chain = peelChain(nd, o);
+    const baseFlat = inlineSweet(chain.base, o);
+    if (
+      chain.emit &&
+      chain.steps.length >= 2 &&
+      chain.steps.every((s) => "op" in s) &&
+      col + baseFlat.length <= o.width
+    ) {
+      const pad = " ".repeat(col + 2);
+      return [baseFlat, ...chain.steps.map((s) => pad + stepText(s, o))].join("\n");
+    }
+  }
 
   // kwarg-head break: render `:key value` runs as `:key => value` pair lines.
   // The pair is a synthetic (=> k v) view-node; it stays atomic (never split

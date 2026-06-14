@@ -96,10 +96,66 @@ function regroupLetFamily(node: Node): Node {
 // `tokenize` is given a `base` (single-physical-line LogLines). They thread up into
 // `Node.span` for the editor's parameter hints; coalesced multi-line content passes
 // no base, so its tokens carry no offsets and produce no hints (graceful).
+// `tight` (on `(` only) = no whitespace separates this token from the one before
+// it on the same source line. The method-dot reader needs it to tell a call-args
+// group `fold(knil)` (tight) from a sibling operand `clicking? (cons …)` (loose) —
+// the tokenizer discards whitespace, so adjacency must be recorded as it lexes.
+// Computed locally (independent of `base`), so it's present even when offsets aren't.
 type Tok =
-  | { t: "(" | ")" | "{" | "}" | "[" | "]"; start?: number; end?: number }
+  | { t: "(" | ")" | "{" | "}" | "[" | "]"; start?: number; end?: number; tight?: boolean }
+  | { t: "."; start?: number; end?: number } // method-dot (postfix apply) — see splitMethodDots
   | { t: "quote"; v: "'" | "`" | "," | ",@"; start?: number; end?: number }
   | { t: "word"; v: string; str?: boolean; start?: number; end?: number };
+
+// ident-start glyphs (R7RS initial set, minus digits): a `.` only splits when the
+// next char is one of these — so `0.5`/`x.5` (decimals) and `(a . b)` stay whole.
+const IDENT_START = /[A-Za-z!$%&*/:<=>?^_~]/;
+
+/** `rewrite_L` — split a raw WORD at each method-dot into `(word? .)* word` tokens.
+ *  A `.` at index k splits iff (a) it is SINGLE — neither neighbour is `.` (so `..`
+ *  `...` `a...` stay whole), and (b) the next char is an ident-start, non-digit.
+ *  Word-INITIAL dots split too (no preceding word emitted) — that is the line-leading
+ *  `.map` (§3.4) and the post-delimiter `recv.op.op` case, where `}`/`]`/`)` break
+ *  the run so the dot starts a fresh one. `\.` is an escaped LITERAL dot: unescaped
+ *  into the symbol here, re-escaped on render. A lone `.` (dotted pair) and a word
+ *  with no qualifying dot return `[word]` unchanged — the reclamation is free (corpus
+ *  has 0 in-word code dots, 0 space-flanked dotted pairs). */
+function splitMethodDots(w: string, s: number, base?: number): Tok[] {
+  const out: Tok[] = [];
+  const at = (a: number, b: number) => (base == null ? {} : { start: base + s + a, end: base + s + b });
+  let seg = "";
+  let segStart = 0;
+  let k = 0;
+  while (k < w.length) {
+    const c = w[k];
+    if (c === "\\" && w[k + 1] === ".") {
+      seg += "."; // escaped literal dot — stays in the symbol
+      k += 2;
+      continue;
+    }
+    const prev = k > 0 ? w[k - 1] : undefined;
+    const next = w[k + 1];
+    if (
+      c === "." &&
+      prev !== "." && // single dot — `..`/`...` stay whole (k=0 has no prev → passes)
+      next !== "." &&
+      next !== undefined &&
+      IDENT_START.test(next) &&
+      !/[0-9]/.test(next)
+    ) {
+      if (seg.length > 0) out.push({ t: "word", v: seg, ...at(segStart, k) }); // left segment, if any
+      out.push({ t: ".", ...at(k, k + 1) });
+      seg = "";
+      segStart = k + 1;
+      k++;
+      continue;
+    }
+    seg += c;
+    k++;
+  }
+  if (seg.length > 0 || out.length === 0) out.push({ t: "word", v: seg, ...at(segStart, k) });
+  return out;
+}
 
 /** One `[…]` index, classified. Integers are PAIR access (`[k]`→pull, `[k:]`→drop,
  *  fused into `c[ad]+r` words); a `:keyword` is STATIC key access (→ `(:k obj)`, the
@@ -154,7 +210,8 @@ function tokenize(src: string, base?: number): Tok[] {
     const s = i;
     if (c === "(" || c === ")" || c === "{" || c === "}" || c === "[" || c === "]") {
       i++;
-      toks.push({ t: c, ...at(s, i) });
+      const tight = s > 0 && !/\s/.test(src[s - 1]);
+      toks.push({ t: c, ...at(s, i), tight });
       continue;
     }
     if (c === "'" || c === "`") {
@@ -186,7 +243,7 @@ function tokenize(src: string, base?: number): Tok[] {
     }
     let j = i;
     while (j < src.length && !/\s/.test(src[j]) && !'(){}[]"'.includes(src[j])) j++;
-    toks.push({ t: "word", v: src.slice(i, j), ...at(s, j) });
+    for (const tk of splitMethodDots(src.slice(i, j), s, base)) toks.push(tk);
     i = j;
   }
   return toks;
@@ -234,7 +291,40 @@ function parseElements(toks: Tok[], accessorDepth: number = R7RS_ACCESSOR_DEPTH)
       pairs = [];
       letters = 0;
     };
-    while (peek()?.t === "[") {
+    while (peek()?.t === "[" || peek()?.t === ".") {
+      if (peek()!.t === ".") {
+        // method-dot step `.op`, `.op { B }`, `.op(args)`, `.op(args){ B }` — the
+        // receiver-last fold: every step seats the receiver in the LAST arg slot,
+        // exactly as a subscript does. A method breaks the c[ad]+r run (flush first).
+        next(); // .
+        const opTok = next();
+        invariant(!!opTok && opTok.t === "word" && !opTok.str, "expected method name after '.'");
+        flush();
+        const op = atom(opTok.v);
+        const args: Node[] = []; // optional positional group: seed for fold/reduce (§7.3)
+        // Only a TIGHT paren is call-args: `fold(knil)`. A space-separated `(…)` is a
+        // sibling operand (`(clicking? x) (cons …)`), not args — never swallow it.
+        const argParen = peek();
+        if (argParen?.t === "(" && argParen.tight) {
+          next();
+          while (peek() && peek()!.t !== ")") args.push(datum());
+          invariant(peek()?.t === ")", "unbalanced '(' in method args");
+          next();
+        }
+        // Only a TIGHT brace is THIS step's trailing lambda (`map{…}`, `fold(knil){…}`).
+        // A space-separated `{…}` is a sibling curly operand (`recv.op {n + 1}`) — leave
+        // it for parseElements, else a bare method swallows its neighbour. Tight on `op`
+        // (bare) or on the closing `)` of a tight arg-group; mirrors the arg-paren rule.
+        const lamBrace = peek();
+        if (lamBrace?.t === "{" && lamBrace.tight) {
+          next();
+          const lam = trailingLambda(); // arrow / implicit-`it` body; consumes `}`
+          n = { list: [op, lam, ...args, n] }; // (op Λ args… recv)
+        } else {
+          n = { list: [op, ...args, n] }; // (op args… recv)  — bare / positional pipe
+        }
+        continue;
+      }
       next(); // [
       const t = next();
       invariant(!!t && t.t === "word", "expected index inside '[ ]'");
@@ -340,6 +430,20 @@ function parseElements(toks: Tok[], accessorDepth: number = R7RS_ACCESSOR_DEPTH)
     return e;
   }
 
+  // A `{ … }` trailing lambda after `.op` (caller has consumed the `{`). The body
+  // is read as a curly infix to precedence 0, so a top-level `=>` surfaces as a
+  // lambda node with EXPLICIT params (`{(acc x) => …}` ⇒ (lambda (acc x) …)). With
+  // no top `=>`, the body is wrapped in the IMPLICIT single-param pronoun `it`
+  // (§3.3): `{B}` ⇒ (lambda (it) B). Consumes the closing `}`.
+  function trailingLambda(): Node {
+    const body = infix(0);
+    invariant(peek()?.t === "}", "unbalanced { in trailing lambda");
+    next();
+    const isLam =
+      !isAtomNode(body) && body.list.length >= 2 && isAtomNode(body.list[0]) && body.list[0].atom === "lambda";
+    return isLam ? body : { list: [atom("lambda"), { list: [atom("it")] }, body] };
+  }
+
   const elems: Node[] = [];
   while (pos < toks.length) elems.push(datum());
   return elems;
@@ -436,12 +540,26 @@ function parseNode(lines: LogLine[], idx: number, accessorDepth?: number): { ele
   const line = lines[idx];
   const toks = tokenize(line.content, line.base); // `base` absent (coalesced) → no spans
   const childElems: Node[] = [];
+  // §3.4 newline method chains: a leading run of direct-child LEAF lines whose first
+  // token is a method-DOT are not arguments — their tokens fold onto the parent
+  // line's value (same CST + §4.3 receiver-last fold as the inline `recv.op` chain,
+  // just broken across lines by SRFI-110 indentation). Collected before the value is
+  // parsed; appended to `toks` so `withSubscripts` consumes the `.op` run.
+  const contToks: Tok[] = [];
   let j = idx + 1;
   while (j < lines.length && lines[j].indent > line.indent) {
+    const childToks = tokenize(lines[j].content, lines[j].base);
+    const isStepLine = childToks[0]?.t === "." && (j + 1 >= lines.length || lines[j + 1].indent <= lines[j].indent);
+    if (childElems.length === 0 && isStepLine) {
+      contToks.push(...childToks);
+      j++;
+      continue;
+    }
     const r = parseNode(lines, j, accessorDepth);
     childElems.push(...r.elems);
     j = r.next;
   }
+  const headToks = contToks.length > 0 ? [...toks, ...contToks] : toks;
 
   // colon-pair: a line whose FIRST token is a TRAILING-colon key (`summary:`) is a
   // kwarg pair → :summary + value. Value = rest-of-line ++ children (one expr).
@@ -455,7 +573,7 @@ function parseNode(lines: LogLine[], idx: number, accessorDepth?: number): { ele
     return { elems: [key, all.length === 1 ? all[0] : { list: all }], next: j };
   }
 
-  const head = parseElements(toks, accessorDepth);
+  const head = parseElements(headToks, accessorDepth);
   if (childElems.length === 0) {
     // SRFI-110: a CHILDLESS line of multiple datums is a list (`string-upcase s`
     // → (string-upcase s)) — same rule readSweet applies to a whole top-level
