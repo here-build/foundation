@@ -13,7 +13,7 @@ import invariant from "tiny-invariant";
 import type { DataEffectResolver, DataEffectResult } from "./data-effects.js";
 import { Draft } from "./draft.js";
 import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey } from "./effect-log.js";
-import { assembleEnvSync } from "./env-pack.js";
+import { assembleEnvSync } from "@here.build/arrival-scheme-env";
 import type { OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "@here.build/arrival-inference";
 
@@ -1003,99 +1003,14 @@ export class Project extends PlexusModel<null> {
       data?: DataEffectResolver;
     } & ExecBudget,
   ): Promise<{ userForms: unknown[]; finished: Promise<unknown>; env: Environment; result: Promise<unknown> }> {
-    // Reuse the same rosetta wiring as run() by going through run() for the
-    // preamble half, then parsing and tap-evaluating the user body ourselves.
-    // To avoid duplicating the env-setup, we set up the env inline here.
-    const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey, tools, params) => {
-      // Same tool-identity fold + record/replay shape as run()'s resolver (see the
-      // helpers near InferFn); absent tools ⇒ byte-for-byte the original behaviour.
-      const hasTools = tools !== undefined && tools.length > 0;
-      const key = inferIdentityKey(cacheKey, tools, params);
-      const tupleKey = JSON.stringify([model, prompt, schema, key]);
-      const tweak = opts.tweaks?.get(tupleKey);
-      if (tweak !== undefined) return reviveInfer(tweak, hasTools); // buildArrivalEnv wraps to a list
-      const effectKeyStr = inferEffectKey(model, prompt, schema, key);
-      const replayed = opts.effectLog?.get(effectKeyStr);
-      if (replayed !== undefined) {
-        opts.onEffect?.(effectKeyStr);
-        opts.onEffectResult?.(effectKeyStr, replayed);
-        const inv = ctx?.currentInvocation;
-        if (inv) {
-          opts.trace.markInferCached(inv as never, true);
-          opts.trace.markProvenancePoint(inv as never);
-        }
-        return reviveInfer(replayed, hasTools);
-      }
-      const cell = this.infer.get({ model, prompt, schema, tools, ...params }, key);
-      const cached = cell.finished();
-      cell.acquire();
-      opts.onEffect?.(effectKeyStr);
-      const inv = ctx?.currentInvocation;
-      let binding: InferBinding | undefined;
-      if (inv) {
-        binding = new InferBinding(model, prompt, schema, key, cell);
-        opts.trace.bindTask(binding, inv as never);
-        opts.trace.markInferCached(inv as never, cached);
-        opts.trace.markProvenancePoint(inv as never);
-      }
-      try {
-        const completion = await cell.done;
-        if (binding) binding.completion = completion;
-        opts.onEffectResult?.(effectKeyStr, recordInfer(completion, hasTools));
-        return freshInfer(completion, hasTools);
-      } finally {
-        cell.release();
-      }
-    };
-
-    const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
-    if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
-    // `require` internals are NOT tapped (tap omitted) so a required library
-    // doesn't explode the live trace — the (require …) call still appears as a
-    // top-level user form; provenance for library infers rides the plain run().
-    const data = opts.data
-      ? this.#wrapDataResolver(opts.data, {
-          effectLog: opts.effectLog,
-          onEffect: opts.onEffect,
-          onEffectResult: opts.onEffectResult,
-          trace: opts.trace,
-        })
-      : undefined;
-    const env = buildArrivalEnv({
-      name: "arrival-chain-traced",
-      infer: inferAndWait,
-      loader,
-      tap: undefined,
-      dirname: opts.dirname,
-      data,
-    });
-    // Evaluate the builtin preamble first, tap-free, so the records map starts
-    // with only user-program forms.
-    await exec(BUILTIN_PREAMBLE, { env, signal: opts.signal, budgetMs: opts.budgetMs });
-    // Parse the whole user source — these are the Pair identities the UI renders
-    // AND the ones the evaluator taps. A `(require …)` resolves when its form runs.
-    const userForms = await parse(source, env);
-
-    // Kick off evaluation of each user form sequentially, with the tap attached.
-    // A `(require …)` spills its defines/macros before the next form (eager-seq).
-    // `lastValue` keeps the RAW final value (an AValue with provenance) — `finished`
-    // peels it to JS for callers, but `uneval` needs the AValue + the live `env` to
-    // evaluate a selector ("(car result)") as one more tapped step. Both are surfaced.
-    let lastValue: unknown = undefined;
-    const finished = (async () => {
-      let last: unknown = undefined;
-      for (const form of userForms) {
-        last = await execExpr(form, { env, tap: opts.trace, signal: opts.signal, budgetMs: opts.budgetMs });
-        if (isThenable(last)) last = await last;
-      }
-      lastValue = last;
-      return lipsToJs(last, {});
-    })();
-
-    // `env` (post-run scope) + `result` (the final AValue) let a caller build the
-    // `{result, meta, uneval}` container: bind `result` in `env`, eval a selector as one
-    // more tapped step, slice the trace by the effective value's provenance.
-    return { userForms, finished, env, result: finished.then(() => lastValue) };
+    // SHORTHAND for run() + a guaranteed trace. run() is the universal gateway: the inferAndWait /
+    // env build / preamble-tap-free / per-form-loop that this method used to DUPLICATE now lives ONLY
+    // there. runTraced just ensures a trace and adapts the RunHandle back to this method's historical
+    // `{ userForms (resolved), finished, env, result }` contract — so every existing caller is
+    // unchanged. (The previously data-only traced env is now the full capability env; capabilities a
+    // caller doesn't pass stay inert, so behaviour is preserved.)
+    const h = this.run(source, { ...opts, trace: opts.trace });
+    return { userForms: await h.userForms, finished: h.finished, env: await h.env, result: h.result };
   }
 }
 
