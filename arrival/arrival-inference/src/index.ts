@@ -26,6 +26,9 @@ export * from "./agentic-loop.js";
 // ── Backend authoring helpers (the shared chat-protocol kernel) ──────
 export * from "./backends/_shared.js";
 
+// ── Local-runtime connectors (OpenAI transport + native capability probe) ──
+export * from "./connectors/index.js";
+
 // ── Concrete backend factories (also reachable via the ./backends/* subpaths) ──
 export { anthropicBackend } from "./backends/anthropic.js";
 export { openaiBackend } from "./backends/openai.js";

@@ -48,6 +48,14 @@ export interface OpenAIOptions {
    * of the program. Set 0 for the materializer role.
    */
   temperature?: number;
+  /**
+   * Injectable transport. The OpenAI SDK accepts a custom `fetch`, so a reverse-tunnel
+   * (or any non-default) transport plugs in here without arrival-inference ever importing
+   * `cloudflare:workers` — the adapter is built at the API layer and passed down. Undefined
+   * → the SDK's own global `fetch`. This is the seam that lets a server-side agent reach a
+   * user's localhost model through the per-(user,endpoint) tunnel.
+   */
+  fetch?: typeof fetch;
 }
 
 /**
@@ -73,6 +81,7 @@ export function openaiBackend(opts: OpenAIOptions = {}): ModelBackend {
     const client = new OpenAI({
       ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
       ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
       timeout: opts.timeoutMs ?? 30 * 60 * 1000, // 30 min — long enough for a heavy consolidation
       maxRetries: 0, // the inference plane retries; don't double-retry inside the SDK
     });
