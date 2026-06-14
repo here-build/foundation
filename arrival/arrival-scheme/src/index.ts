@@ -63,7 +63,7 @@ void initBridge();
 // Classes that may be needed for type checking or extension
 export { Continuation as Continuation } from "./Continuation.js";
 export { EOF as EOF } from "./EOF.js";
-export { Environment as Environment } from "./Environment.js";
+export { Environment as Environment, KEYWORD_ACCESSOR_FIELD } from "./Environment.js";
 
 // Number system - SchemeExact (rationals) and SchemeInexact (floats/complex)
 export {
