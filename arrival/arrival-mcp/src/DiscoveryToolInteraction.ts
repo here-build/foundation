@@ -134,21 +134,40 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
 
     const expr = this.executionContext.expr;
 
-    // Replay all previous REPL inputs — honest re-evaluation against current CRDT state.
-    // Queries re-evaluate (results ignored), defines re-establish bindings. Pure.
+    // Replay previous REPL inputs to re-establish cross-call bindings against CURRENT state.
+    //
+    // We replay ONLY pure top-level `(define …)` forms — and NEVER ones that invoke the run channel
+    // (`require/eval` / `require/call`). Replay exists to re-establish bindings; a query's result was
+    // discarded, so re-running it is pointless, and re-running an isolated RUN on every subsequent
+    // call is actively harmful — it re-fires effects (infer/http) and re-pays a full pipeline each
+    // time, so a long session degrades quadratically (the "stuck" symptom). Run handles are used
+    // WITHIN their batched call, not across calls, so dropping run-defines from replay is sound.
+    //
+    // Replay is also BEST-EFFORT and per-entry: a surviving define that no longer reproduces (it read
+    // state an edit since moved) is DROPPED rather than allowed to poison the whole session.
+    const isPureDefine = (src: string): boolean => {
+      const t = src.trim();
+      return t.startsWith("(define") && !/\brequire\/(eval|call)\b/.test(t);
+    };
     const history: string[] = this.state.__repl__ ?? [];
-
-    if (history.length > 0) {
-      // Replay history (results discarded) to re-establish bindings
-      await execSerialized(history.join("\n"), { env });
+    const survived: string[] = [];
+    for (const past of history) {
+      if (!isPureDefine(past)) continue; // keep in history (below) but don't replay non-bindings
+      try {
+        await execSerialized(past, { env });
+      } catch {
+        continue; // dead binding — references state that no longer reproduces; drop from history.
+      }
+      survived.push(past);
     }
+    this.state.__repl__ = survived;
 
     // Evaluate the new expression and return its result
     const result = await execSerialized(expr, { env });
 
-    // Record this input for future replay
-    history.push(expr);
-    this.state.__repl__ = history;
+    // Record this input for future replay (appended to the pruned survivors)
+    survived.push(expr);
+    this.state.__repl__ = survived;
 
     return result;
   }

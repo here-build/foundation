@@ -769,7 +769,8 @@ function renderActionItemSchemas(byName: Map<string, Act<any>[]>): object[] {
     const propsSchema = propsRecordSchema(bucket[0].props ?? {});
     out.push({
       type: "array",
-      items: [{ const: name }, propsSchema],
+      // draft 2020-12 tuple keyword (the Anthropic tool-use API rejects the draft-07 `items`-array).
+      prefixItems: [{ const: name }, propsSchema],
       minItems: 1,
       maxItems: 2,
       description: bucket[0].desc,

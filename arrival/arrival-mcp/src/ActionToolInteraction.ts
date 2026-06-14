@@ -105,7 +105,10 @@ export abstract class ActionToolInteraction<
                     ${context.length > 0 ? `Required context: ${context.join(", ")}` : ""}
                     ${optionalContext.length > 0 ? `Optional context: ${[...optionalContext].join(", ")})` : ""}
                   `,
-                items: [
+                // Tuple validation: JSON Schema draft 2020-12 (what the Anthropic tool-use API
+                // enforces) uses `prefixItems` for positional tuples, NOT the draft-07 `items`-array
+                // form — the latter is rejected as an invalid input_schema.
+                prefixItems: [
                   {
                     const: action,
                   },
