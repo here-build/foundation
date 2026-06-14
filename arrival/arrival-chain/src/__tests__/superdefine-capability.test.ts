@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { APPROVAL_FORM } from "../approval.js";
 import { EXPOSE_FORM } from "../extract-expose.js";
 import { OVERRIDABLE_FORM } from "../overridable.js";
-import { arrivalSuperDefineCapability } from "../packs/superdefine-capability.js";
+import { arrivalSuperDefineCapability } from "../packs/superdefine.js";
 
 describe("arrivalSuperDefineCapability — declaration-family verbs wire onto the env", () => {
   it("binds declare/expose + define/overridable + approval (no host sinks needed)", async () => {

@@ -5,7 +5,7 @@ import { sandboxedEnv } from "@here.build/arrival-scheme";
 import { describe, expect, it } from "vitest";
 
 import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { arrivalReflectCapability } from "../packs/reflect-capability.js";
+import { arrivalReflectCapability } from "../packs/reflect.js";
 
 describe("arrivalReflectCapability", () => {
   it("binds every provenance verb", async () => {

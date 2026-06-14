@@ -7,7 +7,7 @@ import { sandboxedEnv } from "@here.build/arrival-scheme";
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { describe, expect, it } from "vitest";
 
-import { arrivalSourceReadCapability } from "../packs/source-read-capability.js";
+import { arrivalSourceReadCapability } from "../packs/source-read.js";
 import type { Project } from "../project.js";
 
 describe("arrivalSourceReadCapability — source verbs wire onto the env", () => {

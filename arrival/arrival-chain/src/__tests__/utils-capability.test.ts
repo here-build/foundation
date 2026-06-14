@@ -5,7 +5,7 @@ import { sandboxedEnv } from "@here.build/arrival-scheme";
 import { describe, expect, it } from "vitest";
 
 import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { arrivalUtilsCapability } from "../packs/utils-capability.js";
+import { arrivalUtilsCapability } from "../packs/utils.js";
 
 describe("arrivalUtilsCapability", () => {
   it("binds every utils verb", async () => {

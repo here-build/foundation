@@ -8,7 +8,7 @@ import { sandboxedEnv } from "@here.build/arrival-scheme";
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { describe, expect, it } from "vitest";
 
-import { arrivalDataCapability } from "../packs/data-capability.js";
+import { arrivalDataCapability } from "../packs/data.js";
 
 describe("arrivalDataCapability — inert assembly binds the data verbs", () => {
   it("binds http/get, http/post and sql/query", async () => {

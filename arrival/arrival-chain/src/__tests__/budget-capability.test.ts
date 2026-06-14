@@ -5,7 +5,7 @@ import { sandboxedEnv } from "@here.build/arrival-scheme";
 import { describe, expect, it } from "vitest";
 
 import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { arrivalBudgetCapability } from "../packs/budget-capability.js";
+import { arrivalBudgetCapability } from "../packs/budget.js";
 
 describe("arrivalBudgetCapability", () => {
   it("binds the budget verbs when inert (no spend)", async () => {

@@ -1,13 +1,13 @@
 import type { EnvCapability } from "@here.build/arrival-scheme/capability";
 
-import { arrivalAgenticCapability } from "./agentic-capability.js";
-import { arrivalBudgetCapability } from "./budget-capability.js";
-import { arrivalDataCapability } from "./data-capability.js";
-import { arrivalReflectCapability } from "./reflect-capability.js";
-import { arrivalRunCapability } from "./run-capability.js";
-import { arrivalSourceReadCapability } from "./source-read-capability.js";
-import { arrivalSuperDefineCapability } from "./superdefine-capability.js";
-import { arrivalUtilsCapability } from "./utils-capability.js";
+import { arrivalAgenticCapability } from "./agentic.js";
+import { arrivalBudgetCapability } from "./budget.js";
+import { arrivalDataCapability } from "./data.js";
+import { arrivalReflectCapability } from "./reflect.js";
+import { arrivalRunCapability } from "./run.js";
+import { arrivalSourceReadCapability } from "./source-read.js";
+import { arrivalSuperDefineCapability } from "./superdefine.js";
+import { arrivalUtilsCapability } from "./utils.js";
 
 // ─── The arrival capability vocabulary ────────────────────────────────────────
 // Each capability is a module singleton (`new EnvCapability(name, spec)`). A registry function names
@@ -46,30 +46,18 @@ export function discoveryCapabilities(): readonly EnvCapability[] {
 export { type ArrivalEnv } from "../infer-kernel.js";
 
 // The capability vocabulary (re-exported for the barrel + the `arrival-scheme-env-*` plugin packages).
-export { arrivalAgenticCapability } from "./agentic-capability.js";
-export { arrivalBudgetCapability } from "./budget-capability.js";
-export { arrivalDataCapability } from "./data-capability.js";
-export { arrivalInferCapability } from "./infer-capability.js";
-export { arrivalMcpCapability } from "./mcp-capability.js";
-export { arrivalReflectCapability } from "./reflect-capability.js";
-export { arrivalRunCapability } from "./run-capability.js";
-export { arrivalSourceReadCapability } from "./source-read-capability.js";
-export { arrivalSuperDefineCapability } from "./superdefine-capability.js";
-export { arrivalUtilsCapability } from "./utils-capability.js";
+export { arrivalAgenticCapability } from "./agentic.js";
+export { arrivalBudgetCapability } from "./budget.js";
+export { arrivalDataCapability } from "./data.js";
+export { arrivalInferCapability } from "./infer.js";
+export { arrivalMcpCapability } from "./mcp.js";
+export { arrivalReflectCapability } from "./reflect.js";
+export { arrivalRunCapability } from "./run.js";
+export { arrivalSourceReadCapability } from "./source-read.js";
+export { arrivalSuperDefineCapability } from "./superdefine.js";
+export { arrivalUtilsCapability } from "./utils.js";
 
-// ── Transitional: the original EnvPack factories ──────────────────────────────
-// Kept exported while the `arrival-scheme-env-*` plugin packages still import the `*Pack` form. The
-// default registry no longer uses them; retire them (and rename `*-capability.ts` → `*.ts`) once the
-// plugin packages migrate. `arrivalLoaderCorePack` is NOT transitional — it is the live raw pack
-// `buildArrivalEnv` assembles alongside the lowered capabilities.
+// loader-core is the one raw `EnvPack` (the imperative plumbing floor — `import`/`require` +
+// `require/extension`), NOT a capability. `buildArrivalEnv` assembles it alongside the lowered
+// capabilities, applied last (lowest precedence).
 export { arrivalLoaderCorePack } from "./loader-core.js";
-export { arrivalAgenticPack } from "./agentic.js";
-export { arrivalBudgetPack } from "./budget.js";
-export { arrivalDataPack } from "./data.js";
-export { arrivalInferPack } from "./infer.js";
-export { arrivalMcpPack } from "./mcp.js";
-export { arrivalReflectPack } from "./reflect.js";
-export { arrivalRunPack } from "./run.js";
-export { arrivalSourceReadPack } from "./source-read.js";
-export { arrivalSuperDefinePack } from "./superdefine.js";
-export { arrivalUtilsPack } from "./utils.js";

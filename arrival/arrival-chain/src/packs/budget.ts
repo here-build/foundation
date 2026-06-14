@@ -1,13 +1,30 @@
-import type { EnvPack } from "@here.build/arrival-scheme/env";
-import { type ArrivalEnv, type BuildArrivalEnvOpts } from "../infer-kernel.js";
+// arrivalBudgetCapability — reflective inference-budget reads as an EnvCapability.
+//
+// Same verbs as `arrivalBudgetPack`: infer/spent, infer/calls. The `RunSpend` (formerly
+// `opts.spend`) is CONFIG (validated by zod, optional); the verbs read
+// `this.configuration.spend?.…` and keep the inert `?? 0` default when absent.
 
-/** Reflective inference-budget reads — armed by `opts.spend` (inert → 0 when absent). */
-export function arrivalBudgetPack(opts: Pick<BuildArrivalEnvOpts, "spend">): EnvPack<ArrivalEnv> {
-  return {
-    name: "arrival/infer-budget",
-    apply: (env) => {
-      env.defineRosetta("infer/spent", { fn: () => opts.spend?.spent() ?? 0, type: "(): SNum" });
-      env.defineRosetta("infer/calls", { fn: () => opts.spend?.calls() ?? 0, type: "(): SNum" });
+import type { RunSpend } from "@here.build/arrival-inference";
+
+import { EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
+import { z } from "zod";
+
+type BudgetActivation = Activation<{ spend: z.ZodType<RunSpend | undefined> }, Record<string, never>>;
+
+export const arrivalBudgetCapability = new EnvCapability("arrival/budget", {
+  configuration: { spend: z.custom<RunSpend>().optional() },
+  symbols: {
+    "infer/spent": {
+      fn(this: BudgetActivation) {
+        return this.configuration.spend?.spent() ?? 0;
+      },
+      type: "(): SNum",
     },
-  };
-}
+    "infer/calls": {
+      fn(this: BudgetActivation) {
+        return this.configuration.spend?.calls() ?? 0;
+      },
+      type: "(): SNum",
+    },
+  },
+});

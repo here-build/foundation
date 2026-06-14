@@ -8,7 +8,7 @@ import { sandboxedEnv } from "@here.build/arrival-scheme";
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { describe, expect, it } from "vitest";
 
-import { arrivalMcpCapability } from "../packs/mcp-capability.js";
+import { arrivalMcpCapability } from "../packs/mcp.js";
 
 describe("arrivalMcpCapability — inert assembly binds the mcp verbs", () => {
   it("binds mcp/call, mcp/list and the mcp/break sentinel", async () => {

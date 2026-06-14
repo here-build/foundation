@@ -7,7 +7,7 @@ import { sandboxedEnv } from "@here.build/arrival-scheme";
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { describe, expect, it } from "vitest";
 
-import { arrivalRunCapability } from "../packs/run-capability.js";
+import { arrivalRunCapability } from "../packs/run.js";
 import type { Project } from "../project.js";
 
 describe("arrivalRunCapability — run-channel verbs wire onto the env", () => {

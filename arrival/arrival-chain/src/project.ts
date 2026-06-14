@@ -39,25 +39,10 @@ import type { EvalTrace } from "@here.build/arrival-provenance";
 // The infer/template/dict kernel + env-construction opts now live in `infer-kernel.ts`.
 // Re-export `* from` keeps project.js's public surface (the barrel consumes it) identical.
 export * from "./infer-kernel.js";
-// The capability registries + the transitional `*Pack` factories live in `packs/`. Re-exported so
-// project.js's public surface (the barrel consumes it) is unchanged. The capability SINGLETONS are
-// exported by the barrel directly from `./packs/*-capability.js`, so they are not re-listed here.
-export {
-  arrivalCapabilities,
-  discoveryCapabilities,
-  // transitional EnvPack factories (kept for the `arrival-scheme-env-*` plugin packages)
-  arrivalAgenticPack,
-  arrivalBudgetPack,
-  arrivalDataPack,
-  arrivalInferPack,
-  arrivalLoaderCorePack,
-  arrivalMcpPack,
-  arrivalReflectPack,
-  arrivalRunPack,
-  arrivalSourceReadPack,
-  arrivalSuperDefinePack,
-  arrivalUtilsPack,
-} from "./packs/index.js";
+// The capability registries + the raw loader-core pack live in `packs/`. Re-exported so project.js's
+// public surface (the barrel consumes it) is unchanged. The capability SINGLETONS are exported by the
+// barrel directly from `./packs/*.js`, so they are not re-listed here.
+export { arrivalCapabilities, discoveryCapabilities, arrivalLoaderCorePack } from "./packs/index.js";
 export { runNamed, runNamedCall } from "./run-isolated.js";
 export { whyOf, whereOf, howOf, dagOf } from "./handle-provenance.js";
 export { ResultHandle, is_result_handle } from "./result-handle.js";

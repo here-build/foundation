@@ -8,7 +8,7 @@ import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { describe, expect, it } from "vitest";
 
 import type { InferFn } from "../infer-kernel.js";
-import { arrivalAgenticCapability } from "../packs/agentic-capability.js";
+import { arrivalAgenticCapability } from "../packs/agentic.js";
 
 const stubInfer = (async () => [""]) as unknown as InferFn;
 

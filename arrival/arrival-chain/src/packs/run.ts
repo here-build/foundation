@@ -1,16 +1,16 @@
-// packs/run.ts — the RUN channel of the discovery plane.
+// arrivalRunCapability — the RUN channel of the discovery plane, as an EnvCapability.
+//
+// Same impl as `arrivalRunPack`, reshaped onto the capability surface: the `Project` is
+// CONFIG (validated by zod as an opaque custom value), the verbs are METHODS reading
+// `this.configuration.project`.
 //
 // `(require/eval "f")`            → run the whole program in an isolated plane → ResultHandle
 // `(require/call "f" :fn (dict …))` → run the program, call one named fn with WIRE-SAFE args → ResultHandle
-//
-// These are the ONLY ways to make code run, and both name a visible file — there is no anonymous
-// `(run "<source>")`. The launch goes through `runNamed`/`runNamedCall`, which assemble a sibling run
-// env (reflection-free) and assert the wire-safe choke on the way out (and, for call, on the way in).
 
 import { KEYWORD_ACCESSOR_FIELD } from "@here.build/arrival-scheme";
+import { EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
+import { z } from "zod";
 
-import type { EnvPack } from "@here.build/arrival-scheme/env";
-import type { ArrivalEnv } from "../infer-kernel.js";
 import type { Project } from "../project.js";
 import { runNamed, runNamedCall } from "../run-isolated.js";
 
@@ -20,26 +20,26 @@ function fnName(arg: unknown): string {
   return field ?? String(arg).replace(/^:/, "");
 }
 
-/** The run-channel verbs. `config = project` for assembly dedup identity. */
-export function arrivalRunPack(project: Project): EnvPack<ArrivalEnv> {
-  return {
-    name: "arrival/run",
-    config: project,
-    apply: (env) => {
-      // `withContext` consumes `ctx` host-side (scheme-facing arity unchanged) so the LAUNCHING call's
-      // `ctx.signal` fans into the nested run — caller cancellation / parent-run abort stops it too.
-      env.defineRosetta("require/eval", {
-        withContext: true,
-        fn: (ctx: { signal?: AbortSignal }, fileArg: unknown) =>
-          runNamed(project, String(fileArg), "causal", ctx?.signal),
-        type: "(file: SStr): ResultHandle",
-      });
-      env.defineRosetta("require/call", {
-        withContext: true,
-        fn: (ctx: { signal?: AbortSignal }, fileArg: unknown, fn: unknown, args: unknown) =>
-          runNamedCall(project, String(fileArg), fnName(fn), args, "causal", ctx?.signal),
-        type: "(file: SStr, fn: keyword, args: dict): ResultHandle",
-      });
+type RunActivation = Activation<{ project: z.ZodType<Project> }, Record<string, never>>;
+
+export const arrivalRunCapability = new EnvCapability("arrival/run", {
+  configuration: { project: z.custom<Project>() },
+  symbols: {
+    // `withContext` consumes `ctx` host-side (scheme-facing arity unchanged) so the LAUNCHING call's
+    // `ctx.signal` fans into the nested run — caller cancellation / parent-run abort stops it too.
+    "require/eval": {
+      withContext: true,
+      type: "(file: SStr): ResultHandle",
+      fn(this: RunActivation, ctx: { signal?: AbortSignal }, fileArg: unknown) {
+        return runNamed(this.configuration.project, String(fileArg), "causal", ctx?.signal);
+      },
     },
-  };
-}
+    "require/call": {
+      withContext: true,
+      type: "(file: SStr, fn: keyword, args: dict): ResultHandle",
+      fn(this: RunActivation, ctx: { signal?: AbortSignal }, fileArg: unknown, fn: unknown, args: unknown) {
+        return runNamedCall(this.configuration.project, String(fileArg), fnName(fn), args, "causal", ctx?.signal);
+      },
+    },
+  },
+});
