@@ -63,6 +63,14 @@ export { isWireSafe, assertWireSafe, WireUnsafeError } from "./wire-safe.js";
 const isThenable = (v: unknown): v is PromiseLike<unknown> =>
   v != null && typeof (v as { then?: unknown }).then === "function";
 
+/** Directory portion of a project-relative file key, for seeding the entry's
+ *  `dirname` (relative `(require …)` resolves against it). "" for a root-level
+ *  file. Matches the loader's path math (a leading-slash key has no parent). */
+const dirOf = (path: string): string => {
+  const i = path.lastIndexOf("/");
+  return i <= 0 ? "" : path.slice(0, i);
+};
+
 export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sandboxedEnv.inherit> {
   // The env = the sandbox base (SAFE_BUILTINS, lexically inherited) assembled with the arrival
   // capability packs via the env-pack capability-DAG engine. Capability scoping is `arrivalPacks`:
@@ -86,6 +94,39 @@ export function buildArrivalEnv(opts: BuildArrivalEnvOpts): ReturnType<typeof sa
  * other files, never executed standalone. Workers consume `programs`
  * in array order.
  */
+/**
+ * The handle every `Project.run(...)` hands back — the universal spawn result. It is a THENABLE
+ * (delegates `then`/`catch`/`finally` to `finished`), so `await project.run(src)` yields the VALUE
+ * exactly as before — value-callers need no change. Trace / live-render callers read the fields:
+ *   - `userForms` — the parsed top-level forms (resolves once parsed, before `finished`), for the
+ *     studio's live counter rendering and uneval (the Pair identities the trace populates).
+ *   - `finished`  — the JS-peeled final value (`lipsToJs`).
+ *   - `result`    — the RAW final value (an AValue with provenance), for `uneval`/selector replay.
+ *   - `env`       — the run environment, for post-run inspection.
+ * `run` returns this SYNCHRONOUSLY (a factory) while all evaluation stays unconditionally async behind
+ * the promises — there is no synchronous eval path.
+ */
+export class RunHandle implements PromiseLike<unknown> {
+  constructor(
+    readonly userForms: Promise<unknown[]>,
+    readonly finished: Promise<unknown>,
+    readonly result: Promise<unknown>,
+    readonly env: Promise<Environment>,
+  ) {}
+  then<R1 = unknown, R2 = never>(
+    onFulfilled?: ((value: unknown) => R1 | PromiseLike<R1>) | null,
+    onRejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null,
+  ): Promise<R1 | R2> {
+    return this.finished.then(onFulfilled, onRejected);
+  }
+  catch<R = never>(onRejected?: ((reason: unknown) => R | PromiseLike<R>) | null): Promise<unknown> {
+    return this.finished.catch(onRejected);
+  }
+  finally(onFinally?: (() => void) | null): Promise<unknown> {
+    return this.finished.finally(onFinally);
+  }
+}
+
 @syncing("ArrivalChainProject")
 export class Project extends PlexusModel<null> {
   // Model resolution lives in a separate `ModelRouter` passed to the
@@ -248,7 +289,7 @@ export class Project extends PlexusModel<null> {
    * program's consumer (`promise_all` inside map/string-append) is
    * where the wait happens. Force at observation, not at the call.
    */
-  async run(
+  run(
     source: string,
     opts: {
       trace?: EvalTrace;
@@ -344,7 +385,7 @@ export class Project extends PlexusModel<null> {
        */
       infer?: InferStoreLike;
     } & ExecBudget = {},
-  ): Promise<unknown> {
+  ): RunHandle {
     // The per-run reflective budget accumulator behind `(infer/spent)`. Folds the
     // reference cost of each FRESH inference as its cell settles, in evaluation
     // order — so a program's ROI/TCO loop can read what it has paid so far. Local
@@ -462,16 +503,41 @@ export class Project extends PlexusModel<null> {
       resolveOverride: opts.resolveOverride,
     });
     opts.extendEnv?.(env);
-    const results = await exec(BUILTIN_PREAMBLE + source, {
-      env,
-      tap: opts.trace,
-      signal: opts.signal,
-      budgetMs: opts.budgetMs,
-      heapBudget: opts.heapBudget,
+    // Uniform allocation bound: install the heap meter on the run env ONCE (spans preamble + every
+    // user form), so the per-form loop is bounded without exec/execExpr each re-installing it.
+    if (opts.heapBudget !== undefined) {
+      env.__heapMeter__ = { used: 0, max: opts.heapBudget };
+    }
+    // The handle is returned SYNCHRONOUSLY; all evaluation runs async behind these promises (no sync
+    // eval path). The preamble is evaluated tap-FREE (builtin helpers are trace noise — the unified
+    // behaviour, matching what runTraced always did); the user body is then parsed (its forms exposed
+    // on the handle for live rendering / uneval) and evaluated FORM-BY-FORM under the trace tap.
+    let resolveForms!: (forms: unknown[]) => void;
+    let rejectForms!: (err: unknown) => void;
+    const userForms = new Promise<unknown[]>((res, rej) => {
+      resolveForms = res;
+      rejectForms = rej;
     });
-    let last: unknown = results.at(-1);
-    if (isThenable(last)) last = await last;
-    return lipsToJs(last, {});
+    const result = (async () => {
+      try {
+        await exec(BUILTIN_PREAMBLE, { env, signal: opts.signal, budgetMs: opts.budgetMs });
+        const forms = await parse(source, env);
+        resolveForms(forms);
+        let last: unknown = undefined;
+        for (const form of forms) {
+          last = await execExpr(form, { env, tap: opts.trace, signal: opts.signal, budgetMs: opts.budgetMs });
+          if (isThenable(last)) last = await last;
+        }
+        return last;
+      } catch (err) {
+        rejectForms(err); // a preamble/parse failure also rejects the userForms promise
+        throw err;
+      }
+    })();
+    result.catch(() => {}); // consumers attach handling via the handle; never an unhandled rejection
+    userForms.catch(() => {});
+    const finished = result.then((last) => lipsToJs(last, {}));
+    return new RunHandle(userForms, finished, result, Promise.resolve(env));
   }
 
   /**
@@ -673,7 +739,7 @@ export class Project extends PlexusModel<null> {
     });
 
     const body = draft.source;
-    const finished = this.#executeSandbox(run, body, opts.trace, opts.resolver);
+    const finished = this.#executeSandbox(run, body, opts.trace, opts.resolver, dirOf(opts.file));
     return { run, finished };
   }
 
@@ -699,8 +765,14 @@ export class Project extends PlexusModel<null> {
     }
   }
 
-  async #executeSandbox(run: Run, body: string, trace?: EvalTrace, resolver?: RequireResolver): Promise<unknown> {
-    return this.#runIntoRun(run, body, { trace, resolver });
+  async #executeSandbox(
+    run: Run,
+    body: string,
+    trace?: EvalTrace,
+    resolver?: RequireResolver,
+    dirname?: string,
+  ): Promise<unknown> {
+    return this.#runIntoRun(run, body, { trace, resolver, dirname });
   }
 
   async #runIntoRun(
@@ -710,6 +782,7 @@ export class Project extends PlexusModel<null> {
       trace?: EvalTrace;
       resolver?: RequireResolver;
       loader?: Loader;
+      dirname?: string;
       tweaks?: Map<string, string>;
       effectLog?: EffectLog;
       onEffectResult?: (effectKey: string, valueJson: string) => void;
@@ -856,6 +929,9 @@ export class Project extends PlexusModel<null> {
     const { userForms, finished } = await this.runTraced(opts.source, {
       trace: opts.trace,
       resolver: opts.resolver,
+      // Entry's own dir, so a relative `(require "lib.scm")` in a subdir file
+      // resolves against the file's folder, not the project root.
+      dirname: dirOf(opts.file),
       onEffect: (effectKey) => this.transact(() => run.effects.push(effectKey)),
     });
 
