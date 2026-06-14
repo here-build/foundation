@@ -7,6 +7,8 @@
  * `(every >= xs ys)` lower to an INDEX-driven traverse (`xs.map((x,i)=>…ys[i]…)`),
  * which is more legible than an explicit `zip`; `(apply + xs)` folds to `reduce`.
  */
+import { decodeAccessor } from "@here.build/arrival-sweet";
+
 import { cleanName, destructureTuple, elementName } from "./names.js";
 import { head, isAtom, isList, isKeyword, keywordName, type ListNode, type Node } from "./nodes.js";
 
@@ -67,10 +69,6 @@ const BINOP: Record<string, (a: string, b: string) => string> = {
 };
 
 const UNOP: Record<string, (a: string) => string> = {
-  car: (a) => `${a}[0]`,
-  cdr: (a) => `${a}.slice(1)`, // list TAIL (cadr accesses the 2nd element of a pair)
-  cadr: (a) => `${a}[1]`,
-  caddr: (a) => `${a}[2]`,
   first: (a) => `${a}[0]`,
   "zero?": (a) => `${a} === 0`,
   "even?": (a) => `${a} % 2 === 0`,
@@ -80,6 +78,27 @@ const UNOP: Record<string, (a: string) => string> = {
   "empty?": (a) => `${a}.length === 0`,
   length: (a) => `${a}.length`,
 };
+
+// ── pair-accessor catchall: the whole c[ad]+r family, not a hardcoded handful ──
+//
+// `decodeAccessor` (the one shared decomposition the sweet lens also prints as
+// subscripts) turns a `c[ad]+r` word into its PULL/DROP chain; here each step lowers
+// to JS member access — PULL k → `[k]`, DROP k → `.slice(k)`. So car/cdr/cadr/caddr
+// AND every mixed combo (caar, cdar, caadr, cadadr, …) at any depth lower with no
+// per-word entry. `decode` only ever emits a DROP as the innermost step, so `.slice`
+// always trails the indices (`x[0][1].slice(2)`, never the reverse).
+
+/** Lower a `c[ad]+r` word applied to one (already-lowered) operand to its JS member
+ *  chain; null if `head` is not an accessor word. */
+export function accessorJs(head: string, operand: string): string | null {
+  const steps = decodeAccessor(head);
+  if (!steps) return null;
+  return steps.reduce((js, s) => ("pull" in s ? `${js}[${s.pull}]` : `${js}.slice(${s.drop})`), operand);
+}
+
+/** Is `name` a pair-accessor word? Accessor words are emitted by the catchall, never
+ *  imported as a free identifier nor passed by JS reference. */
+const isAccessor = (name: string): boolean => decodeAccessor(name) !== null;
 
 /** Inline a lambda `(lambda (p…) body)` with its params bound to argStrs — no IIFE,
  *  no call. Generalizes `inlineUnaryLambda` to N params, so a multi-list map with a
@@ -106,6 +125,10 @@ function applyFn(fn: Node, argStrs: string[], E: Emit): string {
     if (b && argStrs.length === 2) return b(argStrs[0]!, argStrs[1]!);
     const u = UNOP[fn.atom];
     if (u && argStrs.length === 1) return u(argStrs[0]!);
+    if (argStrs.length === 1) {
+      const acc = accessorJs(fn.atom, argStrs[0]!);
+      if (acc !== null) return acc; // `(map caar xss)` → `xss.map((xs) => xs[0][0])`
+    }
   }
   return `${E.lower(fn)}(${argStrs.join(", ")})`;
 }
@@ -117,7 +140,15 @@ function applyFn(fn: Node, argStrs: string[], E: Emit): string {
 function passableFn(fn: Node): boolean {
   if (isList(fn) && head(fn) === "lambda") return true;
   if (isKeyword(fn)) return false;
-  if (isAtom(fn) && !fn.str && !(fn.atom in BINOP) && !(fn.atom in UNOP) && !(fn.atom in STDLIB)) return true;
+  if (
+    isAtom(fn) &&
+    !fn.str &&
+    !(fn.atom in BINOP) &&
+    !(fn.atom in UNOP) &&
+    !(fn.atom in STDLIB) &&
+    !isAccessor(fn.atom)
+  )
+    return true;
   return false;
 }
 
@@ -214,12 +245,8 @@ export const STDLIB: Record<string, Emitter> = {
     const tail = spread(args[1]!, E);
     return `[${E.lower(args[0]!)}${tail ? `, ${tail}` : ""}]`;
   },
-  car: (args, E) => `${E.lower(args[0]!)}[0]`,
-  // `cdr` is the list TAIL; `cadr`/`caddr` access the 2nd/3rd element (of a pair or
-  // list). Keeping them distinct is what lets `cons`/pairs and list-recursion coexist.
-  cdr: (args, E) => `${E.lower(args[0]!)}.slice(1)`,
-  cadr: (args, E) => `${E.lower(args[0]!)}[1]`,
-  caddr: (args, E) => `${E.lower(args[0]!)}[2]`,
+  // car/cdr/cadr/caddr — and every mixed combo — are lowered by the accessor catchall
+  // (see accessorJs); keeping them out of STDLIB is what lets `(caar x)` work too.
   "list-ref": (args, E) => `${recv(E.lower(args[0]!))}[${E.lower(args[1]!)}]`,
   first: (args, E) => `${E.lower(args[0]!)}[0]`,
   length: (args, E) => `${E.lower(args[0]!)}.length`,
@@ -332,4 +359,5 @@ export const STDLIB: Record<string, Emitter> = {
 };
 
 /** Is `name` a stdlib builtin (so it is emitted as an operator, never imported as a free identifier)? */
-export const isBuiltin = (name: string): boolean => name in STDLIB || name in BINOP || name in UNOP;
+export const isBuiltin = (name: string): boolean =>
+  name in STDLIB || name in BINOP || name in UNOP || isAccessor(name);

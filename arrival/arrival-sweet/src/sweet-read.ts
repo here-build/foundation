@@ -18,7 +18,15 @@
  */
 import invariant from "tiny-invariant";
 
-import { parseSexprs, nodeEq, printScheme, type Node } from "./sweet-render.js";
+import {
+  parseSexprs,
+  nodeEq,
+  printScheme,
+  encodeAccessor,
+  accessorStepLetters,
+  type Node,
+  type PairStep,
+} from "./sweet-render.js";
 
 // glyph → canonical op (inverse of INFIX_GLYPH). INJECTIVE: only ==←equal?, &&←and,
 // ||←or are remapped; everything else (=, eq?, eqv?, arithmetic, comparison) is its
@@ -93,14 +101,26 @@ type Tok =
   | { t: "quote"; v: "'" | "`" | "," | ",@"; start?: number; end?: number }
   | { t: "word"; v: string; str?: boolean; start?: number; end?: number };
 
-/** `[k]` → k-th element accessor `ca d^k r`; `[k:]` → drop-first-k `c d^k r`.
- *  Inverse of sweet-render's accessorSubscript. [0]=car, [1]=cadr…; [1:]=cdr… */
-function subscriptToAccessor(idx: string): string {
+/** `[k]` → PULL k (take element k); `[k:]` → DROP first k. One subscript = one
+ *  PairStep, in operand order. Inverse of sweet-render's accessorSubscript. The
+ *  fusion of a chain back into a single `c[ad]+r` word is withSubscripts' job. */
+function parseSubscript(idx: string): PairStep {
   const slice = idx.endsWith(":");
   const k = Number(slice ? idx.slice(0, -1) : idx);
   invariant(Number.isInteger(k) && k >= (slice ? 1 : 0), () => `bad subscript '[${idx}]'`);
-  return slice ? `c${"d".repeat(k)}r` : `ca${"d".repeat(k)}r`;
+  return slice ? { drop: k } : { pull: k };
 }
+
+/** r7rs `(scheme cxr)` defines accessor words of up to 4 letters (car … cddddr).
+ *  The DEFAULT reader caps subscript fusion at this many accessor-word letters, so
+ *  a long chain like `x[0][1][2]` lowers to nested standard words `(caddr (cadar
+ *  x))` rather than one non-portable `caddadar`. Pass `accessorDepth: Infinity` for
+ *  unbounded fusion (one `c[ad]+r` word per chain, resolved by the runtime catchall
+ *  on both interpreter and compiler). A single inherently-deep subscript (`x[5]`,
+ *  only ever produced by rendering an already-non-standard word) is never split —
+ *  splitting would break the sweet-side round-trip — so the cap governs fusion of
+ *  ADJACENT subscripts, the only place the reader actually has a choice. */
+export const R7RS_ACCESSOR_DEPTH = 4;
 
 // reader-macro prefix → the symbol it expands to (mirrors parseSexprs).
 const QUOTE_WRAP: Record<string, string> = {
@@ -169,7 +189,7 @@ const isColonKey = (t: Tok): boolean =>
 /** Parse a token array into a SEQUENCE of classic elements: `(…)` lists, `{…}`
  *  curlies, quoted data, and atoms. Colon-keys are NOT handled here — parseNode
  *  strips a line-leading `key:` first, so trailing-colon tokens never reach this. */
-function parseElements(toks: Tok[]): Node[] {
+function parseElements(toks: Tok[], accessorDepth: number = R7RS_ACCESSOR_DEPTH): Node[] {
   let pos = 0;
   const peek = (): Tok | undefined => toks[pos];
   const next = (): Tok => toks[pos++];
@@ -186,20 +206,36 @@ function parseElements(toks: Tok[]): Node[] {
     return node;
   };
 
-  // Postfix subscripts: consume any `[k]` / `[k:]` following an operand and wrap it
-  // in the accessor it sugars (`xs[0]`→(car xs), `xs[1:]`→(cdr xs)). Chains, so
-  // `xs[0][1]`→(cadr (car xs)). Binds tighter than infix, so it's applied to each
+  // Postfix subscripts: consume any `[k]` / `[k:]` following an operand and FUSE the
+  // chain into pair-accessor words (`xs[0]`→(car xs), `xs[1:]`→(cdr xs), `xs[0][1]`
+  // →(cadar xs) — one word, not (cadr (car xs))). The fusion is capped at
+  // `accessorDepth` accessor-word letters: when the next step would overflow the
+  // current word, flush it and start a fresh one, so the default mode emits only
+  // portable standard words. Binds tighter than infix, so it's applied to each
   // fully-read datum/operand before the infix climber sees it.
   function withSubscripts(node: Node): Node {
     let n = node;
+    let steps: PairStep[] = [];
+    let letters = 0;
+    const flush = (): void => {
+      if (steps.length === 0) return;
+      n = { list: [atom(encodeAccessor(steps)), n] };
+      steps = [];
+      letters = 0;
+    };
     while (peek()?.t === "[") {
       next(); // [
       const t = next();
       invariant(!!t && t.t === "word", "expected index inside '[ ]'");
       const close = next();
       invariant(!!close && close.t === "]", "unbalanced '['");
-      n = { list: [atom(subscriptToAccessor(t.v)), n] };
+      const step = parseSubscript(t.v);
+      const cost = accessorStepLetters(step);
+      if (letters > 0 && letters + cost > accessorDepth) flush();
+      steps.push(step);
+      letters += cost;
     }
+    flush();
     return n;
   }
 
@@ -292,10 +328,16 @@ function parseElements(toks: Tok[]): Node[] {
 
 /** Single fully-delimited expression — phase-1 entry (used by the curly/arrow
  *  round-trip tests). For multi-element input it returns the first element. */
-export function readSweetExpr(src: string): Node {
-  const elems = parseElements(tokenize(stripComments(src)));
+export function readSweetExpr(src: string, opts: ReadOpts = {}): Node {
+  const elems = parseElements(tokenize(stripComments(src)), opts.accessorDepth);
   invariant(elems.length === 1, () => `expected one expression, got ${elems.length}`);
   return elems[0];
+}
+
+/** Reader knobs. `accessorDepth` caps pair-accessor subscript fusion (see
+ *  R7RS_ACCESSOR_DEPTH); omit for the portable default, `Infinity` for unbounded. */
+export interface ReadOpts {
+  accessorDepth?: number;
 }
 
 // ── I-expression layer ────────────────────────────────────────────────────────
@@ -371,13 +413,13 @@ function coalesce(physical: { text: string; base: number }[]): LogLine[] {
 
 /** Parse one logical line + all deeper-indented descendants → the element(s) it
  *  contributes to its parent's list (usually 1; 2 for an inline colon-pair). */
-function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number } {
+function parseNode(lines: LogLine[], idx: number, accessorDepth?: number): { elems: Node[]; next: number } {
   const line = lines[idx];
   const toks = tokenize(line.content, line.base); // `base` absent (coalesced) → no spans
   const childElems: Node[] = [];
   let j = idx + 1;
   while (j < lines.length && lines[j].indent > line.indent) {
-    const r = parseNode(lines, j);
+    const r = parseNode(lines, j, accessorDepth);
     childElems.push(...r.elems);
     j = r.next;
   }
@@ -387,13 +429,13 @@ function parseNode(lines: LogLine[], idx: number): { elems: Node[]; next: number
   // (Leading-colon `:personas` is an accessor HEAD, not a key — it falls through.)
   if (toks.length > 0 && isColonKey(toks[0])) {
     const key = atom(`:${(toks[0] as { v: string }).v.slice(0, -1)}`);
-    const valueElems = parseElements(toks.slice(1));
+    const valueElems = parseElements(toks.slice(1), accessorDepth);
     const all = [...valueElems, ...childElems];
     invariant(all.length > 0, () => `colon key '${(toks[0] as { v: string }).v}' has no value`);
     return { elems: [key, all.length === 1 ? all[0] : { list: all }], next: j };
   }
 
-  const head = parseElements(toks);
+  const head = parseElements(toks, accessorDepth);
   if (childElems.length === 0) {
     // SRFI-110: a CHILDLESS line of multiple datums is a list (`string-upcase s`
     // → (string-upcase s)) — same rule readSweet applies to a whole top-level
@@ -474,7 +516,7 @@ export function splitFormsWithBase(text: string): { text: string; base: number }
 }
 
 /** Full reader: sweet text → classic forms. */
-export function readSweet(text: string): Node[] {
+export function readSweet(text: string, opts: ReadOpts = {}): Node[] {
   // Split into top-level forms by blank line FIRST: in the render, blank lines
   // appear ONLY between top-level forms (a comment is contiguous with its node),
   // so this is the true boundary. THEN blank comments within each form (length-
@@ -494,7 +536,7 @@ export function readSweet(text: string): Node[] {
         off += lineText.length + 1;
       }
       const lines = coalesce(physical);
-      const { elems } = parseNode(lines, 0);
+      const { elems } = parseNode(lines, 0, opts.accessorDepth);
       return elems.length === 1 ? elems[0] : { list: elems };
     });
 }
@@ -569,8 +611,8 @@ export function topFormSpans(src: string): Array<{ start: number; end: number }>
  * buffer and skips the save). The law: `sweetToScheme(schemeToSweet(c), c) === c`
  * byte-for-byte — viewing-then-saving an UNEDITED sweet view never touches storage.
  */
-export function sweetToScheme(sweetText: string, prevClassic: string): string {
-  const sweetForms = readSweet(sweetText); // throws on malformed sweet → caller handles
+export function sweetToScheme(sweetText: string, prevClassic: string, opts: ReadOpts = {}): string {
+  const sweetForms = readSweet(sweetText, opts); // throws on malformed sweet → caller handles
   const reprintAll = (): string => `${sweetForms.map((f) => printScheme(f)).join("\n\n")}\n`;
 
   const spans = topFormSpans(prevClassic);

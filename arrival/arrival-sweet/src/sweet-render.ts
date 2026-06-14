@@ -318,20 +318,60 @@ const isInfix = (items: Node[], o: SweetOpts): boolean =>
 
 const isKeyword = (nd: Node): boolean => isAtom(nd) && !nd.str && nd.atom.startsWith(":") && nd.atom.length > 1;
 
-/** Linear pair-accessor → subscript sugar (a single coherent "list indexing"
- *  surface for the car/cdr family): positional `(ca d* r)` → `[n]` —
- *  (car x)→x[0], (cadr x)→x[1], (caddr x)→x[2], (cadddr x)→x[3]; rest `(c d+ r)`
- *  → `[n:]` — (cdr x)→x[1:], (cddr x)→x[2:]. ONLY these two chains: mixed combos
- *  (caar, cdar…) descend into sublists and have no single-index meaning, so they
- *  stay classic. The sugar lives in punctuation-space (`[]`), so unlike a bare
- *  `head`/`tail` rename it can NEVER collide with a user identifier — the same
- *  faithfulness property that lets `equal?`→`==`. Inverse: sweet-read.ts. */
+// ── pair-accessor lens: the whole c[ad]+r family as a list-indexing surface ───
+//
+// A pair path `c[ad]+r` is a chain of just two ops applied inner→outer (read the
+// letters right-to-left): a PULL k = take element k (letters `dᵏa`), a DROP k =
+// drop the first k (letters `dᵏ`). Maximal `d…d a` runs fuse into one pull; an
+// innermost trailing `d…d` is a drop. The SAME chain has three faces — sweet
+// subscripts (`[k]`/`[k:]`), JS (`[k]`/`.slice(k)`), and the word itself — so this
+// one primitive is what the renderer prints, the reader fuses back (inverse), and
+// the chain-view compiler lowers. Total over the family (caar, cadadr… all swept
+// in, not just the linear car/cdr/cadr/caddr). The sugar lives in punctuation
+// space (`[]`), so it can NEVER collide with a user identifier — the same
+// faithfulness property that lets `equal?`→`==`.
+
+export type PairStep = { pull: number } | { drop: number };
+
+/** Decompose a `c[ad]+r` accessor word into its PULL/DROP chain in OPERAND order
+ *  (step 0 applies to the operand first). null if `head` is not an accessor. */
+export function decodeAccessor(head: string): PairStep[] | null {
+  const m = /^c([ad]+)r$/.exec(head);
+  if (!m) return null;
+  const letters = m[1];
+  const steps: PairStep[] = [];
+  let d = 0;
+  for (let i = letters.length - 1; i >= 0; i--) {
+    if (letters[i] === "d") d++; // skip another element
+    else (steps.push({ pull: d }), (d = 0)); // an `a` closes the pull it caps
+  }
+  if (d > 0) steps.push({ drop: d }); // innermost bare cdr-run (no `a` after)
+  return steps;
+}
+
+/** Inverse of decodeAccessor: a PULL/DROP chain → the `c[ad]+r` word. Operand-order
+ *  steps map to letters outer→inner, so written letters are the reverse: pull k →
+ *  `a dᵏ`, drop k → `dᵏ`. Any chain yields a valid word (so the reader can fuse a
+ *  slice-then-pull like `xs[1:][0]` to `cadr` → which re-renders as `xs[1]`). */
+export function encodeAccessor(steps: PairStep[]): string {
+  const letters = steps
+    .slice()
+    .reverse()
+    .map((s) => ("pull" in s ? "a" + "d".repeat(s.pull) : "d".repeat(s.drop)))
+    .join("");
+  return `c${letters}r`;
+}
+
+/** Cost of a step in accessor-word letters: pull k = `dᵏa` (k+1), drop k = `dᵏ`. */
+export const accessorStepLetters = (s: PairStep): number => ("pull" in s ? s.pull + 1 : s.drop);
+
+/** A pair accessor → its subscript-chain sugar: `(caadr x)`→`x[1][0]`, `(cdar x)`
+ *  →`x[0][1:]`. null if not an accessor. Unconditional — render decomposes any word
+ *  it is given; only the reader (sweet-read) caps fusion depth for portable output. */
 function accessorSubscript(head: string): string | null {
-  const el = /^ca(d*)r$/.exec(head);
-  if (el) return `[${el[1].length}]`;
-  const rest = /^c(d+)r$/.exec(head);
-  if (rest) return `[${rest[1].length}:]`;
-  return null;
+  const steps = decodeAccessor(head);
+  if (!steps) return null;
+  return steps.map((s) => ("pull" in s ? `[${s.pull}]` : `[${s.drop}:]`)).join("");
 }
 
 /** A literal `(require "….prompt")` — the inline-require call style used in the

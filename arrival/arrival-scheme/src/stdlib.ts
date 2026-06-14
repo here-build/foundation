@@ -512,7 +512,7 @@ function get_instances() {
         // recursing through `toString` so nested vectors/strings format correctly
         // and `quote` propagates. (Without this they fell through to the generic
         // #<__class__> / #<JS-class-name> garbage — the only user-facing stringify
-        // in the MCP bridge env. Cyclic vectors are not datum-labelled here; repr
+        // in the MCP bridge env. Cyclic vectors are not datum-labeled here; repr
         // of a runtime-cyclic vector is a known gap, as for cyclic data generally.)
         SchemeVector,
         function (vec: SchemeVector, { quote }: any) {
@@ -2170,21 +2170,49 @@ function combinations(input: SchemeValue, start: number, end: number): SchemeVal
 }
 
 // -------------------------------------------------------------------------
-// cadr caddr cadadr etc.
-for (const spec of combinations(["d", "a"], 2, 5)) {
-  const s = spec.split("");
-  const chars = [...s].reverse();
-  const name = `c${spec}r`;
-  global_env.set(
-    name,
-    doc(name, function (arg) {
-      return chars.reduce(function (list, type) {
-        typecheck(name, list, "pair");
-        return type === "a" ? list.car : list.cdr;
-      }, arg);
-    }),
-  );
+// The `c[ad]+r` pair-accessor family IS car/cdr composition: each inner letter
+// is one projection applied innermost (rightmost) first — `cadr` = (car (cdr x)).
+// `cxrAccessor` is the single synthesis both faces share; there is no
+// hand-maintained word list to rot.
+const CXR_RE = /^c[ad]+r$/;
+
+export function cxrAccessor(name: string): ((arg: SchemeValue) => SchemeValue) | undefined {
+  if (!CXR_RE.test(name)) return undefined;
+  // inner letters between the leading `c` and trailing `r`, innermost first
+  const chars = [...name.slice(1, -1)].reverse();
+  return function (arg: SchemeValue): SchemeValue {
+    return chars.reduce(function (list, type) {
+      typecheck(name, list, "pair");
+      return type === "a" ? list.car : list.cdr;
+    }, arg);
+  };
 }
+
+/**
+ * Install the unbounded `c[ad]+r` catchall on an environment. Registered on the
+ * two roots — `global_env` (here) and `sandboxedEnv` (sandbox-env.ts) — because
+ * the sandbox has a null parent and does NOT inherit global_env's resolvers.
+ * The catchall makes ANY accessor word resolvable, so whatever the sweet lens
+ * fuses in unbounded mode (caddddr, caddadar, …) still evaluates.
+ */
+export function registerCxrResolver(env: Environment): void {
+  env.registerResolver({
+    id: "cxr-accessor",
+    resolve(name) {
+      return cxrAccessor(name);
+    },
+  });
+}
+
+// Bless the standard `(scheme cxr)` words eagerly (cadr…cddddr) so they're
+// visible to binding enumeration (oracle Σ, sandbox snapshot, `(environment)`
+// introspection); deeper words are synthesized lazily by the resolver above.
+for (const spec of combinations(["d", "a"], 2, 5)) {
+  const name = `c${spec}r`;
+  global_env.set(name, doc(name, cxrAccessor(name)!));
+}
+
+registerCxrResolver(global_env);
 
 // -------------------------------------------------------------------------
 // prepare_fn_args is the one survivor of the deleted legacy `evaluate` cluster —

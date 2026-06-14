@@ -11,7 +11,7 @@
  * emitter prints well-formed Python directly, leaning on single-`return` `def`s and
  * expression comprehensions so the gepa-class chain stays one statement per binding.
  */
-import { parseSexprs } from "@here.build/arrival-sweet";
+import { parseSexprs, decodeAccessor } from "@here.build/arrival-sweet";
 import pluralize from "pluralize";
 
 import { desugar } from "./desugar.js";
@@ -111,16 +111,21 @@ const PY_BINOP: Record<string, (a: string, b: string) => string> = {
   "string-ci=?": (a, b) => `${a}.lower() == ${b}.lower()`,
 };
 const PY_UNOP: Record<string, (a: string) => string> = {
-  car: (a) => `${a}[0]`,
-  cdr: (a) => `${a}[1:]`, // list TAIL (cadr accesses the 2nd element of a pair)
-  cadr: (a) => `${a}[1]`,
-  caddr: (a) => `${a}[2]`,
   first: (a) => `${a}[0]`,
   "zero?": (a) => `${a} == 0`,
   "even?": (a) => `${a} % 2 == 0`,
   "odd?": (a) => `${a} % 2 != 0`,
   not: (a) => `not ${a}`,
 };
+
+/** Pair-accessor catchall, Python flavour: the shared `c[ad]+r` decomposition lowered
+ *  to subscripts — PULL k → `[k]`, DROP k → `[k:]` (Python's slice). Covers the whole
+ *  family (car/cdr/cadr/caddr AND mixed caar/cdar/caadr/…); null if not an accessor. */
+function accessorPy(head: string, operand: string): string | null {
+  const steps = decodeAccessor(head);
+  if (!steps) return null;
+  return steps.reduce((py, s) => ("pull" in s ? `${py}[${s.pull}]` : `${py}[${s.drop}:]`), operand);
+}
 
 export interface PyOptions {
   /** Source of a `.scm` required file, for spill name extraction. */
@@ -183,6 +188,8 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
     if (isAtom(fn) && !fn.str) {
       const u = PY_UNOP[fn.atom];
       if (u) return u(v);
+      const acc = accessorPy(fn.atom, v);
+      if (acc !== null) return acc; // `(map caar xss)` → `[xs[0][0] for xs in xss]`
     }
     return `${lower(fn)}(${v})`;
   }
@@ -239,10 +246,7 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
       const t = isList(tail) && head(tail) === "list" ? tail.list.slice(1).map(lower).join(", ") : `*${lower(tail)}`;
       return `[${lower(a[0]!)}${t ? `, ${t}` : ""}]`;
     },
-    car: (a) => `${lower(a[0]!)}[0]`,
-    cdr: (a) => `${lower(a[0]!)}[1:]`, // list TAIL; cadr/caddr access the 2nd/3rd element
-    cadr: (a) => `${lower(a[0]!)}[1]`,
-    caddr: (a) => `${lower(a[0]!)}[2]`,
+    // car/cdr/cadr/caddr + every mixed combo are lowered by the accessor catchall (accessorPy).
     "list-ref": (a) => `${lower(a[0]!)}[${lower(a[1]!)}]`,
     length: (a) => `len(${lower(a[0]!)})`,
     reverse: (a) => `list(reversed(${lower(a[0]!)}))`,
@@ -325,6 +329,10 @@ function makePyLower(requireSubst: Map<string, string>, inferLocals: Set<string>
       }
       const emit = STDLIB[hName];
       if (emit) return emit(n.list.slice(1));
+      if (n.list.length === 2) {
+        const acc = accessorPy(hName, lower(n.list[1]!)); // pair-accessor catchall
+        if (acc !== null) return acc;
+      }
     }
     return call(h!, n.list.slice(1));
   }

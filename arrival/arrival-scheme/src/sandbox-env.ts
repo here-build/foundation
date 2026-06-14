@@ -1,6 +1,6 @@
 import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
-import { global_env as lipsGlobalEnv } from "./stdlib.js";
+import { global_env as lipsGlobalEnv, registerCxrResolver } from "./stdlib.js";
 import { Nil, nil } from "./types.js";
 import { RAMDA_FUNCTIONS } from "./ramda-functions.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
@@ -334,7 +334,7 @@ export const sandboxedEnv = new Environment(
       taintString(args.map((a: any) => a?.__string__ ?? String(a)).join(""), deepStringProvenance(...args)),
     // join collapses a list to one string — taint with the list elements' points
     // so `(join sep (cons seed …))` keeps wiring back to `seed`. Delegates the
-    // actual joining to the LIPS builtin (handles list->array, separators, etc).
+    // actual joining to the LIPS builtin (handles list->array, separators, etc.).
     join: (separator: any, list: any) =>
       taintString(String(lipsJoin(separator, list)), deepStringProvenance(list)),
     "string-contains": (haystack: any, needle: any) =>
@@ -429,3 +429,8 @@ export const sandboxedEnv = new Environment(
   },
   null,
 );
+
+// The unbounded `c[ad]+r` catchall. SAFE_BUILTINS copies only a hand-maintained
+// (and incomplete) slice of the family above; the resolver makes ANY accessor
+// word the sweet lens can fuse resolve — without inheriting it (null parent).
+registerCxrResolver(sandboxedEnv);

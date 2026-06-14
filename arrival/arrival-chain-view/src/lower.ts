@@ -20,7 +20,7 @@ import {
   type ListNode,
   type Node,
 } from "./nodes.js";
-import { type Emit, STDLIB } from "./stdlib.js";
+import { type Emit, STDLIB, accessorJs } from "./stdlib.js";
 
 export interface LowerCtx {
   /** Inline `(require "p")` (nested in an expression) → its hoisted import local. */
@@ -162,6 +162,11 @@ export function makeLowerer(ctx: LowerCtx): Lowerer {
       }
       const emit = STDLIB[hName];
       if (emit) return emit(n.list.slice(1), E);
+      // pair-accessor catchall (car/cdr/cadr/caddr AND mixed caar/cdar/caadr/…).
+      if (n.list.length === 2) {
+        const acc = accessorJs(hName, lower(n.list[1]!));
+        if (acc !== null) return acc;
+      }
     }
 
     return lowerCall(h!, n.list.slice(1));

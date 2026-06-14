@@ -23,6 +23,18 @@ export {
   DEFAULT_OPTS,
 } from "./sweet-render.js";
 
+// Pair-accessor primitive — the one decomposition of a `c[ad]+r` word into its
+// PULL/DROP chain, shared by the renderer (→ subscripts), the reader (← fusion),
+// and the chain-view compiler (→ JS `[k]`/`.slice(k)`). One source of truth so the
+// three faces can never drift.
+export { decodeAccessor, encodeAccessor, accessorStepLetters, type PairStep } from "./sweet-render.js";
+
 // Lower-level sweet reader utilities (single-expr read; top-form span scan) — used by the
 // classic↔sweet round-trip integration tests over the program corpus.
-export { readSweetExpr, topFormSpans, splitFormsWithBase } from "./sweet-read.js";
+export {
+  readSweetExpr,
+  topFormSpans,
+  splitFormsWithBase,
+  R7RS_ACCESSOR_DEPTH,
+  type ReadOpts,
+} from "./sweet-read.js";

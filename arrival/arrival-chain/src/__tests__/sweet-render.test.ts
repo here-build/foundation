@@ -159,19 +159,31 @@ describe("sweet-render", () => {
       expect(sweet("(cadr (car xs))").trim()).toBe("xs[0][1]");
     });
 
-    it("mixed accessors (caar, cdar) stay classic — no single-index meaning", () => {
-      expect(sweet("(caar xs)").trim()).toBe("(caar xs)");
-      expect(sweet("(cdar xs)").trim()).toBe("(cdar xs)");
+    it("mixed accessors render as nested subscripts / slices (whole c[ad]+r family)", () => {
+      expect(sweet("(caar xs)").trim()).toBe("xs[0][0]");
+      expect(sweet("(cdar xs)").trim()).toBe("xs[0][1:]");
+      expect(sweet("(caadr xs)").trim()).toBe("xs[1][0]");
+      expect(sweet("(cadadr xs)").trim()).toBe("xs[1][1]");
     });
 
     it("a bare accessor passed as a value is NOT sugared", () => {
       expect(sweet("(map car xs)").trim()).toBe("(map car xs)");
     });
 
-    it("subscript round-trips back to the canonical accessor", () => {
+    it("single-accessor subscripts round-trip back to the canonical accessor", () => {
       for (const src of ["(car xs)", "(cadr xs)", "(caddr xs)", "(cdr xs)", "(cddr xs)",
-                         "(car (filter p xs))", "(cadr (car xs))", "(map car xs)"]) {
+                         "(car (filter p xs))", "(map car xs)"]) {
         expect(read(sweet(src))).toBe(src);
+      }
+    });
+
+    // Nested accessor CALLS fuse to one canonical word — cyclic idempotence, not
+    // textual identity. `(cadr (car xs))` prints xs[0][1] and reads back as the
+    // fused (cadar xs); re-rendering that returns the SAME sweet text. This is the
+    // "caar is honest" guarantee V locked: intent-stable + best-readability.
+    it("nested accessor calls fuse (sweet → scheme → sweet = id)", () => {
+      for (const s of ["xs[0][1]", "xs[0][0]", "xs[0][1:]", "xs[1][0]"]) {
+        expect(sweet(read(s)).trim()).toBe(s);
       }
     });
   });
