@@ -41,10 +41,8 @@ import {
   NOT_FOUND,
   SandboxViolationError,
   sandboxedAccess,
-  sandboxedDelete,
   sandboxedHas,
   sandboxedKeys,
-  sandboxedSet,
 } from "./sandbox-boundary.js";
 import { Syntax } from "./Syntax.js";
 import { type SchemeValue, Nil, nil, SchemeCharacter } from "./types.js";
@@ -55,12 +53,9 @@ export {
   SandboxViolationError as SandboxViolationError,
   sandboxedAccess as sandboxedAccess,
   sandboxedHas as sandboxedHas,
-  sandboxedKeys as sandboxedKeys,
   sandboxedSet as sandboxedSet,
-  sandboxedDelete as sandboxedDelete,
   NOT_FOUND as NOT_FOUND,
   markAsSandboxBoundary as markAsSandboxBoundary,
-  isSandboxBoundary as isSandboxBoundary,
 } from "./sandbox-boundary.js";
 
 // ============================================================================
@@ -85,36 +80,41 @@ export const TO_JS = Symbol.for("scheme.toJS");
  * and the canonical example for guards.ts:is_nil (fix in 5f7f9e46a).
  */
 export function isSchemeValue(value: unknown): boolean {
-  if (value instanceof Nil) return true;
-  if (value === null || value === undefined) return false;
-  if (typeof value !== "object" && typeof value !== "function") return false;
+  switch (true) {
+    case value instanceof Nil:
+      return true;
+    case value === null || value === undefined:
+    case typeof value !== "object" && typeof value !== "function":
+      return false;
 
-  // Check for wrapper classes first
-  if (value instanceof SchemeJSObject) return true;
-  if (value instanceof SchemeJSFunction) return true;
+    // Wrapper classes first
+    case value instanceof SchemeJSObject:
+    case value instanceof SchemeJSFunction:
 
-  // Check for native Scheme types
-  if (value instanceof Pair) return true;
-  if (value instanceof SchemeSymbol) return true;
-  if (value instanceof SchemeString) return true;
-  if (value instanceof SchemeBytevector) return true;
-  if (value instanceof SchemeVector) return true;
-  if (value instanceof SchemeCharacter) return true;
-  if (value instanceof SchemeExact) return true;
-  if (value instanceof SchemeInexact) return true;
-  if (value instanceof SchemeBool) return true;
-  if (value instanceof QuotedPromise) return true;
-  if (value instanceof SchemePromise) return true;
-  if (value instanceof Macro) return true;
-  if (value instanceof Syntax) return true;
-  if (value instanceof LambdaContext) return true;
-  if (value instanceof SchemeEnvironment) return true;
+    // Native Scheme types
+    case value instanceof Pair:
+    case value instanceof SchemeSymbol:
+    case value instanceof SchemeString:
+    case value instanceof SchemeBytevector:
+    case value instanceof SchemeVector:
+    case value instanceof SchemeCharacter:
+    case value instanceof SchemeExact:
+    case value instanceof SchemeInexact:
+    case value instanceof SchemeBool:
+    case value instanceof QuotedPromise:
+    case value instanceof SchemePromise:
+    case value instanceof Macro:
+    case value instanceof Syntax:
+    case value instanceof LambdaContext:
+    case value instanceof SchemeEnvironment:
 
-  // Check for Scheme lambda (function with __lambda__ marker)
-  // Note: new evaluator uses string property "__lambda__", old LIPS uses Symbol
-  if (typeof value === "function" && ("__lambda__" in value || __lambda__ in value)) return true;
+    // Scheme lambda: new evaluator uses string "__lambda__", old LIPS uses Symbol
+    case typeof value === "function" && ("__lambda__" in value || __lambda__ in value):
+      return true;
 
-  return false;
+    default:
+      return false;
+  }
 }
 
 /**
@@ -122,11 +122,15 @@ export function isSchemeValue(value: unknown): boolean {
  * These pass through without wrapping and work with polymorphic bytevector ops.
  */
 export function isBytevectorLike(value: unknown): boolean {
-  if (value instanceof Uint8Array) return true;
-  if (value instanceof ArrayBuffer) return true;
-  if (value instanceof DataView) return true;
-  if (typeof Buffer !== "undefined" && value instanceof Buffer) return true;
-  return false;
+  switch (true) {
+    case value instanceof Uint8Array:
+    case value instanceof ArrayBuffer:
+    case value instanceof DataView:
+    case typeof Buffer !== "undefined" && value instanceof Buffer:
+      return true;
+    default:
+      return false;
+  }
 }
 
 /**
@@ -543,7 +547,7 @@ export const Int: Codec<SchemeExact, bigint> = {
   fromJS: (v) => new SchemeExact(v),
 };
 
-/** Safe integers ↔ JS number (for bitwise ops etc) */
+/** Safe integers ↔ JS number (for bitwise ops etc.) */
 export const SafeInt: Codec<SchemeExact, number> = {
   match(v): v is SchemeExact {
     return (

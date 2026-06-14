@@ -328,45 +328,10 @@ export class Lexer {
     }
   }
 
-  read_line() {
-    const len = this.__input__.length;
-    if (this._i >= len) {
-      return eof;
-    }
-    for (let i = this._i; i < len; ++i) {
-      const char = this.__input__[i];
-      if (char === "\n") {
-        const line = this.__input__.substring(this._i, i);
-        this._i = i + 1;
-        ++this._line;
-        return line;
-      }
-    }
-    return this.read_rest();
-  }
-
   read_rest() {
     const i = this._i;
     this._i = this.__input__.length;
     return this.__input__.slice(Math.max(0, i));
-  }
-
-  read_string(num: number) {
-    const len = this.__input__.length;
-    if (this._i >= len) {
-      return eof;
-    }
-    if (num + this._i >= len) {
-      return this.read_rest();
-    }
-    const end = this._i + num;
-    const result = this.__input__.substring(this._i, end);
-    const found = result.match(/\n/g);
-    if (found) {
-      this._line += found.length;
-    }
-    this._i = end;
-    return result;
   }
 
   peek_char() {
@@ -374,12 +339,6 @@ export class Lexer {
       return eof;
     }
     return new SchemeCharacter(this.__input__[this._i]);
-  }
-
-  read_char() {
-    const char = this.peek_char();
-    this.skip_char();
-    return char;
   }
 
   skip_char() {
@@ -395,23 +354,15 @@ export class Lexer {
   ): boolean {
     const [re, prev_re, next_re, state] = rule;
     invariant(rule.length === 5, `Lexer: Invalid rule of length ${rule.length}`);
-    if (is_string(re)) {
-      if (re !== char) {
+    switch (true) {
+      case is_string(re) ? re !== char : !char.match(re):
+      case !match_or_null(prev_re, prev_char):
+      case !match_or_null(next_re, next_char):
+      case state !== this._state:
         return false;
-      }
-    } else if (!char.match(re)) {
-      return false;
+      default:
+        return true;
     }
-    if (!match_or_null(prev_re, prev_char)) {
-      return false;
-    }
-    if (!match_or_null(next_re, next_char)) {
-      return false;
-    }
-    if (state !== this._state) {
-      return false;
-    }
-    return true;
   }
 
   next_token() {
