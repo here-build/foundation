@@ -10,6 +10,7 @@
 // re-run is additionally TRACE-ENTRY-CAPPED — the memory bound the clock can't give. A budget hit /
 // stack overflow / trace cap returns a contained outcome, never an OOM of the shared isolate.
 
+import { type InferStoreLike } from "@here.build/arrival-inference";
 import { EvalTrace } from "@here.build/arrival-provenance";
 
 import { effectLogCollector, type EffectLog } from "./effect-log.js";
@@ -85,7 +86,7 @@ function isContainment(err: unknown): boolean {
 async function runCausal(
   project: Project,
   source: string,
-  extra: { dirname: string; imports?: Map<string, unknown>; signal?: AbortSignal },
+  extra: { dirname: string; imports?: Map<string, unknown>; signal?: AbortSignal; infer?: InferStoreLike },
 ): Promise<{ value: unknown; effectLog: EffectLog; finished: boolean }> {
   const { log, record } = effectLogCollector();
   const ac = new AbortController();
@@ -103,6 +104,7 @@ async function runCausal(
       budgetMs,
       heapBudget: heapMax(),
       onEffectResult: record,
+      ...(extra.infer ? { infer: extra.infer } : {}),
     });
     const hardWall = new Promise<"__hard__">((res) => setTimeout(() => res("__hard__"), budgetMs + 500));
     const outcome = await Promise.race([
@@ -155,10 +157,11 @@ export async function runNamed(
   file: string,
   parser: Parser = "causal",
   signal?: AbortSignal,
+  infer?: InferStoreLike,
 ): Promise<ResultHandle> {
   const { path, source } = await readSource(project, file);
   const dirname = dirOf(path);
-  const { value, effectLog, finished } = await runCausal(project, source, { dirname, signal });
+  const { value, effectLog, finished } = await runCausal(project, source, { dirname, signal, infer });
   assertWireSafe(value, `result of (require/eval "${file}")`);
   // The lazy teleological re-run takes the ASKING call's signal (passed to `h.teleological(sig)`),
   // not this launch's — provenance is grasped during a later `(why h)`, under that call's lifecycle.
@@ -176,13 +179,14 @@ export async function runNamedCall(
   args: unknown,
   parser: Parser = "causal",
   signal?: AbortSignal,
+  infer?: InferStoreLike,
 ): Promise<ResultHandle> {
   assertWireSafe(args, `argument to (require/call "${file}" :${fnName} …)`);
   const { path, source } = await readSource(project, file);
   const dirname = dirOf(path);
   const callSource = `${source}\n(${fnName} (import "${CALL_ARG_KEY}"))\n`;
   const imports = new Map([[CALL_ARG_KEY, args]]);
-  const { value, effectLog, finished } = await runCausal(project, callSource, { dirname, imports, signal });
+  const { value, effectLog, finished } = await runCausal(project, callSource, { dirname, imports, signal, infer });
   assertWireSafe(value, `result of (require/call "${file}" :${fnName} …)`);
   const build = finished
     ? (sig?: AbortSignal) => runTeleological(project, callSource, { dirname, imports, effectLog, signal: sig })

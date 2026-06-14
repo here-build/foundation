@@ -333,6 +333,16 @@ export class Project extends PlexusModel<null> {
        *  another sandbox. Keeps `.prompt`/`require`/trace machinery intact while
        *  letting a host extend the env's capability surface. */
       extendEnv?: (env: ReturnType<typeof buildArrivalEnv>) => void;
+      /**
+       * Per-run inference plane override. Each `(infer …)` resolves through this
+       * store instead of the project-bound `this.infer` when supplied. Lets ONE
+       * run carry a plane the others don't — e.g. host's MCP path overlays the
+       * requesting user's own local-model store ($0, reached through their reverse
+       * tunnel) atop the team plane, per-caller, WITHOUT mutating the shared
+       * `bindInfer` slot (so concurrent runs keep their own planes). Defaults to
+       * `this.infer`; absent ⇒ byte-identical to before.
+       */
+      infer?: InferStoreLike;
     } & ExecBudget = {},
   ): Promise<unknown> {
     // The per-run reflective budget accumulator behind `(infer/spent)`. Folds the
@@ -379,7 +389,7 @@ export class Project extends PlexusModel<null> {
       // backend; later identical calls ride the same cell. Acquire keeps it alive;
       // release lets the last holder abort a superseded run. `tools` rides on the spec
       // (the backend sends them); identity is already in `key`.
-      const cell = this.infer.get({ model, prompt, schema, tools, ...params }, key);
+      const cell = (opts.infer ?? this.infer).get({ model, prompt, schema, tools, ...params }, key);
       const cached = cell.finished(); // already-settled at bind = served from a prior get this run
       cell.acquire();
       opts.onEffect?.(effectKeyStr);
