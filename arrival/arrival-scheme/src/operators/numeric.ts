@@ -122,9 +122,8 @@ function schemeDiv(a: SchemeNumeric, b: SchemeNumeric): SchemeNumeric {
     return new SchemeInexact((aVal * bVal + aImag * bImag) / denom, (aImag * bVal - aVal * bImag) / denom);
   }
   // Both exact - returns inexact if not evenly divisible
-  const result = (a as SchemeExact).div(b as SchemeExact);
   // If result is a non-integer rational, keep exact. Otherwise convert to inexact for consistency
-  return result;
+  return (a as SchemeExact).div(b as SchemeExact);
 }
 
 /** (- n1 n2 ...) - Subtracts numbers from n1. (- n) negates n. */
@@ -1210,22 +1209,6 @@ export const numericOperators = [
 
 /** Full numeric environment - all operators */
 export const fullNumericEnv = new Environment("numeric:full").registerAll(...numericOperators);
-
-/** Safe numeric environment - no bitwise ops */
-export const safeNumericEnv = new Environment("numeric:safe").registerAll(
-  ...numericOperators.filter(
-    (op) =>
-      ![
-        "bitwise-and",
-        "bitwise-ior",
-        "bitwise-xor",
-        "bitwise-not",
-        "arithmetic-shift",
-        "bit-count",
-        "integer-length",
-      ].includes(op.name),
-  ),
-);
 
 /** Rosetta environment - JS-compatible, no bigint-specific ops */
 export const rosettaNumericEnv = new Environment("numeric:rosetta").registerAll(

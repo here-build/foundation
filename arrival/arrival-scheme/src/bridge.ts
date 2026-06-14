@@ -150,7 +150,7 @@ function asBytevector(obj: unknown, fnName: string, forMutation = false): Uint8A
       }
       return obj.__bytevector__;
     case obj instanceof Uint8Array:
-      // FFI coercion: a raw Uint8Array handed to a bytevector op (e.g. from a
+      // FFI coercion: a raw Uint8Array handed to byte vector op (e.g., from a
       // JS function) is coerced in place. Stays permanently — it's the FFI
       // adapter. (bytevector? tightens to instanceof-only in S4; asBytevector
       // keeps coercing raw forms.)
@@ -313,7 +313,7 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
   // OUTER form's name remained on a downstream `env.get(first)` retry, so
   // the *symptom* presented as a name-lookup failure on an unrelated symbol.
   //
-  // The fix tags fromLIPS conversion failures with operator name + arg type
+  // The fix stags fromLIPS conversion failures with operator name + arg type
   // names at THIS boundary — the only frame that has both pieces (op.name
   // here, type() applied to args). Original TypeError carried via `cause`
   // so the membrane/sandbox stack still traces the converter's invariant.
@@ -496,7 +496,6 @@ export function isSchemeNumber(value: unknown): boolean {
         default:
           return false;
       }
-      break;
     }
     default:
       return false;
@@ -526,7 +525,7 @@ function makeTypePredicate(name: string, predicate: (n: SchemeNumeric) => boolea
 // are ordered ENTITIES (a DateTime, a Version, …), exactly as equal? consults a Setoid's
 // `fantasy-land/equals`. All four relations derive from the single `lte`; a chain (< a b c)
 // holds iff each adjacent pair does. Numeric operands take the original numeric/speculative
-// path unchanged — the FL check is one cheap property read, false for every number.
+// path unchanged — the FL check is one inexpensive property read, false for every number.
 interface FLOrd {
   "fantasy-land/lte"(other: unknown): boolean;
 }
@@ -1765,13 +1764,6 @@ export const wrappedOps = {
 // ============================================================================
 // Environment Integration
 // ============================================================================
-
-/**
- * Get all wrapped operators as an object suitable for spreading into global_env
- */
-export function getNumericBindings(): Record<string, unknown> {
-  return { ...wrappedOps };
-}
 
 /**
  * Apply numeric bindings to a LIPS environment

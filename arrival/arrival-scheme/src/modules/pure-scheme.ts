@@ -33,13 +33,6 @@ import { nil, type SchemeValue } from "../types.js";
 import { SAFE_BUILTINS } from "../safe_builtins.js";
 
 /**
- * The unified allowlist of names a pure Scheme base may expose. There is no
- * second list: this is `SAFE_BUILTINS`, the same array `sandboxedEnv` is built
- * from. `nil` (a constant, not in any source env) is always added on top.
- */
-export const PURE_SCHEME_ALLOWLIST: readonly string[] = SAFE_BUILTINS;
-
-/**
  * Create a resolver that pulls the allowlisted Scheme bindings from a source
  * environment. Used to create a pure base from an existing loaded environment.
  */

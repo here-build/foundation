@@ -31,19 +31,8 @@ export class Macro {
     this.__fn__ = fn;
   }
 
-  static defmacro(name: string, fn: Function, doc?: string, dump?: boolean): Macro {
-    const macro = new Macro(name, fn, doc, dump);
-    macro.__defmacro__ = true;
-    return macro;
-  }
-
   invoke(code: unknown, { env, ...rest }: MacroInvokeContext, macro_expand: unknown): unknown {
-    const args = {
-      ...rest,
-      macro_expand,
-    };
-    const result = this.__fn__.call(env, code, args, this.__name__);
-    return result;
+    return this.__fn__.call(env, code, { ...rest, macro_expand }, this.__name__);
   }
 
   toString(): string {

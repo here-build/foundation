@@ -16,8 +16,8 @@ import type { Environment } from "../Environment";
 import type { SchemeValue } from "../types";
 
 // Import both evaluator implementations
-import { exec as lipsExec, env as lipsEnv } from "../stdlib";
-import { exec as generatorExec, ExecOptions } from "../generator-exec";
+import { env as lipsEnv, exec as lipsExec } from "../stdlib";
+import { exec as generatorExec } from "../generator-exec";
 
 // Check environment variable at module load time
 const USE_GENERATOR = process.env.USE_GENERATOR === "1";
@@ -49,19 +49,3 @@ export { generatorExec as execGenerator };
  * Default environment - LIPS user_env
  */
 export const env = lipsEnv;
-
-/**
- * Flag indicating which evaluator is active
- */
-export const usingGenerator = USE_GENERATOR;
-
-/**
- * Log which evaluator is being used (call once at test setup)
- */
-export function logEvaluatorMode(): void {
-  if (USE_GENERATOR) {
-    console.log("[exec-adapter] Using generator-based evaluator");
-  } else {
-    console.log("[exec-adapter] Using LIPS evaluator");
-  }
-}

@@ -19,7 +19,7 @@ import type { Macro } from "./Macro.js";
 import { createPureSchemeModule } from "./modules/pure-scheme.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import type { SchemeValue } from "./types.js";
-import { SchemeCharacter, nil } from "./types.js";
+import { nil, SchemeCharacter } from "./types.js";
 import type { RosettaFunction } from "./rosetta.js";
 import { createRosettaWrapper } from "./rosetta.js";
 import { trim_lines } from "./utils/trim_lines.js";
@@ -27,7 +27,14 @@ import { typecheck } from "./utils/typecheck.js";
 import type { Syntax } from "./Syntax.js";
 import type { QuotedPromise } from "./QuotedPromise.js";
 import invariant from "tiny-invariant";
-import { fromJS, isSchemeValue, NOT_FOUND, SandboxViolationError, sandboxedAccess, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
+import {
+  fromJS,
+  isSchemeValue,
+  NOT_FOUND,
+  sandboxedAccess,
+  SandboxViolationError,
+  SchemeJSObject
+} from "./membrane.js";
 
 /**
  * Brand on a keyword-accessor pluck function carrying its bare field name
@@ -281,14 +288,6 @@ export class Environment {
     if (!this.__resolvers__.some((r) => r.id === resolver.id)) {
       this.__resolvers__.push(resolver);
     }
-    return this;
-  }
-
-  /**
-   * Unregister a fallback resolver by ID.
-   */
-  unregisterResolver(id: string): this {
-    this.__resolvers__ = this.__resolvers__.filter((r) => r.id !== id);
     return this;
   }
 

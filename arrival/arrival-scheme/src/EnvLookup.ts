@@ -8,10 +8,6 @@ export class EnvLookup<T = unknown> {
     this.value = value;
   }
 
-  static isUndefined(x: unknown): boolean {
-    return x instanceof EnvLookup && x.value === undefined;
-  }
-
   valueOf(): T {
     return this.value;
   }
