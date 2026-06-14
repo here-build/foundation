@@ -451,7 +451,7 @@ export class Parser {
         // an error (else it would corrupt the shared parsed AST node persistently).
         const litVec = is_nil(list)
           ? new SchemeVector([])
-          : new SchemeVector((list as Pair).to_array(false));
+          : new SchemeVector(list.to_array(false));
         litVec.freeze();
         return litVec;
       }
@@ -466,7 +466,7 @@ export class Parser {
         if (is_nil(list)) {
           litBv = new SchemeBytevector(new Uint8Array(0));
         } else {
-          const arr = (list as Pair).to_array(false) as number[];
+          const arr = list.to_array(false) as number[];
           litBv = new SchemeBytevector(
             new Uint8Array(arr.map((v) => (typeof v === "number" ? v : Number(v)))),
           );
