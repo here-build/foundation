@@ -124,6 +124,10 @@ export {
   type ExecOptions,
 } from "./generator-exec.js";
 
+// The ONE way to make an env allocation-bounded — every eval loop that owns an env (Project.run, the
+// studio kernel) installs the meter through this, so "bounded" is a single named act, not ad-hoc.
+export { installHeapMeter, findHeapMeter, type HeapMeter } from "./heap-budget.js";
+
 // LX (audit Action 4): the PUBLIC bare `exec`/`parse` resolve to the stack-safe,
 // budget-bounded GENERATOR path. These explicit named re-exports shadow the
 // `exec`/`parse` that ride `export * from "./stdlib.js"` (ESM: an explicit export

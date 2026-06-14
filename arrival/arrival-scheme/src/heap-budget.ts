@@ -23,6 +23,15 @@ export interface HeapMeter {
   max: number;
 }
 
+/** The ONE way an env becomes allocation-bounded: install a fresh meter capped at `max`. Every eval
+ *  loop that owns an env (Project.run, the studio kernel) calls THIS — so "this env is bounded" is a
+ *  single, named, reviewable act, never an ad-hoc `env.__heapMeter__ = …` re-decided per site. The
+ *  meter is found by `to_array` walking the parent chain, so a child scope inherits its parent's
+ *  bound; installing on a fresh run/cell scope is what gives that scope its OWN bound. */
+export function installHeapMeter(env: Environment, max: number): void {
+  env.__heapMeter__ = { used: 0, max };
+}
+
 /** Walk the env parent chain for the nearest installed meter (nearest = this run's). O(depth), called
  *  once per `to_array` (not per element). Returns undefined when no budget was requested. */
 export function findHeapMeter(env: Environment | null): HeapMeter | undefined {

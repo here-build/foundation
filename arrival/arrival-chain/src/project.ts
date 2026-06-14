@@ -3,6 +3,7 @@ import {
   execGeneratorFromString as exec,
   execGeneratorExpr as execExpr,
   parseGenerator as parse,
+  installHeapMeter,
   sandboxedEnv,
   lipsToJs,
   type Environment,
@@ -503,11 +504,10 @@ export class Project extends PlexusModel<null> {
       resolveOverride: opts.resolveOverride,
     });
     opts.extendEnv?.(env);
-    // Uniform allocation bound: install the heap meter on the run env ONCE (spans preamble + every
-    // user form), so the per-form loop is bounded without exec/execExpr each re-installing it.
-    if (opts.heapBudget !== undefined) {
-      env.__heapMeter__ = { used: 0, max: opts.heapBudget };
-    }
+    // Uniform allocation bound: bound the run env ONCE (spans preamble + every user form), so the
+    // per-form loop is bounded. `installHeapMeter` is THE one way to bound an env — the studio kernel
+    // calls the same primitive on its scope, so neither path is an ad-hoc exception.
+    if (opts.heapBudget !== undefined) installHeapMeter(env, opts.heapBudget);
     // The handle is returned SYNCHRONOUSLY; all evaluation runs async behind these promises (no sync
     // eval path). The preamble is evaluated tap-FREE (builtin helpers are trace noise — the unified
     // behaviour, matching what runTraced always did); the user body is then parsed (its forms exposed
