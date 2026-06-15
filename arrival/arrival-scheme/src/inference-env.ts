@@ -80,18 +80,10 @@ export const inferenceEnv = new Environment(
     // on cyclic input. Always returns a boolean.
     "equal?": (a: any, b: any) => structuralEqual(a, b, new Map()),
 
-    // ── List aliases (models expect these) ──
-    "first": (list: any) => list?.car ?? (Array.isArray(list) ? list[0] : nil),
-    "last": (list: any) => {
-      if (Array.isArray(list)) return list[list.length - 1] ?? nil;
-      let current = list;
-      while (current?.cdr?.constructor?.name !== "Nil" && current?.cdr != null) {
-        current = current.cdr;
-      }
-      return current?.car ?? nil;
-    },
-    "second": (list: any) => list?.cdr?.car ?? (Array.isArray(list) ? list[1] : nil),
-    "third": (list: any) => list?.cdr?.cdr?.car ?? (Array.isArray(list) ? list[2] : nil),
+    // first/last/second/third, assoc, sort, length — the array-aware (JS-array +
+    // LIPS-pair) nil-tolerant accessors — moved to the `scheme/fl-interop`
+    // capability (env/fl-interop.ts), assembled onto this env in the bootstrap
+    // chain (bridge.ts initBridge), alongside car/cdr/filter/map/reduce.
 
     // ── Control flow (R7RS) ──
     "when": function when(this: any, ...args: any[]) {
@@ -105,56 +97,6 @@ export const inferenceEnv = new Environment(
       return is_false(test) ? body[body.length - 1] : nil;
     },
 
-    // ── Association lists ──
-    "assoc": (key: any, alist: any) => {
-      if (!alist) return nil;
-      const items = Array.isArray(alist) ? alist : [];
-      // Convert LIPS pairs to traversable
-      if (!Array.isArray(alist) && alist?.car) {
-        let current = alist;
-        while (current?.car) {
-          const pair = current.car;
-          if (pair?.car?.valueOf?.() === key?.valueOf?.() || pair?.car === key) return pair;
-          current = current.cdr;
-        }
-        return nil;
-      }
-      return items.find((pair: any) => pair?.[0] === key || pair?.car === key) ?? nil;
-    },
-
-    // ── Sort ──
-    "sort": (list: any, comparator?: any) => {
-      const arr = Array.isArray(list) ? [...list] : [];
-      if (!Array.isArray(list) && list?.car) {
-        let current = list;
-        while (current?.car) {
-          arr.push(current.car);
-          current = current.cdr;
-        }
-      }
-      if (comparator) {
-        arr.sort((a: any, b: any) => comparator(a, b));
-      } else {
-        arr.sort();
-      }
-      return arr;
-    },
-
-    length: (collection: any) => {
-      // LIPS lists have their own length calculation
-      if (collection && typeof collection === "object" && "car" in collection) {
-        // Count LIPS list elements manually
-        let count = 0;
-        let current = collection;
-        while (current?.constructor && current.constructor.name !== "Nil") {
-          count++;
-          current = current.cdr;
-        }
-        return count;
-      }
-      // JS arrays and other collections
-      return Array.isArray(collection) ? collection.length : 0;
-    },
   },
   // Inherit the full env (user_env) instead of being a curated null-parent island.
   // Post-sweep the full env leaks nothing host-reaching (eval/load/new deleted, the
