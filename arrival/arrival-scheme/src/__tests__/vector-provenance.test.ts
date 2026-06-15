@@ -5,9 +5,9 @@
 // vector->string even returned RAW JS strings (provenance-blind escapees).
 import { describe, expect, it } from "vitest";
 import { initBridge, wrappedOps } from "../bridge.js";
-import { SchemeBytevector } from "../LBytevector.js";
-import { SchemeString } from "../LString.js";
-import { SchemeVector } from "../LVector.js";
+import { SchemeBytevector } from "../SchemeBytevector.js";
+import { SchemeString } from "../SchemeString.js";
+import { SchemeVector } from "../SchemeVector.js";
 
 await initBridge();
 const ops = wrappedOps as Record<string, (...a: any[]) => any>;

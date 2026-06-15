@@ -20,8 +20,8 @@ import {
   isBytevectorLike,
 } from "../membrane";
 import { nil } from "../types";
-import { SchemeString } from "../LString";
-import { SchemeSymbol } from "../LSymbol";
+import { SchemeString } from "../SchemeString";
+import { SchemeSymbol } from "../SchemeSymbol";
 import { Pair } from "../Pair";
 import {
   abs,

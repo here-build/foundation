@@ -34,10 +34,10 @@ export {
   schemeFalse,
   schemeTrue as ATrue,
   schemeTrue,
-} from "./LBool.js";
+} from "./SchemeBool.js";
 export { SchemeJSFunction as AProc, SchemeJSObject as AObject } from "./membrane.js";
-export { SchemeString as AString } from "./LString.js";
-export { SchemeSymbol as ASymbol } from "./LSymbol.js";
+export { SchemeString as AString } from "./SchemeString.js";
+export { SchemeSymbol as ASymbol } from "./SchemeSymbol.js";
 export { Pair as APair } from "./Pair.js";
 export { Nil as ANil, SchemeCharacter as AChar } from "./types.js";
 
@@ -46,8 +46,8 @@ export { Nil as ANil, SchemeCharacter as AChar } from "./types.js";
 // block was removed (barrel-ectomy) so these names are re-surfaced from their
 // real home modules to keep the public API identical.
 export { nil, Nil, characters, SchemeCharacter } from "./types.js";
-export { SchemeSymbol } from "./LSymbol.js";
-export { SchemeString } from "./LString.js";
+export { SchemeSymbol } from "./SchemeSymbol.js";
+export { SchemeString } from "./SchemeString.js";
 export { Pair } from "./Pair.js";
 
 // Scheme namespace - canonical API for Scheme types

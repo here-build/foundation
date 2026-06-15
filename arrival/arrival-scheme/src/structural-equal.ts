@@ -1,6 +1,6 @@
-import { SchemeBool } from "./LBool.js";
-import { SchemeSymbol } from "./LSymbol.js";
-import { SchemeVector } from "./LVector.js";
+import { SchemeBool } from "./SchemeBool.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
+import { SchemeVector } from "./SchemeVector.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";
 import { Nil, SchemeCharacter } from "./types.js";

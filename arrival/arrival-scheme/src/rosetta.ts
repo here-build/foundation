@@ -8,9 +8,9 @@
 import invariant from "tiny-invariant";
 
 import { AValue, EMPTY_PROVENANCE, pointProvenance, unionProvenance } from "./AValue.js";
-import { SchemeBool } from "./LBool.js";
-import { SchemeBytevector } from "./LBytevector.js";
-import { SchemeVector } from "./LVector.js";
+import { SchemeBool } from "./SchemeBool.js";
+import { SchemeBytevector } from "./SchemeBytevector.js";
+import { SchemeVector } from "./SchemeVector.js";
 import { SchemeJSArray, SchemeJSObject } from "./membrane.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";

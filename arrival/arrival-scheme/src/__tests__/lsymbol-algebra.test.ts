@@ -3,7 +3,7 @@
 // over STRING names (gensym ES6-symbol names are an impl edge handled by
 // `String(...)` fallback, not part of the law domain here).
 import fc from "fast-check";
-import { SchemeSymbol } from "../LSymbol.js";
+import { SchemeSymbol } from "../SchemeSymbol.js";
 import { ordLaws, setoidLaws } from "./algebra-laws.js";
 
 // STRING-named symbols over a small domain so symmetry/transitivity bite, plus

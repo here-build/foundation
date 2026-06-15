@@ -17,8 +17,8 @@
 
 import { describe, expect, it } from "vitest";
 import { EMPTY_PROVENANCE } from "../AValue";
-import { schemeFalse, schemeTrue } from "../LBool";
-import { SchemeString } from "../LString";
+import { schemeFalse, schemeTrue } from "../SchemeBool";
+import { SchemeString } from "../SchemeString";
 import { SchemeJSObject } from "../membrane";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";

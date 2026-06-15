@@ -17,7 +17,7 @@
 // matcher/expander, not just the off-by-one). docs/plan-2026-06-10-boxing-track.md.
 import { describe, expect, it } from "vitest";
 import { initBridge } from "../bridge.js";
-import { SchemeVector } from "../LVector.js";
+import { SchemeVector } from "../SchemeVector.js";
 import { env, exec } from "../stdlib.js";
 
 await initBridge();

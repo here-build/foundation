@@ -8,8 +8,8 @@
  */
 
 // Re-export classes with clean names
-export { SchemeString as String } from "./LString.js";
-export { SchemeSymbol as Symbol } from "./LSymbol.js";
+export { SchemeString as String } from "./SchemeString.js";
+export { SchemeSymbol as Symbol } from "./SchemeSymbol.js";
 export { SchemeCharacter as Character, Nil as Nil, nil as nil } from "./types.js";
 export { Pair as Pair } from "./Pair.js";
 export { SchemeExact as Exact, SchemeInexact as Inexact } from "./numbers.js";

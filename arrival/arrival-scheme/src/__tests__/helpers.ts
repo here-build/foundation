@@ -2,7 +2,7 @@
  * Shared test helpers for arrival-scheme tests
  */
 
-import { SchemeSymbol } from "../LSymbol";
+import { SchemeSymbol } from "../SchemeSymbol";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";
 import { nil, type SchemeValue } from "../types";

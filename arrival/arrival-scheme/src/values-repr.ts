@@ -17,8 +17,8 @@
 // itself repointed).
 // ----------------------------------------------------------------------
 import { is_promise } from "./guards.js";
-import { SchemeString } from "./LString.js";
-import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeString } from "./SchemeString.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { __data__ } from "./primitives.js";
 import { SchemeCharacter } from "./types.js";

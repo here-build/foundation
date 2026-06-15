@@ -9,7 +9,7 @@ import { fromJS, SchemeJSArray, SchemeJSObject } from "./membrane.js";
 import { is_false } from "./guards.js";
 import { Pair } from "./Pair.js";
 import { AValue } from "./AValue.js";
-import { SchemeString } from "./LString.js";
+import { SchemeString } from "./SchemeString.js";
 import { structuralEqual } from "./structural-equal.js";
 
 const lipsCar = lipsGlobalEnv.get("car", { throwError: false }) as Function;

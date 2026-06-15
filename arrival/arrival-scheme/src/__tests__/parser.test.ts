@@ -14,7 +14,7 @@
 // changes.
 import { describe, expect, it } from "vitest";
 import { EOF } from "../EOF.js";
-import { SchemeVector } from "../LVector.js";
+import { SchemeVector } from "../SchemeVector.js";
 import { Parser } from "../Parser.js";
 import type { SchemeValue } from "../types.js";
 

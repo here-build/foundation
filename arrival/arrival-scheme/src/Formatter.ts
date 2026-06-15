@@ -5,7 +5,7 @@
 // ----------------------------------------------------------------------
 import { is_special, is_symbol_string } from "./guards.js";
 import { tokenize } from "./stdlib.js";
-import { SchemeString } from "./LString.js";
+import { SchemeString } from "./SchemeString.js";
 import {
   def_lambda_re,
   glob,

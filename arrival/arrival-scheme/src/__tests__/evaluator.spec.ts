@@ -10,7 +10,7 @@ import run, { exec } from "../evaluator";
 // cross-`run()` recursion shape and needs real `if`/`=`/`-` rather than the
 // minimal hand-rolled `env` above.
 import { exec as execSource } from "../generator-exec";
-import { SchemeSymbol } from "../LSymbol";
+import { SchemeSymbol } from "../SchemeSymbol";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";
 import { nil } from "../types";

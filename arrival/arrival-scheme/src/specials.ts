@@ -2,7 +2,7 @@
 // :: Parser macros transformers
 // ----------------------------------------------------------------------
 
-import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
 
 export const LITERAL = Symbol.for("literal");
 export const SPLICE = Symbol.for("splice");

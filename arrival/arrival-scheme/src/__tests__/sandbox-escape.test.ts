@@ -105,7 +105,7 @@ describe("CRITICAL: sandbox escape vectors", () => {
   });
 
   /**
-   * Audit finding: `LString.ts:139-156` — SchemeString grafts all
+   * Audit finding: `SchemeString.ts:139-156` — SchemeString grafts all
    * String.prototype methods onto its own prototype as own enumerable
    * properties. Because they're OWN properties (not inherited), the existing
    * `sandboxedAccess` boundary check at sandbox-boundary.ts:284 takes the
@@ -120,7 +120,7 @@ describe("CRITICAL: sandbox escape vectors", () => {
    * prototype-chain walk in sandboxedAccess stops at them.
    */
   it("SchemeString is marked as a sandbox boundary", async () => {
-    const { SchemeString } = await import("../LString");
+    const { SchemeString } = await import("../SchemeString");
     // Direct check, two ways the marker can be present:
     const protoMarked =
       Object.prototype.hasOwnProperty.call(SchemeString.prototype, SANDBOX_BOUNDARY) &&
@@ -295,7 +295,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
   }, 10000);
 
   /**
-   * Audit finding: `LSymbol.ts:23` — `static readonly list: Record<string, SchemeSymbol> = {}`.
+   * Audit finding: `SchemeSymbol.ts:23` — `static readonly list: Record<string, SchemeSymbol> = {}`.
    * Every `(string->symbol unique-string)` interns a new entry; the map never
    * evicts. Sandbox code can mint distinct symbols in a loop until the host
    * OOMs. Probe confirmed: 1000 distinct `new SchemeSymbol(name)` adds exactly
@@ -310,7 +310,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
    * behavior pin.
    */
   it("DOCUMENTED: string->symbol of N distinct names creates N intern entries", async () => {
-    const { SchemeSymbol } = await import("../LSymbol");
+    const { SchemeSymbol } = await import("../SchemeSymbol");
     const before = Object.keys(SchemeSymbol.list).length;
     const N = 500;
     for (let i = 0; i < N; i++) {
@@ -455,13 +455,13 @@ describe("registry poisoning vectors", () => {
 // the WRITE side was RAW. Two holes:
 //   - sandbox-boundary.ts sandboxedSet: `data[keyStr] = value` walks the proto
 //     chain and fires inherited setters → defineProperty installs OWN only.
-//   - LSymbol.ts `SchemeSymbol.list` was a plain `{}` (inherits Object.proto),
+//   - SchemeSymbol.ts `SchemeSymbol.list` was a plain `{}` (inherits Object.proto),
 //     so `(string->symbol "__proto__")` could pollute Object.prototype.
 // ============================================================================
 
 describe("CRITICAL: write-side prototype pollution (S6)", () => {
   it("string->symbol of '__proto__' does not pollute Object.prototype", async () => {
-    const { SchemeSymbol } = await import("../LSymbol");
+    const { SchemeSymbol } = await import("../SchemeSymbol");
     // Minting symbols named after dangerous keys must touch only the intern
     // table as own keys — never reach Object.prototype.
     for (const name of ["__proto__", "constructor", "prototype"]) {

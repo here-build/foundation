@@ -2,7 +2,7 @@
 // :: Bytevector wrapper — boxes a raw Uint8Array into the AValue kernel so it
 // :: can carry provenance and host Fantasy Land algebra instances.
 // -------------------------------------------------------------------------
-// Modeled on SchemeString (LString.ts). Bytevectors are MUTABLE
+// Modeled on SchemeString (SchemeString.ts). Bytevectors are MUTABLE
 // (bytevector-u8-set!/copy!), so the payload stays writable — unlike a frozen
 // string literal. The asBytevector coercion (ArrayBuffer/DataView/Buffer) that
 // previously lived in bridge.ts moves into the constructor, so a SchemeBytevector
@@ -15,7 +15,7 @@ import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 // The membrane's TO_JS protocol key, resolved from the global symbol registry
 // rather than imported from membrane.js. `Symbol.for` returns the SAME symbol as
 // membrane's `export const TO_JS = Symbol.for("scheme.toJS")`, so the protocol is
-// identical — but importing it would make membrane.js → LBytevector.ts (added in
+// identical — but importing it would make membrane.js → SchemeBytevector.ts (added in
 // S3 so the membrane recognizes boxed bytevectors) a cycle, and `[TO_JS]()` is a
 // class-definition-time computed key (TDZ hazard). Local resolution breaks the edge.
 const TO_JS = Symbol.for("scheme.toJS");
@@ -159,7 +159,7 @@ export class SchemeBytevector extends AValue {
 // ============================================================================
 // SANDBOX BOUNDARY
 // ============================================================================
-// Same rationale as SchemeString (LString.ts): block inherited-method exposure
+// Same rationale as SchemeString (SchemeString.ts): block inherited-method exposure
 // when sandbox symbol-to-field resolution walks the prototype chain. Own
 // properties (the algebra methods) remain the intended API.
 markAsSandboxBoundary(SchemeBytevector);

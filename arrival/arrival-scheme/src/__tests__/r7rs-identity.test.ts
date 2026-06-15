@@ -75,8 +75,8 @@ describe("r7rs identity — passing invariants (regression guards)", () => {
 
   it("string-length counts code points, not UTF-16 code units (R7RS § 6.7)", async () => {
     // The public `string-length` binding lives at `bridge.ts:680` and uses
-    // `[...str].length` (code-point iteration). The internal LString getter
-    // at `LString.ts:45` uses `.__string__.length` (code units, would be 2
+    // `[...str].length` (code-point iteration). The internal SchemeString getter
+    // at `SchemeString.ts:45` uses `.__string__.length` (code units, would be 2
     // for "😀"); that getter is NOT exposed to Scheme. Guard that the public
     // binding is the one Scheme code sees.
     const r = await evalScheme(`(string-length "😀")`);

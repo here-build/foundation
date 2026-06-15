@@ -27,7 +27,7 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { AValue, EMPTY_PROVENANCE, pointProvenance, unionProvenance } from "../AValue.js";
-import { SchemeBool } from "../LBool.js";
+import { SchemeBool } from "../SchemeBool.js";
 
 /**
  * Generator: an AValue with arbitrary provenance. SchemeBool is the cheapest

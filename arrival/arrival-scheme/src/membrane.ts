@@ -17,14 +17,14 @@
 
 import invariant from "tiny-invariant";
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { SchemeBool } from "./LBool.js";
-import { SchemeBytevector } from "./LBytevector.js";
-import { SchemeVector } from "./LVector.js";
+import { SchemeBool } from "./SchemeBool.js";
+import { SchemeBytevector } from "./SchemeBytevector.js";
+import { SchemeVector } from "./SchemeVector.js";
 import { Environment as SchemeEnvironment } from "./Environment.js";
 import { SchemePromise } from "./evaluator.js";
 import { LambdaContext } from "./LambdaContext.js";
-import { SchemeString } from "./LString.js";
-import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeString } from "./SchemeString.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
 import { Macro } from "./Macro.js";
 import { type SchemeNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";

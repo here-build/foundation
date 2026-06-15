@@ -5,8 +5,8 @@
 // deepProvenance vector handling. (docs/plan-2026-06-10-boxing-track.md.)
 import { describe, expect, it } from "vitest";
 import { AValue } from "../AValue.js";
-import { SchemeBytevector } from "../LBytevector.js";
-import { SchemeVector } from "../LVector.js";
+import { SchemeBytevector } from "../SchemeBytevector.js";
+import { SchemeVector } from "../SchemeVector.js";
 import { jsToLips, lipsToJs } from "../rosetta.js";
 
 describe("boxed vector/bytevector — Scheme→JS serialization (lipsToJs)", () => {

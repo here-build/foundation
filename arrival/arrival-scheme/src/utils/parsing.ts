@@ -3,9 +3,9 @@
 // -------------------------------------------------------------------------
 import invariant from "tiny-invariant";
 import { is_exact, is_inexact, is_int } from "../guards.js";
-import { schemeFalse, schemeTrue } from "../LBool.js";
-import { SchemeString } from "../LString.js";
-import { SchemeSymbol } from "../LSymbol.js";
+import { schemeFalse, schemeTrue } from "../SchemeBool.js";
+import { SchemeString } from "../SchemeString.js";
+import { SchemeSymbol } from "../SchemeSymbol.js";
 import { SchemeExact, SchemeInexact } from "../numbers.js";
 import {
   char_re,

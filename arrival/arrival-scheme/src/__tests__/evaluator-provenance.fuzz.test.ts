@@ -25,7 +25,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { AValue, EMPTY_PROVENANCE, unionProvenance } from "../AValue.js";
 import { initBridge } from "../bridge.js";
-import { SchemeBool } from "../LBool.js";
+import { SchemeBool } from "../SchemeBool.js";
 import { exec } from "./exec-adapter.js";
 
 // exec-adapter only imports lips.ts (not index.ts), so wrappedOps don't get

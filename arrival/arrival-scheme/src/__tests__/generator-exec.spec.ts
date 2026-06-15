@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 import { exec, execExpr, parse } from "../generator-exec";
-import { SchemeBool } from "../LBool";
-import { SchemeSymbol } from "../LSymbol";
+import { SchemeBool } from "../SchemeBool";
+import { SchemeSymbol } from "../SchemeSymbol";
 import { SchemeExact } from "../numbers";
 import { Pair } from "../Pair";
 

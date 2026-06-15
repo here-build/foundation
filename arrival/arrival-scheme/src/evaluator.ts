@@ -34,8 +34,8 @@ import {
 import { HalfBaked, is_half_baked } from "./HalfBaked.js";
 import { SchemeJSFunction } from "./membrane.js";
 import { LipsError } from "./LipsError.js";
-import { SchemeSymbol } from "./LSymbol.js";
-import { SchemeVector } from "./LVector.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
+import { SchemeVector } from "./SchemeVector.js";
 import { Macro } from "./Macro.js";
 import { Pair } from "./Pair.js";
 import { __data__, __location__ } from "./primitives.js";

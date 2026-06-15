@@ -32,7 +32,7 @@ import {
   is_prototype,
   is_raw_lambda,
 } from "./guards.js";
-import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
 import { eq, eqv } from "./structural-equal.js";
 import { clear_gensyms, extract_patterns, macro_expand, transform_syntax } from "./syntax-rules.js";
 import { gensym, hidden_prop, quote } from "./values-repr.js";
@@ -63,10 +63,10 @@ import { isCircularList, Pair } from "./Pair.js";
 import { promise_all, unpromise } from "./utils/promises.js";
 import { compose, curry, fold, pipe } from "./utils/functional.js";
 
-import { SchemeBool } from "./LBool.js";
-import { SchemeBytevector } from "./LBytevector.js";
-import { SchemeString } from "./LString.js";
-import { SchemeVector } from "./LVector.js";
+import { SchemeBool } from "./SchemeBool.js";
+import { SchemeBytevector } from "./SchemeBytevector.js";
+import { SchemeString } from "./SchemeString.js";
+import { SchemeVector } from "./SchemeVector.js";
 import { NOT_FOUND, sandboxedAccess, SandboxViolationError, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
 import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./evaluator.js";
 

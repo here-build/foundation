@@ -27,13 +27,13 @@ import { Lexer } from "./Lexer.js";
 // :: (these are only used inside methods, not at module evaluation time)
 // -------------------------------------------------------------------------
 import { call_function } from "./call-function.js";
-import { SchemeBytevector } from "./LBytevector.js";
-import { SchemeVector } from "./LVector.js";
+import { SchemeBytevector } from "./SchemeBytevector.js";
+import { SchemeVector } from "./SchemeVector.js";
 import { global_env, lips, unpromise } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { parse_argument } from "./utils/parsing.js";
-import { SchemeString } from "./LString.js";
-import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeString } from "./SchemeString.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
 import { Macro } from "./Macro.js";
 import { Pair } from "./Pair.js";
 import type { Nil, SchemeValue } from "./types.js";

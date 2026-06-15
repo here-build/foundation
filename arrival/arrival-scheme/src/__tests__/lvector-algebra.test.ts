@@ -5,7 +5,7 @@
 // (Boxing track S5 — docs/plan-2026-06-10-boxing-track.md.)
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { SchemeVector } from "../LVector.js";
+import { SchemeVector } from "../SchemeVector.js";
 import { functorLaws, semigroupLaws, setoidLaws } from "./algebra-laws.js";
 
 const FL = "fantasy-land/equals";

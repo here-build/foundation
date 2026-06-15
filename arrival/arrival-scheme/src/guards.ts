@@ -2,7 +2,7 @@
 import { Continuation } from "./Continuation.js";
 import { Environment } from "./Environment.js";
 import { LambdaContext } from "./LambdaContext.js";
-import { SchemeBool } from "./LBool.js";
+import { SchemeBool } from "./SchemeBool.js";
 import { Macro } from "./Macro.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { Parameter } from "./Parameter.js";

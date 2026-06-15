@@ -5,7 +5,7 @@
 // contract a bare `===` would miss.
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { SchemeString } from "../LString.js";
+import { SchemeString } from "../SchemeString.js";
 import { ordLaws, setoidLaws } from "./algebra-laws.js";
 
 const FL = "fantasy-land/equals";

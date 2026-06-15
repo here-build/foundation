@@ -2,7 +2,7 @@
 // :: Vector wrapper — boxes a raw JS array into the AValue kernel so it can
 // :: carry provenance and host Fantasy Land algebra instances.
 // -------------------------------------------------------------------------
-// Modeled on SchemeString (LString.ts) and SchemeBytevector (LBytevector.ts).
+// Modeled on SchemeString (SchemeString.ts) and SchemeBytevector (SchemeBytevector.ts).
 // Vectors are MUTABLE (vector-set!/fill!/copy!), so the payload stays writable.
 //
 // THE DISAMBIGUATION (boxing plan §1): a raw JS `Array` is heavily overloaded in
@@ -19,7 +19,7 @@ import { structuralEqual } from "./structural-equal.js";
 import type { SchemeValue } from "./types.js";
 
 // The membrane's TO_JS protocol key, resolved from the global symbol registry
-// (same rationale as LBytevector.ts — avoids a membrane→LVector class-def-time
+// (same rationale as SchemeBytevector.ts — avoids a membrane→SchemeVector class-def-time
 // cycle since [TO_JS]() is a computed key).
 const TO_JS = Symbol.for("scheme.toJS");
 

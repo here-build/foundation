@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { SchemeBool } from "../LBool.js";
-import { SchemeString } from "../LString.js";
-import { SchemeSymbol } from "../LSymbol.js";
+import { SchemeBool } from "../SchemeBool.js";
+import { SchemeString } from "../SchemeString.js";
+import { SchemeSymbol } from "../SchemeSymbol.js";
 import { SchemeExact, SchemeInexact } from "../numbers.js";
 import { structuralEqual } from "../structural-equal.js";
 import { SchemeCharacter } from "../types.js";

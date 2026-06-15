@@ -12,8 +12,8 @@
 import invariant from "tiny-invariant";
 import { EnvLookup } from "./EnvLookup.js";
 import { Environment } from "./Environment.js";
-import { SchemeString } from "./LString.js";
-import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeString } from "./SchemeString.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
 import { Macro } from "./Macro.js";
 import { Pair } from "./Pair.js";
 import { QuotedPromise } from "./QuotedPromise.js";

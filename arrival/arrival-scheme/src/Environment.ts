@@ -13,8 +13,8 @@ import type {
   patch_value as PatchValueFn,
   unbind as UnbindFn,
 } from "./stdlib.js";
-import { SchemeString } from "./LString.js";
-import { SchemeSymbol } from "./LSymbol.js";
+import { SchemeString } from "./SchemeString.js";
+import { SchemeSymbol } from "./SchemeSymbol.js";
 import type { Macro } from "./Macro.js";
 import { createPureSchemeModule } from "./modules/pure-scheme.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";

@@ -1,8 +1,8 @@
 // -------------------------------------------------------------------------
 import { EOF } from "../EOF.js";
 import { is_function, is_instance, is_iterator, is_pair } from "../value-guards.js";
-import { SchemeString } from "../LString.js";
-import { SchemeSymbol } from "../LSymbol.js";
+import { SchemeString } from "../SchemeString.js";
+import { SchemeSymbol } from "../SchemeSymbol.js";
 import { SchemeExact, SchemeInexact } from "../numbers.js";
 import { Pair } from "../Pair.js";
 import { type_constants } from "../primitives.js";

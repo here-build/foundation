@@ -29,9 +29,9 @@ import { AValue } from "../AValue";
 import { is_nil } from "../guards";
 import { fromJS, isSchemeValue, SchemeJSFunction, SchemeJSObject, toJS } from "../membrane";
 import { jsToLips, lipsToJs } from "../rosetta";
-import { SchemeBool, schemeFalse, schemeTrue } from "../LBool";
-import { SchemeString } from "../LString";
-import { SchemeSymbol } from "../LSymbol";
+import { SchemeBool, schemeFalse, schemeTrue } from "../SchemeBool";
+import { SchemeString } from "../SchemeString";
+import { SchemeSymbol } from "../SchemeSymbol";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";
 import { Nil, nil, SchemeCharacter } from "../types";
@@ -42,7 +42,7 @@ import { QuotedPromise } from "../QuotedPromise";
 // =========================================================================
 
 describe("AValue.fromJs — boxer dispatch produces the expected subtype per typeof tag", () => {
-  // Boxer registry resolution: typeof string → "string" boxer (LString.ts:139)
+  // Boxer registry resolution: typeof string → "string" boxer (SchemeString.ts:139)
   it("string → SchemeString", () => {
     const result = AValue.fromJs("hello");
     expect(result).toBeInstanceOf(SchemeString);
@@ -71,7 +71,7 @@ describe("AValue.fromJs — boxer dispatch produces the expected subtype per typ
     expect((result as SchemeExact).num).toBe(123n);
   });
 
-  // LBool.ts:32-34 — empty-provenance fast path REUSES the schemeTrue/schemeFalse
+  // SchemeBool.ts:32-34 — empty-provenance fast path REUSES the schemeTrue/schemeFalse
   // singletons. Non-empty provenance mints a fresh SchemeBool.
   it("boolean (empty provenance) → singleton SchemeBool", () => {
     expect(AValue.fromJs(true)).toBe(schemeTrue);
