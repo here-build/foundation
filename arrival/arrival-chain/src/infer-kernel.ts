@@ -111,8 +111,8 @@ export interface ExecBudget {
   heapBudget?: number;
 }
 
-// Cache compiled+analyzed templates by source string. Templates are pure
-// functions of their source; safe to share across runs and projects.
+// Templates are pure functions of their source, so the cache (keyed by source) is safe to
+// share across runs and projects — no per-run invalidation needed.
 interface CompiledTemplate {
   render: HandlebarsTemplateDelegate;
   info: TemplateInfo;
@@ -265,11 +265,6 @@ function typeName(v: unknown): string {
   return typeof v;
 }
 
-/**
- * Single-entry rosetta the require-expansion calls. Takes the template
- * source and the rest-list of call-site args, dispatches to one of the three
- * call modes, validates, and renders.
- */
 /** Nil-like for the array→`[]` failsafe: a scheme empty-list crosses the rosetta
  *  membrane as `nil` (`instanceof Nil` also catches provenance-bearing clones),
  *  plus JS null/undefined for an absent field. */

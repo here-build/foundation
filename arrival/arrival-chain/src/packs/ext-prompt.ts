@@ -17,7 +17,7 @@ import { type Activation, EnvCapability } from "@here.build/arrival-scheme/capab
 import { z } from "zod";
 
 import { type InferFn, parsePromptUnit, sealPromptUnit } from "../infer-kernel.js";
-import { type ResolverResult } from "../loader.js";
+import { type ContentResolver } from "../loader.js";
 import { type McpEffectResolver } from "../mcp-effects.js";
 
 const RESOLVE = "ext/prompt/resolve";
@@ -32,18 +32,19 @@ type PromptActivation = Activation<
  *  it with `(define run-x (require "x.prompt"))` and runs it `(run-x key :k v …)`. */
 export const arrivalPromptCapability = new EnvCapability("ext/prompt", {
   configuration: { infer: z.custom<InferFn>(), mcp: z.custom<McpEffectResolver>().optional() },
-  // A symbols BUILDER closing over the infer (+ optional mcp) resource. Bound as a `{ value }`
-  // so `require` gets the raw resolver fn back and calls it `(contents, {path}) → ResolverResult`.
-  symbols: (a: PromptActivation) => ({
-    [RESOLVE]: {
-      value: (contents: unknown, ctx: { path: string }): ResolverResult => ({
-        kind: "value",
-        value: sealPromptUnit(parsePromptUnit(String(contents), ctx.path), {
-          infer: a.configuration.infer,
-          mcp: a.configuration.mcp,
-        }),
+  // A symbols BUILDER closing over the infer (+ optional mcp) resource. The resolver is a raw
+  // `ContentResolver` bound as `{ value }`: `require` calls it directly as a JS fn, not as a scheme
+  // rosetta, so binding it through the rosetta marshaller would be wrong. mcp is optional because
+  // `sealPromptUnit` falls back to an inert resolver when an agentic prompt has no mcp armed.
+  symbols: (a: PromptActivation) => {
+    const resolve: ContentResolver = (contents, { path }) => ({
+      kind: "value",
+      value: sealPromptUnit(parsePromptUnit(String(contents), path), {
+        infer: a.configuration.infer,
+        mcp: a.configuration.mcp,
       }),
-    },
-  }),
+    });
+    return { [RESOLVE]: { value: resolve } };
+  },
   prelude: `(require/register-extension ".prompt" "${RESOLVE}")`,
 });

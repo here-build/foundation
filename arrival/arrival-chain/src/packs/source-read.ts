@@ -1,9 +1,9 @@
 // arrivalSourceReadCapability — read a file's SOURCE as data (`require/string` → raw text,
 // `require/ast` → homoiconic forms for analysis/edit-prep).
 //
-// Split out from the run-launchers (arrival/run) for a security reason, not a tidiness one:
-// reading source executes NOTHING, so it carries no isolation concern and can sit on the read
-// plane next to the provenance readers. `Project` is opaque config (the host owns the substrate).
+// Reading source executes NOTHING, so these carry no isolation concern and live on the read plane
+// next to the provenance readers — separate from the run-launchers (arrival/run), whose isolation
+// machinery they don't need. `Project` is opaque config (the host owns the substrate).
 
 import { type Environment, parse } from "@here.build/arrival-scheme";
 import { EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
@@ -21,18 +21,17 @@ async function readFileText(project: Project, file: string): Promise<string> {
 
 type SourceReadActivation = Activation<{ project: z.ZodType<Project> }, Record<string, never>>;
 
-/** The eval context threaded to a `withContext` rosetta carries the live `env`. */
+/** The env arrives only at call time via the eval context — an EnvCapability has no imperative
+ *  wire to reach it at definition time, so `require/ast` reads `ctx.env` to parse against. */
 type CtxWithEnv = { env: Environment };
 
 export const arrivalSourceReadCapability = new EnvCapability("arrival/source-read", {
   configuration: { project: z.custom<Project>() },
-  // Inline `symbols` record. `require/ast` needs the live `env` to parse into; it reaches it via the
-  // eval context (`withContext: true` → `ctx.env`), so no imperative `wire` is needed.
   symbols: {
+    // No `withContext`: reading text needs nothing from the eval context.
     "require/string": {
       type: "(file: SStr): SStr",
-      withContext: true,
-      async fn(this: SourceReadActivation, _ctx: unknown, file: unknown) {
+      async fn(this: SourceReadActivation, file: unknown) {
         return readFileText(this.configuration.project, String(file));
       },
     },
@@ -41,8 +40,8 @@ export const arrivalSourceReadCapability = new EnvCapability("arrival/source-rea
       withContext: true,
       async fn(this: SourceReadActivation, ctx: unknown, file: unknown) {
         const text = await readFileText(this.configuration.project, String(file));
-        // `ctx.env` is the concrete runtime `Environment` (the `sandboxedEnv.inherit(...)` base);
-        // `parse` wants exactly that. Narrowed here at the one parse seam.
+        // Pass the live env so read-time macros in the source expand against the SAME bindings the
+        // file would run under; parsing with `undefined` would silently mis-expand any it contains.
         return parse(text, (ctx as CtxWithEnv).env);
       },
     },

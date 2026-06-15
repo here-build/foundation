@@ -10,9 +10,10 @@
 //   (mcp/define name :method h …) → fabricate an mcp entity from handlers
 //   mcp/break                     → the halt sentinel (a bound value)
 //
-// Extracted from the old `defineMcpRosettas` helper: the dispatch verbs (`mcp/call` /
-// `mcp/list`, which DO need the resolver) stay in ./mcp as `arrivalMcpCapability`, which
-// `deps` on this. The infer pack also `deps` on this — `(infer (llm …) …)` needs `llm`.
+// This is the dependency floor of the inference cluster: both `arrival/infer` (for `llm`) and the
+// dispatch pack `arrival/mcp` (for `mcp` / `derive`) `deps` on it. The split is meaningful — the
+// verbs HERE touch no resolver and take no config, so they can be rooted alone; the dispatch verbs
+// (`mcp/call` / `mcp/list`), which DO need the credentialed resolver, stay in ./mcp.
 
 import { EnvCapability } from "@here.build/arrival-scheme/capability";
 import {
@@ -25,8 +26,8 @@ import {
 } from "@here.build/arrival-inference";
 import invariant from "tiny-invariant";
 
-/** The brand arrival-scheme stamps on a keyword's accessor function (Environment.ts:40).
- *  A global registered symbol, so it's reconstructable without importing it. */
+/** The brand arrival-scheme stamps on a keyword's accessor function. A global registered symbol
+ *  (Symbol.for), so it's reconstructable here without importing it across the package boundary. */
 const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
 
 /** Coerce a server/param-name argument to its string name. A keyword (`:linear`) evaluates

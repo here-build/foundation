@@ -57,7 +57,8 @@ export type InferFn = (
 export const BREAK_ON_SINGLE_INFER =
   "infer: an (llm …) middleware returned mcp/break on a single (infer …) — break only halts an agentic run (infer/agentic/end-to-end …)";
 
-/** Coerce a scheme value to a nullable scalar string (false/null/undefined → null). */
+/** A scheme `#f` crosses the membrane as JS `false`; treat it, `null`, and `undefined` uniformly as
+ *  "absent" → null, so an omitted optional arg and an explicit `#f` both mean no cacheKey. */
 export const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
 
 /** Canonicalise a schema arg (string marker | tagged-list DSL | nothing) to the single

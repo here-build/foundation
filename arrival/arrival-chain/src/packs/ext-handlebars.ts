@@ -13,13 +13,16 @@
 import { parseGenerator as parse } from "@here.build/arrival-scheme";
 import { EnvCapability } from "@here.build/arrival-scheme/capability";
 
-import { type ResolverResult } from "../loader.js";
+import { type ContentResolver, type ResolverResult } from "../loader.js";
 import { arrivalUtilsCapability } from "./utils.js";
 
 const RESOLVE = "ext/handlebars/resolve";
 
-/** `.hbs` → `{ kind: "eval", forms }` for `(lambda args (template/handlebars <src> args))`. */
-const resolveHandlebars = async (contents: unknown): Promise<ResolverResult> => ({
+// A `.hbs` resolves to the SCHEME source for `(lambda args (template/handlebars <src> args))` — a
+// lambda, not a JS fn, so the call site stays membrane-safe. `kind: "eval"` (not "value") because
+// the value IS the result of evaluating those forms in the run env, where `template/handlebars`
+// (from arrival/utils — hence the dep) is bound.
+const resolveHandlebars: ContentResolver = async (contents) => ({
   kind: "eval",
   forms: await parse(`(lambda args (template/handlebars ${JSON.stringify(String(contents))} args))`),
 });

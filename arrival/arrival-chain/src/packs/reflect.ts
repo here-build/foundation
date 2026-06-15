@@ -20,9 +20,11 @@ function handle(v: unknown, verb: string): ResultHandle {
 }
 
 export const arrivalReflectCapability = new EnvCapability("arrival/reflect", {
+  // why/where/how/dag all `withContext` for the same reason: the lazy teleological re-run happens on
+  // first ask, so the ASKING call's `ctx.signal` is the right one to fan in — cancelling e.g. `(why h)`
+  // stops the provenance re-run while leaving the already-materialized value intact. (`result-value`
+  // reads the settled value, so it needs no signal.)
   symbols: {
-    // The lazy teleological re-run happens HERE (first ask), so the ASKING call's `ctx.signal` is the
-    // right one to fan in — cancelling `(why h)` stops the provenance re-run, leaving the value intact.
     why: {
       withContext: true,
       fn: (ctx: { signal?: AbortSignal }, h: unknown) => whyOf(handle(h, "why"), ctx?.signal),

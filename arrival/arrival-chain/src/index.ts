@@ -33,7 +33,7 @@ export {
   stableJson,
   subtractKeys,
 } from "./effect-log.js";
-// Re-exported from arrival-scheme where AValue lives (L4 collapsed the draft).
+// Re-exported from arrival-scheme, where AValue lives.
 export {
   type AKind,
   ABool,

@@ -8,7 +8,7 @@
  * the module's defines into the run env (`.scm` — `load` semantics) or returns a
  * value (data / template). See docs/working-proposals/todo/require-import-loader.md.
  *
- * Design (audit-hardened 2026-05-30; single-flight 2026-06-01):
+ * Design:
  *   - `require` is STATEMENT-POSITION within a `.scm`: that file's forms are
  *     `execExpr`'d in order, to completion, so a required file's `define-macro`
  *     is installed before the caller's next form expands (R5RS `load`).
@@ -16,13 +16,13 @@
  *     PARALLEL (`promise_all`), so the same path can be `(require)`d concurrently
  *     by N iterations. The loader is therefore SINGLE-FLIGHT: a path loads exactly
  *     once and every later require — sequential repeat OR concurrent sibling —
- *     shares that one promise. (The old flat in-flight Set read siblings #2…N as
- *     a cycle; that was the spurious `react.prompt → react.prompt` on any fan-out
- *     `(map (lambda (p) ((require "react.prompt") …)) …)`.)
+ *     shares that one promise. (A flat in-flight Set would read siblings #2…N as a
+ *     cycle, spuriously failing any same-path fan-out `(map (lambda (p) (require p)) …)`.)
  *   - Cycles THROW (R7RS forbids module cycles; no exports object to return
  *     "partial" in a spill model). Only `.scm` (`load`) can `require` during its
  *     OWN evaluation, so the cycle guard is scoped to it — value/eval modules
- *     (`.json`, `.prompt`, `.hbs`) are require-graph leaves and cannot cycle.
+ *     (`.json`, `.hbs`, and capability-registered types like `.prompt`) are
+ *     require-graph leaves and cannot cycle.
  *   - The reader is the security boundary: `resolve` normalizes posix paths
  *     relative to the importing module's dir and REJECTS escapes above the root;
  *     `read` only serves keys inside the root. (Trivial for the flat project VFS
