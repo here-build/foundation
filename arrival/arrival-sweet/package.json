@@ -50,12 +50,14 @@
   },
   "dependencies": {
     "@here.build/lexical-namer": "workspace:^",
+    "pluralize": "8.0.0",
     "tiny-invariant": "1.3.3"
   },
   "devDependencies": {
     "@here.build/eslint-configs": "workspace:^",
     "@here.build/tsconfig": "workspace:^",
     "@types/node": "24.0.0",
+    "@types/pluralize": "0.0.33",
     "eslint": "9.39.2",
     "globals": "17.3.0",
     "prettier": "3.8.1",

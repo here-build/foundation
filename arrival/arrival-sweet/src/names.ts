@@ -39,6 +39,7 @@
  */
 
 import { type Candidate, resolveLexicalNames, type ScopedEntity, type ScopeSpec } from "@here.build/lexical-namer";
+import pluralize from "pluralize";
 
 import { decodeAccessor, type Node, parseSexprs, printScheme } from "./sweet-render.js";
 
@@ -226,23 +227,14 @@ function collectionFor(call: ListNode): string | undefined {
 // ── the ladder (§2) ───────────────────────────────────────────────────────────
 
 export interface TidyOptions {
-  /** Collection → singular noun for the rung-80 fan-out name. Default: a tiny rule-based
-   *  built-in; inject `pluralize`'s `singular` for quality (studio/codemirror already
-   *  depend on it). A bad singular is ugly, never incorrect — the resolver still has the
-   *  original at rung 40. */
+  /** Collection → singular noun for the rung-80 fan-out name. Default: `pluralize.singular`
+   *  — the SAME library the forward Python namer (`arrival-chain-view/python.ts`) uses to
+   *  name comprehension variables, so both sites derive an element noun from a collection
+   *  identically. A bad singular is ugly, never incorrect — the resolver still has the
+   *  original at rung 40. Injectable to override. */
   singularize?: (word: string) => string;
   /** Extra names to block everywhere (caller globals not visible in the source text). */
   reserved?: readonly string[];
-}
-
-/** Tiny rule-based singular: handles the regular plural tail. `findings`→`finding`,
- *  `items`→`item`, `families`→`family`; mass/irregular nouns (`evidence`, `data`) pass
- *  through unchanged (and the rung is advisory anyway). */
-function defaultSingularize(w: string): string {
-  if (/[^aeiou]ies$/.test(w)) return w.slice(0, -3) + "y"; // families → family
-  if (/(ss|sh|ch|x|z)es$/.test(w)) return w.slice(0, -2); // boxes → box
-  if (/[^s]s$/.test(w)) return w.slice(0, -1); // items → item
-  return w;
 }
 
 /** §2 ladder, content-derived. all-keyed → `{100:"it", 40:original}`; fan-out with a known
@@ -262,7 +254,13 @@ function ladderFor(
     const coll = collectionFor(call);
     if (coll !== undefined) {
       const sing = singularize(coll);
-      if (sing && sing !== paramName) rec[80] = sing;
+      // Only offer rung 80 when the collection is DEMONSTRABLY plural — i.e. singularising
+      // changed the name. An unchanged name is no evidence of a count-noun: `history`,
+      // `matched`, `kept-v` singularise to themselves, and renaming the element to the
+      // *collection's own* name ("an element of `history` is a `history`") is a mis-name.
+      // The singulariser is thus also the plurality oracle; when it's silent we keep the
+      // original (rung 40). `sing !== paramName` then guards the trivial no-op rename.
+      if (sing && sing !== coll && sing !== paramName) rec[80] = sing;
     }
   }
   return rec;
@@ -283,7 +281,7 @@ interface Analysis {
 /** Walk the forest into a `ScopeSpec` tree (eligible lambdas → scopes, nested by
  *  containment) and resolve. Pure — does NOT mutate the forest. */
 function analyze(forest: Node[], opts: TidyOptions | undefined): Analysis {
-  const singularize = opts?.singularize ?? defaultSingularize;
+  const singularize = opts?.singularize ?? ((w: string) => pluralize.singular(w));
   const recovered: Recovered[] = [];
   const entityId = new Map<Node, string>();
   let counter = 0;

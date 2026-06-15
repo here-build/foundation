@@ -38,6 +38,21 @@ describe("tidyBoundNames: the recovery ladder", () => {
   it("fan-out under a non-HOF application keeps the original", () => {
     expect(tidy("(foo (lambda (x) (process x)) items)")).toBe("(foo (lambda (x) (process x)) items)");
   });
+
+  // The plurality gate: rung 80 fires ONLY when the collection is demonstrably plural —
+  // singularising actually changes the name. A collection whose name is already singular
+  // (`history`) or not a count-noun (`matched`, `kept-v`) is no evidence of an element
+  // noun, so renaming the element to the collection's own name would mis-name it → keep
+  // the original. The singulariser is the plurality oracle.
+  it("fan-out over a singular-named collection keeps the original (history)", () => {
+    expect(tidy("(map (lambda (e) (make-hint e)) history)")).toBe("(map (lambda (e) (make-hint e)) history)");
+  });
+  it("fan-out over a past-participle collection keeps the original (matched)", () => {
+    expect(tidy("(map (lambda (d) (desc-of d)) matched)")).toBe("(map (lambda (d) (desc-of d)) matched)");
+  });
+  it("irregular plural still singularises (people → person)", () => {
+    expect(tidy("(map (lambda (x) (greet x)) people)")).toBe("(map (lambda (person) (greet person)) people)");
+  });
 });
 
 // §3 — the gem: anaphora IS lexical scope. Nested eligible lambdas form a scope tree, and
