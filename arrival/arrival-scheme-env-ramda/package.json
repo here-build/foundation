@@ -1,0 +1,42 @@
+{
+  "name": "@here.build/arrival-scheme-env-ramda",
+  "version": "0.1.0",
+  "description": "Palette pack: Ramda accessor/collection/logic verbs wired into the env (JS-wiring pack)",
+  "keywords": [
+    "arrival",
+    "ramda",
+    "accessors",
+    "env-pack"
+  ],
+  "license": "FSL-1.1-MIT",
+  "author": "here.build",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc --build --force",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@here.build/arrival-scheme": "workspace:^",
+    "ramda": "0.31.3"
+  },
+  "devDependencies": {
+    "@here.build/tsconfig": "workspace:^",
+    "@types/node": "24.0.0",
+    "@types/ramda": "0.31.1",
+    "typescript": "6.0.2",
+    "vitest": "4.1.0"
+  }
+}
