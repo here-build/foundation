@@ -19,10 +19,16 @@ import * as path from "node:path";
 // Initialize bootstrap (includes all Scheme macros)
 await initBridge();
 
-const package_root = path.resolve(import.meta.dirname, "../..");
-await exec(`
-  (load "${package_root}/src/__tests__/schemeSpec/helpers/helpers.scm")
-  `);
+// Read + exec the harness helpers directly (the `load` builtin was removed in the
+// host-language sweep — file I/O is the loader's job, not a Scheme-reachable verb).
+// helpers.scm is pure macro/define definitions, so exec'ing it only binds the
+// t.is / to.throw / test-specs harness; the `-->` / `set-obj!` those macros expand
+// to fire only when a (skipped) spec uses them.
+const helpersScm = fs.readFileSync(
+  path.join(import.meta.dirname, "schemeSpec/helpers/helpers.scm"),
+  "utf-8",
+);
+await exec(helpersScm);
 
 /**
  * Specs whose *load* (macro expansion at collection time) wedges in an infinite

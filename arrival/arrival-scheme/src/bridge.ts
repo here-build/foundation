@@ -1609,22 +1609,6 @@ export const wrappedOps = {
   },
 
   // ============================================================================
-  // R7RS eval (Section 6.12)
-  // ============================================================================
-
-  eval(expr: unknown, env?: Environment): unknown {
-    // Generator evaluator (evaluator.ts). `exec` returns a Promise<SchemeValue>;
-    // unlike the legacy `evaluate` (which could return a settled value for pure
-    // synchronous code), this builtin now ALWAYS returns a thenable. Both
-    // evaluator paths unpromise a builtin's return — the legacy path via
-    // `resolve_promises`/`unpromise` in `call_function`/`apply`, the generator
-    // path via the `is_promise(value)` yield in `evaluatePair`/`evaluateArgs`,
-    // and even the operator-position case `((eval (quote +)) 2 3)` awaits the
-    // promise before applying — so the Scheme-level result is unchanged.
-    return generatorExec(expr as SchemeValue, { env: env || global_env });
-  },
-
-  // ============================================================================
   // List Utilities (moved from bootstrap.ts)
   // ============================================================================
 
