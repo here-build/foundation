@@ -14,13 +14,10 @@
 // SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `R7RS_SCM` and
 // concatenates it, so this module is the sole definition site.
 import { EnvCapability } from "./capability.js";
+import { SchemeSymbol } from "../SchemeSymbol.js";
 
 export const R7RS_SCM = `
-(define (%else-literal? obj)
-  (and (symbol? obj)
-       (or (eq? obj 'else)
-           (eq? (--> (new scheme.SchemeString (obj.literal))
-                     (cmp "else")) 0))))
+;; %else-literal? is native (below the membrane) — see the symbols block below.
 
 ;; -----------------------------------------------------------------------------
 ;; R7RS cond macro
@@ -176,4 +173,15 @@ export const R7RS_SCM = `
            (else (raise ,var)))))))
 `;
 
-export default new EnvCapability("scheme/r7rs", { prelude: R7RS_SCM });
+// Native: recognise a literal `else` clause head — matches the interned `else`
+// symbol or any gensym whose literal name is "else". Lives in TS because it reads
+// the SchemeSymbol's literal directly instead of reaching the host via `new`/`-->`.
+const symbols = {
+  "%else-literal?": {
+    fn: (obj: unknown): boolean =>
+      obj instanceof SchemeSymbol && (SchemeSymbol.is(obj, "else") || obj.literal() === "else"),
+    type: "(obj: unknown): boolean",
+  },
+};
+
+export default new EnvCapability("scheme/r7rs", { symbols, prelude: R7RS_SCM });

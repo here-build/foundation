@@ -16,35 +16,12 @@
 // SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `ARRIVAL_EXTENSIONS_SCM`
 // and concatenates it, so this module is the sole definition site.
 import { EnvCapability } from "./capability.js";
+import { SchemeSymbol } from "../SchemeSymbol.js";
+import { typecheck } from "../utils/typecheck.js";
 
 export const ARRIVAL_EXTENSIONS_SCM = `
-;; -----------------------------------------------------------------------------
-;; Symbol/string conversion (needs JS interop)
-;; -----------------------------------------------------------------------------
-(define (symbol->string s)
-  (typecheck "symbol->string" s "symbol")
-  ;; Use the explicit (. obj prop) accessor, NOT the obj.prop reader sugar.
-  ;; The sugar resolves a symbol literally named "s.__name__" and reaches the
-  ;; trampoline evaluator's env_get -> _lookupWithResolvers, which (unlike
-  ;; Environment::get) does not split dot-notation, so the sugar throws
-  ;; "Unbound variable s.__name__". The (. ...) special form goes through the
-  ;; get resolver directly and works. symbol->string is foundational (-->,
-  ;; .., the test harness macros all call it), so this unblocks ~8 lang specs.
-  (let ((name (. s '__name__)))
-    (if (string? name)
-        name
-        ((. name 'toString)))))
-
-(define (%as.data obj)
-  (if (object? obj)
-      (begin
-        (set-obj! obj 'data true)
-        obj)))
-
-(define (string->symbol string)
-  (typecheck "string->symbol" string "string")
-  (let ((symbol (new scheme.SchemeSymbol string)))
-    (%as.data symbol)))
+;; symbol->string / string->symbol are native (below the membrane) — see the
+;; symbols block at the bottom of this module.
 
 ;; -----------------------------------------------------------------------------
 ;; Sorting (recursive, best in Scheme)
@@ -101,11 +78,10 @@ export const ARRIVAL_EXTENSIONS_SCM = `
 ;; -----------------------------------------------------------------------------
 ;; Type predicates
 ;; -----------------------------------------------------------------------------
-(define (regex? x)
-  (== (--> (type x) (cmp "regex")) 0))
+;; regex? is native (below the membrane) — see the symbols block below.
 
 (define (key? symbol)
-  (and (symbol? symbol) (== (--> (substring (symbol->string symbol) 0 1) (cmp ":")) 0)))
+  (and (symbol? symbol) (string=? (substring (symbol->string symbol) 0 1) ":")))
 
 (define (key->string symbol)
   (if (key? symbol)
@@ -144,4 +120,31 @@ export const ARRIVAL_EXTENSIONS_SCM = `
   (filter (lambda (x) (not (pred x))) xs))
 `;
 
-export default new EnvCapability("arrival/core-extensions", { prelude: ARRIVAL_EXTENSIONS_SCM });
+// Native symbols, below the membrane: these touch the SchemeSymbol / RegExp host
+// types directly, so they live in TS rather than reaching back across the membrane
+// from Scheme (the `.` / `new` / `-->` host-interop the rest of this sweep removes).
+// `string->symbol`'s old `%as.data` mark was vestigial — it set a string `data`
+// property, but the evaluator's data mark is the `__data__` symbol (evaluator.ts).
+const symbols = {
+  "symbol->string": {
+    fn: (s: unknown): string => {
+      typecheck("symbol->string", s, "symbol");
+      const name = (s as SchemeSymbol).__name__;
+      return typeof name === "string" ? name : (name as symbol).toString();
+    },
+    type: "(s: symbol): SStr",
+  },
+  "string->symbol": {
+    fn: (s: unknown): SchemeSymbol => {
+      typecheck("string->symbol", s, "string");
+      return new SchemeSymbol(String(s));
+    },
+    type: "(s: SStr): symbol",
+  },
+  "regex?": {
+    fn: (x: unknown): boolean => x instanceof RegExp,
+    type: "(x: unknown): boolean",
+  },
+};
+
+export default new EnvCapability("arrival/core-extensions", { symbols, prelude: ARRIVAL_EXTENSIONS_SCM });
