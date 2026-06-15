@@ -4,10 +4,15 @@ import { initBridge } from "./bridge.js";
 export * from "./stdlib.js";
 export * from "./safe_builtins.js";
 export { sandboxedEnv as sandboxedEnv } from "./sandbox-env.js";
-// Sandbox-boundary sealing — `@arrival.private` (+ the underlying markAsSandboxBoundary), the
-// correct, exported way to mark a host class opaque to Scheme. Previously unexported, which forced
-// consumers to forge the wrong (registry-global, forgeable) boundary symbol — see the decorator doc.
-export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "./sandbox-boundary.js";
+// Interop sealing — `@arrival.private` (+ the underlying `markInteropBoundary`), the correct,
+// exported way to mark a class opaque to a Scheme member-read (`(@ x :internal)` → nil). The
+// `markSandboxPrivate`/`markAsSandboxBoundary` spellings are deprecated pre-rename aliases kept
+// for cross-package consumers (arrival-chain); they retarget to the interop-access names.
+export { arrival, markInteropPrivate, markInteropBoundary } from "./interop-access.js";
+export {
+  markInteropPrivate as markSandboxPrivate,
+  markInteropBoundary as markAsSandboxBoundary,
+} from "./interop-access.js";
 export {
   schemeToJs,
   jsToScheme,

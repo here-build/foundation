@@ -38,26 +38,36 @@ import { QuotedPromise } from "./QuotedPromise.js";
 // reads `jsToScheme` when actually invoked.
 import { jsToScheme } from "./rosetta.js";
 import {
-  markAsSandboxBoundary,
+  markInteropBoundary,
   NOT_FOUND,
-  SandboxViolationError,
-  sandboxedAccess,
-  sandboxedHas,
-  sandboxedKeys,
-} from "./sandbox-boundary.js";
+  InteropAccessError,
+  accessMember,
+  accessHas,
+  accessKeys,
+} from "./interop-access.js";
 import { Syntax } from "./Syntax.js";
 import { type SchemeValue, Nil, nil, SchemeCharacter } from "./types.js";
 
-// Re-export sandbox primitives for consumers
+// Re-export the interop-access primitives for consumers.
 export {
-  SANDBOX_BOUNDARY as SANDBOX_BOUNDARY,
-  SandboxViolationError as SandboxViolationError,
-  sandboxedAccess as sandboxedAccess,
-  sandboxedHas as sandboxedHas,
-  sandboxedSet as sandboxedSet,
-  NOT_FOUND as NOT_FOUND,
-  markAsSandboxBoundary as markAsSandboxBoundary,
-} from "./sandbox-boundary.js";
+  INTEROP_BOUNDARY,
+  InteropAccessError,
+  accessMember,
+  accessHas,
+  accessSet,
+  NOT_FOUND,
+  markInteropBoundary,
+} from "./interop-access.js";
+// Deprecated pre-rename aliases — kept so existing importers (stdlib) keep working
+// through the sandbox→interop migration window; removed once they codemod over.
+export {
+  accessMember as sandboxedAccess,
+  accessHas as sandboxedHas,
+  accessSet as sandboxedSet,
+  InteropAccessError as SandboxViolationError,
+  INTEROP_BOUNDARY as SANDBOX_BOUNDARY,
+  markInteropBoundary as markAsSandboxBoundary,
+} from "./interop-access.js";
 
 // ============================================================================
 // WRAPPER LAYER: General JS↔Scheme Value Crossing
@@ -226,7 +236,7 @@ export class SchemeJSObject extends AValue {
    * AValue is reused).
    *
    * Missing key returns `nil` (matches dict-ref's existing semantics).
-   * `sandboxedAccess` filters the boundary; `NOT_FOUND` → either blocked
+   * `accessMember` filters the boundary; `NOT_FOUND` → either blocked
    * or absent — same `nil` from this surface either way.
    *
    * Cycle protection lives in `jsToScheme`'s WeakSet: if `source` participates
@@ -246,13 +256,13 @@ export class SchemeJSObject extends AValue {
 
     let raw: unknown;
     try {
-      raw = sandboxedAccess(this.source, key);
+      raw = accessMember(this.source, key);
     } catch (e) {
       // Boundary violations (Object.prototype methods, dangerous names,
       // boundary-marked prototypes) collapse to `nil` — same shape as
       // "absent." Spec §5.3 says `(@ obj "key")` returns the value at key
       // or nil; the wrapper doesn't expose error detail to the sandbox.
-      if (e instanceof SandboxViolationError) return nil;
+      if (e instanceof InteropAccessError) return nil;
       throw e;
     }
     if (raw === NOT_FOUND) return nil;
@@ -261,7 +271,7 @@ export class SchemeJSObject extends AValue {
     // sandbox has no representation for a foreign invocation, and returning a
     // callable would let Scheme escape into uncontrolled JS — so methods are
     // invisible (same `nil` as absent). Getter/accessor reads are unaffected:
-    // `sandboxedAccess` (via `Reflect.get`) has already INVOKED the getter to a
+    // `accessMember` (via `Reflect.get`) has already INVOKED the getter to a
     // value above, so a getter that yields data passes through here; only an
     // actual function result (a method, or the rare getter-returns-a-function)
     // is blocked.
@@ -293,7 +303,7 @@ export class SchemeJSObject extends AValue {
     // foreign peer is not dataflow, and the membrane exposes a read-only view
     // by design. (Silent no-op is worse than throwing: the program would
     // believe it wrote.)
-    throw new SandboxViolationError(
+    throw new InteropAccessError(
       "Cannot assign to a foreign object — writes are banned in the pure-dataflow sandbox",
       typeof key === "symbol" ? key : String(key),
       "write-banned",
@@ -305,7 +315,7 @@ export class SchemeJSObject extends AValue {
    * Returns false for blocked properties and boundary-protected inherited props.
    */
   has(key: string | symbol): boolean {
-    return sandboxedHas(this.source, key);
+    return accessHas(this.source, key);
   }
 
   /**
@@ -314,7 +324,7 @@ export class SchemeJSObject extends AValue {
   delete(key: string | symbol): boolean {
     // Deletion is a mutation — banned for the same reason as `set` (pure
     // dataflow, read-only membrane).
-    throw new SandboxViolationError(
+    throw new InteropAccessError(
       "Cannot delete from a foreign object — mutations are banned in the pure-dataflow sandbox",
       typeof key === "symbol" ? key : String(key),
       "write-banned",
@@ -323,7 +333,7 @@ export class SchemeJSObject extends AValue {
 
   /** Get own enumerable property keys (never includes inherited). */
   keys(): string[] {
-    return sandboxedKeys(this.source);
+    return accessKeys(this.source);
   }
 
   toString(): string {
@@ -391,7 +401,7 @@ export class SchemeJSFunction extends AValue {
 // War story (2026-05-28 audit): these two wrappers are explicitly the
 // JS↔Scheme membrane — every JS value crossing into the sandbox becomes one
 // of them. Their own `get/set/has/delete/keys` already route through
-// `sandboxedAccess` for the WRAPPED value, but the WRAPPER's prototype
+// `accessMember` for the WRAPPED value, but the WRAPPER's prototype
 // itself is reachable via symbol-to-field auto-resolution. Without a boundary
 // marker, sandbox code could read the wrapper's `apply`, `call`, or
 // `toString` to reach the underlying `source` Function or Object. (`apply`
@@ -400,8 +410,8 @@ export class SchemeJSFunction extends AValue {
 // prototype chain stops here — only own sandbox-safe properties on the
 // wrapped value flow through.
 // ============================================================================
-markAsSandboxBoundary(SchemeJSObject);
-markAsSandboxBoundary(SchemeJSFunction);
+markInteropBoundary(SchemeJSObject);
+markInteropBoundary(SchemeJSFunction);
 
 /**
  * Convert a JavaScript value to a Scheme value.
@@ -812,7 +822,7 @@ AValue.registerBoxer("function", (v, p) => new SchemeJSFunction(v as Function, p
 // `:key` keyword accessor — one protocol, two syntaxes.
 //
 //   • meta-members (`constructor`/`__proto__`/`prototype`, blocked inside
-//     `sandboxedAccess`) and anything marked `@arrival.private` are not members of
+//     `accessMember`) and anything marked `@arrival.private` are not members of
 //     the interop value — reading them yields nil, same as Graal hides a value's
 //     meta-object from a peer language. (Privacy is `@arrival.private`'s job; there
 //     is no `_`-prefix convention — a leading underscore is an ordinary member.)
@@ -844,13 +854,13 @@ export function readMember(obj: unknown, key: unknown): SchemeValue {
       const proto = typeof source === "object" && source !== null ? Object.getPrototypeOf(source) : false;
       if (proto !== Object.prototype && proto !== null) return nil;
     }
-    const result = sandboxedAccess(source, keyStr);
+    const result = accessMember(source, keyStr);
     if (result === NOT_FOUND) return nil;
     // re-present a JS array as a polyglot array so car/cdr work on the result.
     if (Array.isArray(result)) return new SchemeJSArray(result);
     return fromJS(result);
   } catch (e) {
-    if (e instanceof SandboxViolationError) return nil;
+    if (e instanceof InteropAccessError) return nil;
     throw e;
   }
 }
@@ -863,14 +873,14 @@ export function hasMember(obj: unknown, key: unknown): boolean {
   let keyStr = String(rawKey);
   if (keyStr.startsWith(":")) keyStr = keyStr.slice(1);
   const source = obj instanceof SchemeJSObject ? obj.source : obj;
-  return sandboxedHas(source, keyStr);
+  return accessHas(source, keyStr);
 }
 
 /** `memberKeys(obj)` — the polyglot value's own member names. */
 export function memberKeys(obj: unknown): string[] {
   if (obj == null) return [];
   const source = obj instanceof SchemeJSObject ? obj.source : obj;
-  return sandboxedKeys(source);
+  return accessKeys(source);
 }
 
 /**
