@@ -816,9 +816,12 @@ AValue.registerBoxer("function", (v, p) => new SchemeJSFunction(v as Function, p
 //     the interop value — reading them yields nil, same as Graal hides a value's
 //     meta-object from a peer language. (Privacy is `@arrival.private`'s job; there
 //     is no `_`-prefix convention — a leading underscore is an ordinary member.)
-//   • a foreign value (lazy proxy) routes through its `SchemeJSObject.get` so the
-//     read carries the cached, provenance-stamped member; a native dict reads
-//     structurally. The dispatch differs by value kind; the access logic is one.
+//   • ONLY two kinds expose members: a foreign value (lazy proxy) routes through its
+//     `SchemeJSObject.get` (provenance-cached), and a native dict (a plain record)
+//     reads structurally. A scheme LEAF value (string / number / symbol / nil / pair),
+//     a primitive, or a function is not a record — it has no members, so reading one
+//     yields nil (never the AValue's internal `provenance`/`kind`). The dispatch
+//     differs by value kind; the access logic is one.
 
 /** `readMember(obj, key)` — read a member off any polyglot value. Missing/blocked → nil. */
 export function readMember(obj: unknown, key: unknown): SchemeValue {
@@ -828,10 +831,19 @@ export function readMember(obj: unknown, key: unknown): SchemeValue {
   // keyword-style member: a leading `:` is the accessor sigil, not part of the name.
   let keyStr = String(rawKey);
   if (keyStr.startsWith(":")) keyStr = keyStr.slice(1);
-  // membrane-exposed foreign value → provenance-cached read.
+  // membrane-exposed foreign value (lazy proxy) → provenance-cached read.
   if (obj instanceof SchemeJSObject) return obj.get(keyStr);
   try {
     const source = obj instanceof SchemeJSArray ? obj.source : obj;
+    // Only a native dict (a plain record) or an array exposes members. A scheme
+    // leaf value (string / number / symbol / nil / pair — a class instance), a
+    // primitive, or a function is NOT a record: it has no members, and reading
+    // one would expose interpreter internals (an AValue's `provenance`/`kind` are
+    // OWN fields, which the boundary's prototype-walk guard does not stop). nil.
+    if (!Array.isArray(source)) {
+      const proto = typeof source === "object" && source !== null ? Object.getPrototypeOf(source) : false;
+      if (proto !== Object.prototype && proto !== null) return nil;
+    }
     const result = sandboxedAccess(source, keyStr);
     if (result === NOT_FOUND) return nil;
     // re-present a JS array as a polyglot array so car/cdr work on the result.
