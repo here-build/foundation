@@ -8,6 +8,7 @@ import * as z from "zod";
 import { ActionTool } from "../ActionTool.js";
 import { DiscoveryTool } from "../DiscoveryTool.js";
 import { McpEnvCapability } from "../McpEnvCapability.js";
+import { str } from "../refs.js";
 import { type McpTool, registerTools } from "../sdk-adapter.js";
 
 const greeter = (cfg: { who: string }): Resource<{ hello: () => string }> => ({
@@ -36,17 +37,18 @@ function demoTool(): DiscoveryTool {
 /** An ActionTool sharing the same wiring — to prove both tiers register identically. Typed as
  *  `McpTool` (CS-erased): `ActionTool<CS>` is invariant in CS, so a concrete CS won't widen. */
 function echoActionTool(): McpTool {
-  return new ActionTool("echo-edit", {
+  return new ActionTool<{ docId: string }>("echo-edit", {
     description: "echo action tool",
-    contextSchema: { docId: z.string() },
-    actions: (action) => ({
-      append: action({
-        description: "append text",
-        context: ["docId"],
-        props: { text: z.string() },
-        handler: (ctx, props) => ({ ok: true, doc: ctx.docId, text: props.text }),
+    context: { docId: str("the doc id") },
+    actions: (b) => [
+      b.act({
+        name: "append",
+        needs: ["docId"],
+        desc: "append text",
+        props: { text: str() },
+        handle: (ctx, _r, { text }) => ({ ok: true, doc: ctx.docId, text }),
       }),
-    }),
+    ],
   });
 }
 
@@ -69,7 +71,7 @@ describe("registerTools (official @modelcontextprotocol/sdk round-trip)", () => 
     // the ActionTool dispatches a batch and its result object serializes over the wire
     const res = await client.callTool({
       name: "echo-edit",
-      arguments: { docId: "d1", actions: [["append", "hi"]] },
+      arguments: { intent: "echo", docId: "d1", actions: [["append", { text: "hi" }]] },
     });
     expect((res.content as { type: string; text: string }[])[0]!.text).toContain("hi");
     await client.close();

@@ -1,307 +1,413 @@
-// ActionTool — the mutation tier as a VALUE, not a subclass. The sibling of DiscoveryTool: where
-// that runs a Scheme REPL over a capability, this dispatches a BATCH of tuple-invoked, typed actions
-// (`["set-styles", {…}]`) sharing one context scope, with rollback-on-failure.
+// ActionTool — the mutation tier as a VALUE, not a subclass. The sibling of DiscoveryTool: where that
+// runs a Scheme REPL over a capability, this dispatches a BATCH of tuple-invoked, typed actions
+// (`["place-node", {position, target}]`) sharing one context scope, with rollback-report on failure.
 //
-// `new ActionTool(name, { description, contextSchema, actions: (action) => ({ … }) })`. The `action`
-// factory is bound to the contextSchema's RESOLVED type, so each handler's `context` is narrowed to
-// the fields it declares and its `props` are inferred from the zod — no runtime casts.
+// `new ActionTool(name, { description, context, clusters?, actions?, prepare?, ... })`. Actions are
+// declared as `FieldSpec`-typed `Act`s — props are a NAMED object (not positional) and a context field
+// may be a `Ref` that resolves a UUID/name/instance against the live ctx (a Component UUID → the live
+// `Component` off the plexus). That ctx-aware resolution is why props/context are `FieldSpec`, not bare
+// zod (a zod `.transform` can't see the runtime ctx). One action NAME may dispatch to different handlers
+// by RECEIVER class (`on`/`receiverKey`, exact-class) — e.g. `set-style` on a TplTag vs a TplComponent.
 //
-// The contextSchema is twice load-bearing: it's the AWARENESS wiring (actions reference shared fields
-// by name; handlers get them typed) AND the token saver — the shared context is declared ONCE at the
-// top of the schema and validated/transformed ONCE per batch, so N actions don't each re-declare
-// projectId/element; they reference it. That is the "all actions in a batch share exactly the same
-// context scope" constraint, and the reason the preamble stays small.
+// The context is twice load-bearing: it's the AWARENESS wiring (actions reference shared fields by name;
+// handlers get them typed via `needs`) AND the token saver — the shared scope is declared ONCE at the
+// top and validated/resolved ONCE per batch, so N actions don't re-declare projectId/component/element.
+// That is the "all actions in a batch share exactly the same context scope" constraint.
+//
+// (This absorbed the interim `kernel.defineActionTool`: FieldSpec/refs, receiver-dispatch, clusters,
+// prepare/beforeDispatch/shapeResponse, and per-phase timeouts/limits are now first-class here. The
+// only departure from the old kernel is the value shape — `new ActionTool(…)` + `describe()`/`call()`
+// (the `McpTool` contract) instead of `defineActionTool(…)` + `compile()`.)
 
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import dedent from "dedent";
-import { omit, zip } from "lodash-es";
-import invariant from "tiny-invariant";
-import type { SetRequired } from "type-fest";
-import * as z from "zod";
 
 import type { InteractionLog, ToolCallCtx } from "./DiscoveryTool.js";
+import { checkSizeLimit, classifyError, DEFAULT_SIZE_LIMITS, type SizeLimits, withTimeout } from "./errors.js";
+import { type FieldSpec, fieldJsonSchema, fieldParse, type InferProps } from "./refs.js";
 
-type Dezod<T extends Record<string, z.ZodType>> = { [K in keyof T]: Awaited<z.infer<T[K]>> };
-type InferCtx<CS extends Record<string, z.ZodType>> = { [K in keyof CS]: Awaited<z.infer<CS[K]>> };
+/** A class usable as an exact-class receiver match (`ctx[receiverKey].constructor === on`). */
+export type ExactClass = abstract new (...args: any[]) => object;
 
-/** One action as written in the builder. `props` are the positional args (a zod record; positional
- *  order = insertion order); `context` names the shared-context fields the handler requires (so its
- *  `context` arg is narrowed to have them present). */
-export interface ActionSpec<Ctx, Props extends Record<string, z.ZodType>, Need extends keyof Ctx> {
-  description: string | (() => Promise<string>);
-  context?: readonly Need[];
-  optionalContext?: readonly (keyof Ctx)[];
-  props: Props;
-  handler: (context: SetRequired<Ctx, Need>, props: Dezod<Props>) => unknown | Promise<unknown>;
+// ─── Act declaration ────────────────────────────────────────────────────────
+//
+// Act is parameterized by three shapes used for type-level narrowing:
+//   - Ctx — full ctx the tool provides (tool's BaseCtx ∪ Prep ∪ {intent})
+//   - N   — needs tuple; narrows Ctx by making listed keys non-optional
+//   - P   — props schema; InferProps<P> types the destructured props arg
+//
+// Handlers get `Ctx & Required<Pick<Ctx, N[number]>>` — ctx with needed fields guaranteed
+// non-undefined — plus a typed props object and the resolved receiver. No runtime casts.
+
+type NarrowNeeds<Ctx, N extends readonly (keyof Ctx)[]> = Ctx & Required<Pick<Ctx, N[number]>>;
+
+export interface Act<
+  Ctx,
+  N extends readonly (keyof Ctx)[] = readonly (keyof Ctx)[],
+  P extends Record<string, FieldSpec<Ctx>> = Record<string, FieldSpec<Ctx>>,
+> {
+  name: string;
+  aliases?: readonly string[];
+  needs: N;
+  /** Exact-class receiver match on ctx[receiverKey]. Undefined = standalone. */
+  on?: ExactClass;
+  /** Which ctx field supplies the receiver. Default "element" when `on` is set. */
+  receiverKey?: keyof Ctx;
+  desc: string;
+  props?: P;
+  handle(ctx: NarrowNeeds<Ctx, N>, receiver: unknown, props: InferProps<P>): unknown | Promise<unknown>;
 }
 
-/** The erased, executor-ready form — props split into ordered args + names (indexed in lockstep). */
-interface ActionDef {
-  description: string | (() => Promise<string>);
-  context: readonly string[];
-  optionalContext: readonly string[];
-  args: z.ZodType[];
-  argNames: string[];
-  handler: (context: any, props: any) => unknown | Promise<unknown>;
+// ─── Action builder — typed-Ctx-carrying factory ────────────────────────────
+
+export interface ActBuilder<Ctx> {
+  act<const N extends readonly (keyof Ctx)[], P extends Record<string, FieldSpec<Ctx>> = Record<string, FieldSpec<Ctx>>>(
+    spec: Act<Ctx, N, P>,
+  ): Act<Ctx, N, P>;
 }
 
-/** The context-bound factory the `actions` builder receives — infers each action's `props` + required
- *  context, type-checking the handler against them, and erases to an {@link ActionDef}. */
-export type ActionFactory<Ctx> = <Props extends Record<string, z.ZodType>, Need extends keyof Ctx = never>(
-  spec: ActionSpec<Ctx, Props, Need>,
-) => ActionDef;
-
-function actionFactory<Ctx>(): ActionFactory<Ctx> {
-  return (spec) => {
-    const entries = Object.entries(spec.props);
-    return {
-      description: spec.description,
-      context: (spec.context ?? []) as readonly string[],
-      optionalContext: (spec.optionalContext ?? []) as readonly string[],
-      args: entries.map(([, v]) => v),
-      argNames: entries.map(([k]) => k),
-      handler: spec.handler as ActionDef["handler"],
-    };
+function makeActBuilder<Ctx>(): ActBuilder<Ctx> {
+  return {
+    act(spec) {
+      if (spec.on && !spec.receiverKey) return { ...spec, receiverKey: "element" as keyof Ctx };
+      return spec;
+    },
   };
 }
 
-type ActionCall = [string, ...unknown[]];
+// ─── ActionCluster — named group, independently typed ───────────────────────
 
-export interface ActionToolOptions<CS extends Record<string, z.ZodType>> {
+export interface ActionCluster<Ctx> {
+  readonly name: string;
+  readonly description?: string;
+  readonly actions: readonly Act<Ctx>[];
+}
+
+export interface ActionClusterSpec<Ctx> {
+  name: string;
+  description?: string;
+  actions: (b: ActBuilder<Ctx>) => readonly Act<Ctx>[];
+}
+
+/** A cluster is authored against a specific Ctx shape; that Ctx must be a supertype of every tool's
+ *  full ctx that composes it (TS enforces via standard assignment at the `clusters:` site). */
+export function defineCluster<Ctx>(spec: ActionClusterSpec<Ctx>): ActionCluster<Ctx> {
+  return { name: spec.name, description: spec.description, actions: spec.actions(makeActBuilder<Ctx>()) };
+}
+
+// ─── Options ────────────────────────────────────────────────────────────────
+
+export interface ActionToolOptions<BaseCtx, Prep> {
   description: string;
-  /** The shared context scope — validated + transformed ONCE per batch. Doubles as the awareness
-   *  wiring (actions reference these by name) and the token saver (declared once, not per action). */
-  contextSchema: CS;
-  /** Builder receiving the context-bound `action` factory; returns the action map (name → spec). */
-  actions: (action: ActionFactory<InferCtx<CS>>) => Record<string, ActionDef>;
+  /** The shared context scope — validated + resolved ONCE per batch. Doubles as the awareness wiring
+   *  (actions reference these by name) and the token saver (declared once, not per action). A field may
+   *  be a `Ref` whose resolver consults the post-prepare ctx (plexus/site). */
+  context: Record<string, FieldSpec<any>>;
+  /** Clusters whose Ctx is a supertype of `BaseCtx & Prep & {intent}`. */
+  clusters?: readonly ActionCluster<any>[];
+  /** Inline actions authored directly on this tool (typed via the builder callback). */
+  actions?: (b: ActBuilder<BaseCtx & Prep & { intent: string }>) => readonly Act<BaseCtx & Prep & { intent: string }>[];
   /** Appended to the `actions` field description (e.g. domain notes). */
   additionalNotes?: string;
   /**
-   * Wraps the batch run (after validation, before the result is shaped) to make the whole burst
-   * ATOMIC. The canonical CRDT case: pause the project's sync for the burst so each mutation isn't a
-   * round-trip, run the actions, then bring sync back online and AWAIT one flush — N edits land as one
-   * synced commit. (The transactional analogue is a `plexus.transact`.) Receives the resolved context
-   * + the per-call signal; MUST invoke `runBatch()` and return its results. A handler failure inside
-   * `runBatch` throws THROUGH the wrap — so a `finally` brings sync back online even on failure — and
-   * is reported as a partial batch; a failure in the wrap itself (e.g. the flush) is a diagnosable
-   * `<batch>` error, not a raw throw.
+   * Optional setup, run after the PRIMITIVE context fields parse, before ref fields resolve. Returns
+   * `{ prep, cleanup? }` — `prep` merges into the ctx every handler (and every ref resolver) sees, and
+   * `cleanup` runs in `finally` regardless of success. Closes over the host's infra (the tool factory
+   * is armed per connection with its `api`), so there is NO separate services injection.
    */
-  wrapBatch?: (context: InferCtx<CS>, runBatch: () => Promise<unknown[]>, signal?: AbortSignal) => Promise<unknown[]>;
+  prepare?: (ctx: BaseCtx) => Promise<{ prep: Prep; cleanup?: () => void | Promise<void> }>;
+  /**
+   * Runs after refs resolve, before handler dispatch. Use for ctx normalization (auto-defaulting a
+   * field, e.g. element → component.tplTree) or materializing ephemeral entities. May mutate ctx.
+   */
+  beforeDispatch?: (ctx: BaseCtx & Prep & { intent: string }) => void | Promise<void>;
+  /**
+   * Wraps the batch run (after validation, before the result is shaped) to make the whole burst ATOMIC.
+   * The canonical CRDT case: pause the project's sync for the burst so each mutation isn't a round-trip,
+   * run the actions, then bring sync back online and AWAIT one flush — N edits land as one synced commit
+   * (the transactional analogue is a `plexus.transact`). MUST invoke `runBatch()` and return its results.
+   * A handler failure inside `runBatch` throws THROUGH the wrap — so a `finally` brings sync back online
+   * even on failure — and is reported as a partial batch; a failure in the wrap itself (e.g. the flush)
+   * is a diagnosable `<batch>` error, not a raw throw.
+   */
+  wrapBatch?: (
+    ctx: BaseCtx & Prep & { intent: string },
+    runBatch: () => Promise<unknown[]>,
+    signal?: AbortSignal,
+  ) => Promise<unknown[]>;
+  /**
+   * Customizes the success-response shape. Receives the final ctx + handler results. Default:
+   * `{ results }` under the outer `{ success, intent }` envelope.
+   */
+  shapeResponse?: (ctx: BaseCtx & Prep & { intent: string }, results: unknown[]) => Record<string, unknown>;
+  /** Per-phase deadlines (ms). prepare 5000, handler 30000, batch 60000 by default. */
+  timeouts?: { prepare?: number; handler?: number; batch?: number };
+  /** Size limits. Omitted → {@link DEFAULT_SIZE_LIMITS}. */
+  limits?: SizeLimits;
 }
 
-/** Coerce an array-like value (a real array, a JSON-encoded one, or an object with numeric keys) —
- *  models double-encode containers in surprising ways; meet them where they are. */
-function coerceToArray(value: unknown, label: string): unknown[] {
-  if (Array.isArray(value)) return value;
-  if (typeof value === "string" && (value.startsWith("[") || value.startsWith("{"))) {
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) return parsed;
-      value = parsed;
-    } catch {
-      /* not valid JSON */
-    }
-  }
-  if (value && typeof value === "object") {
-    const keys = Object.keys(value);
-    if (keys.length > 0 && keys.every((k) => /^\d+$/.test(k))) {
-      return keys.sort((a, b) => Number(a) - Number(b)).map((k) => (value as Record<string, unknown>)[k]);
-    }
-  }
-  invariant(false, `${label}: expected array, got ${typeof value}: ${JSON.stringify(value)?.slice(0, 200)}`);
+const DEFAULT_TIMEOUTS = { prepare: 5000, handler: 30_000, batch: 60_000 } as const;
+
+// ─── Result ───────────────────────────────────────────────────────────────────
+
+export interface ValidationError {
+  actionIndex?: number;
+  actionName?: string;
+  field?: string;
+  path?: string[];
+  message: string;
+  received?: string;
 }
 
-type ActionArgs = { actions: unknown; intent?: string } & Record<string, unknown>;
+export type ActionResult =
+  | ({ success: true; intent: string } & ({ results: unknown[] } | Record<string, unknown>))
+  | {
+      success: false;
+      partial: true;
+      executed: number;
+      total: number;
+      results: unknown[];
+      failedAction: { index: number; name: string; error: string };
+      intent: string;
+    }
+  | { success: false; validation: "failed"; errors: ValidationError[]; intent: string };
 
-/** Internal marker: a handler threw inside the batch. Thrown THROUGH `wrapBatch` so the wrap's
- *  finally (e.g. bring CRDT sync back online) still runs, then caught and reported as a partial. */
-class BatchFailure {
+/** Internal marker: a handler threw inside the batch. Thrown THROUGH `wrapBatch` so the wrap's finally
+ *  (e.g. bring CRDT sync back online) still runs, then caught and reported as a partial. */
+class BatchFailureError extends Error {
   readonly executed: number;
   constructor(
     readonly actionIndex: number,
     readonly actionName: string,
-    readonly error: string,
+    readonly errorMessage: string,
     readonly priorResults: unknown[],
     readonly total: number,
   ) {
+    super(errorMessage);
     this.executed = priorResults.length;
   }
 }
 
-/** A mutation tool over a batch of typed actions. Construct once per CONNECTION (the host arms
- *  `contextSchema`'s transforms with its infra); `call` runs one batch per request. */
-export class ActionTool<CS extends Record<string, z.ZodType> = Record<string, z.ZodType>> {
-  private readonly actions: Record<string, ActionDef>;
+type ActionArgs = { actions?: unknown; intent?: string } & Record<string, unknown>;
+
+/** A mutation tool over a batch of typed, receiver-dispatched actions. Construct once per CONNECTION
+ *  (the factory arms `prepare` with the host's infra); `call` runs one batch per request. Structurally
+ *  an `McpTool` (name/describe/call), so it registers on the official server beside DiscoveryTool. */
+export class ActionTool<BaseCtx = Record<string, unknown>, Prep = Record<string, unknown>> {
+  private readonly clusters: readonly ActionCluster<any>[];
+  /** name (and alias) → the receiver-overload bucket, built once. */
+  private readonly byName: Map<string, Act<any>[]>;
 
   constructor(
     readonly name: string,
-    private readonly options: ActionToolOptions<CS>,
+    private readonly options: ActionToolOptions<BaseCtx, Prep>,
   ) {
-    this.actions = options.actions(actionFactory<InferCtx<CS>>());
+    const clusters: ActionCluster<any>[] = [...(options.clusters ?? [])];
+    if (options.actions) {
+      const inline = options.actions(makeActBuilder<BaseCtx & Prep & { intent: string }>());
+      if (inline.length > 0) clusters.push({ name: "<inline>", actions: inline });
+    }
+    validateClusters(clusters);
+    this.clusters = clusters;
+    this.byName = new Map();
+    for (const cluster of clusters) {
+      for (const a of cluster.actions) {
+        for (const n of [a.name, ...(a.aliases ?? [])]) {
+          const bucket = this.byName.get(n) ?? [];
+          bucket.push(a);
+          this.byName.set(n, bucket);
+        }
+      }
+    }
   }
 
   /** The MCP `Tool` definition — the actions oneOf + the shared context fields, declared once. */
-  async describe(): Promise<Tool> {
-    return { name: this.name, description: this.options.description, inputSchema: await this.inputSchema() };
+  async describe(_clientInfo?: Record<string, unknown>): Promise<Tool> {
+    return {
+      name: this.name,
+      description: this.options.description,
+      inputSchema: {
+        type: "object",
+        properties: {
+          intent: {
+            type: "string",
+            description: "Required. What you're accomplishing. Shown in the studio UI as live AI presence.",
+          },
+          actions: {
+            type: "array",
+            description: renderActionsDescription(this.byName, this.options.additionalNotes),
+            items: { oneOf: renderActionItemSchemas(this.byName) },
+          },
+          ...contextProps(this.options.context),
+        },
+        required: ["intent", "actions"],
+      },
+    };
   }
 
-  /** Validate the shared context + every action's args (transforms run), then run the batch
-   *  sequentially with rollback-report on the first runtime failure. Returns a validation-error
-   *  object, the action results, or a partial-failure report — the transport serializes it. */
-  async call(args: ActionArgs, ctx: ToolCallCtx = {}): Promise<unknown> {
+  /** Validate the shared context (two-phase: primitives → prepare → refs), resolve every action's
+   *  receiver + props, then run the batch with rollback-report on the first runtime failure. Returns a
+   *  validation-error object, the shaped success, or a partial-failure report — the transport serializes
+   *  it. `cleanup` (from prepare) always runs in `finally`. */
+  async call(args: ActionArgs, ctx: ToolCallCtx = {}): Promise<ActionResult> {
     const startTime = Date.now();
-    const { actions: rawActions, intent, ...contextInput } = args;
-
-    // Coerce + un-nest the model's action shapes: a flat tuple → a one-element batch; nested batches
-    // (some models wrap groups in an extra array) → flattened.
-    let actions = coerceToArray(rawActions, "actions") as ActionCall[];
-    if (actions.length > 0 && typeof actions[0] === "string") actions = [actions] as unknown as ActionCall[];
-    actions = actions.flatMap((a) => (Array.isArray(a) && Array.isArray(a[0]) ? a : [a])) as ActionCall[];
-
-    const result = await this.validateAndAct(actions, contextInput, intent, ctx);
-    const failed = result !== null && typeof result === "object" && "success" in result && result.success === false;
-    this.log(ctx, args, startTime, failed ? { success: false } : { success: true });
+    const intent = typeof args.intent === "string" ? args.intent : "";
+    const { actions: rawActions, intent: _i, ...contextInput } = args;
+    const result = await this.dispatch(intent, Array.isArray(rawActions) ? rawActions : [], contextInput, ctx);
+    this.log(ctx, args, startTime, result.success ? { success: true } : { success: false });
     return result;
   }
 
-  private async validateAndAct(
-    actions: ActionCall[],
+  private async dispatch(
+    intent: string,
+    actions: readonly unknown[],
     contextInput: Record<string, unknown>,
-    intent: string | undefined,
     ctx: ToolCallCtx,
-  ): Promise<unknown> {
-    type ValidationError =
-      | { actionIndex: number; action: string; argument?: string; path?: string; error: string; received?: string }
-      | { property: string; path?: string; error: string; received?: string };
-    const errors: ValidationError[] = [];
+  ): Promise<ActionResult> {
+    const timeouts = { ...DEFAULT_TIMEOUTS, ...this.options.timeouts };
+    const limits = { ...DEFAULT_SIZE_LIMITS, ...this.options.limits };
 
-    // 1) Shared context — validated + transformed ONCE (the scope every action shares).
-    const context: Record<string, unknown> = {};
-    for (const [key, validator] of Object.entries(this.options.contextSchema)) {
+    if (!intent) {
+      return { success: false, validation: "failed", intent: "", errors: [{ field: "intent", message: "intent is required (string)" }] };
+    }
+
+    // Size gate before any work.
+    try {
+      checkSizeLimit(actions.length, limits.maxActions, "batch action count");
+    } catch (error) {
+      return { success: false, validation: "failed", intent, errors: [{ field: "actions", message: classifyError(error).message }] };
+    }
+
+    // Phase 1: primitive context fields (need no ctx).
+    const primResult = parseContextFields(this.options.context, contextInput, {}, "primitive");
+    if (!primResult.ok) return { success: false, validation: "failed", intent, errors: primResult.errors };
+
+    // Phase 2: prepare — produce prep + cleanup from the primitive ctx (closes over host infra).
+    let prep: Prep;
+    let cleanup: (() => void | Promise<void>) | undefined;
+    if (this.options.prepare) {
       try {
-        let input = contextInput[key];
-        if (typeof input === "string" && (input.startsWith("{") || input.startsWith("["))) {
-          try {
-            input = JSON.parse(input);
-          } catch {
-            /* not JSON — use as-is */
-          }
-        }
-        context[key] = await validator.parseAsync(input);
+        const prepared = await withTimeout(() => this.options.prepare!(primResult.value as BaseCtx), timeouts.prepare, "prepare", this.name);
+        prep = prepared.prep;
+        cleanup = prepared.cleanup;
       } catch (error) {
-        for (const issue of zodIssues(error, key)) errors.push(issue);
+        return { success: false, validation: "failed", intent, errors: [{ field: "<prepare>", message: classifyError(error, "prepare").message }] };
       }
+    } else {
+      prep = {} as Prep;
     }
-
-    // 2) Each action's positional args — validated + transformed (so a transform resolves pre-handler).
-    const transformedArgs: unknown[][] = [];
-    for (const [i, rawAction] of actions.entries()) {
-      const [actionName, ...actionArgs] = coerceToArray(rawAction, `actions[${i}]`) as [string, ...unknown[]];
-      const action = this.actions[actionName];
-      if (!action) {
-        errors.push({ actionIndex: i, action: actionName, error: `Unknown action "${actionName}". Available: ${Object.keys(this.actions).join(", ")}` });
-        transformedArgs.push(actionArgs);
-        continue;
-      }
-      if (action.args.length === 0) {
-        transformedArgs.push([]);
-        continue;
-      }
-      try {
-        transformedArgs.push([...(await z.tuple(action.args as [z.ZodType, ...z.ZodType[]]).parseAsync(actionArgs))]);
-      } catch (error) {
-        for (const issue of zodArgIssues(error, i, actionName, action.argNames)) errors.push(issue);
-        transformedArgs.push(actionArgs);
-      }
-    }
-
-    if (errors.length > 0) {
-      const sexpr = `(validation-error\n  ${errors.map(formatError).join("\n  ")})`;
-      return { success: false as const, validation: "failed", ...(intent ? { intent } : {}), errors, sexpr,
-        message: `Validation failed for ${errors.length} issue(s). No actions were executed. See 'sexpr' for details.` };
-    }
-
-    // 3) Run the batch sequentially; rollback-report on the first runtime failure. The signal cancels
-    //    BETWEEN actions (a partial batch is reported, not silently half-applied). An optional
-    //    `wrapBatch` makes the whole burst atomic (CRDT-sync-pause + flush, or a transaction); a
-    //    handler failure throws THROUGH it as a `BatchFailure`, so the wrap's finally still runs.
-    const runBatch = async (): Promise<unknown[]> => {
-      const results: unknown[] = [];
-      for (let i = 0; i < actions.length; i++) {
-        if (ctx.signal?.aborted) throw ctx.signal.reason ?? new DOMException("aborted", "AbortError");
-        const [actionName] = actions[i]!;
-        const action = this.actions[actionName]!;
-        try {
-          results.push(await action.handler(context, Object.fromEntries(zip(action.argNames, transformedArgs[i]))));
-        } catch (error) {
-          throw new BatchFailure(i, actionName, error instanceof Error ? error.message : String(error), results, actions.length);
-        }
-      }
-      return results;
-    };
 
     try {
-      return await (this.options.wrapBatch
-        ? this.options.wrapBatch(context as InferCtx<CS>, runBatch, ctx.signal)
-        : runBatch());
-    } catch (error) {
-      if (error instanceof BatchFailure) {
-        return { success: false as const, partial: true, executed: error.executed, total: error.total, results: error.priorResults,
-          failedAction: { actionIndex: error.actionIndex, action: error.actionName, error: error.error },
-          message: `Executed ${error.executed} of ${error.total} actions before runtime failure; full rollback due to ${error.actionName}.` };
-      }
-      if (ctx.signal?.aborted) throw error; // cancellation propagates — not a batch report
-      // A wrap-level failure (e.g. the CRDT flush failed) — diagnosable `<batch>` error, not a raw throw.
-      return { success: false as const, partial: true, executed: 0, total: actions.length, results: [],
-        failedAction: { actionIndex: -1, action: "<batch>", error: error instanceof Error ? error.message : String(error) },
-        message: `Batch wrapper failed: ${error instanceof Error ? error.message : String(error)}.` };
-    }
-  }
+      // Phase 3: ref context fields — resolvers now see prim ∪ prep ∪ {intent}.
+      const refCtxSoFar = { ...(primResult.value as object), ...(prep as object), intent };
+      const refResult = parseContextFields(this.options.context, contextInput, refCtxSoFar, "ref");
+      if (!refResult.ok) return { success: false, validation: "failed", intent, errors: refResult.errors };
 
-  private async inputSchema(): Promise<Tool["inputSchema"]> {
-    // Required at the batch level = the fields EVERY action requires (intersection) — a batch shares
-    // one scope, so only universally-required context can be marked required.
-    const universallyRequired = Object.values(this.actions).reduce(
-      (acc, { context }) => acc.intersection(new Set(context)),
-      new Set(Object.keys(this.options.contextSchema)),
-    );
-    return {
-      type: "object",
-      properties: {
-        intent: { type: "string", description: "What you're trying to accomplish. Shown to collaborating users." },
-        actions: {
-          type: "array",
-          description:
-            dedent`
-              Actions to run in this invocation, as ["actionName", ...args] tuples, executed sequentially.
-              All actions in a batch share EXACTLY the same context scope — every context field must be
-              consumable by every action.
-            ` + (this.options.additionalNotes ? `\n${dedent(this.options.additionalNotes)}` : ""),
-          items: {
-            oneOf: await Promise.all(
-              Object.entries(this.actions).map(async ([action, { description, context, optionalContext, args }]) => ({
-                type: "array",
-                description: dedent`
-                  ${typeof description === "string" ? description : await description()}.
-                  ${context.length > 0 ? `Required context: ${context.join(", ")}` : ""}
-                  ${optionalContext.length > 0 ? `Optional context: ${optionalContext.join(", ")}` : ""}
-                `,
-                // Draft 2020-12 (the Anthropic tool-use API) uses `prefixItems` for positional tuples,
-                // NOT the draft-07 `items`-array form (which it rejects).
-                prefixItems: [{ const: action }, ...args.map((arg) => omit(z.toJSONSchema(arg, { io: "input" }), "$schema"))],
-              })),
-            ),
-          },
-        },
-        ...Object.fromEntries(
-          Object.entries(this.options.contextSchema).map(([key, value]) => {
-            const { $schema: _drop, ...schema } = z.toJSONSchema(value, { io: "input" });
-            return [key, { ...schema, description: schema.description ? `Context property. ${dedent(schema.description)}` : "Context property" }];
-          }),
-        ),
-      },
-      required: ["actions", ...universallyRequired],
-    };
+      const fullCtx = {
+        ...(primResult.value as object),
+        ...(refResult.value as object),
+        ...(prep as object),
+        intent,
+      } as BaseCtx & Prep & { intent: string };
+
+      // Resolve each call: receiver pick → needs check → props parse.
+      const resolved: Array<{ act: Act<any>; receiver: unknown; props: Record<string, unknown> }> = [];
+      const errors: ValidationError[] = [];
+      for (const [i, action] of actions.entries()) {
+        const call = normalizeActionCall(action);
+        if ("error" in call) {
+          errors.push({ actionIndex: i, message: call.error });
+          continue;
+        }
+        const bucket = this.byName.get(call.name);
+        if (!bucket) {
+          errors.push({ actionIndex: i, actionName: call.name, message: `unknown action "${call.name}" — available: ${[...this.byName.keys()].join(", ")}` });
+          continue;
+        }
+        const pick = pickReceiver(bucket, fullCtx as Record<string, unknown>);
+        if ("error" in pick) {
+          errors.push({ actionIndex: i, actionName: call.name, message: pick.error });
+          continue;
+        }
+        const missing = pick.act.needs.filter((k) => (fullCtx as Record<string, unknown>)[k as string] == null);
+        if (missing.length > 0) {
+          errors.push({ actionIndex: i, actionName: call.name, message: `missing context: ${missing.map(String).join(", ")}` });
+          continue;
+        }
+        const propsResult = parseProps(pick.act.props ?? {}, call.props, fullCtx, limits.maxStringFieldSize);
+        if (!propsResult.ok) {
+          for (const e of propsResult.errors) errors.push({ actionIndex: i, actionName: call.name, ...e });
+          continue;
+        }
+        resolved.push({ act: pick.act, receiver: pick.receiver, props: propsResult.value });
+      }
+      if (errors.length > 0) return { success: false, validation: "failed", intent, errors };
+
+      if (this.options.beforeDispatch) await this.options.beforeDispatch(fullCtx);
+
+      // Run the batch sequentially; rollback-report on the first runtime failure. The signal cancels
+      // BETWEEN actions. An optional `wrapBatch` makes the whole burst atomic; a handler failure throws
+      // THROUGH it as a `BatchFailureError`, so the wrap's finally still runs.
+      const runBatch = async (): Promise<unknown[]> => {
+        const results: unknown[] = [];
+        for (let i = 0; i < resolved.length; i++) {
+          if (ctx.signal?.aborted) throw ctx.signal.reason ?? new DOMException("aborted", "AbortError");
+          const { act, receiver, props } = resolved[i]!;
+          try {
+            results.push(await withTimeout(() => Promise.resolve(act.handle(fullCtx, receiver, props)), timeouts.handler, "handler", act.name));
+          } catch (error) {
+            throw new BatchFailureError(i, act.name, error instanceof Error ? error.message : String(error), results, resolved.length);
+          }
+        }
+        return results;
+      };
+
+      let rawResults: unknown[];
+      try {
+        rawResults = await withTimeout(
+          () => (this.options.wrapBatch ? this.options.wrapBatch(fullCtx, runBatch, ctx.signal) : runBatch()),
+          timeouts.batch,
+          "dispatch",
+          this.name,
+        );
+      } catch (error) {
+        if (error instanceof BatchFailureError) {
+          return {
+            success: false,
+            partial: true,
+            intent,
+            executed: error.executed,
+            total: error.total,
+            results: error.priorResults,
+            failedAction: { index: error.actionIndex, name: error.actionName, error: error.errorMessage },
+          };
+        }
+        if (ctx.signal?.aborted) throw error; // cancellation propagates — not a batch report
+        // Timeout or wrap-level failure (e.g. the CRDT flush) — diagnosable `<batch>` error, not a raw throw.
+        return {
+          success: false,
+          partial: true,
+          intent,
+          executed: 0,
+          total: resolved.length,
+          results: [],
+          failedAction: { index: -1, name: "<batch>", error: classifyError(error).message },
+        };
+      }
+
+      if (this.options.shapeResponse) {
+        return { success: true, intent, ...this.options.shapeResponse(fullCtx, rawResults) };
+      }
+      return { success: true, intent, results: rawResults };
+    } finally {
+      if (cleanup) {
+        try {
+          await cleanup();
+        } catch (error) {
+          console.error(`[action] cleanup failed for ${this.name}:`, error);
+        }
+      }
+    }
   }
 
   private log(ctx: ToolCallCtx, args: ActionArgs, startTime: number, outcome: { success: boolean }) {
@@ -310,7 +416,7 @@ export class ActionTool<CS extends Record<string, z.ZodType> = Record<string, z.
       sessionId: ctx.session?.id ?? "unknown",
       userSub: ctx.user?.sub,
       tool: this.name,
-      intent,
+      intent: typeof intent === "string" ? intent : undefined,
       arguments: rest,
       durationMs: Date.now() - startTime,
       ...outcome,
@@ -318,42 +424,142 @@ export class ActionTool<CS extends Record<string, z.ZodType> = Record<string, z.
   }
 }
 
-// ── error formatting (S-expression — Claude reads it more reliably than nested JSON) ──
+// ─── Validation ─────────────────────────────────────────────────────────────
 
-type CtxIssue = { property: string; path?: string; error: string; received?: string };
-type ArgIssue = { actionIndex: number; action: string; argument?: string; path?: string; error: string; received?: string };
-
-function zodIssues(error: unknown, property: string): CtxIssue[] {
-  if (!(error instanceof z.ZodError)) return [{ property, error: String(error) }];
-  return error.issues.map((issue) => ({
-    property,
-    path: issue.path.length > 0 ? `.${issue.path.join(".")}` : undefined,
-    error: issue.message,
-    received: "received" in issue ? String((issue as { received: unknown }).received) : undefined,
-  }));
-}
-
-function zodArgIssues(error: unknown, actionIndex: number, action: string, argNames: string[]): ArgIssue[] {
-  if (!(error instanceof z.ZodError)) return [{ actionIndex, action, error: String(error) }];
-  return error.issues.map((issue) => {
-    const argIndex = typeof issue.path[0] === "number" ? issue.path[0] : null;
-    const subPath = argIndex === null ? issue.path : issue.path.slice(1);
-    return {
-      actionIndex,
-      action,
-      argument: argIndex === null ? undefined : (argNames[argIndex] ?? `arg[${argIndex}]`),
-      path: subPath.length > 0 ? `.${subPath.join(".")}` : undefined,
-      error: issue.message,
-      received: "received" in issue ? String((issue as { received: unknown }).received) : undefined,
-    };
-  });
-}
-
-function formatError(err: CtxIssue | ArgIssue): string {
-  const recv = err.received ? ` (received "${err.received}")` : "";
-  if ("actionIndex" in err) {
-    const arg = err.argument ? ` (argument "${err.argument}"${err.path ? ` "${err.path}"` : ""})` : "";
-    return `(action ${err.actionIndex} "${err.action}"${arg} (error "${err.error}"${recv}))`;
+function validateClusters(clusters: readonly ActionCluster<any>[]): void {
+  const seen = new Map<string, string>();
+  for (const cluster of clusters) {
+    for (const a of cluster.actions) {
+      const receiver = a.on ? a.on.name : "<standalone>";
+      for (const n of [a.name, ...(a.aliases ?? [])]) {
+        const key = `${n}@${receiver}`;
+        const existing = seen.get(key);
+        if (existing) throw new Error(`action: duplicate "${n}"${a.on ? ` on ${a.on.name}` : ""} — clusters "${existing}" and "${cluster.name}"`);
+        seen.set(key, cluster.name);
+      }
+    }
   }
-  return `(context "${err.property}"${err.path ? ` "${err.path}"` : ""} (error "${err.error}"${recv}))`;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function normalizeActionCall(raw: unknown): { name: string; props: Record<string, unknown> } | { error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) return { error: `expected [name, propsObject] tuple, got ${typeOf(raw)}` };
+  const [name, ...rest] = raw;
+  if (typeof name !== "string") return { error: `expected action name (string), got ${typeOf(name)}` };
+  const propsRaw = rest.length === 0 ? {} : rest[0];
+  const props = propsRaw && typeof propsRaw === "object" && !Array.isArray(propsRaw) ? (propsRaw as Record<string, unknown>) : {};
+  return { name, props };
+}
+
+function pickReceiver(bucket: Act<any>[], ctx: Record<string, unknown>): { act: Act<any>; receiver: unknown } | { error: string } {
+  for (const act of bucket) {
+    if (!act.on) return { act, receiver: undefined };
+    const receiver = ctx[act.receiverKey as string];
+    if (receiver == null) continue;
+    if ((receiver as object).constructor === act.on) return { act, receiver };
+  }
+  const receivers = bucket.filter((a) => a.on).map((a) => `${String(a.receiverKey ?? "?")}: ${a.on!.name}`).join(" | ");
+  return { error: `no receiver match — expected ${receivers || "<none>"}` };
+}
+
+/** Parse a subset of context fields: primitives (phase 1, pre-prepare) or refs (phase 3, post-prepare
+ *  with full ctx). Fields in the "other" set are left untouched. */
+function parseContextFields(
+  schema: Record<string, FieldSpec<any>>,
+  input: unknown,
+  ctx: Record<string, unknown>,
+  phase: "primitive" | "ref",
+): { ok: true; value: Record<string, unknown> } | { ok: false; errors: ValidationError[] } {
+  const obj = typeof input === "object" && input != null ? (input as Record<string, unknown>) : {};
+  const out: Record<string, unknown> = {};
+  const errors: ValidationError[] = [];
+  for (const [key, field] of Object.entries(schema)) {
+    const isPrimitive = "kind" in field;
+    if (phase === "primitive" && !isPrimitive) continue;
+    if (phase === "ref" && isPrimitive) continue;
+    const result = fieldParse(field, obj[key], ctx);
+    if (result.ok) out[key] = result.value;
+    else for (const e of result.errors) errors.push({ field: key, path: e.path, message: e.message, received: e.received });
+  }
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, value: out };
+}
+
+function parseProps<Ctx>(
+  schema: Record<string, FieldSpec<Ctx>>,
+  input: Record<string, unknown>,
+  ctx: Ctx,
+  maxStringSize?: number,
+): { ok: true; value: Record<string, unknown> } | { ok: false; errors: ValidationError[] } {
+  const out: Record<string, unknown> = {};
+  const errors: ValidationError[] = [];
+  for (const [key, field] of Object.entries(schema)) {
+    const result = fieldParse(field, input[key], ctx);
+    if (result.ok) {
+      if (maxStringSize != null && typeof result.value === "string" && result.value.length > maxStringSize) {
+        errors.push({ field: key, message: `string field "${key}" exceeded ${maxStringSize} chars: ${result.value.length}` });
+        continue;
+      }
+      out[key] = result.value;
+    } else {
+      for (const e of result.errors) errors.push({ field: key, path: e.path, message: e.message, received: e.received });
+    }
+  }
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, value: out };
+}
+
+function contextProps(schema: Record<string, FieldSpec<any>>): Record<string, object> {
+  const out: Record<string, object> = {};
+  for (const [key, field] of Object.entries(schema)) out[key] = fieldJsonSchema(field);
+  return out;
+}
+
+function renderActionsDescription(byName: Map<string, Act<any>[]>, additionalNotes?: string): string {
+  const lines: string[] = [];
+  for (const [name, bucket] of byName.entries()) {
+    const receivers = bucket.filter((a) => a.on).map((a) => a.on!.name);
+    const receiverNote = receivers.length > 0 ? ` — receiver: ${receivers.join(" | ")}` : "";
+    lines.push(`  ["${name}", {...props}]${receiverNote} — ${bucket[0]!.desc}`);
+  }
+  return `${dedent`
+      List of actions to execute sequentially.
+      Each action is a tuple: [name, propsObject].
+      Batch is stop-on-first-failure — a failing action halts the rest; prior actions persist.
+
+      Available:
+    `}\n${lines.join("\n")}${additionalNotes ? `\n\n${dedent(additionalNotes)}` : ""}`;
+}
+
+function renderActionItemSchemas(byName: Map<string, Act<any>[]>): object[] {
+  const out: object[] = [];
+  for (const [name, bucket] of byName.entries()) {
+    out.push({
+      type: "array",
+      // draft 2020-12 tuple keyword (the Anthropic tool-use API rejects the draft-07 `items`-array).
+      prefixItems: [{ const: name }, propsRecordSchema(bucket[0]!.props ?? {})],
+      minItems: 1,
+      maxItems: 2,
+      description: bucket[0]!.desc,
+    });
+  }
+  return out;
+}
+
+function propsRecordSchema(props: Record<string, FieldSpec>): object {
+  const properties: Record<string, object> = {};
+  const required: string[] = [];
+  for (const [key, field] of Object.entries(props)) {
+    properties[key] = fieldJsonSchema(field);
+    const optional = "kind" in field ? field.optional === true : false;
+    if (!optional) required.push(key);
+  }
+  return required.length > 0 ? { type: "object", properties, required } : { type: "object", properties };
+}
+
+function typeOf(input: unknown): string {
+  if (input === null) return "null";
+  if (Array.isArray(input)) return "array";
+  return typeof input;
 }

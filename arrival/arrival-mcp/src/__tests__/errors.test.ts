@@ -15,7 +15,7 @@ import {
   isMCPError,
   MCPError,
   withTimeout,
-} from "../../kernel/errors";
+} from "../errors.js";
 
 describe("MCPError", () => {
   it("constructs with kind + message + details", () => {

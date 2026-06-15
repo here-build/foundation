@@ -18,7 +18,7 @@ import {
   uuidShape,
   type Primitive,
   type Ref,
-} from "../../kernel/refs";
+} from "../refs.js";
 
 // ─── Local test fixtures ────────────────────────────────────────────────────
 

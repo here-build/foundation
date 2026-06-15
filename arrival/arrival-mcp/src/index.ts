@@ -12,19 +12,19 @@ export * from "./McpEnvCapability.js";
 // Value-shaped discovery tool: `new DiscoveryTool(name, capability, {description})` — the
 // subclass-free shell that derives schema + catalog + eval from the one aggregating capability.
 export * from "./DiscoveryTool.js";
-// Value-shaped mutation tool: `new ActionTool(name, {description, contextSchema, actions})` — the
-// subclass-free, typed-builder sibling of DiscoveryTool for the tuple-dispatch batch tier.
+// Value-shaped mutation tool: `new ActionTool(name, {description, context, clusters})` — the
+// subclass-free, FieldSpec-typed, receiver-dispatched, clustered batch tier. Absorbed the interim
+// `kernel.defineActionTool`; `defineCluster` + the refs/primitives back its action declarations.
 export * from "./ActionTool.js";
-// Wire DiscoveryTools onto the official @modelcontextprotocol/sdk Server (describe→list, call→call).
+// FieldSpec/Ref system (str/num/oneOf/defineRef/uuidShape/…) backing ActionTool context + props.
+export * from "./refs.js";
+// Typed error kernel (MCPError, withTimeout, size limits) used by ActionTool dispatch.
+export * from "./errors.js";
+// Wire DiscoveryTool/ActionTool onto the official @modelcontextprotocol/sdk Server (describe→list,
+// call→call), plus the legacy ToolInteraction→McpTool bridge (still used by sift's discovery).
 export * from "./sdk-adapter.js";
-// Transition seam: register value-shaped kernel.* tools on the official server via the McpTool seam,
-// so ArrivalServer can retire before the kernel tools are rewritten to DiscoveryTool/ActionTool.
-export * from "./kernel-bridge.js";
 export * from "./dispatch.js";
 export * from "./ArrivalServer.js";
 export * from "./resources/index.js";
 export * from "./store.js";
 export { InMemorySessionStore as InMemoryArrivalSessionStore } from "./InMemorySessionStore.js";
-
-// New value-shaped kernel (parallel to legacy ToolInteraction classes).
-export * as kernel from "./kernel/index.js";
