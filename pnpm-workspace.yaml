@@ -1,12 +1,9 @@
 packages:
   - plexus
-  - editor-theme
-  - mcp-typescript-lsp
   - device-frame
   - css-viewport-transform
   - ios-layout-solver
   - arrival/*
-  - delta/*
   - common/*
 
 # Supply-chain defense: refuse to install any package published less than
