@@ -92,6 +92,46 @@ describe("ActionTool (value-shaped, typed builder)", () => {
     expect(log).toEqual([]);
   });
 
+  it("wrapBatch brackets the whole burst and its finally runs even when an action fails", async () => {
+    // Model a CRDT sync gate: offline for the burst, back online (+ flushed) after — even on failure.
+    const log: string[] = [];
+    let online = true;
+    const tool = new ActionTool("doc-edit", {
+      description: "edit a doc",
+      contextSchema: { docId: z.string() },
+      wrapBatch: async (_ctx, runBatch) => {
+        online = false;
+        log.push("offline");
+        try {
+          const results = await runBatch();
+          log.push("flush");
+          return results;
+        } finally {
+          online = true;
+          log.push("online");
+        }
+      },
+      actions: (action) => ({
+        ok: action({ description: "ok", props: {}, handler: () => { log.push("ok"); return { ok: true }; } }),
+        boom: action({ description: "throws", props: {}, handler: () => { throw new Error("kaboom"); } }),
+      }),
+    });
+
+    // Happy path: offline → action → flush → online; sync ends online.
+    const ok = (await tool.call({ docId: "d1", actions: [["ok"]] })) as { ok: boolean }[];
+    expect(ok.map((r) => r.ok)).toEqual([true]);
+    expect(log).toEqual(["offline", "ok", "flush", "online"]);
+    expect(online).toBe(true);
+
+    // Failure path: the wrap's finally still brings sync online; reported as a partial batch.
+    log.length = 0;
+    const fail = (await tool.call({ docId: "d1", actions: [["ok"], ["boom"]] })) as { partial: boolean; executed: number };
+    expect(fail.partial).toBe(true);
+    expect(fail.executed).toBe(1);
+    expect(log).toEqual(["offline", "ok", "online"]); // no "flush" (threw before it); "online" still ran
+    expect(online).toBe(true);
+  });
+
   it("records the interaction (session id + authed user, success flag)", async () => {
     const { tool } = makeTool();
     const record = vi.fn<(i: InteractionLog) => void>();

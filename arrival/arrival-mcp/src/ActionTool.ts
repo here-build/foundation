@@ -76,6 +76,17 @@ export interface ActionToolOptions<CS extends Record<string, z.ZodType>> {
   actions: (action: ActionFactory<InferCtx<CS>>) => Record<string, ActionDef>;
   /** Appended to the `actions` field description (e.g. domain notes). */
   additionalNotes?: string;
+  /**
+   * Wraps the batch run (after validation, before the result is shaped) to make the whole burst
+   * ATOMIC. The canonical CRDT case: pause the project's sync for the burst so each mutation isn't a
+   * round-trip, run the actions, then bring sync back online and AWAIT one flush — N edits land as one
+   * synced commit. (The transactional analogue is a `plexus.transact`.) Receives the resolved context
+   * + the per-call signal; MUST invoke `runBatch()` and return its results. A handler failure inside
+   * `runBatch` throws THROUGH the wrap — so a `finally` brings sync back online even on failure — and
+   * is reported as a partial batch; a failure in the wrap itself (e.g. the flush) is a diagnosable
+   * `<batch>` error, not a raw throw.
+   */
+  wrapBatch?: (context: InferCtx<CS>, runBatch: () => Promise<unknown[]>, signal?: AbortSignal) => Promise<unknown[]>;
 }
 
 /** Coerce an array-like value (a real array, a JSON-encoded one, or an object with numeric keys) —
@@ -101,6 +112,21 @@ function coerceToArray(value: unknown, label: string): unknown[] {
 }
 
 type ActionArgs = { actions: unknown; intent?: string } & Record<string, unknown>;
+
+/** Internal marker: a handler threw inside the batch. Thrown THROUGH `wrapBatch` so the wrap's
+ *  finally (e.g. bring CRDT sync back online) still runs, then caught and reported as a partial. */
+class BatchFailure {
+  readonly executed: number;
+  constructor(
+    readonly actionIndex: number,
+    readonly actionName: string,
+    readonly error: string,
+    readonly priorResults: unknown[],
+    readonly total: number,
+  ) {
+    this.executed = priorResults.length;
+  }
+}
 
 /** A mutation tool over a batch of typed actions. Construct once per CONNECTION (the host arms
  *  `contextSchema`'s transforms with its infra); `call` runs one batch per request. */
@@ -196,21 +222,40 @@ export class ActionTool<CS extends Record<string, z.ZodType> = Record<string, z.
     }
 
     // 3) Run the batch sequentially; rollback-report on the first runtime failure. The signal cancels
-    //    BETWEEN actions (a partial batch is reported, not silently half-applied).
-    const results: unknown[] = [];
-    for (let i = 0; i < actions.length; i++) {
-      if (ctx.signal?.aborted) throw ctx.signal.reason ?? new DOMException("aborted", "AbortError");
-      const [actionName] = actions[i]!;
-      const action = this.actions[actionName]!;
-      try {
-        results.push(await action.handler(context, Object.fromEntries(zip(action.argNames, transformedArgs[i]))));
-      } catch (error) {
-        return { success: false as const, partial: true, executed: i, total: actions.length, results,
-          failedAction: { actionIndex: i, action: actionName, error: error instanceof Error ? error.message : String(error) },
-          message: `Executed ${i} of ${actions.length} actions before runtime failure; full rollback due to ${actionName}.` };
+    //    BETWEEN actions (a partial batch is reported, not silently half-applied). An optional
+    //    `wrapBatch` makes the whole burst atomic (CRDT-sync-pause + flush, or a transaction); a
+    //    handler failure throws THROUGH it as a `BatchFailure`, so the wrap's finally still runs.
+    const runBatch = async (): Promise<unknown[]> => {
+      const results: unknown[] = [];
+      for (let i = 0; i < actions.length; i++) {
+        if (ctx.signal?.aborted) throw ctx.signal.reason ?? new DOMException("aborted", "AbortError");
+        const [actionName] = actions[i]!;
+        const action = this.actions[actionName]!;
+        try {
+          results.push(await action.handler(context, Object.fromEntries(zip(action.argNames, transformedArgs[i]))));
+        } catch (error) {
+          throw new BatchFailure(i, actionName, error instanceof Error ? error.message : String(error), results, actions.length);
+        }
       }
+      return results;
+    };
+
+    try {
+      return await (this.options.wrapBatch
+        ? this.options.wrapBatch(context as InferCtx<CS>, runBatch, ctx.signal)
+        : runBatch());
+    } catch (error) {
+      if (error instanceof BatchFailure) {
+        return { success: false as const, partial: true, executed: error.executed, total: error.total, results: error.priorResults,
+          failedAction: { actionIndex: error.actionIndex, action: error.actionName, error: error.error },
+          message: `Executed ${error.executed} of ${error.total} actions before runtime failure; full rollback due to ${error.actionName}.` };
+      }
+      if (ctx.signal?.aborted) throw error; // cancellation propagates — not a batch report
+      // A wrap-level failure (e.g. the CRDT flush failed) — diagnosable `<batch>` error, not a raw throw.
+      return { success: false as const, partial: true, executed: 0, total: actions.length, results: [],
+        failedAction: { actionIndex: -1, action: "<batch>", error: error instanceof Error ? error.message : String(error) },
+        message: `Batch wrapper failed: ${error instanceof Error ? error.message : String(error)}.` };
     }
-    return results;
   }
 
   private async inputSchema(): Promise<Tool["inputSchema"]> {
