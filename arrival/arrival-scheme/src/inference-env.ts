@@ -140,10 +140,6 @@ export const inferenceEnv = new Environment(
       return arr;
     },
 
-    tap: (fn: (x: any) => void) => (x: any) => {
-      fn(x);
-      return x;
-    },
     length: (collection: any) => {
       // LIPS lists have their own length calculation
       if (collection && typeof collection === "object" && "car" in collection) {
