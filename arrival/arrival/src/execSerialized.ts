@@ -1,6 +1,13 @@
 import { exec, sandboxedEnv } from "@here.build/arrival-scheme";
 import { toSExprString } from "@here.build/arrival-serializer";
 
+// Total serialized-output budget for one MCP tool result (~10k tokens). Motivated by the
+// 158k-char "exceeds maximum allowed tokens" drop: the serializer streams per-element caps
+// and shrinks them to fit this budget rather than emitting an oversized payload the client
+// rejects. Split across the result elements so the SUM stays bounded.
+const MCP_OUTPUT_BUDGET = 40_000;
+const perElementBudget = (count: number): number => Math.max(2_000, Math.floor(MCP_OUTPUT_BUDGET / Math.max(1, count)));
+
 /**
  * Execute LIPS expressions and return serialized string results.
  *
@@ -30,20 +37,22 @@ export async function execSerialized(expr: string, options?: any): Promise<strin
     // If it's a LIPS Pair (list), convert to array and serialize each element
     if (listResult && typeof listResult === "object" && listResult.constructor?.name === "Pair") {
       const elements = convertPairToArray(listResult);
-      return elements.map((element) => toSExprString(element));
+      const per = perElementBudget(elements.length);
+      return elements.map((element) => toSExprString(element, { maxTotalChars: per }));
     }
 
     // If it's already an array, serialize each element
     if (Array.isArray(listResult)) {
-      return listResult.map((element) => toSExprString(element));
+      const per = perElementBudget(listResult.length);
+      return listResult.map((element) => toSExprString(element, { maxTotalChars: per }));
     }
 
     // If it's a single value, return it as a single-element array
-    return [toSExprString(listResult)];
+    return [toSExprString(listResult, { maxTotalChars: MCP_OUTPUT_BUDGET })];
   }
 
   // Fallback: serialize the whole result
-  return [toSExprString(result)];
+  return [toSExprString(result, { maxTotalChars: MCP_OUTPUT_BUDGET })];
 }
 
 /**

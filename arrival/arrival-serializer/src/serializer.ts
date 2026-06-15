@@ -16,6 +16,51 @@ const QUOTED_MARKER = Symbol.for("arrival:quoted");
 const FORCE_QUOTED_STRING_MARKER = Symbol.for("arrival:force_quoted_string");
 const EXPR_MARKER = Symbol.for("arrival:expr");
 const TAGGED_MARKER = Symbol.for("arrival:tagged");
+const TRUNCATED_MARKER = Symbol.for("arrival:truncated");
+
+/**
+ * Per-render truncation budget. Serialization is SYNCHRONOUS, so a module-level
+ * "active caps" is safe (no re-entrancy within a single `toSExprString` call) and
+ * spares threading caps through every recursive `toSExpr`. The caps are applied
+ * STREAMING — at each collection/string we stop emitting at the cap and never
+ * serialize the tail (a 10k-element array costs `maxItems`, not 10k).
+ */
+type Caps = { maxItems: number; maxStringChars: number };
+const NO_CAPS: Caps = { maxItems: Infinity, maxStringChars: Infinity };
+let activeCaps: Caps = NO_CAPS;
+
+/** A `#| … |#` block-comment marker the formatter renders verbatim, so a truncated
+ *  list still PARSES (the comment is ignored) — it round-trips to the shown sample. */
+const truncatedMarker = (note: string): SExpr => ({ [TRUNCATED_MARKER]: note });
+
+/** Render the first `maxItems` of an array, appending a `+N more of TOTAL` marker when
+ *  truncated. STREAMING — `slice` then map, so the dropped tail is never rendered. */
+const capItems = <T>(arr: readonly T[], render: (item: T) => SExpr): SExpr[] => {
+  if (arr.length <= activeCaps.maxItems) return arr.map(render);
+  const shown: SExpr[] = arr.slice(0, activeCaps.maxItems).map(render);
+  shown.push(truncatedMarker(`+${arr.length - activeCaps.maxItems} more of ${arr.length}`));
+  return shown;
+};
+
+/** Cap a string to `maxStringChars`, annotating the elision inline. O(maxStringChars) —
+ *  `slice` never walks the dropped tail. */
+const capString = (full: string): string =>
+  full.length > activeCaps.maxStringChars
+    ? `${full.slice(0, activeCaps.maxStringChars)}…(+${full.length - activeCaps.maxStringChars} chars)`
+    : full;
+
+/** Options for the public serializer. When any cap is set, truncation is ON for this
+ *  call; with none set (or a bare indent number) behaviour is unchanged (no caps). */
+export type SerializeOpts = {
+  /** Max elements rendered per collection before a `+N more of TOTAL` marker. */
+  maxItems?: number;
+  /** Max characters rendered per string before an inline `…(+N chars)` marker. */
+  maxStringChars?: number;
+  /** Total output budget. If the capped render still exceeds it, the per-element caps
+   *  SHRINK and re-render (fair across siblings) — not a tail-cut. */
+  maxTotalChars?: number;
+  indent?: number;
+};
 
 export type SExprSerializable =
   | string
@@ -128,7 +173,7 @@ export function toSExpr(obj: any, visited_ = new Set()): SExpr {
 
     // SchemeString
     if (obj.constructor?.name === "SchemeString" && "__string__" in obj) {
-      const str = obj.__string__;
+      const str = capString(obj.__string__);
       // Use template strings for complex strings (multi-line, quotes, etc.)
       if (str.includes(String.raw`\n`) || str.includes(String.raw`\t`) || str.includes('"') || str.includes("'")) {
         return `\`${str}\``;
@@ -145,7 +190,7 @@ export function toSExpr(obj: any, visited_ = new Set()): SExpr {
     // LIPS Values (multiple return values)
     if (obj.constructor?.name === "Values" && "__values__" in obj) {
       // Convert to array of values
-      return ["values", ...obj.__values__.map((v: any) => toSExpr(v, visited))];
+      return ["values", ...capItems(obj.__values__, (v: any) => toSExpr(v, visited))];
     }
 
     // LIPS Pair (linked list structure)
@@ -205,7 +250,7 @@ export function toSExpr(obj: any, visited_ = new Set()): SExpr {
 
   // Array → (list ...)
   if (Array.isArray(obj)) {
-    return ["list", ...obj.map((item) => toSExpr(item, visited))];
+    return ["list", ...capItems(obj, (item) => toSExpr(item, visited))];
   }
 
   // Function → skip or placeholder
@@ -220,16 +265,18 @@ export function toSExpr(obj: any, visited_ = new Set()): SExpr {
 
   // Map → convert to object-like representation
   if (obj instanceof Map) {
+    const all = [...obj];
     const entries: SExpr[] = [];
-    for (const [key, value] of obj) {
+    for (const [key, value] of all.slice(0, activeCaps.maxItems)) {
       entries.push(`:${String(key)}`, toSExpr(value, visited));
     }
+    if (all.length > activeCaps.maxItems) entries.push(truncatedMarker(`+${all.length - activeCaps.maxItems} more of ${all.length}`));
     return ["map", ...entries];
   }
 
   // Set → convert to list
   if (obj instanceof Set) {
-    return ["set", ...[...obj].map((item) => toSExpr(item, visited))];
+    return ["set", ...capItems([...obj], (item) => toSExpr(item, visited))];
   }
 
   // AValue with empty provenance carries no lineage to show — serialize its
@@ -248,16 +295,17 @@ export function toSExpr(obj: any, visited_ = new Set()): SExpr {
 
   // Plain object → dict literal `(dict :k v …)`
   if (typeof obj === "object" && obj !== null) {
+    const all = Object.entries(obj).filter(([, value]) => typeof value !== "function");
     const entries: SExpr[] = [];
-    for (const [key, value] of Object.entries(obj)) {
-      // Skip functions
-      if (typeof value === "function") continue;
+    for (const [key, value] of all.slice(0, activeCaps.maxItems)) {
       entries.push(`:${key}`, toSExpr(value, visited));
     }
+    if (all.length > activeCaps.maxItems) entries.push(truncatedMarker(`+${all.length - activeCaps.maxItems} more of ${all.length}`));
     return ["dict", ...entries];
   }
 
-  // Primitives (string, number, boolean)
+  // Primitives (string, number, boolean) — a long string primitive is capped too.
+  if (typeof obj === "string") return capString(obj);
   return obj;
 }
 
@@ -418,6 +466,12 @@ export function formatSExpr(sexpr: SExpr, indent = 0): string {
     }
   }
 
+  // Truncation marker → a `#| … |#` block comment, so the surrounding form still PARSES
+  // (the comment is ignored, the form round-trips to the shown sample).
+  if (sexpr && typeof sexpr === "object" && TRUNCATED_MARKER in sexpr) {
+    return `#| ${(sexpr as Record<symbol, string>)[TRUNCATED_MARKER]} |#`;
+  }
+
   // Handle force-quoted marker (must be checked before typeof === "string")
   if (sexpr && typeof sexpr === "object" && QUOTED_MARKER in sexpr) {
     const value = (sexpr as any)[QUOTED_MARKER];
@@ -478,10 +532,26 @@ export function formatSExpr(sexpr: SExpr, indent = 0): string {
 function convertLipsPairToArray(pair: any, visited: Set<any>): SExpr[] {
   const result: SExpr[] = [];
   let current = pair;
+  let shown = 0;
 
   while (current && current.constructor?.name === "Pair") {
+    // Cap hit: cheap-count the rest (cdr walk, NO serialize) for the marker, then stop —
+    // the tail of a thousand-element list is never serialized.
+    if (shown >= activeCaps.maxItems) {
+      let rest = 0;
+      let c: any = current;
+      while (c && c.constructor?.name === "Pair") {
+        rest++;
+        c = c.cdr;
+      }
+      result.push(truncatedMarker(`+${rest} more of ${shown + rest}`));
+      current = c;
+      break;
+    }
+
     // Add car (current element) to result
     result.push(toSExpr(current.car, visited));
+    shown++;
 
     // Move to cdr (next element)
     current = current.cdr;
@@ -526,7 +596,64 @@ function processItem(item: any, visited: Set<any>): SExpr {
 /**
  * Convert to s-expression and format as string
  */
-export const toSExprString = (obj: any, indent = 0): string => formatSExpr(toSExpr(obj), indent);
+const DEFAULT_TOTAL = 40_000;
+const FLOOR_ITEMS = 3;
+const FLOOR_STRING = 80;
+
+/**
+ * Serialize a value to a formatted s-expression string.
+ *
+ * Truncation is OPT-IN: pass `SerializeOpts` to bound the output (the MCP path does,
+ * via `maxTotalChars`); a bare indent number (or no second arg) renders uncapped, as
+ * before — studio views and existing callers are unaffected. With caps set, per-element
+ * limits apply STREAMING (the tail of a huge collection is never serialized), and if the
+ * result still exceeds `maxTotalChars` the limits SHRINK fairly and re-render — never a
+ * tail-cut that would gut a sibling (e.g. PSSCAN in a `(list PSLIST PSSCAN)` diff).
+ */
+export const toSExprString = (obj: any, optsOrIndent: number | SerializeOpts = 0): string => {
+  const opts: SerializeOpts = typeof optsOrIndent === "number" ? { indent: optsOrIndent } : optsOrIndent;
+  const indent = opts.indent ?? 0;
+
+  // No caps requested → unchanged behaviour.
+  if (opts.maxItems == null && opts.maxStringChars == null && opts.maxTotalChars == null) {
+    return formatSExpr(toSExpr(obj), indent);
+  }
+
+  const maxTotalChars = opts.maxTotalChars ?? DEFAULT_TOTAL;
+  let maxItems = opts.maxItems ?? 100;
+  let maxStringChars = opts.maxStringChars ?? 2_000;
+
+  const render = (): string => {
+    activeCaps = { maxItems, maxStringChars };
+    try {
+      return formatSExpr(toSExpr(obj), indent);
+    } finally {
+      activeCaps = NO_CAPS;
+    }
+  };
+
+  let out = render();
+  let squeezed = false;
+  // Shrink-to-fit: tighten BOTH caps toward the floor and re-render. Each pass is itself
+  // capped, so a re-run never re-walks a huge tail. Fair across siblings — no tail-cut.
+  while (out.length > maxTotalChars && (maxItems > FLOOR_ITEMS || maxStringChars > FLOOR_STRING)) {
+    const factor = Math.min(0.9, maxTotalChars / out.length);
+    maxItems = Math.max(FLOOR_ITEMS, Math.floor(maxItems * factor));
+    maxStringChars = Math.max(FLOOR_STRING, Math.floor(maxStringChars * factor));
+    out = render();
+    squeezed = true;
+  }
+
+  // Floor still over budget (pathological nesting) → hard-cut the CONTENT as the genuine
+  // last resort, before the note (so a successful squeeze isn't chopped by the note's length).
+  if (out.length > maxTotalChars) {
+    out = `${out.slice(0, maxTotalChars)}\n#| … output hard-truncated at ${maxTotalChars} chars |#`;
+  }
+  if (squeezed) {
+    out = `#| ⚠ output reduced to fit response budget (request too large): showing ≤${maxItems} items per collection, ≤${maxStringChars} chars per string |#\n${out}`;
+  }
+  return out;
+};
 
 /**
  * Helper to create s-expression definitions
