@@ -14,9 +14,7 @@ import * as z from "zod";
  * LLM-facing error messages.
  */
 
-export type Result<T> =
-  | { ok: true; value: T }
-  | { ok: false; errors: ParseError[] };
+export type Result<T> = { ok: true; value: T } | { ok: false; errors: ParseError[] };
 
 export interface ParseError {
   /** Which shape branch tried to match, or "ref" for top-level. */
@@ -131,8 +129,8 @@ function wrapList<T, Ctx>(inner: Ref<T, Ctx>): Ref<T[], Ctx> {
       }
       const values: T[] = [];
       const errors: ParseError[] = [];
-      for (let i = 0; i < input.length; i++) {
-        const result = inner.parse(input[i], ctx);
+      for (const [i, element] of input.entries()) {
+        const result = inner.parse(element, ctx);
         if (result.ok) values.push(result.value);
         else {
           for (const e of result.errors) {
@@ -188,7 +186,10 @@ export function nameShape<Ctx>(
     resolve: (input, ctx) => {
       const resolved = resolve(input as string, ctx);
       if (resolved == null) {
-        return { ok: false, errors: [{ shape: "name", message: "no entity with that name", received: shortDescribe(input) }] };
+        return {
+          ok: false,
+          errors: [{ shape: "name", message: "no entity with that name", received: shortDescribe(input) }],
+        };
       }
       return { ok: true, value: resolved };
     },
@@ -235,10 +236,10 @@ export function objectShape<S extends z.ZodObject<any>, T, Ctx>(
       }
       try {
         return { ok: true, value: build(parsed.data, ctx) };
-      } catch (e) {
+      } catch (error) {
         return {
           ok: false,
-          errors: [{ shape: tag, message: (e as Error).message }],
+          errors: [{ shape: tag, message: (error as Error).message }],
         };
       }
     },
@@ -302,7 +303,7 @@ function renderShapeDescription(schema: z.ZodObject<any>, discriminator?: string
   const discVal = discriminator ? getDiscriminatorValue(schema, discriminator) : undefined;
   const otherFields = Object.keys(shape).filter((k) => k !== discriminator);
   if (discriminator && discVal) {
-    return `{${discriminator}: "${discVal}"${otherFields.length ? `, ${otherFields.join(", ")}` : ""}}`;
+    return `{${discriminator}: "${discVal}"${otherFields.length > 0 ? `, ${otherFields.join(", ")}` : ""}}`;
   }
   return `{${Object.keys(shape).join(", ")}}`;
 }
@@ -363,14 +364,7 @@ export interface RawListSpec {
   readonly _t?: unknown[];
 }
 
-export type Primitive =
-  | StringSpec
-  | NumberSpec
-  | BooleanSpec
-  | EnumSpec
-  | StringRecordSpec
-  | ScalarSpec
-  | RawListSpec;
+export type Primitive = StringSpec | NumberSpec | BooleanSpec | EnumSpec | StringRecordSpec | ScalarSpec | RawListSpec;
 
 export const str = (desc?: string): StringSpec => ({ kind: "string", desc });
 export const num = (desc?: string): NumberSpec => ({ kind: "number", desc });
@@ -400,16 +394,30 @@ export function optional<P extends Primitive>(spec: P): P & { optional: true } {
 
 export function primitiveJsonSchema(p: Primitive): object {
   let base: object;
-  if (p.kind === "enum") {
-    base = { type: "string", enum: [...p.values] };
-  } else if (p.kind === "string-record") {
-    base = { type: "object", additionalProperties: { type: "string" } };
-  } else if (p.kind === "scalar") {
-    base = { oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] };
-  } else if (p.kind === "raw-list") {
-    base = { type: "array" };
-  } else {
-    base = { type: p.kind };
+  switch (p.kind) {
+    case "enum": {
+      base = { type: "string", enum: [...p.values] };
+
+      break;
+    }
+    case "string-record": {
+      base = { type: "object", additionalProperties: { type: "string" } };
+
+      break;
+    }
+    case "scalar": {
+      base = { oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] };
+
+      break;
+    }
+    case "raw-list": {
+      base = { type: "array" };
+
+      break;
+    }
+    default: {
+      base = { type: p.kind };
+    }
   }
   return p.desc ? { ...base, description: p.desc } : base;
 }
@@ -435,7 +443,10 @@ export function primitiveParse(p: Primitive, input: unknown): Result<unknown> {
     case "enum":
       return typeof input === "string" && p.values.includes(input)
         ? { ok: true, value: input }
-        : { ok: false, errors: [{ shape: "enum", message: `expected one of ${p.values.join("|")}, got ${shortDescribe(input)}` }] };
+        : {
+            ok: false,
+            errors: [{ shape: "enum", message: `expected one of ${p.values.join("|")}, got ${shortDescribe(input)}` }],
+          };
     case "string-record": {
       if (typeof input !== "object" || input == null || Array.isArray(input)) {
         return { ok: false, errors: [{ shape: "string-record", message: `expected object, got ${typeOf(input)}` }] };
@@ -445,11 +456,13 @@ export function primitiveParse(p: Primitive, input: unknown): Result<unknown> {
       if (bad) {
         return {
           ok: false,
-          errors: [{
-            shape: "string-record",
-            message: `values must be strings; ${bad[0]} is ${typeOf(bad[1])}`,
-            path: [bad[0]],
-          }],
+          errors: [
+            {
+              shape: "string-record",
+              message: `values must be strings; ${bad[0]} is ${typeOf(bad[1])}`,
+              path: [bad[0]],
+            },
+          ],
         };
       }
       return { ok: true, value: input as Record<string, string> };

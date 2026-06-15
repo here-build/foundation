@@ -61,7 +61,10 @@ export interface Act<
 // ─── Action builder — typed-Ctx-carrying factory ────────────────────────────
 
 export interface ActBuilder<Ctx> {
-  act<const N extends readonly (keyof Ctx)[], P extends Record<string, FieldSpec<Ctx>> = Record<string, FieldSpec<Ctx>>>(
+  act<
+    const N extends readonly (keyof Ctx)[],
+    P extends Record<string, FieldSpec<Ctx>> = Record<string, FieldSpec<Ctx>>,
+  >(
     spec: Act<Ctx, N, P>,
   ): Act<Ctx, N, P>;
 }
@@ -268,14 +271,24 @@ export class ActionTool<BaseCtx = Record<string, unknown>, Prep = Record<string,
     const limits = { ...DEFAULT_SIZE_LIMITS, ...this.options.limits };
 
     if (!intent) {
-      return { success: false, validation: "failed", intent: "", errors: [{ field: "intent", message: "intent is required (string)" }] };
+      return {
+        success: false,
+        validation: "failed",
+        intent: "",
+        errors: [{ field: "intent", message: "intent is required (string)" }],
+      };
     }
 
     // Size gate before any work.
     try {
       checkSizeLimit(actions.length, limits.maxActions, "batch action count");
     } catch (error) {
-      return { success: false, validation: "failed", intent, errors: [{ field: "actions", message: classifyError(error).message }] };
+      return {
+        success: false,
+        validation: "failed",
+        intent,
+        errors: [{ field: "actions", message: classifyError(error).message }],
+      };
     }
 
     // Phase 1: primitive context fields (need no ctx).
@@ -287,11 +300,21 @@ export class ActionTool<BaseCtx = Record<string, unknown>, Prep = Record<string,
     let cleanup: (() => void | Promise<void>) | undefined;
     if (this.options.prepare) {
       try {
-        const prepared = await withTimeout(() => this.options.prepare!(primResult.value as BaseCtx), timeouts.prepare, "prepare", this.name);
+        const prepared = await withTimeout(
+          () => this.options.prepare!(primResult.value as BaseCtx),
+          timeouts.prepare,
+          "prepare",
+          this.name,
+        );
         prep = prepared.prep;
         cleanup = prepared.cleanup;
       } catch (error) {
-        return { success: false, validation: "failed", intent, errors: [{ field: "<prepare>", message: classifyError(error, "prepare").message }] };
+        return {
+          success: false,
+          validation: "failed",
+          intent,
+          errors: [{ field: "<prepare>", message: classifyError(error, "prepare").message }],
+        };
       }
     } else {
       prep = {} as Prep;
@@ -321,7 +344,11 @@ export class ActionTool<BaseCtx = Record<string, unknown>, Prep = Record<string,
         }
         const bucket = this.byName.get(call.name);
         if (!bucket) {
-          errors.push({ actionIndex: i, actionName: call.name, message: `unknown action "${call.name}" — available: ${[...this.byName.keys()].join(", ")}` });
+          errors.push({
+            actionIndex: i,
+            actionName: call.name,
+            message: `unknown action "${call.name}" — available: ${[...this.byName.keys()].join(", ")}`,
+          });
           continue;
         }
         const pick = pickReceiver(bucket, fullCtx as Record<string, unknown>);
@@ -331,7 +358,11 @@ export class ActionTool<BaseCtx = Record<string, unknown>, Prep = Record<string,
         }
         const missing = pick.act.needs.filter((k) => (fullCtx as Record<string, unknown>)[k as string] == null);
         if (missing.length > 0) {
-          errors.push({ actionIndex: i, actionName: call.name, message: `missing context: ${missing.map(String).join(", ")}` });
+          errors.push({
+            actionIndex: i,
+            actionName: call.name,
+            message: `missing context: ${missing.map(String).join(", ")}`,
+          });
           continue;
         }
         const propsResult = parseProps(pick.act.props ?? {}, call.props, fullCtx, limits.maxStringFieldSize);
@@ -354,9 +385,22 @@ export class ActionTool<BaseCtx = Record<string, unknown>, Prep = Record<string,
           if (ctx.signal?.aborted) throw ctx.signal.reason ?? new DOMException("aborted", "AbortError");
           const { act, receiver, props } = resolved[i]!;
           try {
-            results.push(await withTimeout(() => Promise.resolve(act.handle(fullCtx, receiver, props)), timeouts.handler, "handler", act.name));
+            results.push(
+              await withTimeout(
+                () => Promise.resolve(act.handle(fullCtx, receiver, props)),
+                timeouts.handler,
+                "handler",
+                act.name,
+              ),
+            );
           } catch (error) {
-            throw new BatchFailureError(i, act.name, error instanceof Error ? error.message : String(error), results, resolved.length);
+            throw new BatchFailureError(
+              i,
+              act.name,
+              error instanceof Error ? error.message : String(error),
+              results,
+              resolved.length,
+            );
           }
         }
         return results;
@@ -434,7 +478,10 @@ function validateClusters(clusters: readonly ActionCluster<any>[]): void {
       for (const n of [a.name, ...(a.aliases ?? [])]) {
         const key = `${n}@${receiver}`;
         const existing = seen.get(key);
-        if (existing) throw new Error(`action: duplicate "${n}"${a.on ? ` on ${a.on.name}` : ""} — clusters "${existing}" and "${cluster.name}"`);
+        if (existing)
+          throw new Error(
+            `action: duplicate "${n}"${a.on ? ` on ${a.on.name}` : ""} — clusters "${existing}" and "${cluster.name}"`,
+          );
         seen.set(key, cluster.name);
       }
     }
@@ -444,22 +491,30 @@ function validateClusters(clusters: readonly ActionCluster<any>[]): void {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function normalizeActionCall(raw: unknown): { name: string; props: Record<string, unknown> } | { error: string } {
-  if (!Array.isArray(raw) || raw.length === 0) return { error: `expected [name, propsObject] tuple, got ${typeOf(raw)}` };
+  if (!Array.isArray(raw) || raw.length === 0)
+    return { error: `expected [name, propsObject] tuple, got ${typeOf(raw)}` };
   const [name, ...rest] = raw;
   if (typeof name !== "string") return { error: `expected action name (string), got ${typeOf(name)}` };
   const propsRaw = rest.length === 0 ? {} : rest[0];
-  const props = propsRaw && typeof propsRaw === "object" && !Array.isArray(propsRaw) ? (propsRaw as Record<string, unknown>) : {};
+  const props =
+    propsRaw && typeof propsRaw === "object" && !Array.isArray(propsRaw) ? (propsRaw as Record<string, unknown>) : {};
   return { name, props };
 }
 
-function pickReceiver(bucket: Act<any>[], ctx: Record<string, unknown>): { act: Act<any>; receiver: unknown } | { error: string } {
+function pickReceiver(
+  bucket: Act<any>[],
+  ctx: Record<string, unknown>,
+): { act: Act<any>; receiver: unknown } | { error: string } {
   for (const act of bucket) {
     if (!act.on) return { act, receiver: undefined };
     const receiver = ctx[act.receiverKey as string];
     if (receiver == null) continue;
     if ((receiver as object).constructor === act.on) return { act, receiver };
   }
-  const receivers = bucket.filter((a) => a.on).map((a) => `${String(a.receiverKey ?? "?")}: ${a.on!.name}`).join(" | ");
+  const receivers = bucket
+    .filter((a) => a.on)
+    .map((a) => `${String(a.receiverKey ?? "?")}: ${a.on!.name}`)
+    .join(" | ");
   return { error: `no receiver match — expected ${receivers || "<none>"}` };
 }
 
@@ -480,7 +535,9 @@ function parseContextFields(
     if (phase === "ref" && isPrimitive) continue;
     const result = fieldParse(field, obj[key], ctx);
     if (result.ok) out[key] = result.value;
-    else for (const e of result.errors) errors.push({ field: key, path: e.path, message: e.message, received: e.received });
+    else
+      for (const e of result.errors)
+        errors.push({ field: key, path: e.path, message: e.message, received: e.received });
   }
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, value: out };
@@ -498,12 +555,16 @@ function parseProps<Ctx>(
     const result = fieldParse(field, input[key], ctx);
     if (result.ok) {
       if (maxStringSize != null && typeof result.value === "string" && result.value.length > maxStringSize) {
-        errors.push({ field: key, message: `string field "${key}" exceeded ${maxStringSize} chars: ${result.value.length}` });
+        errors.push({
+          field: key,
+          message: `string field "${key}" exceeded ${maxStringSize} chars: ${result.value.length}`,
+        });
         continue;
       }
       out[key] = result.value;
     } else {
-      for (const e of result.errors) errors.push({ field: key, path: e.path, message: e.message, received: e.received });
+      for (const e of result.errors)
+        errors.push({ field: key, path: e.path, message: e.message, received: e.received });
     }
   }
   if (errors.length > 0) return { ok: false, errors };

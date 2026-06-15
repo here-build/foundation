@@ -50,7 +50,7 @@ function argTypeName(item: z.ZodType): string {
 // what makes this sound — every penetrating statement yields a cacheable value, every uncacheable one
 // is a closure. No verb-wrap, no interpreter tap: the statement source IS the structural key.
 
-const DEFINE_NAME = /^\(define\s+\(?\s*([^\s()]+)/;
+const DEFINE_NAME = /^\(define\s+(?:\(\s*)?([^\s()]+)/;
 
 /** The bound name of a `(define x …)` / `(define (f …) …)`, or undefined for a bare expression. */
 function defineName(canonicalSrc: string): string | undefined {
@@ -60,7 +60,8 @@ function defineName(canonicalSrc: string): string | undefined {
 const OPEN = new Set(["(", "[", "{"]);
 const CLOSE = new Set([")", "]", "}"]);
 const QUOTE_PREFIX = new Set(["'", "`", ",", ",@"]);
-const isSkippable = (tok: string): boolean => /^\s+$/.test(tok) || tok.startsWith(";") || tok.startsWith("#|") || tok.startsWith("#;");
+const isSkippable = (tok: string): boolean =>
+  /^\s+$/.test(tok) || tok.startsWith(";") || tok.startsWith("#|") || tok.startsWith("#;");
 
 /** Split scheme source into top-level statements via the real lexer (so `#\(`, `#|…|#`, string
  *  literals, and quote prefixes are tokenized correctly — a hand-scanner would miscount `#\(`).
@@ -257,7 +258,10 @@ export class DiscoveryTool {
     // required config args land in `required` (the hand-built version wrongly required only `expr`).
     const configShape = (this.capability.spec as McpCapabilitySpec<never, never>).configuration ?? {};
     const input = z.object({
-      intent: z.string().describe("What you're exploring and why. Shown to collaborating users in the studio UI.").optional(),
+      intent: z
+        .string()
+        .describe("What you're exploring and why. Shown to collaborating users in the studio UI.")
+        .optional(),
       expr: z.string().describe(this.exprDescription(verbs, dynamic, aiName)),
       ...(configShape as z.ZodRawShape),
     });
@@ -272,8 +276,7 @@ export class DiscoveryTool {
    *  so the migration to the value shape preserves it exactly. */
   private exprDescription(verbs: { text: string }[], dynamic: boolean, aiName: string): string {
     const baseSymbols = this.baseEnvSymbols().join(", ");
-    const base =
-      dedent`
+    const base = `${dedent`
         Expr is an input for Scheme (Lisp dialect) REPL that will be executed in sandboxed environment.
         This sandbox is providing access to the actual system state snapshot at the moment of request.
         This snapshot is stored locally and can be traversed in full.
@@ -290,14 +293,9 @@ export class DiscoveryTool {
         You can use any lisp features to obtain data you need: filter, map
 
         Domain-specific functions available in sandbox:
-      ` +
-      "\n" +
-      verbs.map((v) => v.text).join("\n");
+      `}\n${verbs.map((v) => v.text).join("\n")}`;
     if (!dynamic) return base;
-    return (
-      base +
-      "\n" +
-      dedent`
+    return `${base}\n${dedent`
         NOTE${aiName ? ` FOR ${aiName.toUpperCase()}` : ""} ON LIVE DESCRIPTION:
         The data provided above IS NOT STATIC.
         It is dynamically generated at every MCP session start. <timestamp>${format(new Date(), "MMM do, HH:MM X")}</timestamp>
@@ -305,8 +303,7 @@ export class DiscoveryTool {
         Some descriptions have user- and session-personalized, actual state at session start directly in description.
         That data is generated dynamically${aiName ? ` (yes, ${aiName}, this tool description is not static and was generated personally for you right now)` : ""} on description fetch to provide instant basic awareness even before session starts.
         Consider it as a dashboard or welcome screen for this MCP application.
-      `
-    );
+      `}`;
   }
 
   /** The base env's full symbol set (chain-walked, sorted) — advertised in the schema in place of a
@@ -333,7 +330,12 @@ export class DiscoveryTool {
     );
   }
 
-  private log(ctx: ToolCallCtx, args: DiscoveryArgs, startTime: number, outcome: { success: boolean; errorMessage?: string }) {
+  private log(
+    ctx: ToolCallCtx,
+    args: DiscoveryArgs,
+    startTime: number,
+    outcome: { success: boolean; errorMessage?: string },
+  ) {
     const { expr: _e, intent, ...rest } = args;
     ctx.record?.({
       sessionId: ctx.session?.id ?? "unknown",

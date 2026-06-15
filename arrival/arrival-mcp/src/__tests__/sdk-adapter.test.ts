@@ -1,7 +1,7 @@
+import { port, type Resource } from "@here.build/arrival-scheme/resources";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { port, type Resource } from "@here.build/arrival-scheme/resources";
 import { describe, expect, it } from "vitest";
 import * as z from "zod";
 

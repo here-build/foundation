@@ -73,37 +73,22 @@ describe("classifyError", () => {
 
 describe("withTimeout", () => {
   it("resolves when operation completes in time", async () => {
-    const result = await withTimeout(
-      async () => 42,
-      1_000,
-      "handler",
-      "fast-op",
-    );
+    const result = await withTimeout(async () => 42, 1000, "handler", "fast-op");
     expect(result).toBe(42);
   });
 
   it("rejects with MCPError(timeout) when operation exceeds deadline", async () => {
     await expect(
-      withTimeout(
-        () => new Promise<number>((resolve) => setTimeout(() => resolve(1), 200)),
-        50,
-        "handler",
-        "slow-op",
-      ),
+      withTimeout(() => new Promise<number>((resolve) => setTimeout(() => resolve(1), 200)), 50, "handler", "slow-op"),
     ).rejects.toThrow(MCPError);
   });
 
   it("timeout error carries phase + target + deadlineMs", async () => {
     try {
-      await withTimeout(
-        () => new Promise<number>((resolve) => setTimeout(() => resolve(1), 100)),
-        10,
-        "handler",
-        "x",
-      );
-    } catch (e) {
-      expect(isMCPError(e)).toBe(true);
-      const err = e as MCPError;
+      await withTimeout(() => new Promise<number>((resolve) => setTimeout(() => resolve(1), 100)), 10, "handler", "x");
+    } catch (error) {
+      expect(isMCPError(error)).toBe(true);
+      const err = error as MCPError;
       expect(err.kind).toBe("timeout");
       expect(err.details.phase).toBe("handler");
       expect(err.details.target).toBe("x");
@@ -117,7 +102,7 @@ describe("withTimeout", () => {
         async () => {
           throw new Error("op failed");
         },
-        1_000,
+        1000,
         "handler",
       ),
     ).rejects.toThrow("op failed");
@@ -130,7 +115,7 @@ describe("withTimeout", () => {
         receivedSignal = signal;
         return "ok";
       },
-      1_000,
+      1000,
       "handler",
     );
     expect(receivedSignal).not.toBeNull();
@@ -147,9 +132,9 @@ describe("size-limit helpers", () => {
   it("checkSizeLimit throws MCPError(size-limit) when over", () => {
     try {
       checkSizeLimit(11, 10, "actions", "batch");
-    } catch (e) {
-      expect(isMCPError(e)).toBe(true);
-      const err = e as MCPError;
+    } catch (error) {
+      expect(isMCPError(error)).toBe(true);
+      const err = error as MCPError;
       expect(err.kind).toBe("size-limit");
       expect(err.message).toMatch(/actions exceeded: 11 > 10/);
       expect(err.details.target).toBe("batch");
@@ -164,10 +149,10 @@ describe("size-limit helpers", () => {
   it("checkStringSize throws over", () => {
     try {
       checkStringSize("x".repeat(101), 100, "myField");
-    } catch (e) {
-      expect(isMCPError(e)).toBe(true);
-      expect((e as MCPError).kind).toBe("size-limit");
-      expect((e as MCPError).details.target).toBe("myField");
+    } catch (error) {
+      expect(isMCPError(error)).toBe(true);
+      expect((error as MCPError).kind).toBe("size-limit");
+      expect((error as MCPError).details.target).toBe("myField");
     }
   });
 

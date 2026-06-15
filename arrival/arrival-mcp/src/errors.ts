@@ -133,12 +133,7 @@ export const DEFAULT_SIZE_LIMITS: Required<SizeLimits> = {
   maxStringFieldSize: 16_384,
 };
 
-export function checkSizeLimit(
-  current: number,
-  max: number,
-  label: string,
-  target?: string,
-): void {
+export function checkSizeLimit(current: number, max: number, label: string, target?: string): void {
   if (current > max) {
     throw new MCPError("size-limit", `${label} exceeded: ${current} > ${max}`, {
       target,
@@ -147,16 +142,11 @@ export function checkSizeLimit(
   }
 }
 
-export function checkStringSize(
-  value: string,
-  max: number,
-  target?: string,
-): void {
+export function checkStringSize(value: string, max: number, target?: string): void {
   if (value.length > max) {
-    throw new MCPError(
-      "size-limit",
-      `string field "${target ?? "unnamed"}" exceeded ${max} chars: ${value.length}`,
-      { target, extra: { length: value.length, max } },
-    );
+    throw new MCPError("size-limit", `string field "${target ?? "unnamed"}" exceeded ${max} chars: ${value.length}`, {
+      target,
+      extra: { length: value.length, max },
+    });
   }
 }

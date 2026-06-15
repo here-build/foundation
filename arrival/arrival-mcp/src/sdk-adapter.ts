@@ -15,10 +15,15 @@
 // Going through `.server` keeps that, and never names the deprecated `Server` symbol.
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  type CallToolResult,
+  type Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 
-import { serializeResult, type UserlandCallToolResult } from "./dispatch.js";
 import type { ToolCallCtx } from "./DiscoveryTool.js";
+import { serializeResult, type UserlandCallToolResult } from "./dispatch.js";
 
 /** The transport contract both `DiscoveryTool` and `ActionTool` satisfy (structurally). `call`'s
  *  return is serialized by `serializeResult`, so a tier may return `string[]`, an object, or an array
@@ -60,10 +65,15 @@ export function registerTools(mcp: McpServer, tools: readonly McpTool[], resolve
     try {
       // `call` returns `string[]` (DiscoveryTool) or a result object (ActionTool) — both are
       // `UserlandCallToolResult`-shaped; the one serializer lowers either.
-      const result = (await tool.call(args, { ...base, signal: extra.signal })) as UserlandCallToolResult | UserlandCallToolResult[];
+      const result = (await tool.call(args, { ...base, signal: extra.signal })) as
+        | UserlandCallToolResult
+        | UserlandCallToolResult[];
       return await serializeResult(result);
     } catch (error) {
-      return { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };
+      return {
+        content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+        isError: true,
+      };
     }
   });
 }

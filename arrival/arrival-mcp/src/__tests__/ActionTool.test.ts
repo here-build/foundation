@@ -63,15 +63,29 @@ describe("ActionTool — value-shape, named-props, FieldSpec", () => {
 
   it("runs a batch sharing one context scope; prepare's prep is visible to every handler", async () => {
     const { tool, log } = makeTool();
-    const res = await tool.call({ intent: "edit", docId: "d1", actions: [["append", { text: "a" }], ["append", { text: "b" }]] });
+    const res = await tool.call({
+      intent: "edit",
+      docId: "d1",
+      actions: [
+        ["append", { text: "a" }],
+        ["append", { text: "b" }],
+      ],
+    });
     expect(res.success).toBe(true);
-    expect("results" in res && res.results).toEqual([{ ok: true, text: "a" }, { ok: true, text: "b" }]);
+    expect("results" in res && res.results).toEqual([
+      { ok: true, text: "a" },
+      { ok: true, text: "b" },
+    ]);
     expect(log).toEqual(["D1:a", "D1:b"]);
   });
 
   it("rollback-report: a runtime failure stops the batch and reports what ran", async () => {
     const { tool, log } = makeTool();
-    const res = await tool.call({ intent: "edit", docId: "d1", actions: [["append", { text: "a" }], ["boom"], ["append", { text: "c" }]] });
+    const res = await tool.call({
+      intent: "edit",
+      docId: "d1",
+      actions: [["append", { text: "a" }], ["boom"], ["append", { text: "c" }]],
+    });
     expect(res.success).toBe(false);
     expect("partial" in res && res.partial).toBe(true);
     expect("executed" in res && res.executed).toBe(1);
@@ -104,8 +118,24 @@ describe("ActionTool — value-shape, named-props, FieldSpec", () => {
         defineCluster<{ element?: Widget | Gadget; intent: string }>({
           name: "rx",
           actions: (b) => [
-            b.act({ name: "tap", needs: ["element"], on: Widget, desc: "tap a widget", handle: (_c, r) => { seen.push(`widget:${(r as Widget).id}`); } }),
-            b.act({ name: "tap", needs: ["element"], on: Gadget, desc: "tap a gadget", handle: (_c, r) => { seen.push(`gadget:${(r as Gadget).id}`); } }),
+            b.act({
+              name: "tap",
+              needs: ["element"],
+              on: Widget,
+              desc: "tap a widget",
+              handle: (_c, r) => {
+                seen.push(`widget:${(r as Widget).id}`);
+              },
+            }),
+            b.act({
+              name: "tap",
+              needs: ["element"],
+              on: Gadget,
+              desc: "tap a gadget",
+              handle: (_c, r) => {
+                seen.push(`gadget:${(r as Gadget).id}`);
+              },
+            }),
           ],
         }),
       ],
@@ -128,7 +158,9 @@ describe("ActionTool — value-shape, named-props, FieldSpec", () => {
 
   it("a pre-aborted signal cancels the batch before any action", async () => {
     const { tool, log } = makeTool();
-    await expect(tool.call({ intent: "x", docId: "d1", actions: [["append", { text: "a" }]] }, { signal: AbortSignal.abort() })).rejects.toThrow();
+    await expect(
+      tool.call({ intent: "x", docId: "d1", actions: [["append", { text: "a" }]] }, { signal: AbortSignal.abort() }),
+    ).rejects.toThrow();
     expect(log).toEqual([]);
   });
 
@@ -151,8 +183,23 @@ describe("ActionTool — value-shape, named-props, FieldSpec", () => {
         }
       },
       actions: (b) => [
-        b.act({ name: "ok", needs: [], desc: "ok", handle: () => { log.push("ok"); return { ok: true }; } }),
-        b.act({ name: "boom", needs: [], desc: "throws", handle: () => { throw new Error("kaboom"); } }),
+        b.act({
+          name: "ok",
+          needs: [],
+          desc: "ok",
+          handle: () => {
+            log.push("ok");
+            return { ok: true };
+          },
+        }),
+        b.act({
+          name: "boom",
+          needs: [],
+          desc: "throws",
+          handle: () => {
+            throw new Error("kaboom");
+          },
+        }),
       ],
     });
 
@@ -176,6 +223,12 @@ describe("ActionTool — value-shape, named-props, FieldSpec", () => {
       { intent: "add a", docId: "d1", actions: [["append", { text: "a" }]] },
       { session: { id: "s1", state: {} }, user: { sub: "u_1" }, record },
     );
-    expect(record.mock.calls[0]![0]).toMatchObject({ sessionId: "s1", userSub: "u_1", tool: "doc-edit", intent: "add a", success: true });
+    expect(record.mock.calls[0]![0]).toMatchObject({
+      sessionId: "s1",
+      userSub: "u_1",
+      tool: "doc-edit",
+      intent: "add a",
+      success: true,
+    });
   });
 });

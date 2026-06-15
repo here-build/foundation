@@ -28,7 +28,10 @@ interface Ctx {
 }
 
 class LocalItem {
-  constructor(public id: string, public label: string) {}
+  constructor(
+    public id: string,
+    public label: string,
+  ) {}
 }
 
 function makeCtx(): Ctx {
@@ -193,7 +196,7 @@ describe("defineRef — multi-branch fallthrough", () => {
     const ref = buildPolymorphicRef();
     const ctx = makeCtx();
     // A number matches none of uuid/name/object/instance.
-    const r = ref.parse(12345, ctx);
+    const r = ref.parse(12_345, ctx);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.errors).toHaveLength(1);
@@ -251,7 +254,7 @@ describe(".optional()", () => {
 
   it("surfaces inner errors for invalid non-undefined input", () => {
     const ref = buildPolymorphicRef().optional();
-    const r = ref.parse(12345, makeCtx());
+    const r = ref.parse(12_345, makeCtx());
     expect(r.ok).toBe(false);
   });
 
@@ -347,14 +350,8 @@ describe("objectShape", () => {
       typeName: "Tagged",
       desc: "",
       shapes: [
-        objectShape(
-          z.object({ kind: z.literal("first"), label: z.string() }),
-          (p) => ({ tag: `first:${p.label}` }),
-        ),
-        objectShape(
-          z.object({ kind: z.literal("second"), value: z.number() }),
-          (p) => ({ tag: `second:${p.value}` }),
-        ),
+        objectShape(z.object({ kind: z.literal("first"), label: z.string() }), (p) => ({ tag: `first:${p.label}` })),
+        objectShape(z.object({ kind: z.literal("second"), value: z.number() }), (p) => ({ tag: `second:${p.value}` })),
       ],
     });
 
@@ -368,20 +365,14 @@ describe("objectShape", () => {
   });
 
   it("filters match by discriminator value — wrong kind does not match first shape", () => {
-    const shape = objectShape(
-      z.object({ kind: z.literal("first"), label: z.string() }),
-      (p) => p,
-    );
+    const shape = objectShape(z.object({ kind: z.literal("first"), label: z.string() }), (p) => p);
     // match() should be false because discriminator doesn't equal "first".
     expect(shape.match({ kind: "second", label: "x" })).toBe(false);
     expect(shape.match({ kind: "first", label: "x" })).toBe(true);
   });
 
   it("rejects non-object (array, null, string) in match", () => {
-    const shape = objectShape(
-      z.object({ id: z.string() }),
-      (p) => p,
-    );
+    const shape = objectShape(z.object({ id: z.string() }), (p) => p);
     expect(shape.match([])).toBe(false);
     expect(shape.match(null)).toBe(false);
     expect(shape.match("string")).toBe(false);
@@ -392,12 +383,7 @@ describe("objectShape", () => {
     const ref = defineRef<unknown, Ctx>({
       typeName: "T",
       desc: "",
-      shapes: [
-        objectShape(
-          z.object({ kind: z.literal("k"), id: z.string(), n: z.number() }),
-          (p) => p,
-        ),
-      ],
+      shapes: [objectShape(z.object({ kind: z.literal("k"), id: z.string(), n: z.number() }), (p) => p)],
     });
     const r = ref.parse({ kind: "k", id: "x", n: "not-a-number" }, makeCtx());
     expect(r.ok).toBe(false);
@@ -430,10 +416,7 @@ describe("objectShape", () => {
   });
 
   it("jsonSchema strips $schema key", () => {
-    const shape = objectShape(
-      z.object({ kind: z.literal("k"), id: z.string() }),
-      (p) => p,
-    );
+    const shape = objectShape(z.object({ kind: z.literal("k"), id: z.string() }), (p) => p);
     const schema = shape.jsonSchema() as {
       $schema?: unknown;
       type?: string;
