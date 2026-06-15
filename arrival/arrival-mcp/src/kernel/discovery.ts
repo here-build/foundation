@@ -1,5 +1,5 @@
 import type { Environment } from "@here.build/arrival";
-import { execSerialized, SAFE_BUILTINS, sandboxedEnv } from "@here.build/arrival";
+import { execSerialized, sandboxedEnv } from "@here.build/arrival";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import dedent from "dedent";
 
@@ -452,8 +452,6 @@ function renderExprDescription(
     Expr is an input for Scheme (Lisp dialect) REPL that will be executed in sandboxed environment.
     This sandbox is providing access to the actual system state snapshot at the moment of request.
     You can do anything you want — data transformations, lenses, views of any complexity.
-    Sandbox provides following standard symbols:
-    ${SAFE_BUILTINS}
 
     Batch queries supported — put multiple top-level expressions, one per line.
     Use Fantasy Land combinators (fmap, chain, filter, compose) for compositional queries.
