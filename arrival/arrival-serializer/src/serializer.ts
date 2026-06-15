@@ -526,28 +526,19 @@ function processItem(item: any, visited: Set<any>): SExpr {
 /**
  * Convert to s-expression and format as string
  */
-export function toSExprString(obj: any, indent = 0): string {
-  const sexpr = toSExpr(obj);
-  return formatSExpr(sexpr, indent);
-}
+export const toSExprString = (obj: any, indent = 0): string => formatSExpr(toSExpr(obj), indent);
 
 /**
  * Helper to create s-expression definitions
  */
-export function sexpr(tag: string, ...args: any[]): SExprDefinition {
-  return [SEXPR_TAG, tag, ...args];
-}
+export const sexpr = (tag: string, ...args: any[]): SExprDefinition => [SEXPR_TAG, tag, ...args];
 
 /**
  * Helper to create a map from object
  */
-export function smap(obj: Record<string, any>): SExprDefinition {
-  return [SEXPR_TAG, "dict", ...Object.entries(obj).flatMap(([k, v]) => [`:${k}`, v])];
-}
+export const smap = (obj: Record<string, any>): SExprDefinition => [SEXPR_TAG, "dict", ...Object.entries(obj).flatMap(([k, v]) => [`:${k}`, v])];
 
 /**
  * Helper to create a list
  */
-export function slist(...items: any[]): SExprDefinition {
-  return [SEXPR_TAG, "list", ...items];
-}
+export const slist = (...items: any[]): SExprDefinition => [SEXPR_TAG, "list", ...items];
