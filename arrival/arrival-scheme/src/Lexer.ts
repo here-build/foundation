@@ -72,8 +72,8 @@ export class Lexer {
   static readonly i_comment = Symbol.for("i_comment");
   static readonly l_datum = Symbol.for("l_datum");
   static readonly dot = Symbol.for("dot");
-  static readonly boundary = /^$|[\s()[\]']/;
-  static _brackets: LexerRule[] = [[/[()[\]]/, null, null, null, null]];
+  static readonly boundary = /^$|[\s()[\]{}']/;
+  static _brackets: LexerRule[] = [[/[()[\]{}]/, null, null, null, null]];
   // symbols should be matched last
   static _symbol_rules: LexerRule[] = [
     [/\S/, Lexer.boundary, Lexer.boundary, null, null],
@@ -151,7 +151,7 @@ export class Lexer {
     // characters
     [/#/, null, /\\/, null, Lexer.character],
     [/\\/, /#/, /\s/, Lexer.character, Lexer.character],
-    [/\\/, /#/, /[()[\]]/, Lexer.character, Lexer.character],
+    [/\\/, /#/, /[()[\]{}]/, Lexer.character, Lexer.character],
     [/\s/, /\\/, null, Lexer.character, null],
     [/\S/, null, Lexer.boundary, Lexer.character, null],
 
@@ -161,7 +161,7 @@ export class Lexer {
     [/[ \t]/, null, null, Lexer.regex, Lexer.regex],
     [/\[/, /[^\\]/, null, Lexer.regex, Lexer.regex_class],
     [/\]/, /[^\\]/, null, Lexer.regex_class, Lexer.regex],
-    [/[()[\]]/, null, null, Lexer.regex, Lexer.regex],
+    [/[()[\]{}]/, null, null, Lexer.regex, Lexer.regex],
     [/\//, /\\/, null, Lexer.regex, Lexer.regex],
     [/\//, null, Lexer.boundary, Lexer.regex, null],
     [/[gimyus]/, /\//, Lexer.boundary, Lexer.regex, null],
@@ -471,7 +471,7 @@ export class Lexer {
       invariant(
         this.__input__[this._i] !== "#",
         () =>
-          `Invalid Syntax at line ${line_number + 1}: invalid token ${this.__input__.slice(Math.max(0, this._i)).replace(/^([^\s()[\]]+).*/, "$1")}`,
+          `Invalid Syntax at line ${line_number + 1}: invalid token ${this.__input__.slice(Math.max(0, this._i)).replace(/^([^\s()[\]{}]+).*/, "$1")}`,
       );
       throw new Unterminated(`Invalid Syntax at line ${line_number + 1}: Unterminated expression ${line}`);
     }

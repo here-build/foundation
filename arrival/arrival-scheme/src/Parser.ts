@@ -36,6 +36,7 @@ import { SchemeString } from "./SchemeString.js";
 import { SchemeSymbol } from "./SchemeSymbol.js";
 import { Macro } from "./Macro.js";
 import { Pair } from "./Pair.js";
+import { canonicalizeCurly } from "./curly-infix.js";
 import type { Nil, SchemeValue } from "./types.js";
 import { nil } from "./types.js";
 import invariant from "tiny-invariant";
@@ -302,6 +303,14 @@ export class Parser {
     return [")", "]"].includes(token);
   }
 
+  is_curly_open(token: string) {
+    return token === "{";
+  }
+
+  is_curly_close(token: string) {
+    return token === "}";
+  }
+
   async read_list(): Promise<Pair | Nil> {
     let head: Pair | typeof nil = nil;
     let prev: Pair | typeof nil = head;
@@ -338,6 +347,33 @@ export class Parser {
       }
     }
     return head;
+  }
+
+  // SRFI-105 curly-infix: gather the flat datum sequence between `{` and `}` (the transform to a
+  // canonical s-expr happens in canonicalizeCurly). Mirrors read_list's loop but collects a JS array
+  // and stops on `}`; `_read_object` recursion handles nested `{…}`/`(…)`/quotes for free.
+  async read_curly_elements(): Promise<SchemeValue[]> {
+    const elements: SchemeValue[] = [];
+    while (true) {
+      const token = await this.peek();
+      if (token === eof) {
+        throw new Unterminated("unterminated curly-infix '{'");
+      }
+      if (typeof token === "string" && this.is_curly_close(token)) {
+        --this._state.parentheses;
+        this.skip();
+        break;
+      }
+      if (token === ".") {
+        throw new ParseError("'.' not allowed in curly-infix", this._getLocation());
+      }
+      const node = await this._read_object();
+      if (node === eof) {
+        throw new Unterminated("unterminated curly-infix '{'");
+      }
+      elements.push(node as SchemeValue);
+    }
+    return elements;
   }
 
   async read_value() {
@@ -550,6 +586,17 @@ export class Parser {
       this.skip();
       this._refs[+ref_label] = this._read_object() as SchemeValue | Promise<SchemeValue>;
       return this._refs[+ref_label] as SchemeValue | Promise<SchemeValue>;
+    } else if (this.is_curly_open(token)) {
+      this._enterNesting();
+      this.skip();
+      const elements = await this.read_curly_elements();
+      const datum = canonicalizeCurly(elements, loc);
+      if (loc && is_pair(datum)) {
+        datum.setLocation(loc);
+      }
+      return datum;
+    } else if (this.is_curly_close(token)) {
+      throw new ParseError("unexpected '}'", loc ?? undefined);
     } else if (this.is_close(token)) {
       --this._state.parentheses;
       this.skip();
