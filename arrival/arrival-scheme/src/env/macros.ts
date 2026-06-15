@@ -8,14 +8,29 @@
 //   compose / comp   right-to-left composition  ((compose f g) x) => (f (g x))
 //   pipe / flow      left-to-right composition   ((pipe f g) x)    => (g (f x))
 //
-// Wiring-only (no resources) → pause-trivial. Source mirrors arrival-scheme/src/
-// bootstrap.ts (originals untouched). NOTE: scoped to the self-contained idiom
-// family — cut/cute (which need gensym + JS interop) stay out of this atomic pack.
+// Wiring-only (no resources) → pause-trivial. NOTE: scoped to the self-contained
+// idiom family — cut/cute (which need gensym + JS interop) stay out of this atomic pack.
+//
+// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `THREADING_SCM` and
+// concatenates it, so this module is the sole definition site. It used to be
+// byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
 
 import { EnvCapability } from "./capability.js";
 
-const MACROS_SCHEME = `
-;; ---- Threading & composition (polyglot) ----
+export const THREADING_SCM = `
+;; -----------------------------------------------------------------------------
+;; Threading & composition (polyglot)
+;; -----------------------------------------------------------------------------
+;; LLMs and humans reach for whichever Lisp/FP idiom they already know — the
+;; same reason :key accessors exist. So accept the whole family rather than
+;; force one dialect:
+;;   ->  / ~>    thread the value as the FIRST argument  (Clojure -> , Racket ~>)
+;;   ->> / ~>>   thread the value as the LAST argument    (Clojure ->>, Racket ~>>)
+;;   compose / comp   right-to-left composition  ((compose f g) x) => (f (g x))
+;;   pipe / flow      left-to-right composition   ((pipe f g) x)    => (g (f x))
+;; Keyword accessors are first-class functions, so (->> p :versions last :state)
+;; threads a value while (compose :state last :versions) names the pipeline.
+
 (define (compose . fns)
   (lambda args
     (let ((rfns (reverse fns)))
@@ -56,4 +71,4 @@ const MACROS_SCHEME = `
 `;
 
 /** Threading & composition idiom macros. Prelude-only module-singleton capability. */
-export default new EnvCapability("scheme/macros-threading", { prelude: MACROS_SCHEME });
+export default new EnvCapability("scheme/macros-threading", { prelude: THREADING_SCM });
