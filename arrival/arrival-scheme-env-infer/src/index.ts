@@ -1,10 +1,21 @@
-// @here.build/arrival-scheme-env-infer — the inference verbs (`infer`, `infer/chat`).
+// @here.build/arrival-scheme-env-infer — the inference palette package.
 //
-// The impl correctly lives in arrival-chain (its `infer-kernel` helpers are there —
-// no extraction needed). This palette package re-exports the capability:
-//   • `arrivalInferCapability` — the EnvCapability surface: the InferFn is zod-validated
-//     config, the verbs are rosetta-spec methods reading `this.configuration.infer`
-//     (default-export style; `.lower({ config })`).
+// Two packs, built FOR REAL on `@here.build/arrival-inference` (the engine + the
+// derive-entity/middleware algebra), with zero arrival-chain dependency:
+//   • `arrivalInferCapability` (./infer)     — `infer` / `infer/chat`, no deps.
+//   • `arrivalAgenticCapability` (./mcp)     — the mcp-tool agentic loop, deps: [infer].
+//
+// arrival-chain consumes these capabilities one-way (it arms them with a host InferFn /
+// McpEffectResolver and roots them into its base env).
 
-export { arrivalInferCapability } from "@here.build/arrival-chain";
-export type { ArrivalEnv, BuildArrivalEnvOpts } from "@here.build/arrival-chain";
+export {
+  arrivalInferCapability,
+  asLlmModel,
+  BREAK_ON_SINGLE_INFER,
+  canonicalizeMessages,
+  inferList,
+  inferThroughChain,
+  type InferFn,
+  nullable,
+  schemaSlot,
+} from "./infer.js";
