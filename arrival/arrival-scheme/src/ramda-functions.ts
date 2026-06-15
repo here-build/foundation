@@ -46,7 +46,7 @@ const isSafeNumber = (val: number | bigint) => Number.isSafeInteger(val) || !Num
 
 // our goal here is to make enough of redundancy to make basically every intent variation possible.
 // like "totalic functions" but more of totalic environment - better to handle each variation of intent possible,
-// rather than forcing it into the spec; that's why all variations - lisp, scheme, clojure, haskell, etc - are kinda supported
+// rather than forcing it into the spec; that's why all variations - lisp, scheme, clojure, haskell, etc. - are kinda supported
 export const RAMDA_FUNCTIONS = {
   map: polymorphicMap,
   fmap: R.map,

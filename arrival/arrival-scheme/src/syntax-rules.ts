@@ -18,13 +18,11 @@ import { Macro } from "./Macro.js";
 import { Pair } from "./Pair.js";
 import { QuotedPromise } from "./QuotedPromise.js";
 import { Syntax } from "./Syntax.js";
-import { is_function, is_lambda, is_nil, is_null, is_pair } from "./guards.js";
-import { SchemeExact, SchemeInexact, isNumeric } from "./numbers.js";
+import { is_nil, is_pair } from "./guards.js";
+import { isNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
 import { __data__ } from "./primitives.js";
 import { eqv } from "./structural-equal.js";
-import { nil } from "./types.js";
-import type { SchemeValue } from "./types.js";
-import { fold } from "./utils/functional.js";
+import { nil, type SchemeValue } from "./types.js";
 import { type } from "./utils/typecheck.js";
 import { gensym, hidden_prop, is_atom, is_gensym, quote } from "./values-repr.js";
 
@@ -183,8 +181,7 @@ export function macro_expand(): SchemeFunction {
       if (is_pair(cdr)) {
         cdr = await traverse(cdr, n, env);
       }
-      const pair = new Pair(car, cdr);
-      return pair;
+      return new Pair(car, cdr);
     }
 
     if (is_pair(code.cdr) && isNumeric(code.cdr.car)) {
@@ -241,7 +238,7 @@ export function extract_patterns(
     // boxing track, a `#(...)` literal parses to a boxed SchemeVector, NOT a raw
     // array — so `Array.isArray` is false for it and a vector-pattern macro fails
     // to match (loud "no matching syntax in macro (#<SchemeVector>)", not silent
-    // corruption). This path is orphaned by boxing. The fix (unwrap SchemeVector →
+    // corruption). Boxing orphans this path. The fix (unwrap SchemeVector →
     // raw array here AND re-box at the template-output sites, which are deeply
     // interleaved with the ellipsis machinery) is high-risk in this fragile
     // matcher and the feature is untested/unused (no chibi/lang vector-pattern

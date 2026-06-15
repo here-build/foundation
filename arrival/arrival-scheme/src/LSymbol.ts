@@ -83,11 +83,6 @@ export class SchemeSymbol extends AValue {
     return this.__name__ as string;
   }
 
-  /** Get dot-notation object parts for syntax-rules gensyms */
-  objectParts(): string[] | undefined {
-    return (this as unknown as Record<symbol, string[] | undefined>)[SchemeSymbol.object];
-  }
-
   serialize(): SchemeSymbolName | [string] {
     if (isString(this.__name__)) {
       return this.__name__;

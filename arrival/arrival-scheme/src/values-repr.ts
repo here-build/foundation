@@ -95,7 +95,7 @@ export function quote(value: SchemeValue): SchemeValue {
 
 // ----------------------------------------------------------------------
 // :: an atom is any self-evaluating leaf (symbol, string, nil, char,
-// :: number, boolean) — i.e. not a compound pair/structure.
+// :: number, boolean) — i.e., not a compound pair/structure.
 // ----------------------------------------------------------------------
 export function is_atom(obj: SchemeValue): boolean {
   return (

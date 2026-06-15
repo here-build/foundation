@@ -251,8 +251,7 @@ export class HalfBaked extends AValue {
   }
 
   withProvenance(p: Provenance): AValue {
-    const next = new HalfBaked(this.domain, this.slots, this.records, this.source, p);
-    return next;
+    return new HalfBaked(this.domain, this.slots, this.records, this.source, p);
   }
 }
 

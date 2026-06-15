@@ -1302,8 +1302,7 @@ function* evalDefine(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
     invariant(name instanceof SchemeSymbol, "define: expected symbol for function name");
 
     // Create lambda expression
-    const body = valueRest;
-    const value = yield { call: evalLambda(new Pair(args, body), ctx) };
+    const value = yield { call: evalLambda(new Pair(args, valueRest), ctx) };
 
     // Set the function's name
     if (is_lambda_function(value)) {
