@@ -55,6 +55,13 @@ describe("require/* planes + why/where/how", () => {
     await expect(run('(require/eval "bad.scm")')).rejects.toThrow(/why/i);
   });
 
+  it("isolation: a run cannot (require …) — the vfs is withheld, so require is unbound", async () => {
+    // lib.scm exists in the project, but the run plane is assembled WITHOUT loader-core, so the
+    // dereferenced program is self-contained and cannot reach back into the filesystem.
+    const run = await discoveryFor({ "main.scm": '(require "lib.scm")', "lib.scm": "(define x 1)" });
+    await expect(run('(require/eval "main.scm")')).rejects.toThrow(/unbound|require/i);
+  });
+
   it("choke IN: a non-wire-safe arg (a closure) is rejected at require/call", async () => {
     const run = await discoveryFor({ "greet.scm": `(define (greet d) "ok")` });
     await expect(run('(require/call "greet.scm" :greet (dict :f (lambda (x) x)))')).rejects.toThrow(/wire-unsafe/i);

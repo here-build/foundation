@@ -12,13 +12,17 @@ export function arrivalLoaderCorePack(opts: BuildArrivalEnvOpts): EnvPack<Arriva
   return {
     name: "arrival/loader-core",
     apply: (env) => {
-      const clearRequireCache = defineRequireRosetta({
-        env,
-        loader: opts.loader,
-        tap: opts.tap,
-        baseDir: opts.dirname ?? "",
-      });
-      opts.onRequireCache?.(clearRequireCache);
+      // Only assembled when a vfs is granted (see buildArrivalEnv); the guard also narrows the
+      // now-optional `loader` for TS. No loader ⇒ no `require` symbol (a no-require env).
+      if (opts.loader) {
+        const clearRequireCache = defineRequireRosetta({
+          env,
+          loader: opts.loader,
+          tap: opts.tap,
+          baseDir: opts.dirname ?? "",
+        });
+        opts.onRequireCache?.(clearRequireCache);
+      }
       // `(require/extension :name)` — host-armed pack registry, applied onto THIS live env via a
       // runtime assembler (idempotent + single-flight). Registered only when the host arms a registry;
       // absent ⇒ the verb is unbound. The assembler is handed to the lifecycle owner so its runtime

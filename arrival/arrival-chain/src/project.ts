@@ -4,6 +4,7 @@ import {
   execGeneratorExpr as execExpr,
   parseGenerator as parse,
   installHeapMeter,
+  jsToScheme,
   sandboxedEnv,
   schemeToJs,
   type Environment,
@@ -79,7 +80,11 @@ export async function buildArrivalEnv(opts: BuildArrivalEnvOpts): Promise<Return
   const capabilityPacks = arrivalCapabilities().map((cap) =>
     cap.lower({ config: opts, evalScheme: (env, src) => exec(src, { env: env as never }) }),
   );
-  const { env } = await assembleEnv<typeof base>(base, [...capabilityPacks, arrivalLoaderCorePack(opts)]);
+  // loader-core arms `(require …)`. Include it ONLY when a vfs is granted — a loader-less env has
+  // no `require` symbol at all (the isolated run plane), so a program's `(require …)` is an unbound
+  // variable, not a policed call. Capability withholding by absence.
+  const packs = opts.loader ? [...capabilityPacks, arrivalLoaderCorePack(opts)] : capabilityPacks;
+  const { env } = await assembleEnv<typeof base>(base, packs);
   sealRegisterExtension(env);
   return env;
 }
@@ -301,6 +306,10 @@ export class Project extends PlexusModel<null> {
       resolver?: RequireResolver;
       /** Override the module loader for `(require …)`. Defaults to the project VFS. */
       loader?: Loader;
+      /** Set `false` to assemble a NO-REQUIRE env: no vfs is granted, so `(require …)` is an
+       *  unbound symbol. The isolated MCP run plane sets this — a dereferenced program is
+       *  self-contained and cannot reach back into the filesystem. Defaults to granted. */
+      vfs?: boolean;
       /** Directory of the entry module, for resolving relative `(require …)`. */
       dirname?: string;
       /** Called with the kind-tagged effect key for every EXTERNAL effect (infer,
@@ -464,7 +473,10 @@ export class Project extends PlexusModel<null> {
       }
     };
 
-    const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
+    // `vfs: false` withholds the loader entirely — buildArrivalEnv then omits loader-core, so the
+    // run env has no `require`. Otherwise default to the project VFS (the universal case).
+    const loader =
+      opts.vfs === false ? undefined : (opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this)));
     // Data effects cross the same record+replay seam as infer: wrap the host
     // resolver so each (http/*)/(sql/query) consults `effectLog` (replay) and
     // records its tagged key into `.effects`. Absent a host resolver the verbs
@@ -763,7 +775,8 @@ export class Project extends PlexusModel<null> {
     // Failure is already recorded on the Run by #runIntoRun; swallow here
     // so the void-call from invoke() doesn't produce an unhandled rejection.
     try {
-      await this.#runIntoRun(run, `${body}\n${this.#callForm(name, args)}`, opts);
+      const { source, bindArgs } = this.#callForm(name, args);
+      await this.#runIntoRun(run, `${body}\n${source}`, { ...opts, extendEnv: bindArgs });
     } catch {
       /* recorded on run.output */
     }
@@ -792,6 +805,8 @@ export class Project extends PlexusModel<null> {
       onEffectResult?: (effectKey: string, valueJson: string) => void;
       data?: DataEffectResolver;
       mcp?: McpEffectResolver;
+      /** Binds the entry call's already-parsed args into the run env (see #callForm). */
+      extendEnv?: (env: Awaited<ReturnType<typeof buildArrivalEnv>>) => void;
     } = {},
   ): Promise<unknown> {
     try {
@@ -865,7 +880,8 @@ export class Project extends PlexusModel<null> {
     });
 
     const body = version.source;
-    const source = run.hasInput ? `${body}\n${this.#callForm(run.name, run.args)}` : body;
+    const call = run.hasInput ? this.#callForm(run.name, run.args) : undefined;
+    const source = call ? `${body}\n${call.source}` : body;
     // Replay every `(require)` at the Run's pinned version-set, so a transitive
     // library is read at the bytes the original saw. An empty set (a Run minted
     // before A7, or one with no captured files) falls back to the default loader
@@ -878,6 +894,7 @@ export class Project extends PlexusModel<null> {
           loader,
           tweaks: opts.tweaks,
           effectLog: opts.effectLog,
+          ...(call ? { extendEnv: call.bindArgs } : {}),
           onEffect: (effectKey) => this.transact(() => hypothesis.effects.push(effectKey)),
         });
         this.transact(() => {
@@ -963,9 +980,20 @@ export class Project extends PlexusModel<null> {
     return { run, userForms, finished: tracked };
   }
 
-  #callForm(name: string, args: readonly unknown[]): string {
-    const argExprs = args.map((a) => `(json/parse ${JSON.stringify(JSON.stringify(a))})`);
-    return `(${name}${argExprs.length > 0 ? ` ${argExprs.join(" ")}` : ""})`;
+  /**
+   * The reverse-membrane entry call `(name arg0 arg1 …)`. The args crossed the API boundary as
+   * already-parsed JSON, and arrival-scheme is platonic — a value inside the program is never a
+   * string awaiting `parse`. So instead of round-tripping through a `(json/parse "…")` verb, bind
+   * each arg DIRECTLY into the run env (jsToScheme) under a generated symbol and reference it. Returns
+   * the call source plus the binder to thread through `extendEnv` (the same mechanism `require/call`
+   * uses for its single arg).
+   */
+  #callForm(name: string, args: readonly unknown[]): { source: string; bindArgs: (env: Environment) => void } {
+    const syms = args.map((_, i) => `__arg${i}__`);
+    return {
+      source: `(${name}${syms.length > 0 ? ` ${syms.join(" ")}` : ""})`,
+      bindArgs: (env) => args.forEach((a, i) => void env.set(syms[i]!, jsToScheme(a))),
+    };
   }
 
   /**
@@ -986,6 +1014,9 @@ export class Project extends PlexusModel<null> {
       resolver?: RequireResolver;
       /** Override the module loader for `(require …)`. Defaults to the project VFS. */
       loader?: Loader;
+      /** Set `false` to assemble a no-require env (see `run`). The teleological replay sets it so
+       *  the provenance re-run matches the loader-less causal run. */
+      vfs?: boolean;
       /** Directory of the entry module, for resolving relative `(require …)`. */
       dirname?: string;
       /** Extend the run env after build (e.g. `require/call` binds its argument). Forwarded to `run`. */
@@ -1055,8 +1086,8 @@ export const BUILTIN_PREAMBLE = `
 
 ;; ── dict helpers ───────────────────────────────────────────────────
 ;;
-;; \`(require "x.json")\` produces JS objects (SchemeJSObject) via
-;; json/parse. Three equivalent ways to read a field:
+;; \`(require "x.json")\` produces JS objects (SchemeJSObject), parsed at the
+;; loader membrane. Three equivalent ways to read a field:
 ;;   (@ obj "key")    explicit accessor, works on variable keys
 ;;   (:key obj)       keyword as fn, idiomatic for fixed keys
 ;;   (field obj key)  polymorphic — also walks alists, returns "" on miss

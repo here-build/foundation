@@ -346,8 +346,8 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
 
 /**
  * Build a sandboxed arrival-chain environment with the standard rosettas —
- * `infer`, `infer/chat`, `json/parse`, `template/handlebars`, plus
- * `require`/`import` — EXCEPT inference resolution, which is injected via `infer`.
+ * `infer`, `infer/chat`, `template/handlebars`, plus `require` — EXCEPT inference
+ * resolution, which is injected via `infer`.
  * (`dict` is a native arrival-scheme builtin, inherited via `sandboxedEnv`.)
  *
  * This is the seam that lets a host route `(infer …)` into its own task store
@@ -366,7 +366,10 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
 export interface BuildArrivalEnvOpts {
   name: string;
   infer: InferFn;
-  loader: Loader;
+  /** The module-loading vfs that arms `(require …)`. OMIT it to assemble a NO-REQUIRE env: the
+   *  loader-core pack is then left out entirely, so `require` is an unbound symbol — capability
+   *  withholding, not runtime policing. The isolated MCP run plane assembles loader-less. */
+  loader?: Loader;
   /** Tap for `require`d module internals — `run` passes the trace; `runTraced`
    *  omits it so library internals don't explode the live trace. */
   tap?: EvalTrace;

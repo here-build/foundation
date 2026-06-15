@@ -102,6 +102,10 @@ async function runCausal(
   }, budgetMs);
   try {
     const done = project.run(source, {
+      // No-require run plane: a dereferenced program is self-contained and cannot reach back into
+      // the filesystem (`require` is unbound here). The named file itself was already read OUTSIDE
+      // this env by readSource — withholding the vfs only bars in-program `(require …)`.
+      vfs: false,
       dirname: extra.dirname,
       ...(extra.extendEnv ? { extendEnv: extra.extendEnv } : {}),
       signal: fanOut(ac.signal, extra.signal),
@@ -139,6 +143,8 @@ async function runTeleological(
   const timer = setTimeout(() => ac.abort(), budgetMs);
   try {
     const { userForms, finished, result } = await project.runTraced(source, {
+      // Same no-require plane as the causal run, so the teleological replay matches it exactly.
+      vfs: false,
       trace,
       dirname: extra.dirname,
       ...(extra.extendEnv ? { extendEnv: extra.extendEnv } : {}),
