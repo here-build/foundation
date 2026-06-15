@@ -4,25 +4,25 @@
 
 import { describe, expect, it } from "vitest";
 import { SchemeExact, SchemeInexact } from "../numbers";
-import { fromLIPS, wrapOperator, wrappedOps } from "../bridge";
+import { coerceNumeric, wrapOperator, wrappedOps } from "../bridge";
 import { add, mul, sqrt, sub } from "../operators";
 
-describe("fromLIPS", () => {
+describe("coerceNumeric", () => {
   describe("primitive types", () => {
     it("converts bigint to ExactNumber", () => {
-      const result = fromLIPS(42n);
+      const result = coerceNumeric(42n);
       expect(result).toBeInstanceOf(SchemeExact);
       expect((result as SchemeExact).num).toBe(42n);
     });
 
     it("converts safe integer to ExactNumber", () => {
-      const result = fromLIPS(42);
+      const result = coerceNumeric(42);
       expect(result).toBeInstanceOf(SchemeExact);
       expect((result as SchemeExact).num).toBe(42n);
     });
 
     it("converts float to InexactNumber", () => {
-      const result = fromLIPS(3.14);
+      const result = coerceNumeric(3.14);
       expect(result).toBeInstanceOf(SchemeInexact);
       expect((result as SchemeInexact).real).toBe(3.14);
     });
@@ -31,42 +31,42 @@ describe("fromLIPS", () => {
   describe("passthrough", () => {
     it("passes through ExactNumber", () => {
       const exact = new SchemeExact(42n);
-      expect(fromLIPS(exact)).toBe(exact);
+      expect(coerceNumeric(exact)).toBe(exact);
     });
 
     it("passes through InexactNumber", () => {
       const inexact = new SchemeInexact(3.14);
-      expect(fromLIPS(inexact)).toBe(inexact);
+      expect(coerceNumeric(inexact)).toBe(inexact);
     });
   });
 
   describe("objects with valueOf", () => {
     it("converts object with bigint valueOf", () => {
       const obj = { valueOf: () => 12345678901234567890n };
-      const result = fromLIPS(obj);
+      const result = coerceNumeric(obj);
       expect(result).toBeInstanceOf(SchemeExact);
       expect((result as SchemeExact).num).toBe(12345678901234567890n);
     });
 
     it("converts object with number valueOf to exact for safe integers", () => {
       const obj = { valueOf: () => 42 };
-      const result = fromLIPS(obj);
+      const result = coerceNumeric(obj);
       expect(result).toBeInstanceOf(SchemeExact);
       expect((result as SchemeExact).num).toBe(42n);
     });
 
     it("converts object with number valueOf to inexact for floats", () => {
       const obj = { valueOf: () => 3.14 };
-      const result = fromLIPS(obj);
+      const result = coerceNumeric(obj);
       expect(result).toBeInstanceOf(SchemeInexact);
       expect((result as SchemeInexact).real).toBe(3.14);
     });
   });
 
   it("throws on unconvertible value", () => {
-    expect(() => fromLIPS("not a number")).toThrow("Cannot convert");
-    expect(() => fromLIPS(null)).toThrow("Cannot convert");
-    expect(() => fromLIPS(undefined)).toThrow("Cannot convert");
+    expect(() => coerceNumeric("not a number")).toThrow("Cannot convert");
+    expect(() => coerceNumeric(null)).toThrow("Cannot convert");
+    expect(() => coerceNumeric(undefined)).toThrow("Cannot convert");
   });
 });
 

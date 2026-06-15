@@ -4,7 +4,7 @@
  * War story: fuzz audit #42 (`(- (* 0 "") (- (- 0 0) 0))`) used to surface
  * as "Unbound variable `-'" — two layers of masking pointed at a downstream
  * env lookup rather than the actual cause (string passed to `*`). Fix lives
- * in bridge.ts:wrapOperator — fromLIPS failures now throw a TypeError naming
+ * in bridge.ts:wrapOperator — coerceNumeric failures now throw a TypeError naming
  * the operator + arg types, with the original membrane invariant attached
  * via `cause`.
  *
@@ -32,7 +32,7 @@ describe("wrapOperator: type-error provenance (audit #42)", () => {
     // the string literal `""` projects to "string".
     expect(caught!.message).toContain("number");
     expect(caught!.message).toContain("string");
-    // Original fromLIPS invariant remains reachable via cause.
+    // Original coerceNumeric invariant remains reachable via cause.
     expect((caught as TypeError).cause).toBeInstanceOf(Error);
     expect(((caught as TypeError).cause as Error).message).toMatch(/scheme.?numeric/i);
   });

@@ -1,9 +1,9 @@
 /**
- * Bridge - Connects the new Operator/Profunctor system with LIPS runtime
+ * Bridge - connects the Operator/Profunctor system with the Scheme runtime.
  *
  * This module provides:
- * 1. Converters between LIPS types (LNumber) and new types (ExactNumber/InexactNumber)
- * 2. Wrapped operators that work with LIPS values
+ * 1. Strict numeric coercion into the SchemeExact/SchemeInexact tower (`coerceNumeric`)
+ * 2. Wrapped operators that work with boxed Scheme values
  * 3. Drop-in replacements for global_env numeric operations
  */
 
@@ -239,9 +239,16 @@ export class RaisedException extends Error {
 }
 
 /**
- * Convert a LIPS number to our ExactNumber/InexactNumber
+ * Coerce a value to a SchemeNumeric (SchemeExact / SchemeInexact).
+ *
+ * STRICT: only bigints, JS numbers, existing SchemeNumerics, and objects whose
+ * `valueOf()` yields one of those convert. Anything else — notably strings —
+ * throws. This rejection is load-bearing: `(* 0 "")` must fail rather than
+ * silently coerce the string, so numeric builtins surface a type error instead
+ * of producing a nonsense result. (Contrast `parseNumber`, which PARSES numeric
+ * literal strings — a different job.)
  */
-export function fromLIPS(value: unknown): SchemeNumeric {
+export function coerceNumeric(value: unknown): SchemeNumeric {
   switch (true) {
     case value instanceof SchemeExact:
     case value instanceof SchemeInexact:
@@ -305,7 +312,7 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
   // ════════════════════════════════════════════════════════════════════════════
   // War story (fuzz audit #42): `(- (* 0 "") (- (- 0 0) 0))` surfaced as
   // "Unbound variable `-'" — pointing at a downstream env lookup, not the
-  // real cause (string was passed to `*`). Trace: fromLIPS throws on `""`,
+  // real cause (string was passed to `*`). Trace: coerceNumeric throws on `""`,
   // the TypeError travels up through `Array.map` (line below) → `op.call`
   // → `call_function` (lips.ts:4057) → `apply` (lips.ts:4067) → into
   // `evaluate` (lips.ts:4180). The masking happens because every catch path
@@ -313,7 +320,7 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
   // OUTER form's name remained on a downstream `env.get(first)` retry, so
   // the *symptom* presented as a name-lookup failure on an unrelated symbol.
   //
-  // The fix stags fromLIPS conversion failures with operator name + arg type
+  // The fix stags coerceNumeric conversion failures with operator name + arg type
   // names at THIS boundary — the only frame that has both pieces (op.name
   // here, type() applied to args). Original TypeError carried via `cause`
   // so the membrane/sandbox stack still traces the converter's invariant.
@@ -328,11 +335,11 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
     const provenance = unionProvenance(callArgs.filter((a): a is AValue => a instanceof AValue));
     let converted: SchemeNumeric[];
     try {
-      converted = callArgs.map(fromLIPS);
+      converted = callArgs.map(coerceNumeric);
     } catch (cause) {
       // Find the first non-numeric arg so the error names what actually failed,
       // not just "some arg." Mirror isSchemeNumber's contract — anything it
-      // rejects is what fromLIPS would have thrown on.
+      // rejects is what coerceNumeric would have thrown on.
       const badIndex = callArgs.findIndex((a) => !isSchemeNumber(a));
       const typeNames = callArgs.map(type).join(", ");
       const detail = badIndex >= 0
@@ -511,7 +518,7 @@ function makeTypePredicate(name: string, predicate: (n: SchemeNumeric) => boolea
       return false;
     }
     try {
-      const converted = fromLIPS(value);
+      const converted = coerceNumeric(value);
       return predicate(converted);
     } catch {
       return false;
@@ -590,8 +597,8 @@ export const wrappedOps = {
   "truncate-remainder": wrapOperator(ops.truncateRemainder),
 
   "floor/"(n1: unknown, n2: unknown): unknown {
-    const a = fromLIPS(n1);
-    const b = fromLIPS(n2);
+    const a = coerceNumeric(n1);
+    const b = coerceNumeric(n2);
     const aExact = a instanceof SchemeExact ? a : new SchemeExact(BigInt(Math.trunc(a.real)));
     const bExact = b instanceof SchemeExact ? b : new SchemeExact(BigInt(Math.trunc(b.real)));
     const q = ops.floorQuotient.call([aExact, bExact]);
@@ -602,8 +609,8 @@ export const wrappedOps = {
   },
 
   "truncate/"(n1: unknown, n2: unknown): unknown {
-    const a = fromLIPS(n1);
-    const b = fromLIPS(n2);
+    const a = coerceNumeric(n1);
+    const b = coerceNumeric(n2);
     const aExact = a instanceof SchemeExact ? a : new SchemeExact(BigInt(Math.trunc(a.real)));
     const bExact = b instanceof SchemeExact ? b : new SchemeExact(BigInt(Math.trunc(b.real)));
     const q = ops.truncateQuotient.call([aExact, bExact]);
@@ -629,7 +636,7 @@ export const wrappedOps = {
     let hasInexact = false;
     const exactArgs: SchemeExact[] = [];
     for (const arg of args) {
-      const n = fromLIPS(arg);
+      const n = coerceNumeric(arg);
       if (n instanceof SchemeInexact) {
         hasInexact = true;
         exactArgs.push(new SchemeExact(BigInt(Math.trunc(n.real))));
@@ -697,13 +704,13 @@ export const wrappedOps = {
   "**": wrapOperator(ops.expt),
 
   "1+"(n: unknown): SchemeNumeric {
-    const converted = fromLIPS(n);
+    const converted = coerceNumeric(n);
     const one = new SchemeExact(1n);
     return ops.add.call([converted, one]);
   },
 
   "1-"(n: unknown): SchemeNumeric {
-    const converted = fromLIPS(n);
+    const converted = coerceNumeric(n);
     const one = new SchemeExact(1n);
     return ops.sub.call([converted, one]);
   },
@@ -715,21 +722,21 @@ export const wrappedOps = {
   "~": wrapOperator(ops.bitwiseNot),
 
   ">>"(a: unknown, b: unknown): SchemeNumeric {
-    const aNum = fromLIPS(a);
-    const bNum = fromLIPS(b);
+    const aNum = coerceNumeric(a);
+    const bNum = coerceNumeric(b);
     return ops.arithmeticShift.call([aNum, bNum]);
   },
 
   "<<"(a: unknown, b: unknown): SchemeNumeric {
-    const aNum = fromLIPS(a);
-    const bNum = fromLIPS(b);
+    const aNum = coerceNumeric(a);
+    const bNum = coerceNumeric(b);
     const negB = ops.sub.call([bNum]);
     return ops.arithmeticShift.call([aNum, negB]);
   },
 
   // R7RS exactness conversion
   inexact(z: unknown): SchemeInexact {
-    const n = fromLIPS(z);
+    const n = coerceNumeric(z);
     if (n instanceof SchemeInexact) return n;
     const exact = n;
     if (exact.denom === 1n) return new SchemeInexact(Number(exact.num));
@@ -737,7 +744,7 @@ export const wrappedOps = {
   },
 
   exact(z: unknown): SchemeExact {
-    const n = fromLIPS(z);
+    const n = coerceNumeric(z);
     if (n instanceof SchemeExact) return n;
     const inexact = n;
     invariant(inexact.imag === 0, "Cannot convert complex number with non-zero imaginary part to exact");
@@ -780,8 +787,8 @@ export const wrappedOps = {
   },
 
   "number->string"(z: unknown, radix?: unknown): string {
-    const n = fromLIPS(z);
-    const base = radix === undefined ? 10 : Number(fromLIPS(radix).valueOf());
+    const n = coerceNumeric(z);
+    const base = radix === undefined ? 10 : Number(coerceNumeric(radix).valueOf());
     if (n instanceof SchemeExact) {
       if (n.denom === 1n) return n.num.toString(base);
       return `${n.num.toString(base)}/${n.denom.toString(base)}`;
@@ -958,7 +965,7 @@ export const wrappedOps = {
   // the correct surrogate pair. Surrogate code points themselves (D800..DFFF)
   // are NOT Unicode scalars per the standard; reject explicitly.
   "integer->char"(n: unknown): SchemeCharacter {
-    const num = fromLIPS(n);
+    const num = coerceNumeric(n);
     const code = num instanceof SchemeExact ? Number(num.num) : Math.floor(num.real);
     invariant(code >= 0 && code <= 0x10ffff, `integer->char: code point ${code} out of Unicode range`);
     invariant(code < 0xd800 || code > 0xdfff, `integer->char: surrogate code point ${code.toString(16)} is not a Unicode scalar`);
@@ -970,7 +977,7 @@ export const wrappedOps = {
   // ============================================================================
 
   "make-string"(k: unknown, char?: unknown): SchemeString {
-    const len = Number(fromLIPS(k).valueOf());
+    const len = Number(coerceNumeric(k).valueOf());
     // O(1) cap check BEFORE `.repeat(len)` allocates — see assertAllocatable.
     assertAllocatable(len, "make-string");
     const c = char ? charValue(char) : "\u0000";
@@ -993,7 +1000,7 @@ export const wrappedOps = {
   },
 
   "string-ref"(str: unknown, k: unknown): SchemeCharacter {
-    const idx = Number(fromLIPS(k).valueOf());
+    const idx = Number(coerceNumeric(k).valueOf());
     return new SchemeCharacter([...stringValue(str)][idx]);
   },
 

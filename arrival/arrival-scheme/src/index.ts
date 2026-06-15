@@ -85,9 +85,9 @@ export {
 // Operators
 export * from "./operators/index.js";
 
-// Bridge (LIPS ↔ new types conversion)
+// Bridge (numeric coercion + wrapped operators)
 export {
-  fromLIPS as fromLIPS,
+  coerceNumeric,
   wrapOperator as wrapOperator,
   wrappedOps as wrappedOps,
   initBridge as initBridge,
