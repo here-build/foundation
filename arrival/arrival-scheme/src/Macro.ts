@@ -1,4 +1,4 @@
-import { trim_lines } from "./utils/trim_lines.js";
+import { trim_lines } from "./utils/trim-lines.js";
 import { typecheck } from "./utils/typecheck.js";
 
 export interface MacroInvokeContext {

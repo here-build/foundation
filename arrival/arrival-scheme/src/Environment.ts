@@ -18,7 +18,7 @@ import type { SchemeValue } from "./types.js";
 import { nil } from "./types.js";
 import type { RosettaFunction } from "./rosetta.js";
 import { createRosettaWrapper } from "./rosetta.js";
-import { trim_lines } from "./utils/trim_lines.js";
+import { trim_lines } from "./utils/trim-lines.js";
 import { typecheck } from "./utils/typecheck.js";
 import type { Syntax } from "./Syntax.js";
 import type { QuotedPromise } from "./QuotedPromise.js";
