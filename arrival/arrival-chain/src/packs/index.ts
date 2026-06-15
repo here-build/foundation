@@ -4,6 +4,7 @@ import { arrivalAgenticCapability } from "@here.build/arrival-scheme-env-infer";
 import { arrivalBudgetCapability } from "./budget.js";
 import { arrivalDataCapability } from "./data.js";
 import { arrivalHandlebarsCapability } from "./ext-handlebars.js";
+import { arrivalPromptCapability } from "./ext-prompt.js";
 import { arrivalReflectCapability } from "./reflect.js";
 import { arrivalRunCapability } from "./run.js";
 import { arrivalSourceReadCapability } from "./source-read.js";
@@ -32,6 +33,9 @@ export function arrivalCapabilities(): readonly EnvCapability[] {
     arrivalUtilsCapability,
     arrivalBudgetCapability,
     arrivalDataCapability,
+    // `ext/prompt` registers `.prompt` and seals it with the infer/mcp resource (shared config).
+    // No capability deps (it reaches the schema DSL via the run env at call time), so order-free.
+    arrivalPromptCapability,
     arrivalSuperDefineCapability,
     arrivalAgenticCapability,
   ];
@@ -56,6 +60,8 @@ export { type ArrivalEnv } from "../infer-kernel.js";
 export { arrivalAgenticCapability, arrivalInferCapability, arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
 export { arrivalBudgetCapability } from "./budget.js";
 export { arrivalDataCapability } from "./data.js";
+export { arrivalHandlebarsCapability } from "./ext-handlebars.js";
+export { arrivalPromptCapability } from "./ext-prompt.js";
 export { arrivalReflectCapability } from "./reflect.js";
 export { arrivalRunCapability } from "./run.js";
 export { arrivalSourceReadCapability } from "./source-read.js";

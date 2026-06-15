@@ -99,12 +99,16 @@ export { arrivalBudgetCapability } from "./packs/budget.js";
 export { arrivalRunCapability } from "./packs/run.js";
 export { arrivalSourceReadCapability } from "./packs/source-read.js";
 export { arrivalDataCapability } from "./packs/data.js";
-// NOTE: loader-core has NO capability form. Its `wire` calls `makeCompileInferUnit(env, …)` + the
-// `defineRequire*Rosetta` helpers, all of which need the LIVE env at wire time. `symbols` only exposes
-// the env lazily via `withContext` ctx at CALL time, and the require rosetta (which would consume the
-// compileInferUnit) is baked by `defineRequireRosetta` with no ctx thread — so it can't be faithfully
-// expressed as symbols without re-homing the whole require machinery. It keeps its `arrivalLoaderCorePack`
-// (EnvPack) form, assembled in `packs/index.ts`.
+// File-type resolvers as capabilities: `.hbs` (pure render lambda) and `.prompt` (sealed infer
+// proc — resource-armed, see ext-prompt.ts). Both register via their prelude's
+// `(require/register-extension …)`; the loader stays prompt/template-agnostic.
+export { arrivalHandlebarsCapability } from "./packs/ext-handlebars.js";
+export { arrivalPromptCapability } from "./packs/ext-prompt.js";
+// NOTE: loader-core has NO capability form. Its `wire` calls the `defineRequire*Rosetta` helpers,
+// which need the LIVE env at wire time to bake the `require` rosetta closure (no ctx thread). It
+// keeps its `arrivalLoaderCorePack` (EnvPack) form, assembled in `packs/index.ts`. (The `.prompt`
+// seal that USED to anchor loader-core here now lives in `ext/prompt`: it reaches the env lazily via
+// the sealed proc's `withContext` ctx at CALL time — the move S5 made.)
 export { arrivalSuperDefineCapability } from "./packs/superdefine.js";
 // Env-pack capability-DAG assembly (P0–P4): the pack type + the construction/runtime assemblers, so a
 // host can author extension packs and arm a `(require/extension :name)` registry.

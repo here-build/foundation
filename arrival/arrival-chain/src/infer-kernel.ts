@@ -1,6 +1,7 @@
 import "@here.build/plexus/mobx/register";
 import {
   createRosettaWrapper,
+  type Environment,
   execGeneratorExpr as execExpr,
   parseGenerator as parse,
   sandboxedEnv,
@@ -9,6 +10,7 @@ import {
 } from "@here.build/arrival-scheme";
 import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
+import { parse as parseYaml } from "yaml";
 import { DerivableEntity, InferString, RunSpend } from "@here.build/arrival-inference";
 
 import type { OnApprovalRequest, ResolveApproval } from "./approval.js";
@@ -18,7 +20,7 @@ import { type DataEffectResolver } from "./data-effects.js";
 import { stableJson } from "./effect-log.js";
 import { type EnvPack, type RuntimeAssembler } from "@here.build/arrival-scheme/env";
 import type { OnExpose } from "./expose.js";
-import { type Loader, type PromptUnit } from "./loader.js";
+import { type Loader } from "./loader.js";
 import { type McpEffectResolver } from "./mcp-effects.js";
 // The infer-verb toolkit + agentic driver now live in the env-infer package. Imported for
 // internal use (makeCompileInferUnit) and re-exported below for back-compat.
@@ -360,7 +362,7 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
 // The infer-verb toolkit (asLlmModel / inferThroughChain / BREAK_ON_SINGLE_INFER) and the
 // agentic loop driver (runAgenticInfer) moved to `@here.build/arrival-scheme-env-infer`
 // (the inference package). Imported + re-exported at the top of this module so existing
-// arrival-chain import paths (and makeCompileInferUnit below) keep resolving.
+// arrival-chain import paths (and `sealPromptUnit` below) keep resolving.
 
 /**
  * Build a sandboxed arrival-chain environment with the standard rosettas —
@@ -478,31 +480,215 @@ export interface BuildArrivalEnvOpts {
   onExtensionAssembler?: (assembler: RuntimeAssembler<ReturnType<typeof sandboxedEnv.inherit>>) => void;
 }
 
-/**
- * Seal a `.prompt` PromptUnit into a provenance-point native proc — module-level so the loader-core
- * pack's `apply` stays shallow (the prompt-fn's inner thunks would otherwise nest >4 deep under the
- * pack wrapper). The output schema is evaluated ONCE here (the `s/…` rosettas live on `env`) and
- * slotted exactly as `infer/chat` would. Calling the proc `(run-x key :k v …)` folds the kwargs,
- * renders its sections, and infers AT JS LEVEL — and because it's a `provenancePoint`, ITS OWN
- * call-site invocation becomes the provenance point. So a `.prompt` traces as ONE node at the real
- * `(run-x …)` site with the infer sealed inside it — no unwrapped line-1 `(infer/chat …)` lambda. The
- * task it mints is byte-identical to the equivalent `infer/chat` (shared canonicalize + schemaSlot +
- * nullable), so cache + replay are preserved.
- */
-export function makeCompileInferUnit(
-  env: ReturnType<typeof sandboxedEnv.inherit>,
-  opts: Pick<BuildArrivalEnvOpts, "infer" | "mcp">,
-): (unit: PromptUnit) => Promise<unknown> {
-  return async (unit: PromptUnit): Promise<unknown> => {
-    let schemaSlotStr: string | null = null;
-    if (unit.schemaSrc !== null) {
-      const [form] = await parse(unit.schemaSrc);
-      schemaSlotStr = schemaSlot(schemeToJs(await execExpr(form, { env })));
+// ── .prompt (dotprompt) parsing ───────────────────────────────────────────────
+//
+// A `.prompt` file is a whole inference unit: YAML frontmatter (`model:` name +
+// optional Picoschema `output:` + optional `mcp:`) over a `{{role}}`-marked body.
+// `parsePromptUnit` turns the bytes into the pure {@link PromptUnit} descriptor;
+// `sealPromptUnit` then seals it into a callable native proc. The `ext/prompt`
+// capability composes the two as its file-type resolver (it owns the infer/mcp
+// resource the seal needs); the loader itself is prompt-agnostic. (Sections split
+// HERE, over the trusted author source, BEFORE any call-site value is interpolated
+// — the security property: a rendered hole value containing `{{role "user"}}`
+// lands as inert text in one section and can never forge a turn.)
+
+/** A `.prompt` parsed into a SEALED inference unit (the dotprompt contour). Pure
+ *  data — `parsePromptUnit` produces it; `sealPromptUnit` compiles it into a
+ *  provenance-point native proc (it needs the infer capability + the `s/…` schema
+ *  rosettas, which live on the run env, not in the parse). */
+export interface PromptUnit {
+  /** The `.prompt` file's resolved path — the node's stable identity for the
+   *  render (the card header shows it), and a future go-to-source anchor. */
+  path: string;
+  /** The DEFAULT model name from the frontmatter `model:`, or null if omitted.
+   *  Model is materialization, not intent: a `.prompt` carries the prompt SHAPE
+   *  (the intent), and the model is overridable at the call site via
+   *  `:meta (dict :model …)`. Resolution is call-time `meta.model` ?? this ?? throw. */
+  model: string | null;
+  /** Compiled `(s/object …)` schema SOURCE (from Picoschema `output:`), or null
+   *  for an unstructured prompt. Evaluated ONCE at first call, not per call. */
+  schemaSrc: string | null;
+  /** `{{role}}`-split chat sections, in order. Each `source` is a handlebars
+   *  template rendered per-call against the kwargs dict (boundaries fixed at parse,
+   *  pre-interpolation — a rendered hole can't forge a new turn). */
+  sections: { role: string; source: string }[];
+  /** Server names from the frontmatter `mcp:` (a name or a list), or null. When present,
+   *  the sealed proc runs AGENTICALLY. Null ⇒ an ordinary single inference. */
+  mcpServers: string[] | null;
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === "object" && !Array.isArray(v);
+
+const SCALAR_TYPES = new Set(["string", "number", "integer", "boolean"]);
+
+/** Split `"type, the description"` (Picoschema's scalar form) on the first comma. */
+function splitTypeDesc(s: string): { type: string; desc: string } {
+  const i = s.indexOf(",");
+  return i === -1 ? { type: s.trim(), desc: "" } : { type: s.slice(0, i).trim(), desc: s.slice(i + 1).trim() };
+}
+
+/** Picoschema (the dotprompt schema shorthand) → `s/…` scheme source. Supports
+ *  scalars (`field: type, desc`), `field(enum): [..]`, `field(array): elem|map`,
+ *  `field(object): map`, parenthetical `type, desc`, and nesting. Optional `?` is
+ *  rejected — the `s/` schema has no optional marker (add one before lifting). */
+function compilePicoschema(node: unknown): string {
+  invariant(isPlainObject(node), ".prompt: output schema must be a map of fields");
+  const fields = Object.entries(node).map(([k, v]) => compilePicoField(k, v));
+  return `(s/object ${fields.join(" ")})`;
+}
+
+function scalarFieldSrc(name: string, type: string, desc: string): string {
+  invariant(SCALAR_TYPES.has(type), () => `.prompt: unknown scalar type "${type}" for field "${name}"`);
+  const d = desc ? ` ${JSON.stringify(desc)}` : "";
+  return `(s/field/${type} ${JSON.stringify(name)}${d})`;
+}
+
+function compileElement(val: unknown): string {
+  if (typeof val === "string") {
+    const { type } = splitTypeDesc(val);
+    invariant(SCALAR_TYPES.has(type), () => `.prompt: unknown array element type "${type}"`);
+    return JSON.stringify(type);
+  }
+  if (isPlainObject(val)) return compilePicoschema(val);
+  invariant(false, ".prompt: array element must be a scalar type or an object map");
+}
+
+function compilePicoField(rawKey: string, val: unknown): string {
+  const m = rawKey.match(/^([A-Z_][\w-]*)(\??)(?:\(([^)]*)\))?$/i);
+  invariant(!!m, () => `.prompt: malformed schema key "${rawKey}"`);
+  const name = m[1]!;
+  invariant(!m[2], () => `.prompt: optional field "${name}" — optional schema fields aren't supported yet`);
+  const q = JSON.stringify(name);
+  if (m[3] === undefined) {
+    const { type, desc } = splitTypeDesc(String(val)); // scalar; type+desc in the value
+    return scalarFieldSrc(name, type, desc);
+  }
+  const { type, desc } = splitTypeDesc(m[3]); // composite; type+desc in the parens
+  const d = desc ? ` ${JSON.stringify(desc)}` : "";
+  if (type === "enum") {
+    const vals = (val as unknown[]).map((v) => JSON.stringify(String(v))).join(" ");
+    return `(s/field/enum ${q}${d} (s/enum ${vals}))`;
+  }
+  if (type === "array") return `(s/field/array ${q}${d} (s/array ${compileElement(val)}))`;
+  if (type === "object") return `(s/field/object ${q}${d} ${compilePicoschema(val)})`;
+  return scalarFieldSrc(name, type, desc); // explicit scalar type in parens
+}
+
+/** Strip a leading `---\n…\n---` YAML frontmatter block (optional) from a `.prompt`. */
+function parsePromptFile(src: string): { fm: Record<string, unknown>; body: string } {
+  const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { fm: {}, body: src };
+  const fm = parseYaml(m[1]!) ?? {};
+  invariant(isPlainObject(fm), ".prompt: frontmatter must be a YAML map");
+  return { fm, body: src.slice(m[0].length) };
+}
+
+/** Normalise the frontmatter `mcp:` to a server-name list (or null). Accepts a single name
+ *  (`mcp: linear`) or a list (`mcp: [linear, github]`); every entry must be a string. */
+function parsePromptMcp(raw: unknown, path: string): string[] | null {
+  if (raw === undefined || raw === null) return null;
+  const names = Array.isArray(raw) ? raw : [raw];
+  for (const n of names) {
+    if (typeof n !== "string") {
+      invariant(false, () => `.prompt: "${path}" frontmatter \`mcp:\` must be a server name or a list of names`);
     }
-    return createRosettaWrapper({
+  }
+  return names as string[];
+}
+
+/** A `.chat`-style `.prompt` body is split into role-tagged sections by `{{role "x"}}`
+ *  markers — the dotprompt convention. The split happens over the trusted author source
+ *  BEFORE any call-site value is interpolated: a rendered hole value containing the literal
+ *  text `{{role "user"}}` lands inside one section as plain text and can never forge a new
+ *  message boundary (boundaries fixed before substitution). */
+const CHAT_ROLES = new Set(["system", "user", "assistant"]);
+const ROLE_MARKER = /\{\{\s*role\s+["']([a-zA-Z]+)["']\s*\}\}/g;
+
+export function splitChatSections(src: string): { role: string; body: string }[] {
+  const sections: { role: string; body: string }[] = [];
+  let bodyStart = 0;
+  let role: string | null = null;
+  ROLE_MARKER.lastIndex = 0;
+  for (let m = ROLE_MARKER.exec(src); m; m = ROLE_MARKER.exec(src)) {
+    if (role === null) {
+      if (src.slice(0, m.index).trim() !== "") {
+        throw new Error(
+          `.chat.hbs: text before the first {{role}} marker — a chat template must open with {{role "system|user|assistant"}}`,
+        );
+      }
+    } else {
+      sections.push({ role, body: src.slice(bodyStart, m.index).trim() });
+    }
+    const next = m[1]!.toLowerCase();
+    invariant(CHAT_ROLES.has(next), () => `.chat.hbs: unknown role "${m[1]}" — use system, user, or assistant`);
+    role = next;
+    bodyStart = ROLE_MARKER.lastIndex;
+  }
+  invariant(role !== null, `.chat.hbs: no {{role "..."}} markers — a chat template needs at least one`);
+  sections.push({ role, body: src.slice(bodyStart).trim() });
+  return sections;
+}
+
+/** Parse `.prompt` bytes into a pure {@link PromptUnit} descriptor (frontmatter
+ *  model + Picoschema-compiled output schema + the `{{role}}`-split body sections +
+ *  the agentic `mcp:` server list). PURE — no env, no infer; `sealPromptUnit` adds
+ *  those. The `ext/prompt` resolver composes `seal(parse(…))`. */
+export function parsePromptUnit(src: string, path: string): PromptUnit {
+  const { fm, body } = parsePromptFile(src);
+  // `model:` is an OPTIONAL default — model is materialization, supplied (or overridden)
+  // at the call site via `:meta (dict :model …)`. A literal here is the fallback; absent
+  // is fine as long as the call supplies one.
+  const model = fm.model ?? null;
+  invariant(
+    model === null || typeof model === "string",
+    '.prompt: frontmatter `model:` must be a model name string (e.g. "qwen3.5-9b") or omitted',
+  );
+  const schemaSrc = fm.output === undefined ? null : compilePicoschema(fm.output);
+  const sections = splitChatSections(body).map((s) => ({ role: s.role, source: s.body }));
+  const mcpServers = parsePromptMcp(fm.mcp, path);
+  return { path, model, schemaSrc, sections, mcpServers };
+}
+
+/**
+ * Seal a `.prompt` PromptUnit into a provenance-point native proc. The output schema is
+ * evaluated ONCE, lazily, against the LIVE run env on first call: the resolver that builds
+ * this proc has no env handle (a `.prompt` resolver is a bootstrap-registered capability
+ * symbol, not a wired pack), but every call carries the EvalContext, whose env has the `s/…`
+ * schema DSL bound (BUILTIN_PREAMBLE). This deferral is exactly what lets prompt-sealing be a
+ * CAPABILITY rather than loader-core plumbing — the env is reached at CALL time via ctx, not
+ * baked at wire time. Calling the proc `(run-x key :k v …)` folds the kwargs, renders its
+ * sections, and infers AT JS LEVEL — and because it's a `provenancePoint`, ITS OWN call-site
+ * invocation becomes the provenance point. So a `.prompt` traces as ONE node at the real
+ * `(run-x …)` site with the infer sealed inside it — no unwrapped line-1 `(infer/chat …)`
+ * lambda. The task it mints is byte-identical to the equivalent `infer/chat` (shared
+ * canonicalize + schemaSlot + nullable), so cache + replay are preserved.
+ */
+export function sealPromptUnit(unit: PromptUnit, opts: Pick<BuildArrivalEnvOpts, "infer" | "mcp">): unknown {
+  // The output schema is evaluated ONCE against the run env (it builds list structure via
+  // the `s/…` DSL). Memoized via a promise so concurrent first-calls share one evaluation.
+  let schemaSlotPromise: Promise<string | null> | undefined;
+  const resolveSchema = (env: Environment): Promise<string | null> => {
+    schemaSlotPromise ??= (async () => {
+      const [form] = await parse(unit.schemaSrc!);
+      return schemaSlot(schemeToJs(await execExpr(form, { env })));
+    })();
+    return schemaSlotPromise;
+  };
+  return createRosettaWrapper({
       withContext: true,
       options: { provenancePoint: true, argProvenance: true },
       fn: async (ctx, key, ...kv: unknown[]) => {
+        let schemaSlotStr: string | null = null;
+        if (unit.schemaSrc !== null) {
+          const env = (ctx as { env?: Environment } | undefined)?.env;
+          invariant(
+            env,
+            () =>
+              `.prompt: "${unit.path}" has an output schema but was called without an EvalContext env — cannot evaluate it`,
+          );
+          schemaSlotStr = await resolveSchema(env);
+        }
         const folded = buildDict(kv);
         // `:meta` is the inference-CONFIG channel (model override, future temp/
         // maxTokens) — kept separate from the template-INPUT namespace, so a
@@ -579,8 +765,7 @@ export function makeCompileInferUnit(
           metaParams,
         );
       },
-    });
-  };
+  });
 }
 
 /** The arrival env handle — a sandbox-inherited Environment the packs contribute rosettas to. */
@@ -594,6 +779,7 @@ export { isPlainRecord };
 
 // InferFn is the one relocated symbol consumed outside arrival-chain (host's run-traced
 // imports it from the chain barrel). Re-exported so project.ts's `export *` keeps surfacing
-// it. The rest of the toolkit stays internal — chain only imports what makeCompileInferUnit
-// uses, and that whole reach goes away when the `.prompt` seal moves into env-infer.
+// it. The rest of the toolkit stays internal — chain only imports what `sealPromptUnit` (the
+// `.prompt` seal, which stays here because it needs the handlebars render + template analysis)
+// uses from the env-infer package.
 export type { InferFn };
