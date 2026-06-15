@@ -23,6 +23,8 @@ export * from "./infer-store.js";
 export * from "./infer-string.js";
 // ── Agentic tool-loop driver ─────────────────────────────────────────
 export * from "./agentic-loop.js";
+// ── Derive-entity / middleware algebra (the kind-agnostic substrate) ──
+export * from "./entity-middleware.js";
 // ── Backend authoring helpers (the shared chat-protocol kernel) ──────
 export * from "./backends/_shared.js";
 
