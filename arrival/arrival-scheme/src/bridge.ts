@@ -7,37 +7,16 @@
  * 3. Drop-in replacements for global_env numeric operations
  */
 
-import foldCase from "fold-case";
-import unicodeProperties from "unicode-properties";
-
 import { AValue, unionProvenance } from "./AValue.js";
 import { isBridgeInitialized, markBridgeInitialized, setBootstrapComplete } from "./boot.js";
 import { EnvCapability } from "./env/capability.js";
 import { assembleEnv } from "./env/kernel.js";
 import { BASE_PACKS } from "./env/base-packs.js";
 import type { EvalSchemeInto, SchemeEnv } from "./env/scheme-env.js";
-import { HalfBaked, is_half_baked, type Interval } from "./HalfBaked.js";
+import { HalfBaked, type Interval, is_half_baked } from "./HalfBaked.js";
 import type { Environment } from "./Environment.js";
-import { SchemeBool, schemeFalse, schemeTrue } from "./SchemeBool.js";
-import { SchemeBytevector } from "./SchemeBytevector.js";
-import { SchemeVector } from "./SchemeVector.js";
-import {
-  assertAllocatable,
-  asBytevector,
-  asVector,
-  charValue,
-  coerceNumeric,
-  deriveOrd,
-  eqv,
-  getAllocationLimit,
-  isOrd,
-  isSchemeNumber,
-  ORD_REL,
-  setAllocationLimit,
-  stringValue,
-  toIndex,
-  withInputProvenance,
-} from "./op-helpers.js";
+import { schemeFalse, schemeTrue } from "./SchemeBool.js";
+import { coerceNumeric, getAllocationLimit, isOrd, isSchemeNumber, ORD_REL, setAllocationLimit } from "./op-helpers.js";
 // Value-domain primitive clusters — each is the carved-out source of truth for one
 // R7RS domain (chars/strings/lists/vectors/bytevectors + combinators + equality).
 // They are no longer spread into `wrappedOps`: `initBridge` ASSEMBLES them onto
@@ -45,22 +24,16 @@ import {
 // the numeric core + exception machinery bridge.ts is named for (the
 // Operator/Profunctor↔Scheme bridge).
 import { NATIVE_PACKS } from "./env/native-packs.js";
-import { global_env, env as userEnv, exec } from "./stdlib.js";
-import { exec as generatorExec } from "./evaluator.js";
+import { env as userEnv, exec, global_env } from "./stdlib.js";
 import { SchemeString } from "./SchemeString.js";
-import { SchemeSymbol } from "./SchemeSymbol.js";
-import type { Operator, Codec } from "./membrane.js";
+import type { Codec, Operator } from "./membrane.js";
 import type { SchemeNumeric } from "./numbers.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import * as ops from "./operators/index.js";
 // Import directly from source files to avoid circular dependency during init
-import { isCircularList, Pair } from "./Pair.js";
-import { collapseProvenance, taintString } from "./provenance-collapse.js";
-import { structuralEqual } from "./structural-equal.js";
-import { Nil, SchemeCharacter, nil, type SchemeValue } from "./types.js";
+import { Pair } from "./Pair.js";
+import { nil } from "./types.js";
 import { type } from "./utils/typecheck.js";
-import { is_false, is_promise } from "./guards.js";
-import { promise_all, unpromise } from "./utils/promises.js";
 import { Values } from "./Values.js";
 import invariant from "tiny-invariant";
 import "./errors.js";
@@ -176,13 +149,8 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
       // rejects is what coerceNumeric would have thrown on.
       const badIndex = callArgs.findIndex((a) => !isSchemeNumber(a));
       const typeNames = callArgs.map(type).join(", ");
-      const detail = badIndex >= 0
-        ? `argument ${badIndex} is ${type(callArgs[badIndex])}`
-        : "argument type mismatch";
-      throw new TypeError(
-        `Cannot apply ${op.name} to (${typeNames}): ${detail}`,
-        { cause },
-      );
+      const detail = badIndex >= 0 ? `argument ${badIndex} is ${type(callArgs[badIndex])}` : "argument type mismatch";
+      throw new TypeError(`Cannot apply ${op.name} to (${typeNames}): ${detail}`, { cause });
     }
     const result: unknown = op.call(converted);
     if (provenance.size > 0) {
@@ -210,9 +178,7 @@ export function wrapOperator<In extends any[], InRest extends Codec<any, any> | 
     if (args.some(is_half_baked)) {
       const decided = SPECULATIVE_OPS.has(op.name) ? speculativeCompare(op.name, args) : undefined;
       if (decided !== undefined) return decided;
-      return Promise.all(
-        args.map((a) => (is_half_baked(a) ? a.force() : a)),
-      ).then(applyNumeric);
+      return Promise.all(args.map((a) => (is_half_baked(a) ? a.force() : a))).then(applyNumeric);
     }
     return applyNumeric(args);
   };
@@ -290,9 +256,9 @@ function speculativeCompare(name: string, args: unknown[]): unknown | undefined 
   const verdict = verdictFor(aHB ? name : REFLECT[name], k);
   if (!verdict) return undefined;
   const provenance = unionProvenance(args.filter((x): x is AValue => x instanceof AValue));
-  return hb.decide(verdict).then((bool) =>
-    provenance.size > 0 ? (bool ? schemeTrue : schemeFalse).withProvenance(provenance) : bool,
-  );
+  return hb
+    .decide(verdict)
+    .then((bool) => (provenance.size > 0 ? (bool ? schemeTrue : schemeFalse).withProvenance(provenance) : bool));
 }
 
 /**
@@ -659,14 +625,21 @@ export const wrappedOps = {
 // numeric machinery — wrapOperator / wrapOrd / speculativeCompare — lives in this module;
 // importing it from a native-packs sibling would close the bridge↔native-packs cycle.)
 const EXCEPTION_VERBS = new Set([
-  "error-object?", "error-object-message", "error-object-irritants",
-  "read-error?", "file-error?", "make-error-object",
-  "raise-exception", "raise-continuable-exception",
-  "raised-exception?", "raised-exception-value", "raised-exception-continuable?", "%raise",
+  "error-object?",
+  "error-object-message",
+  "error-object-irritants",
+  "read-error?",
+  "file-error?",
+  "make-error-object",
+  "raise-exception",
+  "raise-continuable-exception",
+  "raised-exception?",
+  "raised-exception-value",
+  "raised-exception-continuable?",
+  "%raise",
 ]);
 
-const symbolsFrom = (entries: [string, unknown][]) =>
-  Object.fromEntries(entries.map(([k, v]) => [k, { value: v }]));
+const symbolsFrom = (entries: [string, unknown][]) => Object.fromEntries(entries.map(([k, v]) => [k, { value: v }]));
 
 /** The numeric core (arithmetic, comparison, numeric predicates, conversions) as a pack. */
 export const numbersCapability = new EnvCapability("scheme/numbers", {
@@ -724,7 +697,8 @@ export function initBridge(): Promise<void> {
   // skipBootstrapWait: this exec IS the bootstrap (a base-pack prelude eval), so it
   // must NOT await bootstrap completion — that would deadlock on the very promise it
   // is part of.
-  const evalScheme: EvalSchemeInto = (env, src) => exec(src as string, { env: env as Environment, skipBootstrapWait: true });
+  const evalScheme: EvalSchemeInto = (env, src) =>
+    exec(src as string, { env: env as Environment, skipBootstrapWait: true });
 
   // Evaluate bootstrap Scheme code asynchronously, then expose a curated set of
   // bootstrap-defined bindings in the sandbox. They live in user_env; copy the
@@ -761,14 +735,49 @@ export function initBridge(): Promise<void> {
   // .scm base packs onto user_env. Order matters: a base-pack prelude may call a native
   // primitive (e.g. `string-length`, `+`), which resolves through user_env → global_env,
   // so the natives must already be live there.
-  bootstrapPromise = assembleEnv(global_env as unknown as SchemeEnv, GLOBAL_NATIVE_PACKS.map((pack) => pack.lower()))
-    .then(() => assembleEnv(userEnv as unknown as SchemeEnv, BASE_PACKS.map((pack) => pack.lower({ evalScheme }))))
+  bootstrapPromise = assembleEnv(
+    global_env as unknown as SchemeEnv,
+    GLOBAL_NATIVE_PACKS.map((pack) => pack.lower()),
+  )
+    .then(() =>
+      assembleEnv(
+        userEnv as unknown as SchemeEnv,
+        BASE_PACKS.map((pack) => pack.lower({ evalScheme })),
+      ),
+    )
     .then(async () => {
       const { sandboxedEnv } = await import("./sandbox-env.js");
+      // The FL/array-interop overlay (car/cdr/filter/map/reduce) is its own capability
+      // pack. Assemble it onto the inference-plane base env HERE — after global_env's
+      // native assembly and the base packs — so its lazily-captured `builtin*` refs
+      // (read at first call from global_env) are guaranteed live. Doing it inside
+      // whenBootstrapComplete's chain means a public exec never sees a half-assembled
+      // inferenceEnv. (Dynamic import mirrors the sandbox-env one — avoids an init cycle.)
+      const flInterop = (await import("./env/fl-interop.js")).default;
+      await assembleEnv(sandboxedEnv as unknown as SchemeEnv, [flInterop.lower()]);
       for (const name of [
-        "->", "->>", "~>", "~>>", "cut", "cute", "gensym",
-        "first?", "first-or", "iota", "delete-duplicates", "filter-map", "count", "list-index", "append-map", "remove",
-        "compose", "comp", "pipe", "flow", "some", "every",
+        "->",
+        "->>",
+        "~>",
+        "~>>",
+        "cut",
+        "cute",
+        "gensym",
+        "first?",
+        "first-or",
+        "iota",
+        "delete-duplicates",
+        "filter-map",
+        "count",
+        "list-index",
+        "append-map",
+        "remove",
+        "compose",
+        "comp",
+        "pipe",
+        "flow",
+        "some",
+        "every",
       ]) {
         const value = userEnv.get(name, { throwError: false });
         if (value) sandboxedEnv.set(name, value);
