@@ -33,6 +33,17 @@ export interface RosettaSpec {
   options?: unknown;
 }
 
+/** A catchall resolver contribution, mirroring arrival-scheme's `FallbackResolver`
+ *  structurally (kept here so we don't import the runtime). It fires when the env
+ *  did NOT bind `name`, mapping a NAME to a value — the polyglot member accessors
+ *  (`:key`) and the unbounded `c[ad]+r` family are exactly this. A resolver may
+ *  return a membrane primitive (the `:key` pluck): it is NOT rosetta-wrapped — it
+ *  IS part of the membrane, like `@`. */
+export interface ResolverSpec {
+  readonly id: string;
+  resolve(name: string): unknown | undefined;
+}
+
 /** The minimal surface a scheme-env pack touches. arrival-scheme's `Environment`
  *  satisfies this structurally — packs type against THIS, not the concrete class. */
 export interface SchemeEnv {
@@ -40,6 +51,8 @@ export interface SchemeEnv {
   get(name: string, options?: { throwError?: boolean }): unknown;
   defineRosetta(name: string, config: RosettaSpec): void;
   inherit(name?: string, obj?: Record<string, unknown>): SchemeEnv;
+  /** Register a catchall resolver (fires on a name the env did not bind). */
+  registerResolver(resolver: ResolverSpec): void;
 }
 
 /** Evaluate scheme `source` into `env`. arrival-scheme's `exec(source, { env })`

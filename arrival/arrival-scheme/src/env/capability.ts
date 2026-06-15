@@ -16,7 +16,7 @@ import { z } from "zod";
 
 import type { EnvPack } from "./kernel.js";
 import { type Ref, type Resource, ResourceCell, spinUpAll, windDownAll } from "./resources.js";
-import type { EvalSchemeInto, RosettaSpec, SchemeEnv } from "./scheme-env.js";
+import type { EvalSchemeInto, ResolverSpec, RosettaSpec, SchemeEnv } from "./scheme-env.js";
 
 /** An `EnvPack` that also carries its resource lifecycle (wind-down = pause; resume
  *  = re-spawn). The kernel uses the EnvPack face; a lifecycle owner calls these. */
@@ -82,6 +82,17 @@ export interface CapabilitySpec<C extends ZodMap, R extends Record<string, Resou
   resources?: { [K in keyof R]: R[K] | ((cfg: InferCfg<C>) => R[K]) };
   /** scheme bootstrap (`define-macro` + `define`s), eval'd into env on apply. */
   prelude?: string;
+  /** an optional namespace prepended to every `symbols` KEY at apply time, so a
+   *  subject-scoped pack registers BARE names (`pslist`, `netscan`) and declares its
+   *  namespace ONCE here (`"process/"`). The prefix is the capability's identity made
+   *  legible in the binding name — it does not touch the prelude (which addresses its own
+   *  defines). Does NOT apply to deps (each declares its own). */
+  symbolPrefix?: string;
+  /** catchall fallback resolvers this capability contributes — registered on the env
+   *  at apply (e.g. the `:key` keyword accessor, the unbounded `c[ad]+r` family). A
+   *  resolver maps a name the env did NOT bind to a value; it may return a membrane
+   *  primitive (the `:key` pluck) — NOT rosetta-wrapped, it IS the membrane. */
+  resolvers?: readonly ResolverSpec[];
   /** DAG edges = capability grants. */
   deps?: readonly EnvCapability[];
   /** the verbs this capability exposes: a `Record<name, RosettaConfig>` whose `fn`
@@ -142,7 +153,9 @@ export class EnvCapability<C extends ZodMap = any, R extends Record<string, Reso
       },
       apply: async (env: SchemeEnv) => {
         const symbolsRec = typeof spec.symbols === "function" ? spec.symbols(activation) : (spec.symbols ?? {});
-        for (const [verb, def] of Object.entries(symbolsRec)) {
+        const prefix = spec.symbolPrefix ?? "";
+        for (const [name, def] of Object.entries(symbolsRec)) {
+          const verb = prefix + name;
           if (isValueDef(def)) {
             env.set(verb, def.value); // raw binding (e.g. a sentinel constant)
             continue;
@@ -159,6 +172,9 @@ export class EnvCapability<C extends ZodMap = any, R extends Record<string, Reso
                 return bound(...args);
               };
           env.defineRosetta(verb, { ...sym, fn: gated } as RosettaSpec);
+        }
+        for (const resolver of spec.resolvers ?? []) {
+          env.registerResolver(resolver);
         }
         if (spec.prelude !== undefined) {
           if (opts.evalScheme === undefined) throw new Error(`capability "${name}" has a prelude but no evalScheme was provided to lower()`);
