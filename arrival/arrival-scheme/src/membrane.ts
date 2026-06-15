@@ -20,7 +20,8 @@ import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import { SchemeBool } from "./SchemeBool.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeVector } from "./SchemeVector.js";
-import { Environment as SchemeEnvironment } from "./Environment.js";
+import { Environment as SchemeEnvironment, KEYWORD_ACCESSOR_FIELD } from "./Environment.js";
+import type { ResolverSpec } from "./env/scheme-env.js";
 import { SchemePromise } from "./evaluator.js";
 import { LambdaContext } from "./LambdaContext.js";
 import { SchemeString } from "./SchemeString.js";
@@ -859,3 +860,29 @@ export function memberKeys(obj: unknown): string[] {
   const source = obj instanceof SchemeJSObject ? obj.source : obj;
   return sandboxedKeys(source);
 }
+
+/**
+ * The `:key` keyword-accessor resolver — the catchall that makes any `:`-prefixed
+ * symbol a member accessor. `:foo` resolves to `(lambda (arg) (@ arg :foo))` — the
+ * SAME polyglot read as `@` (`readMember`), differing ONLY by the accessor-as-value
+ * contract: applied to nothing the pluck returns itself, so it composes
+ * (`(compose :a :b)`, `(->> p :versions last :state)`). A `:keyword` is thus a symbol
+ * AND an `@`-alias at once. The pluck carries `KEYWORD_ACCESSOR_FIELD` so `dict` can
+ * use a keyword as a literal key.
+ *
+ * Owned by the polyglot capability (env/polyglot.ts lists it in `resolvers`); also
+ * registered imperatively on the hand-built bases (global_env / sandboxedEnv) until
+ * they are pack-assembled. A catchall resolver, sibling to the `c[ad]+r` family.
+ */
+export const keywordAccessorResolver: ResolverSpec = {
+  id: "keyword-accessor",
+  resolve(name: string) {
+    if (!name.startsWith(":")) return undefined;
+    const key = name.slice(1);
+    const pluck = Object.assign((obj: unknown) => (obj == null ? pluck : readMember(obj, key)), {
+      valueOf: () => name,
+      [KEYWORD_ACCESSOR_FIELD]: key,
+    });
+    return pluck;
+  },
+};

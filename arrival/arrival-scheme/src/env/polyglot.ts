@@ -30,6 +30,7 @@
 // byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
 
 import { EnvCapability } from "./capability.js";
+import { keywordAccessorResolver } from "../membrane.js";
 
 export const POLYGLOT_SCM = `
 ;; -----------------------------------------------------------------------------
@@ -84,5 +85,10 @@ export const POLYGLOT_SCM = `
 (define-macro (~>> x . forms) \`(->> ,x ,@forms))
 `;
 
-/** The polyglot idiom pack (threading & composition). Prelude-only module-singleton capability. */
-export default new EnvCapability("scheme/polyglot", { prelude: POLYGLOT_SCM });
+/** The polyglot idiom pack: threading & composition (prelude) + the `:key` keyword
+ *  member accessor (a catchall `resolvers` contribution — the `@`-alias, owned here
+ *  now that EnvCapability can carry fallback resolvers). Module-singleton capability. */
+export default new EnvCapability("scheme/polyglot", {
+  prelude: POLYGLOT_SCM,
+  resolvers: [keywordAccessorResolver],
+});

@@ -24,7 +24,7 @@ import { typecheck } from "./utils/typecheck.js";
 import type { Syntax } from "./Syntax.js";
 import type { QuotedPromise } from "./QuotedPromise.js";
 import invariant from "tiny-invariant";
-import { fromJS, isSchemeValue, readMember } from "./membrane.js";
+import { fromJS, isSchemeValue } from "./membrane.js";
 
 /**
  * Brand on a keyword-accessor pluck function carrying its bare field name
@@ -417,28 +417,10 @@ export class Environment {
   }
 
   get(symbol: BindingName, options: { throwError?: boolean } = {}): EnvironmentValue {
-    // Clojure/Common Lisp style keyword accessors (e.g., :name)
-    // These are handled specially to create property accessor functions
-    if (symbol instanceof SchemeSymbol && (symbol.__name__ as string)?.startsWith?.(":")) {
-      const key = (symbol.__name__ as string).replace(":", "");
-      // A :keyword is a symbol AND an accessor: applied, it is (lambda (arg) (@ arg :key)) —
-      // the SAME polyglot member-read as `@` (membrane.readMember), so `(eq? (:k obj) (@ obj :k))`
-      // holds (the wrapper cache returns one AValue per key). The only divergence is the
-      // accessor-as-value contract: applied to nothing it returns ITSELF, so it composes
-      // ((compose :a :b), (->> p :versions last :state)). Everything else — lazy-proxy vs dict
-      // dispatch, boundary handling, wrapping — is readMember's, identical to `@`.
-      const keyPluck = Object.assign(
-        (obj: unknown) => (obj == null ? keyPluck : readMember(obj, key)),
-        {
-          valueOf: () => symbol.__name__,
-          // Explicit brand: the bare field name, for consumers like `dict` that
-          // need to use a keyword as a key (not just call it as an accessor).
-          [KEYWORD_ACCESSOR_FIELD]: key,
-        },
-      );
-      return keyPluck as EnvironmentValue;
-    }
-
+    // `:key` keyword accessors are no longer special-cased here: a `:`-prefixed symbol
+    // is never a binding, so it falls through to `_lookupWithResolvers` (below) where
+    // the polyglot capability's `keyword-accessor` resolver (membrane.ts) maps it to
+    // the `@`-alias pluck — exactly like the `c[ad]+r` catchall. One catchall path.
     typecheck("Environment::get", symbol, ["symbol", "string"]);
     const { throwError = true } = options;
 

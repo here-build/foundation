@@ -3,7 +3,7 @@ import { Environment } from "./Environment.js";
 import { global_env, registerCxrResolver } from "./stdlib.js";
 import { nil } from "./types.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
-import { SchemeJSArray, readMember, hasMember, memberKeys } from "./membrane.js";
+import { SchemeJSArray, readMember, hasMember, memberKeys, keywordAccessorResolver } from "./membrane.js";
 import { is_false } from "./guards.js";
 import { Pair } from "./Pair.js";
 import { AValue } from "./AValue.js";
@@ -304,3 +304,6 @@ export const sandboxedEnv = new Environment(
 // (and incomplete) slice of the family above; the resolver makes ANY accessor
 // word the sweet lens can fuse resolve — without inheriting it (null parent).
 registerCxrResolver(sandboxedEnv);
+// The `:key` keyword accessor catchall (sibling to c[ad]+r). On the null-parent
+// sandbox base too, so a `:`-prefixed symbol resolves to its `@`-alias pluck.
+sandboxedEnv.registerResolver(keywordAccessorResolver);

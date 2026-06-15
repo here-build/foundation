@@ -67,7 +67,7 @@ import { SchemeBool } from "./SchemeBool.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeString } from "./SchemeString.js";
 import { SchemeVector } from "./SchemeVector.js";
-import { NOT_FOUND, sandboxedAccess, SandboxViolationError, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
+import { keywordAccessorResolver, NOT_FOUND, sandboxedAccess, SandboxViolationError, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
 import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./evaluator.js";
 
 // Declare jQuery for browser environments
@@ -2048,6 +2048,10 @@ for (const spec of combinations(["d", "a"], 2, 5)) {
 }
 
 registerCxrResolver(global_env);
+// The `:key` keyword accessor — a catchall sibling to c[ad]+r. Registered on both
+// roots (global_env here, sandboxedEnv in sandbox-env.ts) since the sandbox has a
+// null parent and does not inherit resolvers. Owned by the polyglot capability.
+global_env.registerResolver(keywordAccessorResolver);
 
 // -------------------------------------------------------------------------
 // prepare_fn_args is the one survivor of the deleted legacy `evaluate` cluster —
