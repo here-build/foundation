@@ -66,7 +66,11 @@ describe("InferString — string-transparent, external-only payload", () => {
       return last && typeof (last as { then?: unknown }).then === "function" ? await last : last;
     };
     expect(await run(`(string? (result))`)).toBe(true);
-    expect(await run(`(string-length (result))`)).toBe(5);
+    // `string-length` returns a boxed SchemeExact (the canonical numeric tower value)
+    // — coerce via valueOf to assert the magnitude. (It used to return a raw JS number
+    // from an inference-env inline shadow; that loose copy was dropped 2026-06-16 in
+    // favor of the strings pack's provenance-carrying boxed result.)
+    expect(Number(await run(`(string-length (result))`))).toBe(5);
     // the __-prefixed payload is gated by the sandbox @ accessor — the program can't read it.
     expect(await run(`(@ (result) "__chunks__")`)).not.toEqual(chunks);
   });
