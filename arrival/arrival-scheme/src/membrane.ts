@@ -810,12 +810,14 @@ AValue.registerBoxer("function", (v, p) => new SchemeJSFunction(v as Function, p
 // defense. These back the `@`/`@?`/`@keys` surface (polyglot pack) and the
 // `:key` keyword accessor — one protocol, two syntaxes.
 //
-//   • internal members (`_`-prefixed) and meta-members (`constructor`/`__proto__`/
-//     `prototype`, blocked inside `sandboxedAccess`) are not members of the
-//     interop value — reading them yields nil, same as Graal hides a value's
-//     meta-object from a peer language.
-//   • a foreign value routes through its `SchemeJSObject.get` so the read carries
-//     the cached, provenance-stamped member; everything else reads structurally.
+//   • meta-members (`constructor`/`__proto__`/`prototype`, blocked inside
+//     `sandboxedAccess`) and anything marked `@arrival.private` are not members of
+//     the interop value — reading them yields nil, same as Graal hides a value's
+//     meta-object from a peer language. (Privacy is `@arrival.private`'s job; there
+//     is no `_`-prefix convention — a leading underscore is an ordinary member.)
+//   • a foreign value (lazy proxy) routes through its `SchemeJSObject.get` so the
+//     read carries the cached, provenance-stamped member; a native dict reads
+//     structurally. The dispatch differs by value kind; the access logic is one.
 
 /** `readMember(obj, key)` — read a member off any polyglot value. Missing/blocked → nil. */
 export function readMember(obj: unknown, key: unknown): SchemeValue {
@@ -825,7 +827,6 @@ export function readMember(obj: unknown, key: unknown): SchemeValue {
   // keyword-style member: a leading `:` is the accessor sigil, not part of the name.
   let keyStr = String(rawKey);
   if (keyStr.startsWith(":")) keyStr = keyStr.slice(1);
-  if (keyStr.startsWith("_")) return nil;
   // membrane-exposed foreign value → provenance-cached read.
   if (obj instanceof SchemeJSObject) return obj.get(keyStr);
   try {

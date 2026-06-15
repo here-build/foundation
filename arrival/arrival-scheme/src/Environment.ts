@@ -16,7 +16,7 @@ import type { Macro } from "./Macro.js";
 import { createPureSchemeModule } from "./modules/pure-scheme.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import type { SchemeValue } from "./types.js";
-import { nil, SchemeCharacter } from "./types.js";
+import { nil } from "./types.js";
 import type { RosettaFunction } from "./rosetta.js";
 import { createRosettaWrapper } from "./rosetta.js";
 import { trim_lines } from "./utils/trim_lines.js";
@@ -24,14 +24,7 @@ import { typecheck } from "./utils/typecheck.js";
 import type { Syntax } from "./Syntax.js";
 import type { QuotedPromise } from "./QuotedPromise.js";
 import invariant from "tiny-invariant";
-import {
-  fromJS,
-  isSchemeValue,
-  NOT_FOUND,
-  sandboxedAccess,
-  SandboxViolationError,
-  SchemeJSObject
-} from "./membrane.js";
+import { fromJS, isSchemeValue, readMember } from "./membrane.js";
 
 /**
  * Brand on a keyword-accessor pluck function carrying its bare field name
@@ -428,40 +421,14 @@ export class Environment {
     // These are handled specially to create property accessor functions
     if (symbol instanceof SchemeSymbol && (symbol.__name__ as string)?.startsWith?.(":")) {
       const key = (symbol.__name__ as string).replace(":", "");
+      // A :keyword is a symbol AND an accessor: applied, it is (lambda (arg) (@ arg :key)) —
+      // the SAME polyglot member-read as `@` (membrane.readMember), so `(eq? (:k obj) (@ obj :k))`
+      // holds (the wrapper cache returns one AValue per key). The only divergence is the
+      // accessor-as-value contract: applied to nothing it returns ITSELF, so it composes
+      // ((compose :a :b), (->> p :versions last :state)). Everything else — lazy-proxy vs dict
+      // dispatch, boundary handling, wrapping — is readMember's, identical to `@`.
       const keyPluck = Object.assign(
-        (obj: unknown) => {
-          if (!obj) {
-            return keyPluck;
-          }
-          // SchemeJSObject routes through `.get` so the cached, provenance-
-          // stamped entry surfaces. Same dispatch point as `(@ obj :k)` —
-          // `(eq? (:k obj) (@ obj :k))` holds because the wrapper's cache
-          // returns the same AValue instance for the same key.
-          if (obj instanceof SchemeJSObject) return obj.get(key);
-          // Scheme value types never expose their host internals via plucking.
-          if (
-            obj instanceof SchemeSymbol ||
-            obj instanceof SchemeString ||
-            obj instanceof SchemeCharacter ||
-            obj instanceof Environment ||
-            obj instanceof SchemeExact ||
-            obj instanceof SchemeInexact
-          ) {
-            return nil;
-          }
-          // Any other raw value (plain object, function, primitive): route through
-          // the SAME isolation as `(@ obj :k)` / SchemeJSObject.get — blocked
-          // names (constructor, __proto__, prototype, …) and boundary-crossing
-          // inherited props collapse to nil. Without this, `(:constructor f)` on
-          // a lambda hands back the Function constructor → RCE.
-          try {
-            const raw = sandboxedAccess(obj, key);
-            return raw === NOT_FOUND ? nil : ((raw as EnvironmentValue) ?? nil);
-          } catch (e) {
-            if (e instanceof SandboxViolationError) return nil;
-            throw e;
-          }
-        },
+        (obj: unknown) => (obj == null ? keyPluck : readMember(obj, key)),
         {
           valueOf: () => symbol.__name__,
           // Explicit brand: the bare field name, for consumers like `dict` that
