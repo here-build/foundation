@@ -1,6 +1,6 @@
 import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
-import { global_env, env as userEnv, registerCxrResolver } from "./stdlib.js";
+import { env as userEnv, registerCxrResolver } from "./stdlib.js";
 import { nil } from "./types.js";
 import { keywordAccessorResolver } from "./membrane.js";
 
@@ -34,38 +34,21 @@ export const inferenceEnv = new Environment(
     // `@` / `@?` / `@keys` (polyglot member access) are no longer shadowed here —
     // the polyglot capability binds the identical `readMember`/`hasMember`/`memberKeys`
     // on user_env, reachable by inheritance. (`:key` keeps its resolver below.)
-    // ── Type conversion (R7RS standard, models expect these) ──
-    "symbol->string": (sym: any) => {
-      if (sym && typeof sym === "object" && "__name__" in sym) {
-        const name = sym.__name__;
-        return typeof name === "string" ? name : String(name);
-      }
-      return String(sym);
-    },
-    "string->symbol": (str: any) => {
-      const s = typeof str === "string" ? str : str?.__string__ ?? String(str);
-      return global_env.get("string->symbol", { throwError: false })
-        ? global_env.get("string->symbol")(s)
-        : Symbol.for(s);
-    },
+    // The loose-JS shadows that USED to live here — `symbol->string`/`string->symbol`,
+    // the numeric predicates (`zero?`/`positive?`/`negative?`/`max`/`min`), and the
+    // string ops (`string-length`/`string-upcase`/`string-downcase`/`string-ref`) —
+    // are dropped. Each returned a RAW JS value (number/string/bool) that shadowed the
+    // sound base binding: the numeric core (wrappedOps, spread above) and the string/
+    // arrival-extensions packs return provenance-carrying BOXED Scheme values. The
+    // base versions surface by inheritance / the spread; the loose copies only erased
+    // lineage and the proper Scheme type.
 
-    // ── Numeric predicates ──
-    "zero?": (n: any) => n === 0 || n?.valueOf?.() === 0,
-    "positive?": (n: any) => (n?.valueOf?.() ?? n) > 0,
-    "negative?": (n: any) => (n?.valueOf?.() ?? n) < 0,
-    "max": (...args: any[]) => Math.max(...args.map((a: any) => a?.valueOf?.() ?? a)),
-    "min": (...args: any[]) => Math.min(...args.map((a: any) => a?.valueOf?.() ?? a)),
-
-    // ── String operations ──
-    "string-length": (s: any) => (s?.__string__ ?? String(s)).length,
-    "string-upcase": (s: any) => (s?.__string__ ?? String(s)).toUpperCase(),
-    "string-downcase": (s: any) => (s?.__string__ ?? String(s)).toLowerCase(),
-    // string-append (wrappedOps) and join (SAFE_BUILTINS) now carry the canonical
-    // DEEP collapse-provenance (provenance-collapse.ts), so the sandbox no longer
-    // overrides them — the spread/projection versions are the sound ones.
+    // `string-contains` stays inline: it has NO base provider (the strings cluster has
+    // no `string-contains`). It is a simplified boolean `.includes`, not the R7RS
+    // index-returning `string-contains` — a candidate to relocate into the strings
+    // pack with proper semantics later, not a redundant shadow to drop now.
     "string-contains": (haystack: any, needle: any) =>
       (haystack?.__string__ ?? String(haystack)).includes(needle?.__string__ ?? String(needle)),
-    "string-ref": (s: any, i: any) => (s?.__string__ ?? String(s))[i?.valueOf?.() ?? i] ?? nil,
 
     // `equal?` is no longer shadowed here — the equality cluster binds the identical
     // `structuralEqual(a, b)` (its `seen` map defaults to `new Map()`), reachable by
