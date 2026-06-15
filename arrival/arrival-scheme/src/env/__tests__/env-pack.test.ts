@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   assembleEnv,
-  assembleEnvSync,
   AssembleCycleError,
   AssembleConfigConflictError,
   AssembleLinearizationError,
@@ -158,25 +157,6 @@ describe("env-pack assembly core (P0)", () => {
     const r = await assembleEnv(stub(), [dupDep]);
     expect(r.order).toEqual(["b", "a"]);
     expect(r.env.appliedOrder.filter((n) => n === "a")).toHaveLength(1);
-  });
-
-  // ── assembleEnvSync (the P1 seam for sync buildArrivalEnv) ──
-  it("assembleEnvSync applies sync packs in C3 order and returns the env", () => {
-    const a = pack("a");
-    const b = pack("b", [a]);
-    const r = assembleEnvSync(stub(), [b]);
-    expect(r.order).toEqual(["b", "a"]);
-    expect(r.env.appliedOrder).toEqual(["a", "b"]);
-  });
-
-  it("assembleEnvSync throws AssemblePackError if a pack's apply returns a Promise", () => {
-    const asyncPack: EnvPack<Stub> = {
-      name: "async",
-      apply: async () => {
-        await Promise.resolve();
-      },
-    };
-    expect(() => assembleEnvSync(stub(), [asyncPack])).toThrow(AssemblePackError);
   });
 
   // ── createRuntimeAssembler (P4: the `(require/extension)` live-apply path) ──

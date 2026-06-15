@@ -114,7 +114,6 @@ export { arrivalSuperDefineCapability } from "./packs/superdefine.js";
 // host can author extension packs and arm a `(require/extension :name)` registry.
 export {
   assembleEnv,
-  assembleEnvSync,
   createRuntimeAssembler,
   type AssembledEnv,
   type EnvPack,

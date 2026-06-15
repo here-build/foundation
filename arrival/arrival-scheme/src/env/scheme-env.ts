@@ -65,7 +65,8 @@ export interface SchemePackSpec<E = SchemeEnv> {
  * Bind the injected evaluator once, get a `SchemePackSpec → EnvPack` lowering. The
  * produced packs are plain kernel `EnvPack`s (so they compose in the same DAG as
  * pure-JS packs); their `apply` evaluates `bootstrap` then runs `wire`. Async by
- * construction (eval is async) ⇒ assemble with `assembleEnv`, not `assembleEnvSync`.
+ * construction (eval is async) ⇒ assemble with `assembleEnv` (the kernel has no
+ * synchronous assembler — there is no synchronous eval path anywhere in arrival).
  *
  *   const pack = schemePacks(exec)({ name: "scheme/srfi-1", bootstrap: SRFI1_SCM });
  *   await assembleEnv(env, [pack]);

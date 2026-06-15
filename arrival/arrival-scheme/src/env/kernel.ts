@@ -225,8 +225,6 @@ function makeCtx(order: string[]): { ctx: PackContext; runDisposers: () => Promi
   return { ctx, runDisposers };
 }
 
-const isThenable = (v: unknown): boolean => v != null && typeof (v as { then?: unknown }).then === "function";
-
 /**
  * Assemble `base` into a capability-scoped env by resolving the pack DAG. Async by construction.
  * Applies each pack once in C3 order (least-precedence first ⇒ last-write-wins matches C3). On any
@@ -307,29 +305,4 @@ export function createRuntimeAssembler<E>(env: E): RuntimeAssembler<E> {
   };
 
   return { require, dispose };
-}
-
-export function assembleEnvSync<E>(base: E, roots: readonly EnvPack<E>[]): AssembledEnv<E> {
-  const { order, byName } = linearize(roots);
-  const { ctx, runDisposers } = makeCtx(order);
-  for (const name of order.toReversed()) {
-    const pack = byName.get(name)!;
-    let result: void | Promise<void>;
-    try {
-      result = pack.apply(base, ctx);
-    } catch (error) {
-      void runDisposers();
-      throw new AssemblePackError(name, error);
-    }
-    if (isThenable(result)) {
-      void runDisposers();
-      throw new AssemblePackError(
-        name,
-        new Error(
-          "assembleEnvSync requires synchronous apply; this pack returned a Promise — use assembleEnv (async).",
-        ),
-      );
-    }
-  }
-  return { env: base, order, dispose: runDisposers };
 }
