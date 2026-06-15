@@ -1,8 +1,17 @@
-// SRFI-128 — comparators. Scheme-bootstrap capability. Source mirrors arrival-scheme/src/bootstrap.ts.
+// SRFI-128 — comparators. Scheme-bootstrap capability.
+//
+// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `SRFI128_SCM` and
+// concatenates it, so this module is the sole definition site. It used to be
+// byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
 import { EnvCapability } from "../capability.js";
 
-export default new EnvCapability("scheme/srfi-128", {
-  prelude: `
+export const SRFI128_SCM = `
+;; ============ SRFI-128 (comparators) ============
+;; ---- SRFI-128 comparators (tagged-list; NO hash — arrival has no value-hash,
+;; so comparator-hashable? is always #f and the hash arg is ignored) ----
+
+;; make-comparator — bundle (type-test equality ordering). A 4th hash arg is
+;; accepted for SRFI-128 source-compat but IGNORED.
 (define (make-comparator type-test equality ordering . hash)
   (list 'comparator type-test equality ordering))
 (define (comparator? x) (and (pair? x) (eq? (car x) 'comparator)))
@@ -10,10 +19,13 @@ export default new EnvCapability("scheme/srfi-128", {
 (define (comparator-equality-predicate c) (caddr c))
 (define (comparator-ordering-predicate c) (cadddr c))
 (define (comparator-hashable? c) #f)
+
+;; %chain-rel — rel holds for every adjacent pair in (a b . rest).
 (define (%chain-rel rel a b rest)
   (if (rel a b)
       (if (null? rest) #t (%chain-rel rel b (car rest) (cdr rest)))
       #f))
+
 (define (=? c a b . rest) (%chain-rel (comparator-equality-predicate c) a b rest))
 (define (<? c a b . rest) (%chain-rel (comparator-ordering-predicate c) a b rest))
 (define (>? c a b . rest)
@@ -22,6 +34,9 @@ export default new EnvCapability("scheme/srfi-128", {
   (let ((lt (comparator-ordering-predicate c))) (%chain-rel (lambda (x y) (not (lt y x))) a b rest)))
 (define (>=? c a b . rest)
   (let ((lt (comparator-ordering-predicate c))) (%chain-rel (lambda (x y) (not (lt x y))) a b rest)))
+
+;; %type-rank / %default-less — a TOTAL order across types: by type rank, then
+;; the native within-type order.
 (define (%type-rank x)
   (cond ((boolean? x) 0) ((number? x) 1) ((char? x) 2) ((string? x) 3)
         ((symbol? x) 4) ((null? x) 5) ((pair? x) 6) (else 7)))
@@ -36,5 +51,6 @@ export default new EnvCapability("scheme/srfi-128", {
               (else #f)))))
 (define (make-default-comparator) (make-comparator (lambda (x) #t) equal? %default-less))
 (define (default-comparator) (make-default-comparator))
-`,
-});
+`;
+
+export default new EnvCapability("scheme/srfi-128", { prelude: SRFI128_SCM });
