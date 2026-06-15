@@ -16,12 +16,9 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { Context } from "hono";
-import type { Constructor } from "type-fest";
 
-import { serializeResult } from "./dispatch.js";
+import { serializeResult, type UserlandCallToolResult } from "./dispatch.js";
 import type { ToolCallCtx } from "./DiscoveryTool.js";
-import type { ToolInteraction, UserlandCallToolResult } from "./ToolInteraction.js";
 
 /** The transport contract both `DiscoveryTool` and `ActionTool` satisfy (structurally). `call`'s
  *  return is serialized by `serializeResult`, so a tier may return `string[]`, an object, or an array
@@ -30,27 +27,6 @@ export interface McpTool {
   readonly name: string;
   describe(clientInfo?: Record<string, unknown>): Promise<Tool>;
   call(args: any, ctx?: ToolCallCtx): Promise<unknown>;
-}
-
-/**
- * Bridge a legacy `ToolInteraction` subclass to `McpTool`, so it registers on the official McpServer
- * via {@link registerTools} — the seam that lets `ArrivalServer` retire before each tool is rewritten
- * to `DiscoveryTool`/`ActionTool`. Mirrors `ArrivalServer`'s per-call `new ToolClass(context, state,
- * args)` lifecycle exactly: `getContext` returns the LIVE Hono context (the host repoints it per
- * request, as `ArrivalServer` did with `currentContext`), `getState` the session state bag. A tool's
- * own clientInfo-personalization happens at describe time (it sees the context); `executeTool` takes
- * no clientInfo in the discovery/action bases, so none is threaded into `call`.
- */
-export function toolInteractionToMcpTool(
-  ToolClass: Constructor<ToolInteraction<any>> & { name: string },
-  getContext: () => Context,
-  getState: () => Record<string, unknown>,
-): McpTool {
-  return {
-    name: ToolClass.name,
-    describe: (clientInfo) => new ToolClass(getContext(), getState()).getToolDescription(clientInfo),
-    call: (args, _ctx) => new ToolClass(getContext(), getState(), args).executeTool(),
-  };
 }
 
 /** Map an incoming call to its dispatch-time ctx (session/user/record). The adapter adds the

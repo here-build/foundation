@@ -2,10 +2,8 @@
 // foundations/arrival packages) so the EMITTED dist/*.d.ts resolves under nodenext
 // consumers (sift). Extensionless specifiers type-check here (bundler-resolution
 // consumers too) but silently drop every re-export for a nodenext consumer.
-// ToolInteraction base + DiscoveryToolInteraction stay for sift's discovery (sift migrates in parallel);
-// ActionToolInteraction is gone — the mutation tier is the value-shape ActionTool.
-export * from "./ToolInteraction.js";
-export * from "./DiscoveryToolInteraction.js";
+// The legacy ToolInteraction class stack (ToolInteraction / DiscoveryToolInteraction /
+// ActionToolInteraction) is gone — both tiers are value-shape (DiscoveryTool / ActionTool).
 // EnvCapability + per-verb { description, inputSchema } the discovery tool reflects into
 // its catalog + input schema — so the transport offloads the whole verb definition here,
 // and this package can compact toward a standalone MCP lib.
@@ -22,10 +20,9 @@ export * from "./refs.js";
 // Typed error kernel (MCPError, withTimeout, size limits) used by ActionTool dispatch.
 export * from "./errors.js";
 // Wire DiscoveryTool/ActionTool onto the official @modelcontextprotocol/sdk Server (describe→list,
-// call→call), plus the legacy ToolInteraction→McpTool bridge (still used by sift's discovery).
+// call→call).
 export * from "./sdk-adapter.js";
-// dispatch.js: serializeResult (used by sdk-adapter + tool test-apps) + the legacy
-// dispatchTool/getToolDefinitions (sift's discovery + custdev loops still speak the class array).
+// serializeResult (used by sdk-adapter + the tool test-apps) + the UserlandCallToolResult type.
 export * from "./dispatch.js";
 export * from "./resources/index.js";
 export * from "./store.js";

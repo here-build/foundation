@@ -1,19 +1,20 @@
-import type { CallToolResult, ListToolsResult } from "@modelcontextprotocol/sdk/types.js";
-import type { Context } from "hono";
-import invariant from "tiny-invariant";
-import type { Constructor } from "type-fest";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-import type { ArrivalSessionStore, ErrorType } from "./store.js";
-import type { ToolInteraction, MCPClientInfo, UserlandCallToolResult } from "./ToolInteraction.js";
+/** What a value-shape tool's `call` returns before transport lowering: plain text/object/Blob. */
+export type UserlandCallToolResult = File | string | object;
 
 function asArray<T>(value: T | T[]): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
 /**
- * Userland returns plain strings/objects/Blobs; this lowers them to MCP `CallToolResult`.
- * Convention: an object with `success: false` marks the call as an error WITHOUT throwing —
- * so a tool can report a soft failure (e.g. validation) as data, not an exception.
+ * Userland returns plain strings/objects/Blobs; this lowers them to MCP `CallToolResult`. The one
+ * shared lowering: `registerTools` (sdk-adapter) uses it for the official transport, and the custdev
+ * loops use it directly. Convention: an object with `success: false` marks the call as an error WITHOUT
+ * throwing — so a tool can report a soft failure (e.g. validation) as data, not an exception.
+ *
+ * (The legacy class-array dispatch — `dispatchTool` / `getToolDefinitions` — was removed with the
+ * `ToolInteraction` stack; value-shape tools are dispatched by `registerTools` / `.call()` directly.)
  */
 export async function serializeResult(
   callToolResult: UserlandCallToolResult | UserlandCallToolResult[],
@@ -52,123 +53,4 @@ export async function serializeResult(
     ),
     isError,
   };
-}
-
-// Bucket an error by message substrings — the SDK/interpreter throw plain Errors, so the
-// classification the store wants (validation vs parse vs eval vs timeout) is only recoverable
-// from the message text.
-function classifyError(error: unknown, toolName?: string): { errorType: ErrorType; errorMessage: string } {
-  if (error instanceof Error) {
-    const msg = error.message;
-    if (msg.includes("Unknown tool") || msg.includes("Unknown action"))
-      return { errorType: "unknown_action", errorMessage: msg };
-    if (msg.includes("validation") || msg.includes("Validation")) return { errorType: "validation", errorMessage: msg };
-    if (msg.includes("Parse Error")) return { errorType: "parse", errorMessage: msg };
-    if (msg.includes("Unbound variable") || msg.includes("is not defined"))
-      return { errorType: "eval", errorMessage: msg };
-    if (msg.includes("timeout") || msg.includes("Timeout")) return { errorType: "timeout", errorMessage: msg };
-    return { errorType: "runtime", errorMessage: msg };
-  }
-  return { errorType: "runtime", errorMessage: String(error) };
-}
-
-/**
- * The seam below MCP: no transport, protocol, or session management touched here. When `store`
- * is set, every interaction (success AND soft-failure) is recorded fire-and-forget — recording
- * never blocks the response.
- */
-export async function dispatchTool(
-  tools: Constructor<ToolInteraction<any>>[],
-  context: Context,
-  state: Record<string, any>,
-  request: { name: string; arguments?: Record<string, unknown> },
-  clientInfo?: MCPClientInfo,
-  store?: ArrivalSessionStore,
-  sessionId?: string,
-): Promise<CallToolResult> {
-  const startTime = Date.now();
-  const intent = request.arguments?.intent as string | undefined;
-
-  const ToolClass = tools.find(({ name }) => name === request.name);
-  if (!ToolClass) {
-    const interaction = {
-      id: crypto.randomUUID(),
-      sessionId: sessionId ?? "unknown",
-      timestamp: startTime,
-      tool: request.name,
-      intent,
-      arguments: request.arguments ?? {},
-      success: false as const,
-      durationMs: Date.now() - startTime,
-      errorType: "unknown_action" as const,
-      errorMessage: `Unknown tool: ${request.name}. Available: ${tools.map(({ name }) => name).join(", ")}`,
-    };
-    store?.recordInteraction(interaction);
-    invariant(false, interaction.errorMessage);
-  }
-
-  const tool = new ToolClass(context, state, request.arguments);
-  console.log("calling MCP", request.name, request.arguments);
-
-  try {
-    const result = await tool.executeTool(clientInfo);
-    const serialized = await serializeResult(result);
-
-    // success=false here is a soft failure the tool returned as data (not a throw), so it's
-    // still a completed interaction — recorded with its classified error.
-    const isError = serialized.isError ?? false;
-    if (store) {
-      const resultText = serialized.content.map((c: any) => ("text" in c ? c.text : "")).join("\n");
-      store.recordInteraction({
-        id: crypto.randomUUID(),
-        sessionId: sessionId ?? "unknown",
-        timestamp: startTime,
-        tool: request.name,
-        intent,
-        arguments: request.arguments ?? {},
-        success: !isError,
-        resultSummary: resultText.slice(0, 500),
-        durationMs: Date.now() - startTime,
-        ...(isError ? classifyError(new Error(resultText)) : {}),
-      });
-    }
-
-    return serialized;
-  } catch (error) {
-    const { errorType, errorMessage } = classifyError(error);
-    if (store) {
-      store.recordInteraction({
-        id: crypto.randomUUID(),
-        sessionId: sessionId ?? "unknown",
-        timestamp: startTime,
-        tool: request.name,
-        intent,
-        arguments: request.arguments ?? {},
-        success: false,
-        durationMs: Date.now() - startTime,
-        errorType,
-        errorMessage,
-      });
-    }
-    throw error;
-  }
-}
-
-/** A tool whose definition throws is skipped (warned), not fatal — one broken tool can't blank the list. */
-export async function getToolDefinitions(
-  tools: Constructor<ToolInteraction<any>>[],
-  context: Context,
-  state: Record<string, any>,
-  clientInfo?: MCPClientInfo,
-): Promise<ListToolsResult["tools"]> {
-  const definitions: ListToolsResult["tools"] = [];
-  for (const ToolClass of tools) {
-    try {
-      const tool = new ToolClass(context, state);
-      definitions.push(await tool.getToolDescription(clientInfo));
-    } catch (error) {
-      console.warn(`Failed to get definition for ${ToolClass.name}:`, error);
-    }
-  }
-  return definitions;
 }
