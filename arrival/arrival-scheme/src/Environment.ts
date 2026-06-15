@@ -12,7 +12,6 @@ import type {
 import { SchemeString } from "./SchemeString.js";
 import { SchemeSymbol } from "./SchemeSymbol.js";
 import type { Macro } from "./Macro.js";
-import { createPureSchemeModule } from "./modules/pure-scheme.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import type { SchemeValue } from "./types.js";
 import { nil } from "./types.js";
@@ -107,20 +106,9 @@ function get(obj: unknown, ...keys: unknown[]): EnvironmentValue {
 function unbind(obj: unknown): unknown {
   return getSchemeRuntime().unbind(obj);
 }
-function getGlobalEnv(): Environment {
-  return getSchemeRuntime().global_env;
-}
-
 // -------------------------------------------------------------------------
 export class Environment {
   static __class__ = "environment";
-  /**
-   * Options for creating environments from modules.
-   */
-  static readonly fromModulesDefaults = {
-    /** Whether to auto-load pure scheme as the base module. Default: true */
-    autoLoadPureScheme: true,
-  };
   __docs__: Map<string | symbol, string> = new Map();
   __resolvers__: FallbackResolver[] = [];
   /**
@@ -166,55 +154,23 @@ export class Environment {
    * 3. Parent module (recursive)
    *
    * @param modules - Modules to compose (first = base, last = top)
-   * @param execOrOptions - Either exec function or options object
    * @param exec - Optional function to evaluate bootstrap Scheme code
    * @returns The topmost environment
    *
    * @example
    * ```typescript
-   * // Full environment with auto-loaded pure Scheme
    * const env = Environment.fromModules([myModule]);
-   *
-   * // Sandbox without auto-load (for testing or custom setups)
-   * const sandbox = Environment.fromModules([myModule], { autoLoadPureScheme: false });
    * ```
    */
   static fromModules(
     modules: EnvironmentModule[],
-    execOrOptions?: ((code: string, env: Environment) => void) | { autoLoadPureScheme?: boolean },
     exec?: (code: string, env: Environment) => void,
   ): Environment {
-    // Parse arguments - support both (modules, exec) and (modules, options, exec)
-    let options = { ...Environment.fromModulesDefaults };
-    let execFn: ((code: string, env: Environment) => void) | undefined = exec;
-
-    if (typeof execOrOptions === "function") {
-      execFn = execOrOptions;
-    } else if (execOrOptions) {
-      options = { ...options, ...execOrOptions };
-    }
-
-    // Auto-load pure scheme as base if enabled
-    let allModules = modules;
-    if (options.autoLoadPureScheme) {
-      // Check if pure-scheme is already in the modules list
-      const hasPureScheme = modules.some((m) => m.id === "pure-scheme");
-      if (!hasPureScheme) {
-        try {
-          // Get pure scheme bindings from global_env
-          const globalEnv = getGlobalEnv();
-          const pureSchemeModule = createPureSchemeModule(globalEnv);
-          allModules = [pureSchemeModule, ...modules];
-        } catch {
-          // If lips runtime isn't loaded yet, skip auto-load silently.
-          // This allows tests to run without full runtime initialization.
-        }
-      }
-    }
+    const execFn = exec;
 
     // Build dependency graph and topologically sort
     const moduleMap = new Map<string, EnvironmentModule>();
-    for (const mod of allModules) {
+    for (const mod of modules) {
       moduleMap.set(mod.id, mod);
     }
 
@@ -240,8 +196,8 @@ export class Environment {
       sorted.push(mod);
     }
 
-    // Visit all modules (including auto-loaded pure-scheme if any)
-    for (const mod of allModules) {
+    // Visit all modules
+    for (const mod of modules) {
       visit(mod);
     }
 

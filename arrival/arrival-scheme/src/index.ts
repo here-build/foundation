@@ -2,7 +2,6 @@
 import { initBridge } from "./bridge.js";
 
 export * from "./stdlib.js";
-export * from "./safe_builtins.js";
 // The inference-plane base env. `sandboxedEnv` is the deprecated pre-rename alias
 // (it was never a security sandbox); cross-package consumers retarget to
 // `inferenceEnv` over the migration window. Both name the same value/type.
