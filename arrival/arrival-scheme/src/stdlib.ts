@@ -6,7 +6,7 @@
  */
 import invariant from "tiny-invariant";
 import { AValue, unionProvenance } from "./AValue.js";
-import { Environment, KEYWORD_ACCESSOR_FIELD, setLipsRuntime } from "./Environment.js";
+import { Environment, KEYWORD_ACCESSOR_FIELD, setSchemeRuntime } from "./Environment.js";
 import { findHeapMeter, heapBudgetMessage } from "./heap-budget.js";
 import { eof } from "./EOF.js";
 import { HalfBaked, is_half_baked } from "./HalfBaked.js";
@@ -382,7 +382,7 @@ function is_array_method(x) {
 }
 
 // ----------------------------------------------------------------------
-function is_lips_function(x) {
+function is_scheme_function(x) {
   return is_function(x) && (is_lambda(x) || x.__name__);
 }
 
@@ -695,12 +695,12 @@ function map_object(object, fn) {
 
 // ----------------------------------------------------------------------
 function unbox(object) {
-  const lips_type =
+  const is_boxed_primitive =
     object instanceof SchemeString ||
     object instanceof SchemeCharacter ||
     object instanceof SchemeExact ||
     object instanceof SchemeInexact;
-  if (lips_type) {
+  if (is_boxed_primitive) {
     return object.valueOf();
   }
   if (object instanceof SchemeVector) {
@@ -796,7 +796,7 @@ function is_bound(obj) {
 }
 
 // ----------------------------------------------------------------------
-function lips_context(obj) {
+function is_runtime_bound_context(obj) {
   if (is_function(obj)) {
     const context = obj[__context__];
     if (context && (context === lips || context.constructor?.__class__)) {
@@ -2237,17 +2237,17 @@ registerCxrResolver(global_env);
 // prepare_fn_args is the one survivor of the deleted legacy `evaluate` cluster —
 // it's still used by the stdlib `apply` builtin to unbox callback args (#76).
 function prepare_fn_args(fn: SchemeValue, args: SchemeValue[]): SchemeValue[] {
-  if (is_bound(fn) && !is_object_bound(fn) && !lips_context(fn)) {
+  if (is_bound(fn) && !is_object_bound(fn) && !is_runtime_bound_context(fn)) {
     args = args.map(unbox);
   }
-  if (!is_raw_lambda(fn) && args.some(is_lips_function) && !is_lips_function(fn) && !is_array_method(fn)) {
+  if (!is_raw_lambda(fn) && args.some(is_scheme_function) && !is_scheme_function(fn) && !is_array_method(fn)) {
     // we unbox values from callback functions #76
     // calling map on array should not unbox the value
     const result: SchemeValue[] = [];
     let i = args.length;
     while (i--) {
       const arg = args[i];
-      if (is_lips_function(arg)) {
+      if (is_scheme_function(arg)) {
         const wrapper = function (this: SchemeValue, ...args: SchemeValue[]) {
           return unpromise(arg.apply(this, args), unbox);
         };
@@ -2362,7 +2362,7 @@ global_env.set("lips", lips);
 
 // Additional exports needed by Environment.ts
 export { eof as eof };
-setLipsRuntime({
+setSchemeRuntime({
   doc,
   get_props,
   patch_value,

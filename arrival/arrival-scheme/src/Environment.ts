@@ -79,7 +79,7 @@ export interface LipsFunction extends Function {
 export type EnvironmentValue = SchemeValue | LipsFunction | Macro | Syntax | QuotedPromise | EOF | Environment | RegExp;
 
 // Runtime module cache - populated on first access
-let _lips: {
+let _runtime: {
   doc: typeof DocFn;
   get_props: typeof GetPropsFn;
   patch_value: typeof PatchValueFn;
@@ -89,37 +89,37 @@ let _lips: {
   global_env: Environment;
 } | null = null;
 
-// Setter function to allow lips.ts to register itself
-export function setLipsRuntime(runtime: typeof _lips) {
-  _lips = runtime;
+// Setter function to allow stdlib to register itself
+export function setSchemeRuntime(runtime: typeof _runtime) {
+  _runtime = runtime;
 }
 
-function getLipsRuntime() {
+function getSchemeRuntime() {
   invariant(
-    _lips,
-    `lips runtime not yet loaded. This usually means a method was called during module initialization before circular dependencies resolved. Make sure to import from the main entry point (index.ts) before using Environment.`,
+    _runtime,
+    `scheme runtime not yet loaded. This usually means a method was called during module initialization before circular dependencies resolved. Make sure to import from the main entry point (index.ts) before using Environment.`,
   );
-  return _lips!;
+  return _runtime!;
 }
 
-// Wrapper functions that defer to lips runtime
+// Wrapper functions that defer to the scheme runtime
 function doc(...args: Parameters<typeof DocFn>): ReturnType<typeof DocFn> {
-  return getLipsRuntime().doc(...args);
+  return getSchemeRuntime().doc(...args);
 }
 function get_props(obj: object): (string | symbol)[] {
-  return getLipsRuntime().get_props(obj);
+  return getSchemeRuntime().get_props(obj);
 }
 function patch_value(value: unknown, context: unknown): EnvironmentValue {
-  return getLipsRuntime().patch_value(value, context) as EnvironmentValue;
+  return getSchemeRuntime().patch_value(value, context) as EnvironmentValue;
 }
 function get(obj: unknown, ...keys: unknown[]): EnvironmentValue {
-  return getLipsRuntime().get(obj, ...keys) as EnvironmentValue;
+  return getSchemeRuntime().get(obj, ...keys) as EnvironmentValue;
 }
 function unbind(obj: unknown): unknown {
-  return getLipsRuntime().unbind(obj);
+  return getSchemeRuntime().unbind(obj);
 }
 function getGlobalEnv(): Environment {
-  return getLipsRuntime().global_env;
+  return getSchemeRuntime().global_env;
 }
 
 // -------------------------------------------------------------------------
