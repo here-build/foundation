@@ -34,7 +34,7 @@ import {
 } from "./guards.js";
 import { SchemeSymbol } from "./SchemeSymbol.js";
 import { eq, eqv } from "./structural-equal.js";
-import { clear_gensyms, extract_patterns, macro_expand, transform_syntax } from "./syntax-rules.js";
+import { clear_gensyms, extract_patterns, transform_syntax } from "./syntax-rules.js";
 import { gensym, hidden_prop, quote } from "./values-repr.js";
 import {
   __context__,
@@ -824,27 +824,6 @@ function filter_fn_names(name) {
 // let_macro removed — let/let*/letrec/letrec* now delegate to generator evaluator via genMacroWrapper
 
 // -------------------------------------------------------------------------
-// :: Parallel evaluation helper - used by begin*
-// -------------------------------------------------------------------------
-function parallel(name: string, fn: SchemeFunction): Macro {
-  return new Macro(name, function (this: Environment, code: SchemeValue, { use_dynamic, error }: SchemeValue = {}) {
-    const env = this;
-    const dynamic_env = this;
-    const results: SchemeValue[] = [];
-    let node = code;
-    while (is_pair(node)) {
-      // Drain: route each sub-expr through the generator. genRun always returns a
-      // promise, so the promise_all branch below is now always taken — correct for
-      // begin*, whose whole point is parallel async evaluation.
-      results.push(genRun(genEvaluate(node.car, { env, dynamic_env, use_dynamic, error })));
-      node = node.cdr;
-    }
-    const havePromises = results.filter(is_promise).length;
-    return havePromises ? (promise_all(results) as Promise<unknown[]>).then(fn.bind(this)) : fn.call(this, results);
-  });
-}
-
-// -------------------------------------------------------------------------
 // :: Quote function used to pause evaluation from Macro
 // -------------------------------------------------------------------------
 // quote moved to values-repr.ts; re-exported here to preserve the public barrel.
@@ -1052,20 +1031,6 @@ export const global_env = new Environment(
     // test exercises them). Re-add to evalSet WITH a test if a real need appears.
     "set!": genMacroWrapper("set!"),
     // ------------------------------------------------------------------
-    "unset!": doc(
-      null,
-      new Macro("set!", function (this: Environment, code: SchemeValue) {
-        TypeError.invariant(
-          code.car instanceof SchemeSymbol,
-          `unset! first argument need to be a symbol or dot accessor that evaluate to object.`,
-        );
-        const symbol = code.car;
-        const ref = this.ref(symbol);
-        if (ref) {
-          delete ref.__env__[symbol.__name__];
-        }
-      }),
-    ),
     // set-car! / set-cdr! / append! — OMITTED by the purity invariant (every
     // entity is frozen by design). Doored in bootstrap.ts. See plan-2026-06-11.
     // ------------------------------------------------------------------
@@ -1089,38 +1054,10 @@ export const global_env = new Environment(
     // ------------------------------------------------------------------
     if: genMacroWrapper("if"),
     // ------------------------------------------------------------------
-    "let-env": new Macro("let-env", function (
-      this: Environment,
-      code: SchemeValue,
-      { dynamic_env, use_dynamic, error }: SchemeValue = {},
-    ) {
-      typecheck("let-env", code, "pair");
-      return unpromise(
-        genRun(genEvaluate(code.car, { env: this, dynamic_env, error, use_dynamic })),
-        function (value: SchemeValue) {
-          typecheck("let-env", value, "environment");
-          return genRun(
-            genEvaluate(new Pair(new SchemeSymbol("begin"), code.cdr), {
-              env: value,
-              dynamic_env,
-              error,
-            }),
-          );
-        },
-      );
-    }),
-    // ------------------------------------------------------------------
     letrec: genMacroWrapper("letrec"),
     "letrec*": genMacroWrapper("letrec*"),
     "let*": genMacroWrapper("let*"),
     let: genMacroWrapper("let"),
-    // ------------------------------------------------------------------
-    "begin*": doc(
-      null,
-      parallel("begin*", function (values) {
-        return values.pop();
-      }),
-    ),
     // ------------------------------------------------------------------
     begin: genMacroWrapper("begin"),
     // ------------------------------------------------------------------
@@ -1271,7 +1208,6 @@ export const global_env = new Environment(
     // (`value === env.get("lambda")` in syntax-rules.ts), like define/let/if.
     lambda: genMacroWrapper("lambda"),
     // ------------------------------------------------------------------
-    macroexpand: doc(null, new Macro("macroexpand", macro_expand())),
     // ------------------------------------------------------------------
     // define-macro delegates to the generator evaluator (evalDefineMacro) via
     // genMacroWrapper — binds positional + rest params to the unevaluated form
