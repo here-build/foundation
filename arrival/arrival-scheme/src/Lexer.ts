@@ -13,7 +13,6 @@ import { Unterminated } from "./errors.js";
 import { is_string } from "./guards.js";
 import { directives, hash_literals, parsable_contants } from "./primitives.js";
 import * as specials from "./specials.js";
-import { SchemeCharacter } from "./types.js";
 
 /**
  * FSM transition row: `[char_re, prev_re, next_re, from_state, to_state]`. A row fires when the
@@ -319,26 +318,6 @@ export class Lexer {
     if (this._next !== null) {
       this._token = null;
       this._i = this._next;
-    }
-  }
-
-  read_rest() {
-    const i = this._i;
-    this._i = this.__input__.length;
-    return this.__input__.slice(Math.max(0, i));
-  }
-
-  peek_char() {
-    if (this._i >= this.__input__.length) {
-      return eof;
-    }
-    return new SchemeCharacter(this.__input__[this._i]);
-  }
-
-  skip_char() {
-    if (this._i < this.__input__.length) {
-      ++this._i;
-      this._token = null;
     }
   }
 
