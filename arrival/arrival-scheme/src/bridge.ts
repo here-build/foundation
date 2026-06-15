@@ -1821,11 +1821,20 @@ export function initBridge(): Promise<void> {
   //     dominant avoidable crash in generated Scheme — unnecessary. `remove` also
   //     OVERRIDES the broken Ramda `remove` spread into the sandbox env (curated copy
   //     runs after construction, so it wins).
+  //   • Composition + quantifiers compose/comp/pipe/flow (polyglot) and some/every
+  //     (SRFI-1) — the SCHEME-NATIVE replacements for the same-named Ramda spreads.
+  //     The inference plane (sandboxedEnv) is the totalic env where models author
+  //     Scheme; these were the only composition/quantifier vocabulary it had, and
+  //     it had them via Ramda. Copying the bootstrap definitions over makes the plane
+  //     source them from pure Scheme so Ramda can be evicted from the sandbox without
+  //     the plane losing compose/pipe/some/every. Pure, capability-free; the copy runs
+  //     after construction, so the Scheme defs win over the (soon-removed) Ramda spread.
   bootstrapPromise = exec(BOOTSTRAP_SCHEME).then(async () => {
     const { sandboxedEnv } = await import("./sandbox-env.js");
     for (const name of [
       "->", "->>", "~>", "~>>", "cut", "cute", "gensym",
       "first?", "first-or", "iota", "delete-duplicates", "filter-map", "count", "list-index", "append-map", "remove",
+      "compose", "comp", "pipe", "flow", "some", "every",
     ]) {
       const value = userEnv.get(name, { throwError: false });
       if (value) sandboxedEnv.set(name, value);
