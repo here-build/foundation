@@ -1894,37 +1894,6 @@ set_interaction_env(user_env, internal_env);
 // See: src/bridge.ts initBridge()
 
 // -------------------------------------------------------------------------
-// ref: https://stackoverflow.com/a/4331218/387194
-function allPossibleCases(arr: SchemeValue[]): SchemeValue[] {
-  if (arr.length === 1) {
-    return arr[0];
-  } else {
-    const result: SchemeValue[] = [];
-    // recur with the rest of array
-    const allCasesOfRest = allPossibleCases(arr.slice(1));
-    for (const element of allCasesOfRest) {
-      for (let j = 0; j < arr[0].length; j++) {
-        result.push(arr[0][j] + element);
-      }
-    }
-    return result;
-  }
-}
-
-// -------------------------------------------------------------------------
-function combinations(input: SchemeValue, start: number, end: number): SchemeValue[] {
-  let result: SchemeValue[] = [];
-  for (let i = start; i <= end; ++i) {
-    const input_arr: SchemeValue[] = [];
-    for (let j = 0; j < i; ++j) {
-      input_arr.push(input);
-    }
-    result = result.concat(allPossibleCases(input_arr));
-  }
-  return result;
-}
-
-// -------------------------------------------------------------------------
 // The `c[ad]+r` pair-accessor family IS car/cdr composition: each inner letter
 // is one projection applied innermost (rightmost) first — `cadr` = (car (cdr x)).
 // `cxrAccessor` is the single synthesis both faces share; there is no
@@ -1959,14 +1928,9 @@ export function registerCxrResolver(env: Environment): void {
   });
 }
 
-// Bless the standard `(scheme cxr)` words eagerly (cadr…cddddr) so they're
-// visible to binding enumeration (oracle Σ, sandbox snapshot, `(environment)`
-// introspection); deeper words are synthesized lazily by the resolver above.
-for (const spec of combinations(["d", "a"], 2, 5)) {
-  const name = `c${spec}r`;
-  global_env.set(name, doc(name, cxrAccessor(name)!));
-}
-
+// The whole `c[ad]+r` family is the cxr RESOLVER's job — no eager bindings. Any
+// accessor word (cadr … caddddr and beyond) is synthesized on lookup; declaring a
+// finite prefix as own bindings was just enumeration cosmetics.
 registerCxrResolver(global_env);
 // The `:key` keyword accessor — a catchall sibling to c[ad]+r. Registered on both
 // roots (global_env here, sandboxedEnv in sandbox-env.ts) since the sandbox has a
