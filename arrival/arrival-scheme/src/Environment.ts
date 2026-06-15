@@ -336,27 +336,6 @@ export class Environment {
     }
   }
 
-  new_frame(fn: EnvironmentValue, args: EnvironmentValue[] & { callee?: EnvironmentValue }): Environment {
-    const frame = this.inherit("__frame__");
-    frame.set(
-      "parent.frame",
-      doc("parent.frame", function (n: { valueOf(): number } = { valueOf: () => 1 }) {
-        const nVal = n.valueOf();
-        const scope = frame.__parent__;
-        if (!is_env(scope)) {
-          return nil;
-        }
-        if (nVal <= 0) {
-          return scope;
-        }
-        const parent_frame = scope.get("parent.frame") as Function;
-        return parent_frame(nVal - 1);
-      }),
-    );
-    args.callee = fn;
-    frame.set("arguments", args as unknown as EnvironmentValue);
-    return frame;
-  }
 
   /**
    * Per-module lookup with proper resolution order:

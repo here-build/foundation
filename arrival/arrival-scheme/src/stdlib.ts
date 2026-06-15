@@ -250,11 +250,7 @@ specials.on(["remove", "append"], function () {
 // ----------------------------------------------------------------------
 async function* _parse(arg: SchemeValue, env?: Environment, source?: string) {
   if (!env) {
-    env = global_env
-      ? (global_env.get("**interaction-environment**", {
-          throwError: false,
-        }) as Environment)
-      : user_env;
+    env = user_env;
   }
   let parser;
   if (arg instanceof Parser) {
@@ -1195,14 +1191,6 @@ export const global_env = new Environment(
       },
     ),
     // ------------------------------------------------------------------
-    "parent.frame": doc("parent.frame", function () {
-      return user_env;
-    }),
-    // ------------------------------------------------------------------
-    "parent.frames": doc("parent.frames", function () {
-      return new Pair(user_env, nil);
-    }),
-    // ------------------------------------------------------------------
     // lambda delegates to the generator (evalLambda via SPECIAL_FORMS); the
     // binding exists for first-class lookup + the macro engine's identity check
     // (`value === env.get("lambda")` in syntax-rules.ts), like define/let/if.
@@ -1896,19 +1884,10 @@ function set_interaction_env(interaction, internal) {
          of variable that can't be redefined, defining a variable with the same name
          will throw an error.`,
   );
-  global_env.set("**interaction-environment**", interaction);
 }
 
 // -------------------------------------------------------------------------
 set_interaction_env(user_env, internal_env);
-global_env.doc(
-  "**interaction-environment**",
-  `**interaction-environment**
-
-    Internal dynamic, global variable used to find interpreter environment.
-    It's used so the read and write functions can locate **internal-env**
-    that contains the references to stdin, stdout and stderr.`,
-);
 
 // NOTE: Numeric operations from bridge.ts should be applied by calling initBridge()
 // This cannot be done at module load time due to circular dependency
