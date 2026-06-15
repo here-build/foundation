@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { port, type Resource } from "@here.build/arrival-scheme/resources";
 import { describe, expect, it } from "vitest";
 import * as z from "zod";
@@ -34,7 +34,7 @@ function demoTool(): DiscoveryTool {
 
 /** A real round-trip through the official SDK: Client ↔ Server over a linked in-memory transport. */
 async function connectedClient(tools: DiscoveryTool[]): Promise<Client> {
-  const server = new Server({ name: "test", version: "0.0.0" }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: "test", version: "0.0.0" }, { capabilities: { tools: {} } });
   registerDiscoveryTools(server, tools, () => ({ session: { id: "s1", state: {} } }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
