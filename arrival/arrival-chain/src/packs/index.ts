@@ -3,6 +3,7 @@ import { arrivalAgenticCapability } from "@here.build/arrival-scheme-env-infer";
 
 import { arrivalBudgetCapability } from "./budget.js";
 import { arrivalDataCapability } from "./data.js";
+import { arrivalHandlebarsCapability } from "./ext-handlebars.js";
 import { arrivalReflectCapability } from "./reflect.js";
 import { arrivalRunCapability } from "./run.js";
 import { arrivalSourceReadCapability } from "./source-read.js";
@@ -24,6 +25,10 @@ import { arrivalUtilsCapability } from "./utils.js";
  */
 export function arrivalCapabilities(): readonly EnvCapability[] {
   return [
+    // C3 root order is precedence order: a DEPENDENT must precede its deps. `ext/handlebars`
+    // deps `utils` (its resolved lambda calls `template/handlebars`), so it lists before utils
+    // — the same diamond shape as agentic→{infer,mcp}→derive, which C3 dedups + linearizes.
+    arrivalHandlebarsCapability,
     arrivalUtilsCapability,
     arrivalBudgetCapability,
     arrivalDataCapability,

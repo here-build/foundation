@@ -72,9 +72,13 @@ export async function buildArrivalEnv(opts: BuildArrivalEnvOpts): Promise<Return
   // a running program cannot teach the loader new file types (a resolver is a capability
   // grant, not runtime data). See loader-extensions.ts for the rationale.
   defineRegisterExtensionRosetta(base);
-  // Capabilities lower to `EnvPack<SchemeEnv>`; loader-core is `EnvPack<ArrivalEnv>`. Both apply over a
-  // concrete `Environment` (its SchemeEnv face), so pin `E` to the base's type for the mixed root list.
-  const capabilityPacks = arrivalCapabilities().map((cap) => cap.lower({ config: opts }));
+  // `evalScheme` lets a capability's `prelude` evaluate into the env — e.g. an `ext/*` pack
+  // registering a file-type resolver via `(require/register-extension …)`. `exec` is the
+  // canonical evaluator; no-op for the prelude-less capabilities. (`env` types as the
+  // structural `SchemeEnv`; at runtime it's the concrete `Environment` `exec` wants.)
+  const capabilityPacks = arrivalCapabilities().map((cap) =>
+    cap.lower({ config: opts, evalScheme: (env, src) => exec(src, { env: env as never }) }),
+  );
   const { env } = await assembleEnv<typeof base>(base, [...capabilityPacks, arrivalLoaderCorePack(opts)]);
   sealRegisterExtension(env);
   return env;

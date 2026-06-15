@@ -576,18 +576,18 @@ export function defineRequireRosetta(opts: {
         const contents = await loader.read(path);
         // Registry overlay (proposal §7): a capability-registered resolver for this suffix
         // wins over the loader's built-in table. The registry stores the resolver verb's
-        // NAME; we resolve it against THIS env (late-bind), so a resource-armed resolver
-        // (e.g. `.prompt` → `prompt/compile`) uses THIS env's resource, and an env that
-        // never rooted the owning capability simply has no binding → a legible error here.
+        // NAME (process-global); we resolve it against THIS env (late-bind), so a
+        // resource-armed resolver (e.g. `.prompt` → `prompt/compile`) uses THIS env's
+        // resource. If the suffix is registered but the verb is NOT bound in this env (a
+        // scope that didn't root the owning capability), we FALL THROUGH to the built-in
+        // table — so during migration a bare loader still resolves it; once a suffix is
+        // removed from `defaultResolvers`, that fallthrough naturally errors (no handler),
+        // which IS the scoping guarantee (you must root the capability).
         const resolverName = lookupExtensionResolver(path);
+        const registered = resolverName === undefined ? undefined : env.get(resolverName, { throwError: false });
         let result: ResolverResult;
-        if (resolverName !== undefined) {
-          const resolver = env.get(resolverName, { throwError: false });
-          invariant(
-            typeof resolver === "function",
-            `require: "${path}" needs the "${resolverName}" resolver, which is not bound in this env — root the capability that registers it.`,
-          );
-          result = (await (resolver as ContentResolver)(contents, { path })) as ResolverResult;
+        if (typeof registered === "function") {
+          result = (await (registered as ContentResolver)(contents, { path })) as ResolverResult;
         } else {
           const handler = pickHandler(path, loader.resolvers);
           invariant(handler, `require: no resolver for ${path}`);
