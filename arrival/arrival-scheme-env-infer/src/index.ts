@@ -19,3 +19,25 @@ export {
   nullable,
   schemaSlot,
 } from "./infer.js";
+
+export {
+  arrivalAgenticCapability,
+  arrivalMcpCapability,
+  defineMcpRosettas,
+  describeMcpEffect,
+  dispatchThroughChain,
+  inertMcpResolver,
+  type McpCapabilities,
+  type McpEffect,
+  type McpEffectContext,
+  type McpEffectResolver,
+  type McpMethod,
+  type McpRoster,
+  type McpServerSpec,
+  type McpToolAnnotations,
+  type McpToolDescriptor,
+  parseSchemeChatMessages,
+  type ResolvedTools,
+  resolveTools,
+  runAgenticInfer,
+} from "./mcp.js";
