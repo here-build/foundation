@@ -135,18 +135,22 @@ export interface InteractionLog {
 }
 
 export interface DiscoveryToolOptions {
-  description: string | Promise<string>;
-  /** Wall-clock eval budget (the interpreter TICK-checks it). */
+  /** The tool's stable identity prose (the MCP `description`). Per-session/personalized text is the
+   *  verbs' `dynamicDescription` (it rides the catalog), so this is static. */
+  description: string;
+  /** Wall-clock eval budget (the interpreter TICK-checks it). Defaults to {@link DEFAULT_BUDGET_MS}. */
   budgetMs?: number;
 }
 
 type DiscoveryArgs = { expr: string; intent?: string } & Record<string, unknown>;
 
+/** Default wall-clock eval budget — the interpreter TICK-checks it (the SDK gives the SERVER no
+ *  handler timeout; this is the server-side bound). */
+export const DEFAULT_BUDGET_MS = 5000;
+
 /** A discovery tool bound to one aggregating capability. Construct once per CONNECTION (the host
  *  builds `capability` with its infra armed into the resources); `call` runs once per request. */
 export class DiscoveryTool {
-  private readonly MAX_EXECUTION_TIME = 5000;
-
   constructor(
     readonly name: string,
     private readonly capability: McpEnvCapability,
@@ -157,7 +161,7 @@ export class DiscoveryTool {
   async describe(clientInfo?: Record<string, unknown>): Promise<Tool> {
     return {
       name: this.name,
-      description: await this.options.description,
+      description: this.options.description,
       inputSchema: await this.inputSchema(clientInfo),
       annotations: { readOnlyHint: true },
     };
@@ -170,7 +174,7 @@ export class DiscoveryTool {
    *  runtime crash is surfaced as an `(error …)` form and stops the rest of the input. */
   async call(args: DiscoveryArgs, ctx: ToolCallCtx = {}): Promise<string[]> {
     const startTime = Date.now();
-    const budgetMs = this.options.budgetMs ?? this.MAX_EXECUTION_TIME;
+    const budgetMs = this.options.budgetMs ?? DEFAULT_BUDGET_MS;
     const { signal } = ctx;
     const env = await this.environment(args);
     const state = ctx.session?.state ?? {};
