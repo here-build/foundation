@@ -1,155 +1,23 @@
 /**
- * Host capability interface for MCP — the membrane through which a run's MCP tool
- * calls reach the outside world. The CLIENT-side twin of {@link ./data-effects}: the
- * OSS engine knows the VERBS, never the CREDENTIALS.
+ * MCP host server-tape — positional record / hermetic replay / verification.
  *
- * A program/agent names a server by LABEL (intent); the resolver maps that label to a
- * decrypted, credentialed MCP client transport HOST-SIDE — the same membrane the LLM
- * keys cross (the interface vends BEHAVIOUR, not the secret). Scheme holds only the
- * server NAME and override λs; the only path to the real server is `next`, which runs
- * host-side, so credentials can never materialise in the sandbox.
+ * The MCP client MEMBRANE (the resolver seam, the entity getters, the dispatch verbs, the
+ * derive algebra) now lives in `@here.build/arrival-scheme-env-infer` (the inference package
+ * — MCP tool use is inference-with-tools). This module keeps only the HOST-SIDE concern that
+ * belongs with run orchestration: {@link wrapMcpResolver}, which records each MCP call
+ * POSITIONALLY per (inference, server) — not by content like infer/http/sql, because an MCP
+ * call's result depends on the server's hidden mutable state (read-after-write). Replay is
+ * HERMETIC (returns the recorded reply, NEVER re-fires — so a what-if cannot trigger a second
+ * destructive action) and VERIFIES the recorded `{server,method,request}` against the live
+ * call, stopping on divergence rather than silently serving a stale value.
  *
- * INERT BY DEFAULT. Like infer/data, the MCP capability REJECTS at call time until a
- * {@link McpEffectResolver} is injected via `buildArrivalEnv({ mcp })`. The OSS engine
- * ships MCP disarmed: a program that mentions an MCP server analyses fine, but invoking
- * one throws a teaching error ({@link inertMcpResolver}) — never a silent no-op, never a
- * network call. The credentialed resolver (roster lookup, envelope-decrypt, SDK `Client`
- * transport) is host-private, NOT part of this package.
- *
- * SERVER-TAPE replay. MCP calls are recorded POSITIONALLY per (inference, server) — not
- * by content like infer/http/sql — because an MCP call's result depends on the server's
- * hidden mutable state (read-after-write). {@link wrapMcpResolver} implements record/replay
- * over that tape: replay is HERMETIC (returns the recorded reply, NEVER re-fires — so a
- * what-if cannot trigger a second destructive action) and VERIFIES the recorded
- * `{server,method,request}` against the live call, stopping on divergence rather than
- * silently serving a stale value.
+ * The membrane + algebra are re-exported below so existing arrival-chain import paths are
+ * unchanged.
  */
 
-import {
-  DerivableEntity,
-  type EntityMiddleware,
-  isDerivableEntity,
-  isMcpBreak,
-  LLM_PARAM_TYPES,
-  type LlmParams,
-  MCP_BREAK,
-  type McpDefinedMethod,
-  runMiddlewareChain,
-  type ToolDescriptor,
-} from "@here.build/arrival-inference";
-import { schemeToJs, Nil } from "@here.build/arrival-scheme";
-import invariant from "tiny-invariant";
+import { describeMcpEffect, type McpEffect, type McpEffectResolver, type McpMethod } from "@here.build/arrival-scheme-env-infer";
 
-import type { RosettaHost } from "./data-effects.js";
 import { mcpEffectKey, stableJson } from "./effect-log.js";
-
-/** The MCP protocol methods the runner invokes. `tools/list` + `tools/call` are the v1
- *  surface; the rest are reserved so the membrane's method namespace is complete and
- *  every method is uniformly overridable (the `derive` interception surface). */
-export type McpMethod =
-  | "initialize"
-  | "tools/list"
-  | "tools/call"
-  | "resources/list"
-  | "resources/read"
-  | "prompts/list"
-  | "prompts/get";
-
-/** Behavioural hints driving cache/lint policy: read-only/idempotent ⇒ replay-safe to
- *  share; destructive/non-idempotent ⇒ each call is distinct and feeds the parallel-arm
- *  non-idempotent lint. Trusted as given — a mis-annotating server is the user's risk. */
-export interface McpToolAnnotations {
-  readOnlyHint?: boolean;
-  idempotentHint?: boolean;
-  destructiveHint?: boolean;
-}
-
-/** A probe-verified MCP tool descriptor (one entry of a `tools/list` result). */
-export interface McpToolDescriptor {
-  name: string;
-  description?: string;
-  /** JSON Schema for the tool's arguments (lowered via the same `tagToJsonSchema` path
-   *  the output-schema validator uses, so a tool schema can't drift from the wire). */
-  inputSchema?: unknown;
-  annotations?: McpToolAnnotations;
-}
-
-/** The probe result for an MCP connection — verified facts, never user-typed. */
-export interface McpCapabilities {
-  serverInfo?: { name: string; version: string };
-  tools?: McpToolDescriptor[];
-  instructions?: string;
-}
-
-/**
- * One honest MCP server, built HOST-SIDE from a connection. Holds the credentialed
- * transport. `methods` are the `next` targets — the only path to the real server; the
- * sandbox never sees them, only the value-only {@link McpEffect} seam. Opaque to scheme.
- */
-export interface McpServerSpec {
-  capabilities?: McpCapabilities;
-  /** The honest, credentialed protocol methods. Partial: a server need only implement
-   *  what it supports (a tools-only server has no `resources/*`). */
-  methods: Partial<Record<McpMethod, (request: unknown) => Promise<unknown>>>;
-}
-
-/** The honest roster — exposed name → server. Vended host-side into a run; HOLDS the
- *  credentials. Repeatable: two connections to the same server kind on different hosts
- *  (e.g. `mcp_cf_host` / `mcp_cf_herebuild`) are two distinct entries. */
-export type McpRoster = Record<string, McpServerSpec>;
-
-/**
- * A single MCP call crossing the membrane — the INTENT a tool dispatch carries. Plain-
- * serialisable so the server-tape can record/verify it without reaching into scheme
- * value types.
- */
-export interface McpEffect {
-  kind: "mcp";
-  /** Exposed server name (the projection key the model sees). */
-  server: string;
-  /** The protocol method invoked. */
-  method: McpMethod;
-  /** Method params — for `tools/call`: `{ tool, args }`; for `tools/list`: usually empty. */
-  request: unknown;
-}
-
-/** Minimal structural view of the `EvalContext` a resolver receives (mirrors
- *  `DataEffectContext`) — only the current invocation, for tracing/provenance. */
-export interface McpEffectContext {
-  currentInvocation?: unknown;
-}
-
-/**
- * THE SEAM. A host injects one of these to arm MCP; absent it, the capability is inert
- * ({@link inertMcpResolver}). Receives the eval context and the canonical {@link McpEffect},
- * performs the credentialed, transport-backed call host-side, and resolves to the raw
- * reply. Deliberately the SAME shape as `DataEffectResolver` / `InferFn` —
- * `(ctx, descriptor) → Promise<value>` — so a host routes MCP through the
- * structurally-identical resolver.
- */
-export type McpEffectResolver = (ctx: McpEffectContext, effect: McpEffect) => Promise<unknown>;
-
-/** Stable at-a-glance identity for inert/error messages and the effect node label.
- *  NOT the effect key (that is positional — {@link mcpEffectKey}). */
-export function describeMcpEffect(effect: McpEffect): string {
-  return `mcp ${effect.method} ${effect.server}`;
-}
-
-/**
- * The disarmed default. When `buildArrivalEnv` is called WITHOUT an `mcp` resolver, MCP
- * calls route here and throw a teaching error at call time — the MCP analogue of
- * `inertDataResolver` / the infer "no store bound" invariant. Errors-as-doors: names the
- * real condition (capability not wired) and points at the fix; never a silent no-op,
- * never a network call.
- */
-export const inertMcpResolver: McpEffectResolver = (_ctx, effect) => {
-  throw new Error(
-    `${describeMcpEffect(effect)}: MCP is not enabled in this environment. ` +
-      `The (mcp …) capability requires a host-injected McpEffectResolver — pass one via ` +
-      `buildArrivalEnv({ mcp }). The OSS engine ships MCP disarmed; a credentialed resolver ` +
-      `(roster lookup, envelope-decrypt, SDK client transport) is supplied by the host.`,
-  );
-};
 
 // ── server-tape: positional record / hermetic replay / verification ──────────
 
@@ -251,251 +119,36 @@ export function wrapMcpResolver(inner: McpEffectResolver, seam: McpTapeSeam): Mc
   };
 }
 
-// ── server-as-value: the (mcp :name) getter handle ───────────────────────────
-
-/** The brand arrival-scheme stamps on a keyword's accessor function (Environment.ts:40).
- *  A global registered symbol, so it's reconstructable without importing it. */
-const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
-
-/** Coerce a server-name argument to its string name. A keyword (`:linear`) evaluates to a
- *  branded accessor function carrying its field; a string/symbol stringifies directly.
- *  Mirrors project.ts `dictKey` (the same keyword-accessor decode). */
-function serverNameOf(raw: unknown): string {
-  if (typeof raw === "function") {
-    const field = (raw as unknown as Record<symbol, unknown>)[KEYWORD_ACCESSOR_FIELD];
-    if (typeof field === "string") return field;
-  }
-  return String(raw);
-}
-
-/** Validate + coerce one `(llm/with …)` value to its declared param type. A `number` param
- *  rejects a non-number; a `string` param rejects the clearly-non-string scheme values
- *  (number / boolean / λ / nil) and coerces the rest (a scheme string may cross as a
- *  SchemeString wrapper, so `String(…)` it). A wrong type is a legible throw — never a silent
- *  coerce of `:temperature "hot"`, never storing `:system #f`. */
-function coerceLlmParam(key: string, value: unknown, expected: "number" | "string"): unknown {
-  if (expected === "number") {
-    invariant(typeof value === "number" && Number.isFinite(value), `llm/with: :${key} must be a number`);
-    return value;
-  }
-  invariant(
-    value != null && typeof value !== "number" && typeof value !== "boolean" && typeof value !== "function",
-    `llm/with: :${key} must be a string`,
-  );
-  return String(value);
-}
-
-// ── the derive-entity / middleware algebra ────────────────────────────────────
+// ── re-exports: the MCP membrane (env-infer) + the derive algebra (arrival-inference) ──
 //
-// The kind-agnostic substrate (DerivableEntity, EntityMiddleware, the chain runner, the
-// break sentinel) lives in `@here.build/arrival-inference` — it depends only downward
-// (LlmParams + the scheme membrane) and is shared by the infer verbs and this MCP layer
-// alike. Re-exported here so existing arrival-chain importers keep their import path.
-export { DerivableEntity, type EntityMiddleware, isDerivableEntity, isMcpBreak, MCP_BREAK, type McpDefinedMethod, runMiddlewareChain };
+// Both relocated out of arrival-chain — the membrane into the inference package, the
+// algebra into the engine. Re-exported here so existing `./mcp-effects.js` import paths
+// across arrival-chain (and the chain barrel) keep resolving unchanged.
 
-/**
- * Dispatch one MCP `method` to a server VALUE through its middleware chain — `honest` is
- * the credentialed {@link McpEffectResolver} call (which also records the server tape). The
- * agentic loop calls this for `tools/call`, and {@link resolveTools} for `tools/list`, so
- * derive's interceptions apply uniformly. A {@link MCP_BREAK} return signals "halt".
- */
-export function dispatchThroughChain(
-  server: DerivableEntity,
-  method: McpMethod,
-  request: unknown,
-  resolve: McpEffectResolver,
-  ctx: McpEffectContext,
-  progress: unknown = {},
-): Promise<unknown> {
-  // The chain's bottom: a FABRICATED impl (mcp/define) when this method has one — run it,
-  // no credentialed call — else the resolver. `schemeToJs(req)` so a defined λ's reply and
-  // the resolver's request are both plain JS (a middleware may have rewrapped `req`).
-  const honest = async (req: unknown): Promise<unknown> => {
-    const fabricated = server.defined?.[method];
-    if (fabricated) return schemeToJs(await fabricated(req));
-    return resolve(ctx, { kind: "mcp", server: server.name, method, request: schemeToJs(req) });
-  };
-  return runMiddlewareChain(server.middleware, method, honest, request, progress);
-}
+export {
+  defineMcpRosettas,
+  describeMcpEffect,
+  dispatchThroughChain,
+  inertMcpResolver,
+  type McpCapabilities,
+  type McpEffect,
+  type McpEffectContext,
+  type McpEffectResolver,
+  type McpMethod,
+  type McpRoster,
+  type McpServerSpec,
+  type McpToolAnnotations,
+  type McpToolDescriptor,
+  type ResolvedTools,
+  resolveTools,
+} from "@here.build/arrival-scheme-env-infer";
 
-// ── scheme-facing dispatch verbs ─────────────────────────────────────────────
-
-/** Coerce a tool-args value crossing the rosetta membrane into the request shape.
- *  Absent / the empty scheme list (`Nil`) ⇒ `{}` (no arguments); a real dict arrives
- *  already `schemeToJs`'d to a plain object. Mirrors the `Nil` discipline `data-effects`
- *  uses for its option dicts. */
-function mcpArgs(raw: unknown): unknown {
-  return raw === undefined || raw === null || raw instanceof Nil ? {} : raw;
-}
-
-/**
- * Register the low-level MCP dispatch verbs on `env`, routing each through the single
- * resolved `resolve` seam — the program-initiated membrane crossing (and the primitive
- * the step-3 trio / model-driven loop dispatch through):
- *
- *   (mcp/call "server" "tool" args)   → tools/call  with request `{ tool, args }`
- *   (mcp/list "server")               → tools/list
- *
- * `withContext: true` threads the eval context (for provenance/tracing), mirroring the
- * `infer`/data verbs. The result is returned RAW; the rosetta membrane wraps it into
- * scheme on the way out. Disarmed default: with {@link inertMcpResolver} these throw the
- * teaching error rather than reach a server (present-but-inert, never an unbound symbol).
- */
-export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver): void {
-  // (mcp :name) / (mcp "name") — the opaque mcp-entity getter (connection-as-value). A PURE
-  // name→handle constructor: no resolver crossing, no roster validation (the handle is
-  // lazy; a bad name surfaces at dispatch). Keyword or string name. The handle is what
-  // `:tools` and `derive` consume. The getter is the ONLY kind-specific verb — it binds
-  // `kind`, which picks the honest bottom at dispatch (here: the credentialed mcp resolver).
-  env.defineRosetta("mcp", {
-    type: "(name: unknown): unknown",
-    fn: (name: unknown) => new DerivableEntity("mcp", serverNameOf(name)),
-  });
-  // (llm :name) / (llm "name") — the opaque llm-entity getter, the SECOND kind. Same shape
-  // as `mcp`: a pure name→handle constructor, `kind` = "llm" so dispatch picks the model
-  // call as the honest bottom (wired in the infer path). Proves the getter is the only
-  // kind-aware verb; everything downstream (`derive`, the chain) is kind-agnostic.
-  env.defineRosetta("llm", {
-    type: "(name: unknown): unknown",
-    fn: (name: unknown) => new DerivableEntity("llm", serverNameOf(name)),
-  });
-  // (llm/with base :temperature 0.7 :system "…") — bind CONTENT params to an (llm …) entity
-  // (the tweaks op). Kind-prefixed (like mcp/define): params are llm-specific, and unlike
-  // `derive`'s observe-only middleware they are IDENTITY (cache-affecting — the infer path
-  // folds them into the key + sends them to the backend). Typed-not-bag: an unknown :keyword
-  // or a wrong-typed value is a legible error (validated against LLM_PARAM_TYPES), never a
-  // silent no-op. Returns a NEW entity (immutable, via withParams; params shallow-merge).
-  env.defineRosetta("llm/with", {
-    type: "(base: unknown, ...pairs: unknown[]): unknown",
-    fn: (base: unknown, ...pairs: unknown[]) => {
-      invariant(base instanceof DerivableEntity, "llm/with: first arg must be an (llm …) entity");
-      invariant(base.kind === "llm", `llm/with: base must be an (llm …), got kind "${base.kind}"`);
-      invariant(pairs.length % 2 === 0, "llm/with: expects an (llm …) then :key value pairs");
-      const patch: Record<string, unknown> = {};
-      for (let i = 0; i < pairs.length; i += 2) {
-        const key = serverNameOf(pairs[i]);
-        const expected = (LLM_PARAM_TYPES as Record<string, "number" | "string" | undefined>)[key];
-        invariant(
-          expected !== undefined,
-          `llm/with: unknown param ":${key}" — allowed: ${Object.keys(LLM_PARAM_TYPES).join(", ")}`,
-        );
-        patch[key] = coerceLlmParam(key, pairs[i + 1], expected);
-      }
-      return base.withParams(patch as Partial<LlmParams>);
-    },
-  });
-  // (derive base :method handler) — the KIND-AGNOSTIC derive verb. Install a middleware on
-  // `base` (ANY derivable entity — mcp, llm, …) for `:method`, returning a NEW entity
-  // (immutable derive). The handler is a scheme λ `(req next progress) → value | mcp/break`
-  // run in the chain at dispatch. THIS is the MITM / budget / mock / break / tweak primitive;
-  // `next` is the honest membrane. Generic because the honest bottom is supplied at dispatch
-  // by the entity's kind — `derive` never needs it, it only appends.
-  env.defineRosetta("derive", {
-    type: "(base: unknown, method: unknown, handler: unknown): unknown",
-    fn: (base: unknown, method: unknown, handler: unknown) => {
-      invariant(
-        base instanceof DerivableEntity,
-        "derive: first arg must be a derivable entity (from (mcp …) / (llm …))",
-      );
-      invariant(typeof handler === "function", "derive: handler must be a (req next progress) lambda");
-      return base.withMiddleware({
-        method: serverNameOf(method),
-        handler: handler as EntityMiddleware["handler"],
-      });
-    },
-  });
-  // (mcp/define name :method handler :method2 handler2 …) — fabricate an mcp entity whose
-  // methods ARE the handlers (a `(req) → reply` λ each; no credentialed backend). TOTAL:
-  // every method you dispatch must be defined. `derive` can still layer middleware on top
-  // (the defined impl is the chain's honest bottom). The mock/what-if-a-server primitive.
-  // STAYS kind-prefixed (unlike `derive`): fabrication makes an entity from nothing, so it
-  // must DECLARE its kind — there's no base value to carry it.
-  env.defineRosetta("mcp/define", {
-    type: "(name: unknown, ...pairs: unknown[]): unknown",
-    fn: (name: unknown, ...pairs: unknown[]) => {
-      invariant(pairs.length % 2 === 0, "mcp/define: expects a name then :method handler pairs");
-      const defined: Partial<Record<McpMethod, McpDefinedMethod>> = {};
-      for (let i = 0; i < pairs.length; i += 2) {
-        const method = serverNameOf(pairs[i]) as McpMethod;
-        invariant(typeof pairs[i + 1] === "function", `mcp/define: handler for ${method} must be a (req) lambda`);
-        defined[method] = pairs[i + 1] as McpDefinedMethod;
-      }
-      return new DerivableEntity("mcp", serverNameOf(name), [], defined);
-    },
-  });
-  env.defineRosetta("mcp/call", {
-    withContext: true,
-    type: "(server: unknown, tool: unknown, args?: unknown): unknown",
-    fn: (ctx: McpEffectContext, server: unknown, tool: unknown, args?: unknown): Promise<unknown> =>
-      resolve(ctx, {
-        kind: "mcp",
-        server: String(server),
-        method: "tools/call",
-        request: { tool: String(tool), args: mcpArgs(args) },
-      }),
-  });
-  env.defineRosetta("mcp/list", {
-    withContext: true,
-    type: "(server: unknown): unknown",
-    fn: (ctx: McpEffectContext, server: unknown): Promise<unknown> =>
-      resolve(ctx, { kind: "mcp", server: String(server), method: "tools/list", request: {} }),
-  });
-}
-
-// ── :tools desugar — server values → the model's tool set + dispatch routing ──
-
-/** The resolved tool set for an agentic run: the neutral descriptors the model sees, plus
- *  the toolName→server-VALUE routing the loop's dispatch uses to send a call back to the
- *  server that owns it (the VALUE, not just the name, so dispatch runs that server's
- *  middleware chain). */
-export interface ResolvedTools {
-  tools: ToolDescriptor[];
-  serverOf: Map<string, DerivableEntity>;
-}
-
-/** Pull the tool array out of a `tools/list` reply — tolerant of the MCP spec's
- *  `{ tools: [...] }` envelope or a bare array (a `derive`d/`define`d server may return
- *  either). Non-array / absent ⇒ no tools. */
-function toolListOf(reply: unknown): McpToolDescriptor[] {
-  if (Array.isArray(reply)) return reply as McpToolDescriptor[];
-  const tools = (reply as { tools?: unknown } | null | undefined)?.tools;
-  return Array.isArray(tools) ? (tools as McpToolDescriptor[]) : [];
-}
-
-/**
- * Resolve `:tools` server values into the model's neutral tool set + the dispatch routing.
- * For each server, `tools/list` THROUGH ITS MIDDLEWARE CHAIN (so a derived `tools/list`
- * middleware — flow 2's description rewrite — applies), map each MCP descriptor to the
- * neutral {@link ToolDescriptor} (dropping MCP-only annotations, which feed the lint, not
- * the model), and record toolName→server-value so the loop's dispatch routes a call back
- * through the right server's chain.
- *
- * FIRST-server-wins on a name collision (deterministic — the model sees ONE tool of that
- * name, routed to the first server). Cross-server name namespacing is a future refinement.
- * The `tools/list` calls cross the same resolver (and server tape) as a dispatch, so an
- * agentic run's tool discovery is recorded + replayed like any other MCP effect. A server
- * whose `tools/list` middleware returns `mcp/break` contributes no tools (skipped).
- */
-export async function resolveTools(
-  servers: readonly DerivableEntity[],
-  resolve: McpEffectResolver,
-  ctx: McpEffectContext,
-  progress: unknown = {},
-): Promise<ResolvedTools> {
-  const tools: ToolDescriptor[] = [];
-  const serverOf = new Map<string, DerivableEntity>();
-  for (const server of servers) {
-    const reply = await dispatchThroughChain(server, "tools/list", {}, resolve, ctx, progress);
-    if (reply === MCP_BREAK) continue; // a tools/list break → this server exposes no tools
-    for (const t of toolListOf(reply)) {
-      if (serverOf.has(t.name)) continue; // first server wins on a name collision (deterministic)
-      tools.push({
-        name: t.name,
-        ...(t.description === undefined ? {} : { description: t.description }),
-        ...(t.inputSchema === undefined ? {} : { inputSchema: t.inputSchema }),
-      });
-      serverOf.set(t.name, server);
-    }
-  }
-  return { tools, serverOf };
-}
+export {
+  DerivableEntity,
+  type EntityMiddleware,
+  isDerivableEntity,
+  isMcpBreak,
+  MCP_BREAK,
+  type McpDefinedMethod,
+  runMiddlewareChain,
+} from "@here.build/arrival-inference";

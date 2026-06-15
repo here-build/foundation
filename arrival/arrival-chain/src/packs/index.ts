@@ -1,6 +1,6 @@
 import type { EnvCapability } from "@here.build/arrival-scheme/capability";
+import { arrivalAgenticCapability } from "@here.build/arrival-scheme-env-infer";
 
-import { arrivalAgenticCapability } from "./agentic.js";
 import { arrivalBudgetCapability } from "./budget.js";
 import { arrivalDataCapability } from "./data.js";
 import { arrivalReflectCapability } from "./reflect.js";
@@ -45,12 +45,12 @@ export function discoveryCapabilities(): readonly EnvCapability[] {
 
 export { type ArrivalEnv } from "../infer-kernel.js";
 
-// The capability vocabulary (re-exported for the barrel + the `arrival-scheme-env-*` plugin packages).
-export { arrivalAgenticCapability } from "./agentic.js";
+// The capability vocabulary (re-exported for the barrel). The inference cluster
+// (infer / mcp / agentic) now lives in `@here.build/arrival-scheme-env-infer`; chain
+// consumes it one-way and re-exports for back-compat.
+export { arrivalAgenticCapability, arrivalInferCapability, arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
 export { arrivalBudgetCapability } from "./budget.js";
 export { arrivalDataCapability } from "./data.js";
-export { arrivalInferCapability } from "./infer.js";
-export { arrivalMcpCapability } from "./mcp.js";
 export { arrivalReflectCapability } from "./reflect.js";
 export { arrivalRunCapability } from "./run.js";
 export { arrivalSourceReadCapability } from "./source-read.js";

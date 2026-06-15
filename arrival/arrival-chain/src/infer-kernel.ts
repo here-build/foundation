@@ -9,7 +9,7 @@ import {
 } from "@here.build/arrival-scheme";
 import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
-import { runAgenticLoop, InferString, RunSpend } from "@here.build/arrival-inference";
+import { DerivableEntity, InferString, RunSpend } from "@here.build/arrival-inference";
 
 import type { OnApprovalRequest, ResolveApproval } from "./approval.js";
 import type { ChatMessage, Completion, LlmParams, ToolCall, ToolDescriptor } from "@here.build/arrival-inference";
@@ -19,18 +19,22 @@ import { stableJson } from "./effect-log.js";
 import { type EnvPack, type RuntimeAssembler } from "@here.build/arrival-scheme/env";
 import type { OnExpose } from "./expose.js";
 import { type Loader, type PromptUnit } from "./loader.js";
+import { type McpEffectResolver } from "./mcp-effects.js";
+// The infer-verb toolkit + agentic driver now live in the env-infer package. Imported for
+// internal use (makeCompileInferUnit) and re-exported below for back-compat.
 import {
-  DerivableEntity,
-  dispatchThroughChain,
-  type EntityMiddleware,
+  asLlmModel,
+  BREAK_ON_SINGLE_INFER,
+  canonicalizeMessages,
+  type InferFn,
+  inferList,
+  inferThroughChain,
   inertMcpResolver,
-  isMcpBreak,
-  MCP_BREAK,
-  type McpEffectContext,
-  type McpEffectResolver,
-  resolveTools,
-  runMiddlewareChain,
-} from "./mcp-effects.js";
+  nullable,
+  parseSchemeChatMessages,
+  runAgenticInfer,
+  schemaSlot,
+} from "@here.build/arrival-scheme-env-infer";
 import type { OnOverridable, ResolveOverride } from "./overridable.js";
 import { analyzeTemplate, coerceShape, type TemplateInfo, validateShape } from "./template-analyze.js";
 import type { EvalTrace } from "@here.build/arrival-provenance";
@@ -80,28 +84,8 @@ export function buildInputsProvenance(kv: unknown[], kvProv: readonly ReadonlySe
  *  as a task's content key (the cache/dedup identity). Shared by `infer/chat` and
  *  the `.prompt` proc, so both mint IDENTICAL task keys for the same messages —
  *  the property that keeps a `.prompt` run replayable against the same cache. */
-export function canonicalizeMessages(messages: unknown): string {
-  invariant(Array.isArray(messages), "infer/chat: messages must be a list");
-  return JSON.stringify(
-    messages.map((m) => {
-      invariant(Array.isArray(m) && m.length === 2, "infer/chat: each message must be (role content)");
-      return { role: String(m[0]), content: String(m[1]) };
-    }),
-  );
-}
-
-/** Parse a scheme `(role content)` message list into neutral {@link ChatMessage}s — the
- *  SEED for `infer/agentic/end-to-end`'s loop. The user supplies plain user/system/
- *  assistant turns; the loop appends the rich (toolCalls / tool-result) turns itself, and
- *  each round re-serialises the growing list via `JSON.stringify` (the same wire form
- *  `parseChatPrompt` reads back), so per-turn cache keys stay stable. */
-export function parseSchemeChatMessages(messages: unknown): ChatMessage[] {
-  invariant(Array.isArray(messages), "infer/agentic/end-to-end: messages must be a list");
-  return messages.map((m) => {
-    invariant(Array.isArray(m) && m.length === 2, "infer/agentic/end-to-end: each message must be (role content)");
-    return { role: String(m[0]) as ChatMessage["role"], content: String(m[1]) };
-  });
-}
+// canonicalizeMessages + parseSchemeChatMessages moved to the env-infer package (imported
+// + re-exported at the top of this module).
 
 /**
  * Execution circuit-breaker, threaded into `exec`/`execExpr` and checked at the
@@ -313,52 +297,13 @@ export function renderTemplateCall(source: string, args: unknown[]): string {
   return tm.render(data);
 }
 
-/** Coerce a scheme value to a nullable scalar string (false/null/undefined → null). */
-const nullable = (v: unknown): string | null => (v === undefined || v === false || v === null ? null : String(v));
+// nullable + schemaSlot moved to the env-infer package (imported + re-exported above).
 
 /** A `(dict …)` folds to a plain JS record; the `:meta` config slot must be one. */
 const isPlainRecord = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 
-/** Canonicalise a schema arg (string marker | tagged-list DSL | nothing) to the
- *  single string used as the schema slot of a task's content key. */
-const schemaSlot = (v: unknown): string | null => {
-  if (v === undefined || v === false || v === null) return null;
-  if (typeof v === "string") return v;
-  if (Array.isArray(v)) return JSON.stringify(v);
-  return String(v);
-};
-
-/**
- * The infer-resolution seam: resolve ONE `(infer …)` call site to its value. The
- * caller decides where the task lives (the project's content-addressed cache, or
- * host's per-File tasks) and how it resolves. Returns the RAW value;
- * `buildArrivalEnv` wraps it to a list for scheme. Args arrive already coerced
- * (model/prompt stringified, schema via schemaSlot, cacheKey via nullable).
- */
-export type InferFn = (
-  ctx: { currentInvocation?: unknown } | undefined,
-  model: string,
-  prompt: string,
-  schema: string | null,
-  cacheKey: string | null,
-  /**
-   * Tools the model may call THIS turn. Optional + additive: a plain `(infer …)` omits
-   * it (one-shot, unchanged); `infer/agentic/end-to-end` passes the resolved tool set so
-   * the backend sends them and the result carries `toolCalls`. When present, the resolver
-   * folds the tools into the cache identity (same messages + different tools = different
-   * inference) and returns an {@link InferString} carrying the turn's `toolCalls`.
-   */
-  tools?: ToolDescriptor[],
-  /**
-   * Content-affecting model params from an `(llm/with …)` entity (temperature, system).
-   * Optional + additive (like `tools`): absent ⇒ byte-identical to today. When present, the
-   * resolver folds them into the cache identity (a different temperature is a different
-   * completion) AND sends them on the {@link ModelSpec} to the backend. Distinct from
-   * `maxTokens` (execution-only, never folded).
-   */
-  params?: LlmParams,
-) => Promise<unknown>;
+// The InferFn seam type moved to the env-infer package (imported + re-exported above).
 
 // ── tool-enabled inference: identity folding + record/replay shape ─────────────
 //
@@ -416,120 +361,10 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
     : completion.value;
 }
 
-/** A single `(infer …)` has no loop to halt, so an `(llm …)` middleware returning
- *  `mcp/break` here is a category error (break belongs to the agentic loop). Named so the
- *  two single-shot infer verbs share one legible message. */
-export const BREAK_ON_SINGLE_INFER =
-  "infer: an (llm …) middleware returned mcp/break on a single (infer …) — break only halts an agentic run (infer/agentic/end-to-end …)";
-
-/** Coerce an infer `model` argument that may be a bare string OR an `(llm …)` entity. An
- *  llm entity contributes its NAME, its observe-only `middleware` chain, and its content
- *  `params` (`llm/with` tweaks). Two distinct identity stories: middleware is cache-NEUTRAL
- *  (observe-only — it cannot change the request reaching the model), while `params` ARE
- *  cache-affecting (the infer path folds them into the key + sends them to the backend). A
- *  non-llm entity (e.g. an `(mcp …)` server) in model position is a misuse → legible error
- *  rather than a silent `[object Object]` model name. */
-export function asLlmModel(model: unknown): {
-  name: string;
-  middleware: readonly EntityMiddleware[];
-  params?: LlmParams;
-} {
-  if (model instanceof DerivableEntity) {
-    invariant(
-      model.kind === "llm",
-      `infer: a derivable entity in model position must be an (llm …), got kind "${model.kind}"`,
-    );
-    return { name: model.name, middleware: model.middleware, params: model.params };
-  }
-  return { name: String(model), middleware: [] };
-}
-
-/** Run one inference through an `(llm …)` entity's OBSERVE-ONLY middleware chain (or
- *  directly when there is no middleware). `honest` is the cached `opts.infer` call, closed
- *  over the ORIGINAL request — so whatever a middleware passes to `next`, the model is
- *  always called with the original request. That is the observe-only contract: a middleware
- *  may observe the request (`reqView`), observe/transform the response, log, or `mcp/break`
- *  to halt, but a request rewrite cannot reach the model (which keeps the cache key — the
- *  bare model name — honest). `progress` feeds a budget/terminator middleware (the agentic
- *  loop hands its round state; a single infer hands `{}`). Returns the infer result, or
- *  {@link MCP_BREAK} if a middleware halted without calling `next`. */
-export function inferThroughChain(
-  honest: () => Promise<unknown>,
-  middleware: readonly EntityMiddleware[],
-  reqView: unknown,
-  progress: unknown,
-): Promise<unknown> {
-  if (middleware.length === 0) return honest();
-  return runMiddlewareChain(middleware, "infer", () => honest(), reqView, progress);
-}
-
-/**
- * Drive `infer/agentic/end-to-end`'s loop and return the final {@link InferString}. SHARED
- * by the verb AND the `.prompt mcp:` sealed proc — resolve the servers' tools, then loop
- * infer↔dispatch via {@link runAgenticLoop}:
- *   - each turn through the cached infer seam with `ctx=undefined`, so per-turn inferences
- *     record as effects WITHOUT re-binding the agentic node's trace (one provenance node);
- *   - each dispatch through the server's middleware chain + positional tape, break-aware
- *     ({@link isMcpBreak}), with the loop's `{round,maxRounds}` handed in as `progress`.
- * The full trajectory rides the result's external-only `chunks`.
- */
-export async function runAgenticInfer(
-  infer: InferFn,
-  mcpResolve: McpEffectResolver,
-  ctx: unknown,
-  model: unknown,
-  messages: ChatMessage[],
-  servers: DerivableEntity[],
-): Promise<InferString> {
-  const mcpCtx = ctx as McpEffectContext;
-  // The model may be a bare string or an (llm …) entity. Its observe-only middleware runs
-  // around EACH turn's inference; the chain's return decides break-vs-proceed ONLY — the
-  // loop is always driven by the RAW InferString (a scheme middleware's return round-trips
-  // through schemeToJs, which would demote the InferString and drop its toolCalls; a turn's
-  // response is loop-control, not a value to reshape). So response-transform is ignored in
-  // the agentic context by design; observe + budget/break are the meaningful powers.
-  const { name, middleware, params } = asLlmModel(model);
-  const { tools, serverOf } = await resolveTools(servers, mcpResolve, mcpCtx);
-  const result = await runAgenticLoop(messages, {
-    infer: async (msgs, progress) => {
-      // Capture the RAW infer result in a box: a scheme middleware's return round-trips
-      // through schemeToJs (demoting an InferString → bare string, dropping toolCalls), so the
-      // chain return drives break-vs-proceed only — the loop runs on the captured raw value.
-      // (A box, not a flag, so it survives the closure without tripping flow analysis.)
-      const captured: unknown[] = [];
-      const honest = async (): Promise<unknown> => {
-        const v = await infer(undefined, name, JSON.stringify(msgs), null, null, tools, params);
-        captured.push(v);
-        return v;
-      };
-      const out = await inferThroughChain(honest, middleware, msgs, progress);
-      if (isMcpBreak(out)) return { text: "", toolCalls: [], halt: true };
-      // honest ran ⇒ use the raw InferString (toolCalls intact); a middleware that
-      // short-circuited (never called next) ⇒ its value is a canned, text-only turn.
-      const turn = captured.length > 0 ? captured[0] : out;
-      return turn instanceof InferString
-        ? { text: String(turn), toolCalls: [...turn.__toolCalls__], reasoning: turn.__reasoning__ || undefined }
-        : { text: String(turn ?? ""), toolCalls: [] };
-    },
-    dispatch: async (call, progress) => {
-      const server = serverOf.get(call.name);
-      invariant(
-        server !== undefined,
-        () => `infer/agentic/end-to-end: model called unknown tool "${call.name}" — not in the :tools set`,
-      );
-      return dispatchThroughChain(
-        server,
-        "tools/call",
-        { tool: call.name, args: call.arguments },
-        mcpResolve,
-        mcpCtx,
-        progress,
-      );
-    },
-    isHalt: isMcpBreak,
-  });
-  return new InferString(result.text, "", result.chunks);
-}
+// The infer-verb toolkit (asLlmModel / inferThroughChain / BREAK_ON_SINGLE_INFER) and the
+// agentic loop driver (runAgenticInfer) moved to `@here.build/arrival-scheme-env-infer`
+// (the inference package). Imported + re-exported at the top of this module so existing
+// arrival-chain import paths (and makeCompileInferUnit below) keep resolving.
 
 /**
  * Build a sandboxed arrival-chain environment with the standard rosettas —
@@ -755,9 +590,24 @@ export function makeCompileInferUnit(
 /** The arrival env handle — a sandbox-inherited Environment the packs contribute rosettas to. */
 export type ArrivalEnv = ReturnType<typeof sandboxedEnv.inherit>;
 
-/** `(infer …)` yields a LIST to scheme (the resolver returns the raw value); shared by every
- *  inference pack so the scheme-facing arity is identical across infer / infer/chat / agentic. */
-export const inferList = (v: unknown): unknown => (Array.isArray(v) ? v : [v]);
+// inferList moved to the env-infer package (imported + re-exported above).
 
-// ── shared rosetta-coercion helpers used by the packs ─────────────────────────
-export { schemaSlot, nullable, isPlainRecord };
+// ── shared rosetta-coercion helpers ───────────────────────────────────────────
+// isPlainRecord stays here (a `(dict …)` helper, not an infer-verb coercion).
+export { isPlainRecord };
+
+// Back-compat surface: the infer toolkit + agentic driver relocated to the env-infer
+// package are re-exported here so `export * from "./infer-kernel.js"` (project.ts) and
+// existing consumers keep resolving these from arrival-chain.
+export {
+  asLlmModel,
+  BREAK_ON_SINGLE_INFER,
+  canonicalizeMessages,
+  type InferFn,
+  inferList,
+  inferThroughChain,
+  nullable,
+  parseSchemeChatMessages,
+  runAgenticInfer,
+  schemaSlot,
+};

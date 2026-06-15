@@ -36,11 +36,13 @@ const call = (server: string, method: McpEffect["method"], request: unknown): Mc
 });
 
 describe("mcp-effects — inert default", () => {
-  it("throws a teaching error pointing at buildArrivalEnv({ mcp })", () => {
+  it("throws a teaching error pointing at the arrival/mcp capability config", () => {
     // inertMcpResolver throws SYNCHRONOUSLY (matching inertDataResolver) — an async
-    // caller's `await inner(...)` still surfaces it as a rejection.
+    // caller's `await inner(...)` still surfaces it as a rejection. The resolver now lives
+    // in the env-infer package, so its door points at the capability config (not chain's
+    // buildArrivalEnv, which that layer doesn't know about).
     expect(() => inertMcpResolver(ctx, call("linear", "tools/call", { tool: "x", args: {} }))).toThrow(
-      /MCP is not enabled.*buildArrivalEnv\(\{ mcp \}\)/,
+      /MCP is not enabled.*arrival\/mcp capability/,
     );
   });
 });

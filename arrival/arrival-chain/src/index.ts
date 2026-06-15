@@ -90,14 +90,15 @@ export {
 } from "./project.js";
 // The capability palette: every chain pack is an EnvCapability (singleton-by-construction, zod
 // config, lifecycle-bearing). loader-core is the sole exception (raw EnvPack — see note below).
-export { arrivalInferCapability } from "./packs/infer.js";
+// The inference cluster (infer / mcp / agentic) now lives in the env-infer package; chain
+// consumes it one-way and re-exports here for back-compat.
+export { arrivalAgenticCapability, arrivalInferCapability, arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
 export { arrivalUtilsCapability } from "./packs/utils.js";
 export { arrivalReflectCapability } from "./packs/reflect.js";
 export { arrivalBudgetCapability } from "./packs/budget.js";
 export { arrivalRunCapability } from "./packs/run.js";
 export { arrivalSourceReadCapability } from "./packs/source-read.js";
 export { arrivalDataCapability } from "./packs/data.js";
-export { arrivalMcpCapability } from "./packs/mcp.js";
 // NOTE: loader-core has NO capability form. Its `wire` calls `makeCompileInferUnit(env, …)` + the
 // `defineRequire*Rosetta` helpers, all of which need the LIVE env at wire time. `symbols` only exposes
 // the env lazily via `withContext` ctx at CALL time, and the require rosetta (which would consume the
@@ -105,7 +106,6 @@ export { arrivalMcpCapability } from "./packs/mcp.js";
 // expressed as symbols without re-homing the whole require machinery. It keeps its `arrivalLoaderCorePack`
 // (EnvPack) form, assembled in `packs/index.ts`.
 export { arrivalSuperDefineCapability } from "./packs/superdefine.js";
-export { arrivalAgenticCapability } from "./packs/agentic.js";
 // Env-pack capability-DAG assembly (P0–P4): the pack type + the construction/runtime assemblers, so a
 // host can author extension packs and arm a `(require/extension :name)` registry.
 export {

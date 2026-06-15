@@ -57,6 +57,7 @@
     "@here.build/arrival-inference": "workspace:^",
     "@here.build/arrival-provenance": "workspace:^",
     "@here.build/arrival-scheme": "workspace:^",
+    "@here.build/arrival-scheme-env-infer": "workspace:^",
     "@here.build/arrival-sweet": "workspace:^",
     "@here.build/plexus": "workspace:^",
     "ai": "^6.0.201",
