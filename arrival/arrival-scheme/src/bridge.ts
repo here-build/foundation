@@ -11,7 +11,7 @@ import foldCase from "fold-case";
 import unicodeProperties from "unicode-properties";
 
 import { AValue, unionProvenance } from "./AValue.js";
-import { isBridgeInitialized, markBridgeInitialized } from "./boot.js";
+import { isBridgeInitialized, markBridgeInitialized, setBootstrapComplete } from "./boot.js";
 import { assembleEnv } from "./env/kernel.js";
 import { BASE_PACKS } from "./env/base-packs.js";
 import type { EvalSchemeInto, SchemeEnv } from "./env/scheme-env.js";
@@ -39,15 +39,11 @@ import {
 } from "./op-helpers.js";
 // Value-domain primitive clusters — each is the carved-out source of truth for one
 // R7RS domain (chars/strings/lists/vectors/bytevectors + combinators + equality).
-// `wrappedOps` is RE-ASSEMBLED from them below; bridge.ts keeps only the numeric
-// core + exception machinery it is named for (the Operator/Profunctor↔Scheme bridge).
-import { CHAR_OPS } from "./env/chars.js";
-import { STRING_OPS } from "./env/strings.js";
-import { LIST_OPS } from "./env/lists.js";
-import { VECTOR_OPS } from "./env/vectors.js";
-import { BYTEVECTOR_OPS } from "./env/bytevectors.js";
-import { COMBINATOR_OPS } from "./env/combinators.js";
-import { EQUALITY_OPS } from "./env/equality.js";
+// They are no longer spread into `wrappedOps`: `initBridge` ASSEMBLES them onto
+// `global_env` as live capability packs (see `NATIVE_PACKS`). `wrappedOps` keeps only
+// the numeric core + exception machinery bridge.ts is named for (the
+// Operator/Profunctor↔Scheme bridge).
+import { NATIVE_PACKS } from "./env/native-packs.js";
 import { global_env, env as userEnv, exec } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { SchemeString } from "./SchemeString.js";
@@ -649,17 +645,6 @@ export const wrappedOps = {
   "%raise"(obj: unknown): never {
     throw obj;
   },
-
-  // The carved-out value-domain clusters. Spread LAST so they are the live source
-  // of truth — each key they provide overrides its (about-to-be-deleted) inline
-  // twin above. After the inline duplicates are removed these are the sole home.
-  ...CHAR_OPS,
-  ...STRING_OPS,
-  ...LIST_OPS,
-  ...VECTOR_OPS,
-  ...BYTEVECTOR_OPS,
-  ...COMBINATOR_OPS,
-  ...EQUALITY_OPS,
 };
 
 // ============================================================================
@@ -688,7 +673,13 @@ export function initBridge(): Promise<void> {
   // its own self-init (no recursion). See boot.ts.
   markBridgeInitialized();
 
-  // Apply TypeScript bindings synchronously
+  // Apply the numeric core + exception machinery synchronously; the value-domain
+  // clusters (chars/strings/lists/…) are now live capability packs (NATIVE_PACKS),
+  // ASSEMBLED onto global_env in the async chain below alongside the .scm base packs.
+  // Native application being async is fine: every public `exec` awaits bootstrap
+  // COMPLETION (boot.ts whenBootstrapComplete), not just the started-flag — so a
+  // racing exec never observes a half-assembled env. (Bootstrap's own prelude evals
+  // use stdlib's gate-free `exec`, so the completion await is never re-entrant.)
   applyToEnvironment(global_env);
 
   // The scheme stdlib loads by ASSEMBLING the base packs onto user_env — not by
@@ -699,7 +690,10 @@ export function initBridge(): Promise<void> {
   // than via separate hand-wiring. `evalScheme` injects the evaluator (exec into the
   // assembling env). The base preludes are verified mutually order-independent (none
   // expands another's macro), so the C3 application order is immaterial to them.
-  const evalScheme: EvalSchemeInto = (env, src) => exec(src as string, { env: env as Environment });
+  // skipBootstrapWait: this exec IS the bootstrap (a base-pack prelude eval), so it
+  // must NOT await bootstrap completion — that would deadlock on the very promise it
+  // is part of.
+  const evalScheme: EvalSchemeInto = (env, src) => exec(src as string, { env: env as Environment, skipBootstrapWait: true });
 
   // Evaluate bootstrap Scheme code asynchronously, then expose a curated set of
   // bootstrap-defined bindings in the sandbox. They live in user_env; copy the
@@ -731,16 +725,26 @@ export function initBridge(): Promise<void> {
   //     Ramda spread. Ramda is now evicted into @here.build/arrival-scheme-env-ramda
   //     (opt-in), so copying the bootstrap definitions over is what keeps the plane's
   //     compose/pipe/some/every — sourced from pure Scheme. Pure, capability-free.
-  bootstrapPromise = assembleEnv(userEnv as unknown as SchemeEnv, BASE_PACKS.map((pack) => pack.lower({ evalScheme }))).then(async () => {
-    const { sandboxedEnv } = await import("./sandbox-env.js");
-    for (const name of [
-      "->", "->>", "~>", "~>>", "cut", "cute", "gensym",
-      "first?", "first-or", "iota", "delete-duplicates", "filter-map", "count", "list-index", "append-map", "remove",
-      "compose", "comp", "pipe", "flow", "some", "every",
-    ]) {
-      const value = userEnv.get(name, { throwError: false });
-      if (value) sandboxedEnv.set(name, value);
-    }
-  });
+  // Assemble the native value-domain clusters onto global_env FIRST (symbol-only, no
+  // prelude — `lower()` needs no evalScheme), THEN the .scm base packs onto user_env.
+  // Order matters: a base-pack prelude may call a cluster primitive (e.g.
+  // `string-length`), which resolves through user_env → global_env, so the clusters
+  // must already be live there.
+  bootstrapPromise = assembleEnv(global_env as unknown as SchemeEnv, NATIVE_PACKS.map((pack) => pack.lower()))
+    .then(() => assembleEnv(userEnv as unknown as SchemeEnv, BASE_PACKS.map((pack) => pack.lower({ evalScheme }))))
+    .then(async () => {
+      const { sandboxedEnv } = await import("./sandbox-env.js");
+      for (const name of [
+        "->", "->>", "~>", "~>>", "cut", "cute", "gensym",
+        "first?", "first-or", "iota", "delete-duplicates", "filter-map", "count", "list-index", "append-map", "remove",
+        "compose", "comp", "pipe", "flow", "some", "every",
+      ]) {
+        const value = userEnv.get(name, { throwError: false });
+        if (value) sandboxedEnv.set(name, value);
+      }
+    });
+  // Publish the COMPLETION promise so a public `exec` racing a fire-and-forget
+  // `void initBridge()` (index.ts) awaits the full async assembly, not just the flag.
+  setBootstrapComplete(bootstrapPromise);
   return bootstrapPromise;
 }

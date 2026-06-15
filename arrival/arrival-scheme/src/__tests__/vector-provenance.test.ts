@@ -4,13 +4,18 @@
 // to carry lineage; its own producers were throwing it away. utf8->string /
 // vector->string even returned RAW JS strings (provenance-blind escapees).
 import { describe, expect, it } from "vitest";
-import { initBridge, wrappedOps } from "../bridge.js";
+import { initBridge } from "../bridge.js";
+import { BYTEVECTOR_OPS } from "../env/bytevectors.js";
+import { VECTOR_OPS } from "../env/vectors.js";
 import { SchemeBytevector } from "../SchemeBytevector.js";
 import { SchemeString } from "../SchemeString.js";
 import { SchemeVector } from "../SchemeVector.js";
 
 await initBridge();
-const ops = wrappedOps as Record<string, (...a: any[]) => any>;
+// The vector/bytevector primitives now live in their value-domain cluster packs
+// (carved out of the old `wrappedOps` monolith); these are the exact fns assembled
+// onto global_env.
+const ops = { ...VECTOR_OPS, ...BYTEVECTOR_OPS } as Record<string, (...a: any[]) => any>;
 const PROV = new Set<number>([42]);
 const provVec = (xs: any[]) => new SchemeVector(xs, PROV);
 const provBv = (xs: number[]) => new SchemeBytevector(Uint8Array.from(xs), PROV);

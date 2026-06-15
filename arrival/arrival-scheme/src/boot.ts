@@ -19,7 +19,10 @@
  */
 let bridgeInitialized = false;
 
-/** True once the bridge bootstrap has started (set at the top of initBridge). */
+/** True once the bridge bootstrap has STARTED (set at the top of initBridge). This
+ *  is the re-entrancy guard — a prelude eval running mid-bootstrap sees it true and
+ *  skips self-init. It does NOT mean assembly finished; for that await
+ *  {@link whenBootstrapComplete}. */
 export function isBridgeInitialized(): boolean {
   return bridgeInitialized;
 }
@@ -27,4 +30,22 @@ export function isBridgeInitialized(): boolean {
 /** Mark the bridge bootstrap as started. Called by bridge.ts only. */
 export function markBridgeInitialized(): void {
   bridgeInitialized = true;
+}
+
+/** The bootstrap COMPLETION promise — resolves once every pack (native clusters +
+ *  .scm base packs + sandbox seeding) has been assembled. Separate from the started
+ *  flag above: the flag flips true synchronously at the top of initBridge, but the
+ *  assembly is async, so a public `exec` must await THIS to avoid observing a
+ *  half-assembled env. `null` until initBridge runs. */
+let bootstrapComplete: Promise<void> | null = null;
+
+/** Publish the completion promise. Called by bridge.ts only, inside initBridge. */
+export function setBootstrapComplete(promise: Promise<void>): void {
+  bootstrapComplete = promise;
+}
+
+/** The in-flight (or settled) bootstrap completion promise, or `null` if the
+ *  bootstrap has not started. `exec` awaits this when the started-flag is already up. */
+export function whenBootstrapComplete(): Promise<void> | null {
+  return bootstrapComplete;
 }

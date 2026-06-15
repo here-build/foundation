@@ -35,7 +35,8 @@ import { is_nil } from "../guards";
 import { isSchemeValue, toJS } from "../membrane";
 import { schemeToJs } from "../rosetta";
 import { sandboxedEnv } from "../sandbox-env";
-import { wrappedOps } from "../bridge";
+import { COMBINATOR_OPS } from "../env/combinators";
+import { LIST_OPS } from "../env/lists";
 import { Pair } from "../Pair";
 import { Nil, nil } from "../types";
 
@@ -148,7 +149,7 @@ describe("bridge.ts — `=== nil` identity-equality sites", () => {
   // result IS the input by reference (an aliasing leak across an operator
   // that is supposed to allocate fresh).
   it("list-copy(nil-clone) — should NOT alias the input by reference (bridge.ts:985)", () => {
-    const listCopy = wrappedOps["list-copy"] as (l: unknown) => unknown;
+    const listCopy = LIST_OPS["list-copy"] as (l: unknown) => unknown;
     const input = cloneNil();
     const result = listCopy(input) as unknown;
     // R7RS contract: result must be distinct from input. Today the clone
@@ -166,7 +167,7 @@ describe("bridge.ts — `=== nil` identity-equality sites", () => {
   // original's tail — an aliasing leak inside an op that should produce a
   // fully fresh spine.
   it("list-copy(Pair(1, nil-clone)) — tail must NOT alias the input's tail (bridge.ts:989)", () => {
-    const listCopy = wrappedOps["list-copy"] as (l: unknown) => unknown;
+    const listCopy = LIST_OPS["list-copy"] as (l: unknown) => unknown;
     const cdrClone = cloneNil();
     const input = new Pair(1, cdrClone);
     const result = listCopy(input) as Pair;
@@ -182,7 +183,7 @@ describe("bridge.ts — `=== nil` identity-equality sites", () => {
   // single-element list. R7RS authors call this to skip iteration on
   // singletons — a wrong answer means the slow path runs.
   it("single(Pair(1, nil-clone)) — should be true (bridge.ts:1351)", () => {
-    const single = wrappedOps.single as (l: unknown) => boolean;
+    const single = COMBINATOR_OPS["single"] as (l: unknown) => boolean;
     const p = new Pair(1, cloneNil());
     expect(single(p)).toBe(true);
   });

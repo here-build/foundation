@@ -9,6 +9,7 @@
  *   const results = await exec("(+ 1 2)", { env: myEnv });
  */
 
+import { whenBootstrapComplete } from "./boot.js";
 import type { Environment } from "./Environment.js";
 import run, { evaluate, type EvalTap } from "./evaluator.js";
 import { is_pair } from "./guards.js";
@@ -99,10 +100,14 @@ export async function exec(
   // Resolve environment - lips.env is the user_env (global_env.inherit("user-env"))
   const actualEnv = env ?? lips.env;
 
-  // Self-initialize the runtime bootstrap (TS builtins + Scheme prelude) lazily,
-  // so embedders never call initBridge() manually. The realm-level flag makes the
-  // re-entrant inner prelude exec a no-op (see Environment.init / boot.ts).
+  // Self-initialize the runtime bootstrap (TS builtins + Scheme prelude) lazily, so
+  // embedders never call initBridge() manually. If the bootstrap has already STARTED
+  // (e.g. index.ts's fire-and-forget `void initBridge()`), await its COMPLETION
+  // promise — the pack assembly is async, so the started-flag alone would let a racing
+  // exec observe a half-assembled env. Bootstrap's own prelude evals use stdlib's
+  // gate-free `exec`, so this await is never re-entrant (no deadlock).
   if (!actualEnv.initialized) await actualEnv.init();
+  else await (whenBootstrapComplete() ?? actualEnv.init());
 
   // Parse if string, otherwise wrap single value in array
   let parsed: SchemeValue[];
@@ -176,7 +181,9 @@ export async function execExpr(
   const lips = await getLips();
   const actualEnv = env ?? lips.env;
 
+  // See exec() above: await bootstrap COMPLETION, not just the started-flag.
   if (!actualEnv.initialized) await actualEnv.init();
+  else await (whenBootstrapComplete() ?? actualEnv.init());
 
   return run(
     evaluate(expr, {

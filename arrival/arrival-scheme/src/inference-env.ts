@@ -2,7 +2,6 @@ import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
 import { global_env, env as userEnv, registerCxrResolver } from "./stdlib.js";
 import { nil } from "./types.js";
-import { SAFE_BUILTINS } from "./safe_builtins.js";
 import { SchemeJSArray, readMember, hasMember, memberKeys, keywordAccessorResolver } from "./membrane.js";
 import { is_false } from "./guards.js";
 import { Pair } from "./Pair.js";
@@ -89,10 +88,18 @@ async function asyncFLReduce(fn: Function, init: any, structure: any): Promise<a
 // polyglot membrane (`@` / `@?` / `@keys` + the interop member-access policy).
 //
 // `wrappedOps` is spread directly onto this base.
+//
+// The old `SAFE_BUILTINS` snapshot — `global_env.get(name)` for each whitelisted
+// name, eagerly at module load — is GONE. It was a relic of the null-parent island:
+// with no parent, the env had to COPY its builtins. This env now inherits user_env
+// (below), so those builtins are reachable live via the chain — the copy was both
+// redundant AND a hazard: it raced the async assembly of the value-domain clusters
+// onto global_env (a load-order miss captured `undefined` for `vector`/`car`/…).
+// Inheritance has no such race; and post-sweep the full env leaks nothing
+// host-reaching, so the whitelist projection bought no safety either.
 export const inferenceEnv = new Environment(
   "inference",
   {
-    ...Object.fromEntries(SAFE_BUILTINS.map((name) => [name, global_env.get(name, { throwError: false })])),
     ...wrappedOps,
     nil,
     // SchemeJSArray-aware car/cdr — unwrap lazy array wrappers, delegate pairs to LIPS

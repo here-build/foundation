@@ -6,6 +6,7 @@
  */
 import invariant from "tiny-invariant";
 import { AValue, unionProvenance } from "./AValue.js";
+import { whenBootstrapComplete } from "./boot.js";
 import { Environment, KEYWORD_ACCESSOR_FIELD, setSchemeRuntime } from "./Environment.js";
 import { findHeapMeter, heapBudgetMessage } from "./heap-budget.js";
 import { eof } from "./EOF.js";
@@ -2008,16 +2009,31 @@ export const exec = async (
     env,
     dynamic_env,
     use_dynamic,
+    skipBootstrapWait,
   }: {
     env?: Environment | boolean;
     dynamic_env?: Environment;
     use_dynamic?: boolean;
+    /** Internal: set by the bootstrap's own prelude eval (bridge.initBridge) to
+     *  bypass the completion gate below — awaiting it there would deadlock (the
+     *  prelude eval IS part of the bootstrap it would be waiting on). */
+    skipBootstrapWait?: boolean;
   } = {},
 ): Promise<SchemeValue[]> => {
   if (!is_env(dynamic_env)) {
     dynamic_env = ((env === true ? user_env : env) ?? user_env) as Environment;
   }
   const resolvedEnv = ((env === true ? user_env : env) ?? user_env) as Environment;
+
+  // Await bootstrap COMPLETION before evaluating, so a caller never observes a
+  // half-assembled env (the value-domain clusters + .scm packs assemble async onto
+  // global_env/user_env). If the bootstrap hasn't started, kick it off via init().
+  // The bootstrap's own prelude evals pass skipBootstrapWait to avoid awaiting
+  // themselves. Mirrors the public generator-exec gate.
+  if (!skipBootstrapWait) {
+    if (!resolvedEnv.initialized) await resolvedEnv.init();
+    else await (whenBootstrapComplete() ?? resolvedEnv.init());
+  }
   if (is_pair(arg)) {
     return [await exec_with_stacktrace(arg, { env: resolvedEnv, dynamic_env, use_dynamic })];
   }
