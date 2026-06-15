@@ -24,14 +24,10 @@ import { type McpEffectResolver } from "./mcp-effects.js";
 // internal use (makeCompileInferUnit) and re-exported below for back-compat.
 import {
   asLlmModel,
-  BREAK_ON_SINGLE_INFER,
   canonicalizeMessages,
   type InferFn,
-  inferList,
-  inferThroughChain,
   inertMcpResolver,
   nullable,
-  parseSchemeChatMessages,
   runAgenticInfer,
   schemaSlot,
 } from "@here.build/arrival-scheme-env-infer";
@@ -596,18 +592,8 @@ export type ArrivalEnv = ReturnType<typeof sandboxedEnv.inherit>;
 // isPlainRecord stays here (a `(dict …)` helper, not an infer-verb coercion).
 export { isPlainRecord };
 
-// Back-compat surface: the infer toolkit + agentic driver relocated to the env-infer
-// package are re-exported here so `export * from "./infer-kernel.js"` (project.ts) and
-// existing consumers keep resolving these from arrival-chain.
-export {
-  asLlmModel,
-  BREAK_ON_SINGLE_INFER,
-  canonicalizeMessages,
-  type InferFn,
-  inferList,
-  inferThroughChain,
-  nullable,
-  parseSchemeChatMessages,
-  runAgenticInfer,
-  schemaSlot,
-};
+// InferFn is the one relocated symbol consumed outside arrival-chain (host's run-traced
+// imports it from the chain barrel). Re-exported so project.ts's `export *` keeps surfacing
+// it. The rest of the toolkit stays internal — chain only imports what makeCompileInferUnit
+// uses, and that whole reach goes away when the `.prompt` seal moves into env-infer.
+export type { InferFn };

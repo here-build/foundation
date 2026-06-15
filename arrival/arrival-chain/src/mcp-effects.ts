@@ -130,16 +130,9 @@ export {
   describeMcpEffect,
   dispatchThroughChain,
   inertMcpResolver,
-  type McpCapabilities,
   type McpEffect,
-  type McpEffectContext,
   type McpEffectResolver,
   type McpMethod,
-  type McpRoster,
-  type McpServerSpec,
-  type McpToolAnnotations,
-  type McpToolDescriptor,
-  type ResolvedTools,
   resolveTools,
 } from "@here.build/arrival-scheme-env-infer";
 

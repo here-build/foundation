@@ -153,15 +153,9 @@ export {
 // here (eject boundary — only the value-only seam + inert/wrap/define). See
 // `mcp-effects.ts`.
 export {
-  type McpCapabilities,
   type McpEffect,
-  type McpEffectContext,
   type McpEffectResolver,
   type McpMethod,
-  type McpRoster,
-  type McpServerSpec,
-  type McpToolAnnotations,
-  type McpToolDescriptor,
   defineMcpRosettas,
   describeMcpEffect,
   inertMcpResolver,
