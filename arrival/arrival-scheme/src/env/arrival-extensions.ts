@@ -5,9 +5,9 @@
 //   • symbol/string conversion (symbol->string / string->symbol / %as.data)
 //   • sort (Scheme quicksort) · unary/binary curry wrappers · tree-map
 //   • pair utilities (pair-map / nth-pair)
-//   • type predicates (iterator? / regex? / key? / gensym? / environment? / …)
+//   • type predicates (iterator? / regex? / key? / …)
 //   • object conversion (alist->object / object->alist)
-//   • value & environment utilities (value / native.number / bound? / …)
+//   • value utilities (value / native.number / …)
 //   • aliases (string-join / string-split) · symbol-append
 //   • arrival safe head accessors (first? / first-or) + the Ramda-override remove
 //
@@ -116,12 +116,6 @@ export const ARRIVAL_EXTENSIONS_SCM = `
   (if (key? symbol)
       (substring (symbol->string symbol) 1)))
 
-(define (gensym? value)
-  (and (symbol? value) (--> value (is_gensym))))
-
-(define (environment? obj)
-  (instanceof scheme.Environment obj))
-
 (define (defmacro? obj)
   (and (macro? obj) (. obj 'defmacro)))
 
@@ -161,25 +155,6 @@ export const ARRIVAL_EXTENSIONS_SCM = `
       (if (number? obj)
           ((. obj "valueOf"))
           obj)))
-
-;; -----------------------------------------------------------------------------
-;; Environment utilities
-;; -----------------------------------------------------------------------------
-(define (interaction-environment)
-  **interaction-environment**)
-
-(define (bound? x . rest)
-  (let ((env (if (null? rest) (interaction-environment) (car rest))))
-    (try (begin
-           (--> env (get x))
-           true)
-         (catch (e)
-                false))))
-
-(define (environment-bound? env x)
-  (typecheck "environment-bound?" env "environment" 1)
-  (typecheck "environment-bound?" x "symbol" 2)
-  (bound? x env))
 
 ;; -----------------------------------------------------------------------------
 ;; Aliases

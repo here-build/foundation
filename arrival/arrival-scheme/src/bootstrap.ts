@@ -157,17 +157,6 @@ export const BOOTSTRAP_SCHEME = `
               body)
        ,obj)))
 
-;; -----------------------------------------------------------------------------
-;; Dot accessor macro
-;; -----------------------------------------------------------------------------
-(define-macro (.. expr)
-  (if (not (symbol? expr))
-      expr
-      (let ((parts (split "." (symbol->string expr))))
-        (if (single parts)
-            expr
-            \`(. ,(string->symbol (car parts)) ,@(cdr parts))))))
-
 ${POLYGLOT_SCM}
 
 ${SRFI26_SCM}

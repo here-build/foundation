@@ -1400,13 +1400,6 @@ export const global_env = new Environment(
       },
     ),
     // ------------------------------------------------------------------
-    "current-environment": doc("current-environment", function (this: Environment) {
-      if (this.__name__ === "__frame__") {
-        return this.__parent__;
-      }
-      return this;
-    }),
-    // ------------------------------------------------------------------
     "parent.frame": doc("parent.frame", function () {
       return user_env;
     }),
@@ -1700,17 +1693,6 @@ export const global_env = new Environment(
     "escape-regex": doc("escape-regex", function (string) {
       typecheck("escape-regex", string, "string");
       return escape_regex(string.valueOf());
-    }),
-    // ------------------------------------------------------------------
-    env: doc("env", function env(this: Environment, env: SchemeValue) {
-      env = env || this;
-      const names = Object.keys(env.__env__).map((name) => new SchemeSymbol(name));
-      let result;
-      result = names.length > 0 ? Pair.fromArray(names) : nil;
-      if (env.__parent__ instanceof Environment) {
-        return (global_env.get("env") as SchemeFunction).call(this, env.__parent__).append(result);
-      }
-      return result;
     }),
     // ------------------------------------------------------------------
     new: doc("new", function (obj, ...args) {
