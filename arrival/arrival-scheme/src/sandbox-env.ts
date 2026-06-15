@@ -12,12 +12,12 @@ import { AValue } from "./AValue.js";
 import { SchemeString } from "./SchemeString.js";
 import { structuralEqual } from "./structural-equal.js";
 
-const lipsCar = global_env.get("car", { throwError: false }) as Function;
-const lipsCdr = global_env.get("cdr", { throwError: false }) as Function;
-const lipsFilter = global_env.get("filter", { throwError: false }) as Function;
-const lipsMap = global_env.get("map", { throwError: false }) as Function;
-const lipsReduce = global_env.get("reduce", { throwError: false }) as Function;
-const lipsJoin = global_env.get("join", { throwError: false }) as Function;
+const builtinCar = global_env.get("car", { throwError: false }) as Function;
+const builtinCdr = global_env.get("cdr", { throwError: false }) as Function;
+const builtinFilter = global_env.get("filter", { throwError: false }) as Function;
+const builtinMap = global_env.get("map", { throwError: false }) as Function;
+const builtinReduce = global_env.get("reduce", { throwError: false }) as Function;
+const builtinJoin = global_env.get("join", { throwError: false }) as Function;
 
 /**
  * Provenance taint for value-collapsing string combinators.
@@ -190,10 +190,10 @@ export const sandboxedEnv = new Environment(
     ...safeWrappedOps,
     nil,
     // SchemeJSArray-aware car/cdr — unwrap lazy array wrappers, delegate pairs to LIPS
-    car: (list: any) => list instanceof SchemeJSArray ? list.at(0) : lipsCar(list),
+    car: (list: any) => list instanceof SchemeJSArray ? list.at(0) : builtinCar(list),
     cdr: (list: any) => list instanceof SchemeJSArray
       ? (list.length <= 1 ? nil : new SchemeJSArray(list.source.slice(1)))
-      : lipsCdr(list),
+      : builtinCdr(list),
     // FL-dispatch: external Fantasy Land entities → async-aware FL helpers, LIPS types → Scheme
     // LIPS Pairs implement FL but must use scheme filter/map (FL impl inverts results)
     // LIPS lambdas are async; FL methods are sync. asyncFL* bridges this gap.
@@ -202,25 +202,25 @@ export const sandboxedEnv = new Environment(
       // filter resolves to the empty list, not a crash — so a multi-leaf proof can still
       // ground its OTHER leaves instead of losing the whole program to one absent read.
       // (Matches the `@` accessor, which already returns nil for a null object. nil/'()
-      // is NOT caught here — it passes through to lipsFilter as a valid empty list.)
+      // is NOT caught here — it passes through to builtinFilter as a valid empty list.)
       if (list == null || is_false(list)) return nil;
       if (list && typeof list === "object" && !(list instanceof Pair) && list["fantasy-land/filter"]) {
         return asyncFLFilter(arg, list);
       }
-      return lipsFilter.call(this, arg, list);
+      return builtinFilter.call(this, arg, list);
     },
     map: function map(this: any, fn: any, ...lists: any[]) {
       if (lists.length === 1 && (lists[0] == null || is_false(lists[0]))) return nil; // nil-tolerant (see filter)
       if (lists.length === 1 && !(lists[0] instanceof Pair) && lists[0]?.["fantasy-land/map"]) {
         return asyncFLMap(fn, lists[0]);
       }
-      return lipsMap.call(this, fn, ...lists);
+      return builtinMap.call(this, fn, ...lists);
     },
     reduce: function reduce(this: any, fn: any, init: any, collection: any) {
       if (collection && typeof collection === "object" && !(collection instanceof Pair) && collection["fantasy-land/reduce"]) {
         return asyncFLReduce(fn, init, collection);
       }
-      return lipsReduce.call(this, fn, init, collection);
+      return builtinReduce.call(this, fn, init, collection);
     },
     /**
      * Sandboxed field accessor.
@@ -336,7 +336,7 @@ export const sandboxedEnv = new Environment(
     // so `(join sep (cons seed …))` keeps wiring back to `seed`. Delegates the
     // actual joining to the LIPS builtin (handles list->array, separators, etc.).
     join: (separator: any, list: any) =>
-      taintString(String(lipsJoin(separator, list)), deepStringProvenance(list)),
+      taintString(String(builtinJoin(separator, list)), deepStringProvenance(list)),
     "string-contains": (haystack: any, needle: any) =>
       (haystack?.__string__ ?? String(haystack)).includes(needle?.__string__ ?? String(needle)),
     "string-ref": (s: any, i: any) => (s?.__string__ ?? String(s))[i?.valueOf?.() ?? i] ?? nil,
