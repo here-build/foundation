@@ -12,6 +12,7 @@ import unicodeProperties from "unicode-properties";
 
 import { AValue, unionProvenance } from "./AValue.js";
 import { isBridgeInitialized, markBridgeInitialized, setBootstrapComplete } from "./boot.js";
+import { EnvCapability } from "./env/capability.js";
 import { assembleEnv } from "./env/kernel.js";
 import { BASE_PACKS } from "./env/base-packs.js";
 import type { EvalSchemeInto, SchemeEnv } from "./env/scheme-env.js";
@@ -651,8 +652,39 @@ export const wrappedOps = {
 // Environment Integration
 // ============================================================================
 
+// The R7RS exception verbs in `wrappedOps`. Everything else in `wrappedOps` is the
+// numeric core (the Operator/Profunctor↔Scheme bridge). The two are split into two
+// capability packs below so they assemble like every other domain — no more imperative
+// `applyToEnvironment` monolith. (Defined HERE, not in env/native-packs.ts, because the
+// numeric machinery — wrapOperator / wrapOrd / speculativeCompare — lives in this module;
+// importing it from a native-packs sibling would close the bridge↔native-packs cycle.)
+const EXCEPTION_VERBS = new Set([
+  "error-object?", "error-object-message", "error-object-irritants",
+  "read-error?", "file-error?", "make-error-object",
+  "raise-exception", "raise-continuable-exception",
+  "raised-exception?", "raised-exception-value", "raised-exception-continuable?", "%raise",
+]);
+
+const symbolsFrom = (entries: [string, unknown][]) =>
+  Object.fromEntries(entries.map(([k, v]) => [k, { value: v }]));
+
+/** The numeric core (arithmetic, comparison, numeric predicates, conversions) as a pack. */
+export const numbersCapability = new EnvCapability("scheme/numbers", {
+  symbols: symbolsFrom(Object.entries(wrappedOps).filter(([k]) => !EXCEPTION_VERBS.has(k))),
+});
+
+/** The R7RS § 6.11 exception verbs as a pack. */
+export const exceptionsCapability = new EnvCapability("scheme/exceptions", {
+  symbols: symbolsFrom(Object.entries(wrappedOps).filter(([k]) => EXCEPTION_VERBS.has(k))),
+});
+
+/** The full native foundation assembled onto global_env: value-domain clusters + the
+ *  bridge's own numbers + exceptions packs. */
+const GLOBAL_NATIVE_PACKS = [...NATIVE_PACKS, numbersCapability, exceptionsCapability];
+
 /**
- * Apply numeric bindings to a LIPS environment
+ * @deprecated Imperative monolith application — superseded by assembling
+ * `GLOBAL_NATIVE_PACKS`. Retained only because a debug script imports it.
  */
 export function applyToEnvironment(lipsEnv: { set: (k: string, v: unknown) => void }): void {
   for (const [name, fn] of Object.entries(wrappedOps)) {
@@ -673,14 +705,13 @@ export function initBridge(): Promise<void> {
   // its own self-init (no recursion). See boot.ts.
   markBridgeInitialized();
 
-  // Apply the numeric core + exception machinery synchronously; the value-domain
-  // clusters (chars/strings/lists/…) are now live capability packs (NATIVE_PACKS),
-  // ASSEMBLED onto global_env in the async chain below alongside the .scm base packs.
-  // Native application being async is fine: every public `exec` awaits bootstrap
-  // COMPLETION (boot.ts whenBootstrapComplete), not just the started-flag — so a
-  // racing exec never observes a half-assembled env. (Bootstrap's own prelude evals
-  // use stdlib's gate-free `exec`, so the completion await is never re-entrant.)
-  applyToEnvironment(global_env);
+  // The whole native foundation — value-domain clusters + numbers + exceptions — is
+  // now assembled onto global_env as capability packs in the async chain below; the
+  // imperative `applyToEnvironment(global_env)` monolith is gone. Async native
+  // application is fine: every public `exec` awaits bootstrap COMPLETION (boot.ts
+  // whenBootstrapComplete), not just the started-flag, so a racing exec never observes
+  // a half-assembled env. (Bootstrap's own prelude evals use stdlib's gate-free `exec`,
+  // so the completion await is never re-entrant.)
 
   // The scheme stdlib loads by ASSEMBLING the base packs onto user_env — not by
   // exec-ing one hand-concatenated `BOOTSTRAP_SCHEME` string. `assembleEnv` runs
@@ -725,12 +756,12 @@ export function initBridge(): Promise<void> {
   //     Ramda spread. Ramda is now evicted into @here.build/arrival-scheme-env-ramda
   //     (opt-in), so copying the bootstrap definitions over is what keeps the plane's
   //     compose/pipe/some/every — sourced from pure Scheme. Pure, capability-free.
-  // Assemble the native value-domain clusters onto global_env FIRST (symbol-only, no
-  // prelude — `lower()` needs no evalScheme), THEN the .scm base packs onto user_env.
-  // Order matters: a base-pack prelude may call a cluster primitive (e.g.
-  // `string-length`), which resolves through user_env → global_env, so the clusters
-  // must already be live there.
-  bootstrapPromise = assembleEnv(global_env as unknown as SchemeEnv, NATIVE_PACKS.map((pack) => pack.lower()))
+  // Assemble the native foundation (value-domain clusters + numbers + exceptions) onto
+  // global_env FIRST (symbol-only, no prelude — `lower()` needs no evalScheme), THEN the
+  // .scm base packs onto user_env. Order matters: a base-pack prelude may call a native
+  // primitive (e.g. `string-length`, `+`), which resolves through user_env → global_env,
+  // so the natives must already be live there.
+  bootstrapPromise = assembleEnv(global_env as unknown as SchemeEnv, GLOBAL_NATIVE_PACKS.map((pack) => pack.lower()))
     .then(() => assembleEnv(userEnv as unknown as SchemeEnv, BASE_PACKS.map((pack) => pack.lower({ evalScheme }))))
     .then(async () => {
       const { sandboxedEnv } = await import("./sandbox-env.js");
