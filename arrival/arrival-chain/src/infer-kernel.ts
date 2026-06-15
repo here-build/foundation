@@ -352,7 +352,7 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
  *
  * This is the seam that lets a host route `(infer …)` into its own task store
  * without arrival-chain hardcoding where tasks live: `Project.run` passes a
- * cache-backed resolver; host passes a per-File one. The caller execs
+ * cache-backed resolver; the host passes a per-File one. The caller execs
  * `BUILTIN_PREAMBLE` (+ its source) against the returned env.
  *
  * DATA EFFECTS follow the identical seam: `(http/*)` / `(sql/query)` resolve
@@ -402,7 +402,7 @@ export interface BuildArrivalEnvOpts {
   /**
    * Host sink for `(declare/expose …)`. Each time the form evaluates, the engine
    * hands the host a typed {@link OnExpose} declaration (name + the `(s/object …)`
-   * input/output schemas + the handler bridged to plain JS) so host's registry
+   * input/output schemas + the handler bridged to plain JS) so the host's registry
    * can gate/invoke it. Absent, the form still evaluates and returns its handler
    * (usable in-program) — it just registers nowhere. Same "capability optional,
    * verb always present" posture as `import`/`data`. The static twin is
@@ -756,6 +756,6 @@ export type ArrivalEnv = ReturnType<typeof sandboxedEnv.inherit>;
 // `isPlainRecord` is a `(dict …)` helper, not an infer-verb coercion, so it lives here.
 export { isPlainRecord };
 
-// `InferFn` (the host inference seam) is re-surfaced through the chain barrel because host's
+// `InferFn` (the host inference seam) is re-surfaced through the chain barrel because the host's
 // run-traced path imports it from there; project.ts's `export *` carries it on.
 export type { InferFn };

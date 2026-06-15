@@ -14,7 +14,7 @@ import type { ModelRouter } from "./registry.js";
  * model call for free, via ref-counting, instead of orphaning a CRDT task.
  *
  * Two cache layers, both content-keyed: the in-process `cells` map (single-flight +
- * session cache) and an optional `InferCache` (e.g. a file-backed `.host-cache`)
+ * session cache) and an optional `InferCache` (e.g. a file-backed `.infer-cache`)
  * checked on a cell's first run BEFORE the backend — so a completed inference
  * REPLAYS across process restarts instead of regenerating. Determinism is the
  * warrant: a run is a pure function of the body, so a cached completion equals a
@@ -64,7 +64,7 @@ const VERBOSE = (() => {
   }
 })();
 const vlog = (...a: unknown[]): void => {
-  if (VERBOSE) console.log("[host:infer]", ...a);
+  if (VERBOSE) console.log("[infer]", ...a);
 };
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -122,7 +122,7 @@ class Cell implements InferCell {
         return cached;
       }
       const backend = await router.backendFor(spec.model);
-      invariant(!!backend, () => `host: no backend for model "${spec.model}"`);
+      invariant(!!backend, () => `no backend for model "${spec.model}"`);
       vlog(`→ ${spec.model}  prompt=${spec.prompt.length}c  schema=${spec.schema ? "yes" : "no"}`);
       const onFirst = (): void => {
         if (firstAt === 0) {
@@ -132,7 +132,7 @@ class Cell implements InferCell {
       };
       // The last holder may have released during the (async) backend lookup,
       // before the request was ever issued — don't dispatch a call nobody wants.
-      if (this.ac.signal.aborted) throw new DOMException("host: inference aborted before dispatch", "AbortError");
+      if (this.ac.signal.aborted) throw new DOMException("inference aborted before dispatch", "AbortError");
       const completion = backend.stream
         ? await backend.stream(
             spec,

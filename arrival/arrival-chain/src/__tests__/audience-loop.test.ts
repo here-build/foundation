@@ -1,5 +1,5 @@
 /**
- * Verifies the runnable audience-loop.scm port against V's nested data
+ * Verifies the runnable audience-loop.scm port against the nested data
  * shape. Uses a small fake personas set + 1 variant + a system-routing
  * stub backend, and confirms:
  *

@@ -33,7 +33,7 @@ class ContainerEntity extends PlexusModel {
  * But when an externally-constructed entity is passed as a constructor prop,
  * an external observer may already be tracking the child's `parent`. The
  * "adoption via constructor prop notifies parent watchers" case below
- * documents the bug discovered via @host/model — a child entity
+ * documents the bug discovered via the host model layer — a child entity
  * constructed standalone, with an autorun watching its `parent`, then
  * wrapped in a parent constructor, never sees the parent change because
  * the adoption ran inside the parent's __untracked__ field-init.

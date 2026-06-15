@@ -1,7 +1,7 @@
 /**
  * The agentic loop driver — the core of `infer/agentic/end-to-end`.
  *
- * V's framing: agentic behaviour lives behind ONE ultra-explicit verb that runs the
+ * Framing: agentic behaviour lives behind ONE ultra-explicit verb that runs the
  * whole loop and returns the FINAL answer. So a single `(infer …)` never carries tool
  * calls — `toolCalls` are internal loop-control data this driver reads, never a
  * program-visible return shape. The four flows still work without the program ever

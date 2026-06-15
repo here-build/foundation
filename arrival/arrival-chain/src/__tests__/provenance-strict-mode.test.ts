@@ -3,7 +3,7 @@
  *
  * History: `Invocation` was a MobX observable, so the rosetta wrapper's flip of
  * `isProvenancePoint` was an OBSERVED write and `enforceActions: "observed"`
- * rejected it (V's in-app error: "changing (observed) observable values without
+ * rejected it (the in-app error: "changing (observed) observable values without
  * using an action is not allowed … Invocation.isProvenancePoint"). The earlier fix
  * routed the write through a MobX action.
  *

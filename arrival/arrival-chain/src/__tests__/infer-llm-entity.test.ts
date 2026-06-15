@@ -1,5 +1,5 @@
 /**
- * D3 increment 2a — an `(llm …)` entity in the infer path, OBSERVE-ONLY (V's chosen
+ * D3 increment 2a — an `(llm …)` entity in the infer path, OBSERVE-ONLY (the chosen
  * direction). A plain `(infer …)` / `(infer/chat …)` accepts an llm entity wherever a model
  * string goes; the entity's `derive`d middleware runs around the model call as observe-only:
  *

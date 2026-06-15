@@ -361,7 +361,7 @@ export class Project extends PlexusModel<null> {
        * Host sink for `(declare/expose …)` (node D4). Threaded straight to
        * `buildArrivalEnv` so each declaration that evaluates during the run hands
        * the host its typed {@link OnExpose} declaration (name + evaluated schemas +
-       * the JS-bridged handler) — the seam host's exposed-function INVOCATION
+       * the JS-bridged handler) — the seam the host's exposed-function INVOCATION
        * uses to capture a sealed skill's handler from a run, then call it. Absent
        * (the default), the form still evaluates + returns its handler; it just
        * registers nowhere — same "capability optional, verb always present" posture
@@ -388,7 +388,7 @@ export class Project extends PlexusModel<null> {
       /**
        * Per-run inference plane override. Each `(infer …)` resolves through this
        * store instead of the project-bound `this.infer` when supplied. Lets ONE
-       * run carry a plane the others don't — e.g. host's MCP path overlays the
+       * run carry a plane the others don't — e.g. the host's MCP path overlays the
        * requesting user's own local-model store ($0, reached through their reverse
        * tunnel) atop the team plane, per-caller, WITHOUT mutating the shared
        * `bindInfer` slot (so concurrent runs keep their own planes). Defaults to
@@ -406,7 +406,7 @@ export class Project extends PlexusModel<null> {
     // The cache-backed infer resolver: find-or-create a task in this project's
     // content-addressed cache, bind the trace, await its result. The rosetta
     // wiring + list-wrapping live in buildArrivalEnv (shared with runTraced +
-    // host); this closure is the project-specific seam.
+    // the host); this closure is the project-specific seam.
     const inferAndWait: InferFn = async (ctx, model, prompt, schema, cacheKey, tools, params) => {
       // Tools are part of the inference identity (same messages + different tools =
       // different result) — fold them into the cacheKey so the existing
@@ -618,7 +618,7 @@ export class Project extends PlexusModel<null> {
    * can hand its id back to the client immediately.
    *
    * `data` arms the data-effect verbs with a credentialed host resolver (the
-   * host Runner DO supplies one; absent, `(http/*)`/`(sql/query)` are inert).
+   * host's Runner DO supplies one; absent, `(http/*)`/`(sql/query)` are inert).
    * `effectLog` replays a recorded log (zero external hits) — re-invoking a past
    * run deterministically. `onEffectResult` lets the host collect THIS run's
    * effect-log in one pass (feed `effectLogCollector().record`) to persist for a

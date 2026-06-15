@@ -4,7 +4,7 @@
  * Where `extractExpose` reads a declaration's SIGNATURE statically (parse only,
  * handler never runs — the config-plane sync path), this is what happens when a
  * program actually EVALUATES the form: it captures the input/output schemas and
- * the handler closure, hands a typed `ExposeDeclaration` to the host (host's
+ * the handler closure, hands a typed `ExposeDeclaration` to the host (its
  * registry), and returns the handler so the same function is callable in-program.
  *
  * `(declare/expose "classify-ticket"
@@ -40,7 +40,7 @@ type SchemeProc = (...args: unknown[]) => unknown | Promise<unknown>;
 
 /**
  * A live exposed-function declaration, handed to the host the moment the form
- * evaluates. The host (host) keys these by `name`, lowers the schemas to its
+ * evaluates. The host keys these by `name`, lowers the schemas to its
  * own validators, and gates/invokes `handler` behind auth + the wallet.
  */
 export interface ExposeDeclaration {

@@ -11,7 +11,7 @@
 // The barrel surfaces only what crosses the package boundary. The rest stays module-private
 // (still `export`ed from the source files for their own tests, just not re-exported here). What
 // leaves: the capabilities (rooted into chain's base env); `InferFn` (the host inference seam,
-// also reaching host); the seal helpers chain's `sealPromptUnit` imports (`asLlmModel`,
+// also reaching the host); the seal helpers chain's `sealPromptUnit` imports (`asLlmModel`,
 // `canonicalizeMessages`, `schemaSlot`, `nullable` — the seal lives in chain because it also needs
 // the handlebars render, so it pulls these in rather than the reverse); the membrane symbols the
 // host server-tape + mcp tests touch.

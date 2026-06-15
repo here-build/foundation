@@ -1,11 +1,11 @@
 /**
- * Bootstraps the host/herebuild-react pipeline on the y-websocket relay
+ * Bootstraps the herebuild-react pipeline on the y-websocket relay
  * and drains it via LM Studio's OpenAI-compatible API. Mirrors the demo
  * worker (scripts-lmstudio-worker.ts) but loads herebuild-react.scm with a
  * small personas slice instead of the translation toy.
  *
- *   pnpm tsx scripts-lmstudio-host.ts \
- *     [--doc host-demo] [--ws ws://localhost:1235] \
+ *   pnpm tsx scripts-lmstudio-demo.ts \
+ *     [--doc demo] [--ws ws://localhost:1235] \
  *     [--base http://localhost:1234/v1] [--model gemma-4-e4b-it] \
  *     [--personas path/to/profiles.json] [--replays 3]
  */
@@ -20,7 +20,7 @@ const arg = (name: string, fallback: string): string => {
   return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1]! : fallback;
 };
 
-const DOC_ID = arg("doc", "host-demo");
+const DOC_ID = arg("doc", "demo");
 const WS_URL = arg("ws", "ws://localhost:1235");
 const BASE_URL = arg("base", "http://localhost:1234/v1");
 const MODEL = arg("model", "gemma-4-e4b-it");
@@ -88,7 +88,7 @@ async function main() {
 
   let project: Project;
   if (doc.share.size === 0) {
-    console.log("[bootstrap] doc empty — loading host herebuild-react pipeline");
+    console.log("[bootstrap] doc empty — loading herebuild-react pipeline");
     const ENTRY = "herebuild-multi.scm";
     const entries = await fs.readdir(PROGRAMS_DIR);
     const personasJson = await fs.readFile(PERSONAS, "utf-8");

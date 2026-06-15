@@ -160,7 +160,7 @@ describe("traceToRegions", () => {
   });
 
   it("attributes a value PACKED INTO A LIST to its field — per-element provenance survives the array", async () => {
-    // V's bug: two react producers feed a reflect `.prompt` whose `:failures`
+    // The bug: two react producers feed a reflect `.prompt` whose `:failures`
     // input is `(list a b)`. A whole-value compare can't match — the slot holds
     // `[va, vb]`, not `va` — so both edges land on the reflect block unfielded.
     // The SOUND path threads each element's origin through the rosetta membrane:
@@ -194,7 +194,7 @@ describe("traceToRegions", () => {
   });
 
   it("splits one producer feeding TWO slots into two field-qualified edges", async () => {
-    // V: a template `message: is ${score} fair for ${result}` reads two slots; the
+    // A template `message: is ${score} fair for ${result}` reads two slots; the
     // SAME producer can land in both. The structural Hasse edge producer→consumer is
     // one fact, but it carries two field-to-field flows. We must emit one edge PER
     // (producer, slot), not collapse to a single arbitrary field — so the consumer's
@@ -292,7 +292,7 @@ describe("traceToRegions", () => {
   it("DISSOLVES a static-test branch (no dynamic provenance) even when both arms run", async () => {
     // `pick` branches on the sign of n. Over (1 -1 2 -2) the `if` takes BOTH arms — it's
     // LIVE — but `(> n 0)` reads only `n`, a literal-list element: no inference feeds the
-    // test, so its outcome was fixed before the run. By V's dynamic-provenance rule that's
+    // test, so its outcome was fixed before the run. By the dynamic-provenance rule that's
     // DEGENERATE (`(if {10 + 20 < 50} …)`-grade) → the decision dissolves, leaving just the
     // gated infer leaves, no `<>` marker. `always`'s constant `(if #t …)` dissolves too.
     const project = ArrivalChain.bootstrap(new Project()).root;

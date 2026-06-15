@@ -241,7 +241,7 @@ describe("flow-graph build — benchmark", () => {
     [12, 6],
     [40, 16],
     [80, 24],
-    [1000, 24], // ~500k invocations — the real host test-pipeline ceiling (V)
+    [1000, 24], // ~500k invocations — the real test-pipeline ceiling
   ];
 
   for (const [rounds, personas] of SIZES) {

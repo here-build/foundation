@@ -28,7 +28,7 @@ import { arrivalDeriveCapability } from "./derive.js";
 
 /**
  * The infer-resolution seam: resolve ONE `(infer …)` call site to its value. The host
- * decides where the task lives (a content-addressed cache, host's per-File tasks) and
+ * decides where the task lives (a content-addressed cache, the host's per-File tasks) and
  * how it resolves; the capability only knows the SHAPE. Returns the RAW value; the verb
  * wraps it to a list for scheme. Args arrive already coerced (model/prompt stringified,
  * schema via {@link schemaSlot}, cacheKey via {@link nullable}).

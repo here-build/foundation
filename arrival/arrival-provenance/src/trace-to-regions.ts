@@ -27,7 +27,7 @@
  * it surfaces at the head of the iteration whose input it produced.
  *
  * Sequential loop iterations reuse the `fanout` container (Z-tab render, one shown
- * at a time) rather than a distinct kind — V's call. `tailPosition` (the evaluator's
+ * at a time) rather than a distinct kind. `tailPosition` (the evaluator's
  * R7RS §3.5 ground truth, on `Invocation`) is available if we later want to label
  * proper-TCO vs stack-growing recursion; detection here is structural so it covers
  * both. PERF: a very long loop builds an O(N)-deep `currentInvocation` chain; the
@@ -695,7 +695,7 @@ export function regionsAt(inv: PlainInv, ctx: RegionWalkCtx): Region[] {
     // the spine of body entries, each cut at the next. The recursive call's
     // arg eval (the `reflect` that seeds the next iteration) lives OUTSIDE the
     // next body, so it stays in THIS iteration — correct: this iteration
-    // computed it. Sequential iters reuse `fanout` (Z-tabs) per V's call.
+    // computed it. Sequential iters reuse `fanout` (Z-tabs) by design.
     const iterations: Region[][] = [];
     let incoming = 0;
     // The spine of body-entries — from the cached list (incremental) or by walking
@@ -806,7 +806,7 @@ export function regionsAt(inv: PlainInv, ctx: RegionWalkCtx): Region[] {
       wired.add(sym);
       inputs.push(...origins);
     }
-    // DYNAMIC-PROVENANCE GATE (V's rule): a decision renders only when its outcome is
+    // DYNAMIC-PROVENANCE GATE: a decision renders only when its outcome is
     // genuinely INDETERMINATE from the trace's dynamic data — i.e. at least one tested
     // operand traces back to an inference. A purely static test (`(if #t …)`, a
     // literal-only comparison `{10 + 20 < 50}`, a pool-shape guard like `pair`) is

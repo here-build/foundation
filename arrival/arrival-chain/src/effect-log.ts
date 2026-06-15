@@ -333,7 +333,7 @@ export function subtractKeys(fullLog: EffectLog, remove: ReadonlySet<string>): E
  * value, so the full log is built in ONE pass during the run (no post-hoc walk of
  * the `InferStore` cells). Pass `collector.record` as `opts.onEffectResult` to
  * `Project.run`; `collector.log` is the resulting `EffectLog`, ready to replay or
- * to persist (host's per-run R2 `effects.json`).
+ * to persist (the host's per-run R2 `effects.json`).
  *
  * Content-addressed: the same key settling twice (single-flight dedup across HOF
  * iterations, or a replayed effect re-recording) overwrites with the identical

@@ -9,7 +9,7 @@
  *
  * Because we never run the output, binding forms lower to PURE TS BLOCK
  * STATEMENTS, not IIFEs — block-scoping is correct for type-checking and adds no
- * function boundary to distort control-flow analysis (V's explicit call; see the
+ * function boundary to distort control-flow analysis (by design; see the
  * type-lens README "Emitter contract").
  *
  * It REUSES the existing front-end (parse → desugar → scope) and produces a span
@@ -181,6 +181,64 @@ function emitAtom(a: Atom, ctx: Ctx): void {
   ctx.buf.spanned(emitName(a, ctx), a);
 }
 
+// The object-accessor family. A dict is a primitive object, so these all lower to
+// NATIVE indexed access `(obj)["k"]…` — the fast TS path (no generic `keyof O`
+// re-derivation per read, which made huge-object reads thrash), biting natively on
+// a precise object and transparent on an opaque one (exactly the `(:field obj)`
+// sugar). Grouped by arg shape (the runtime arg orders, grounded in ramda-functions.ts).
+const ACCESSOR_OBJ_FIRST = new Set(["@"]); //                (@ obj :k)      → obj, key
+const ACCESSOR_KEY_FIRST = new Set(["prop", "get", "access", "fetch"]); // (prop :k obj) → key, obj
+const ACCESSOR_PATH = new Set(["path", "get-in", "navigate", "dig"]); //   (path KEYS obj) → keys, obj
+
+/** A statically-extractable keyword sequence from `'(:a :b)` (quote) or
+ *  `(list :a :b)`, else null — a dynamic path falls back to the generic call. */
+function staticKeywordSeq(node: Node | undefined): string[] | null {
+  if (!node || !isList(node) || isNil(node)) return null;
+  const h = node.list[0];
+  let items: readonly Node[];
+  if (isAtom(h) && h.atom === "quote") {
+    const inner = node.list[1];
+    if (!inner || !isList(inner)) return null;
+    items = inner.list;
+  } else if (isAtom(h) && h.atom === "list") {
+    items = node.list.slice(1);
+  } else {
+    return null;
+  }
+  const keys: string[] = [];
+  for (const it of items) {
+    if (!isKeyword(it)) return null;
+    keys.push(keywordName(it));
+  }
+  return keys;
+}
+
+/** Lower an accessor head to native indexed access; false → caller emits the
+ *  generic `__arr.<name>(…)` call (dynamic key/path, or wrong arity). */
+function tryEmitAccessor(hName: string, n: ListNode, ctx: Ctx): boolean {
+  const a = n.list.slice(1);
+  let obj: Node | undefined;
+  let keys: string[] | null;
+  if (ACCESSOR_OBJ_FIRST.has(hName)) {
+    obj = a[0];
+    keys = a[1] && isKeyword(a[1]) ? [keywordName(a[1])] : null;
+  } else if (ACCESSOR_KEY_FIRST.has(hName)) {
+    keys = a[0] && isKeyword(a[0]) ? [keywordName(a[0])] : null;
+    obj = a[1];
+  } else {
+    keys = staticKeywordSeq(a[0]);
+    obj = a[1];
+  }
+  if (keys === null || keys.length === 0 || obj === undefined) return false;
+  const start = ctx.buf.offset;
+  ctx.buf.raw("(");
+  emitExpr(obj, ctx);
+  ctx.buf.raw(")");
+  for (const k of keys) ctx.buf.raw(`[${JSON.stringify(k)}]`);
+  recordSpan(ctx, start, n);
+  return true;
+}
+
 function emitList(n: ListNode, ctx: Ctx): void {
   if (isNil(n)) {
     ctx.buf.spanned("[]", n);
@@ -233,8 +291,25 @@ function emitList(n: ListNode, ctx: Ctx): void {
         ctx.buf.spanned("(undefined as unknown)", n);
         return;
     }
-    // A builtin OR a host-injected rosetta tool → ambient `__arr` member call.
-    if (isBuiltin(hName) || ctx.hostMembers.has(hName)) return emitBuiltinCall(hName, n, ctx);
+    // A locally-bound head (a user `(define (concat …))`) SHADOWS builtins, host
+    // members, and accessors — standard scope: the user's definition wins over the
+    // ambient name. `nameOf.get(h)` is set iff `h` resolves to a binding. Without
+    // this, adding a builtin leaf for a common name (`concat`, `prop`, `get`)
+    // silently captures a user's same-named function and breaks infer-from-consumers.
+    // (Syntactic special forms above are reserved and not shadowed here.)
+    const headBound = isAtom(h) && ctx.nameOf.get(h) !== undefined;
+    if (!headBound) {
+      // The object-accessor family → native indexed access (fast path). Falls
+      // through to the generic call below when the key/path is dynamic.
+      if (
+        (ACCESSOR_OBJ_FIRST.has(hName) || ACCESSOR_KEY_FIRST.has(hName) || ACCESSOR_PATH.has(hName)) &&
+        tryEmitAccessor(hName, n, ctx)
+      ) {
+        return;
+      }
+      // A builtin OR a host-injected rosetta tool → ambient `__arr` member call.
+      if (isBuiltin(hName) || ctx.hostMembers.has(hName)) return emitBuiltinCall(hName, n, ctx);
+    }
   }
 
   // A non-builtin head: a local binding / free fn → direct call `f(a, b)`; an
@@ -328,20 +403,26 @@ function tsKey(k: string): string {
 function emitDict(n: ListNode, ctx: Ctx): void {
   const start = ctx.buf.offset;
   const args = n.list.slice(1);
-  // `(dict :k v …)` → `__arr.dict([["k", v], …] as const)` — the PRE `Dict<Pairs>`
-  // mapped type turns the entry-tuple list into a precise object.
-  ctx.buf.raw("__arr.dict([");
+  // `(dict :k v …)` → `{ k: v, … }` — a DIRECT object literal type. A dict is a
+  // special primitive (an object), NOT an alist of pairs: it has no car/cdr, so we
+  // model it as the object it is, not via a `Dict<Pairs>` mapped remap over an
+  // entry-tuple. TS infers the object literal's type directly — the fast path TS
+  // optimizes — and reads (`(:k d)` / native index) resolve against it natively.
+  // The mapped-remap form was ~1.5× costlier to construct and forced the giant
+  // `keyof`/union machinery that made huge-JSON integration thrash. Keys use raw
+  // `keywordName` (NOT cleanName) so they match the `(:field obj)` accessor's index
+  // key (`obj["field"]`, emitList:200) — construct-key and read-key MUST agree.
+  ctx.buf.raw("{ ");
   let first = true;
   for (let i = 0; i + 1 < args.length; i += 2) {
     const k = args[i]!;
     const key = isKeyword(k) ? keywordName(k) : isAtom(k) ? k.atom : "";
     if (!first) ctx.buf.raw(", ");
     first = false;
-    ctx.buf.raw(`[${JSON.stringify(key)}, `);
+    ctx.buf.raw(`${tsKey(key)}: `);
     emitExpr(args[i + 1]!, ctx);
-    ctx.buf.raw("]");
   }
-  ctx.buf.raw("] as const)");
+  ctx.buf.raw(first ? "}" : " }");
   recordSpan(ctx, start, n);
 }
 

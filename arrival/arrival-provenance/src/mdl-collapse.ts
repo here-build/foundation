@@ -1,8 +1,7 @@
 /**
  * MDL collapse optimizer — decides which AST-licensed boxes to fold in the
  * causal graph, by minimizing a Minimum-Description-Length cost. This is the
- * anti-spaghetti core (design doc:
- * docs/working-proposals/todo/host-studio-causal-graph-home.md §4).
+ * anti-spaghetti core of the causal-graph view.
  *
  * ── Formally-correct grammar (SLP) cost ──────────────────────────────────────
  * The description is a straight-line grammar over the provenance trace. A

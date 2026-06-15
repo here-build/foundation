@@ -1,6 +1,6 @@
 // uneval.ts — the `{result, meta, uneval}` container + the selector-eval step.
 //
-// V's design (no new entity): a traced run yields a container whose `uneval` is NOT special
+// By design (no new entity): a traced run yields a container whose `uneval` is NOT special
 // trickery — `uneval("(car result)")` evaluates the selector as ONE MORE tapped step (with the
 // program's output bound to `result`, so the effective value carries provenance intact), then
 // reverse-slices the trace by that effective value's provenance into a re-runnable Scheme program
@@ -43,7 +43,7 @@ export interface Uneval {
   scopeIds: string[];
 }
 
-/** A traced run's return value, as V's design wants it: the answer, run metadata, and `uneval`. */
+/** A traced run's return value, by design: the answer, run metadata, and `uneval`. */
 export interface UnevalContainer {
   /** The program's output value (peeled to plain JS). */
   result: unknown;

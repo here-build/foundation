@@ -123,7 +123,7 @@ function manifest(target: CompileTarget, entryStem: string): EmittedFile {
   }
   const deps = target.prompts === "ax" ? dep("@ax-llm/ax") : { ...dep("@langchain/core"), ...dep("@langchain/openai") };
   const pkg = {
-    name: `host-${entryStem}`,
+    name: `entry-${entryStem}`,
     private: true,
     type: "module",
     scripts: { start: `tsx ${entryStem}.ts` },

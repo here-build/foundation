@@ -1,6 +1,6 @@
 /**
  * Enumerate top-level `(declare/expose …)` forms in a Scheme source — the
- * substrate primitive behind host's exposed-functions registry (the
+ * substrate primitive behind the host's exposed-functions registry (the
  * "sealed skill" surface). The static twin of the runtime `declare/expose`
  * rosetta (see `buildArrivalEnv` in project.ts): this reads the *declared
  * signature* without evaluating anything, so the registry can be synced from
@@ -13,7 +13,7 @@
  *     :handler (lambda (input) …))  ; required at runtime, ignored statically
  *
  * The `:input`/`:output` values are captured as SOURCE SLICES — the exact
- * `(s/object …)` text — not evaluated. host (the A2 schema→zod bridge / the
+ * `(s/object …)` text — not evaluated. The host (the A2 schema→zod bridge / the
  * picoschema lowering) evaluates just those pure schema expressions later to
  * derive `exposedFunctions.declaredSig`, exactly as the loader stores a
  * `.prompt`'s `schemaSrc` and evaluates it once in `compileInferUnit`. Keeping

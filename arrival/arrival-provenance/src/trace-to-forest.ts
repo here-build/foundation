@@ -5,7 +5,7 @@
  * The trace records EVERY Pair invocation, ~80% of which is stdlib plumbing
  * (`list`/`cons`/`apply`/`if`/`null?`/`car`/…, including a map's own internal
  * machinery). The forest must filter to MEANINGFUL scopes and re-parent their
- * children *through* the plumbing. Meaningful (the box vocabulary V chose,
+ * children *through* the plumbing. Meaningful (the chosen box vocabulary,
  * scheme "A" + promotable defines):
  *   - provenance points (infer/query) — repeated `leaf` boxes
  *   - recognized control forms — map/filter/for-each (unfold), reduce/fold
@@ -22,7 +22,7 @@
  * ratio and may be fractional for conditional scopes.)
  *
  * Ids are STRUCTURAL (`head@line:col`) so the layout is stable across runs
- * (V's stability directive) — not derived from iteration order.
+ * (for stability) — not derived from iteration order.
  *
  * v1 approximations (documented, not hidden):
  *   - `localBits` is a proxy (count of a representative instance's immediate
@@ -85,7 +85,7 @@ export const STRUCTURAL_FORMS = new Set([
 // `hasSelfAncestor` can only call a function a loop AFTER it has recursed at least
 // once — which, when the recursive arg is an async `(infer …)`, is not until the
 // CURRENT iteration finishes. So a streaming loop renders with no container until
-// its successor fires, then snaps into one (V's stability directive: the structure
+// its successor fires, then snaps into one (for stability: the structure
 // must not reshape mid-run). The fix is static: a function whose body tail-calls
 // ITSELF is a loop the moment it's defined — knowable from the AST, before any
 // iteration runs. We read it straight off the `(define …)` forms in the trace.

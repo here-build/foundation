@@ -11,7 +11,7 @@
  *
  * The audit's "CONFIRMED SOLID — the sandbox membrane is earned, rosetta keeps
  * closures host-side, escape tests pass" claim, made executable. If any of these
- * regress, an host-hosted program (an agent's `(declare/expose)` handler) could
+ * regress, an host-run program (an agent's `(declare/expose)` handler) could
  * break out of the sandbox into the DO's memory — where the decrypted keys live.
  */
 import { describe, expect, it, vi } from "vitest";

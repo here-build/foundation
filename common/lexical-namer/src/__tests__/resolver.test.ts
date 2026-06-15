@@ -189,7 +189,7 @@ describe("single scope: onTie postfix", () => {
   });
 });
 
-// ── Single scope — ladder fallback (V's `large → typeLarge` example) ─
+// ── Single scope — ladder fallback (`large → typeLarge` example) ─
 
 describe("single scope: ladder fallback", () => {
   it("variant prefixed when bare contested by user-named element", () => {

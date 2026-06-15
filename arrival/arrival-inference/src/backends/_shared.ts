@@ -595,7 +595,7 @@ export function parseModelValue(spec: ModelSpec, text: string, diag?: ParseDiag)
     text.length === 0
       ? "streamed no content — only a reasoning channel, or the endpoint declined structured output (json_schema strict)"
       : `streamed unparseable/truncated JSON (${JSON.stringify(text.slice(0, 120))}…) — likely cut off (raise max tokens / provider truncated)`;
-  throw new Error(`host: "${spec.model}" ${why} [${ctx}]`);
+  throw new Error(`"${spec.model}" ${why} [${ctx}]`);
 }
 
 /**

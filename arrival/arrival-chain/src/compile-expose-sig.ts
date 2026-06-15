@@ -86,8 +86,8 @@ async function evalPureSlice(src: string | null): Promise<unknown | null> {
 /**
  * The shape `exposedFunctions.declaredSig` stores: the canonical `(s/object …)`
  * tagged lists for input/output (or null) + the static handler-presence fact.
- * Identical to host's `DeclaredSig`, declared here so the engine owns the
- * "static extraction → registry signature" lowering (host re-shapes it onto
+ * Identical to the host's `DeclaredSig`, declared here so the engine owns the
+ * "static extraction → registry signature" lowering (the host re-shapes it onto
  * its column type without re-deriving the tagged lists).
  */
 export interface ExposeSig {

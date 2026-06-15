@@ -1,5 +1,5 @@
 /**
- * D3 — the generic `derive` algebra. The experiment behind V's question: "why a kinded
+ * D3 — the generic `derive` algebra. The experiment behind the question: "why a kinded
  * `llm/derive` when `llm` can be a derivable entity that supports ONE generic `derive`?"
  *
  * The answer this file proves: a {@link DerivableEntity} carries its KIND as a value, the
