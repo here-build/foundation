@@ -904,7 +904,14 @@ export function attributeFieldEdges(edges: RegionEdge[], ctx: FinalizeCtx): Regi
     if (meta.inputsProvenance) {
       const producerValue = pointById.get(e.from)?.value;
       const fields = Object.entries(immediateBySlot(e.to, meta.inputsProvenance))
-        .filter(([k, origins]) => origins.has(e.from) && valuePresent(producerValue, meta.inputs?.[k]))
+        .filter(
+          ([k, origins]) =>
+            origins.has(e.from) &&
+            // value-flowed-FROM, either direction: the producer embeds into the slot (slot ⊇ producer,
+            // e.g. `(list a b)`) OR a MEMBER of the producer is the slot (slot ⊆ producer, a field pluck
+            // `(field a "idea")`). Both are "producer's value flows into slot k".
+            (valuePresent(producerValue, meta.inputs?.[k]) || valuePresent(meta.inputs?.[k], producerValue)),
+        )
         .map(([k]) => k);
       if (fields.length > 0) {
         for (const field of fields) out.push({ ...e, field });
