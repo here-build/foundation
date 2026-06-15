@@ -144,9 +144,9 @@ const DATA_PARSERS: Record<string, (text: string) => unknown> = {
       .map((line) => JSON.parse(line)),
 };
 
-/** Project a parsed value onto its JSON shape (Dates → ISO strings, drops
- *  undefined), matching the old `(json/parse "<canonical>")` contract. NOT a
- *  deep clone — `structuredClone` would preserve the non-JSON types we want gone. */
+/** Project a parsed value onto its JSON shape (Dates → ISO strings, drops undefined) so a required
+ *  data file enters the program as plain JSON-shaped data. NOT a deep clone — `structuredClone`
+ *  would preserve the non-JSON types we want gone. */
 // eslint-disable-next-line unicorn/prefer-structured-clone -- JSON projection, not a clone
 const normalizeToJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
 
@@ -408,10 +408,10 @@ export function defineRequireRosetta(opts: {
 
         let value: unknown;
         if (result.kind === "value") {
-          // Wrap JS→Scheme exactly as the old `json/parse` path did: arrays
-          // become scheme LISTS (so `(length …)` works), plain objects become
-          // SchemeJSObject (so `@`/`field` work). Pure value — `require` RETURNS
-          // it for an explicit `(define x (require …))`; nothing is spilled.
+          // Wrap JS→Scheme at the membrane: arrays become scheme LISTS (so `(length …)` works),
+          // plain objects become SchemeJSObject (so `@`/`field` work). This is WHERE data gets
+          // parsed-into-scheme — which is why the program needs no `json/parse` verb. Pure value —
+          // `require` RETURNS it for an explicit `(define x (require …))`; nothing is spilled.
           // A capability resolver that produced a native proc (e.g. `.prompt` →
           // a sealed infer proc) rides this same `value` path: `jsToScheme` passes
           // a function through untouched, so `require` returns the proc, bound via

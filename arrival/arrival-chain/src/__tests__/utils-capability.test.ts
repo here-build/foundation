@@ -10,7 +10,7 @@ import { arrivalUtilsCapability } from "../packs/utils.js";
 describe("arrivalUtilsCapability", () => {
   it("binds every utils verb", async () => {
     const { env } = await assembleEnv(sandboxedEnv.inherit("t") as never, [arrivalUtilsCapability.lower({ config: {} })]);
-    for (const verb of ["json/parse", "string-dedent", "template/handlebars"]) {
+    for (const verb of ["string-dedent", "template/handlebars"]) {
       expect(env.get(verb, { throwError: false })).toBeDefined();
     }
   });

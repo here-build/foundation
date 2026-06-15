@@ -26,9 +26,9 @@ describe("registerExtension / lookupExtensionResolver", () => {
   });
 
   it("longest matching suffix wins (.spec.json beats .json)", () => {
-    registerExtension(".json", "json/parse");
+    registerExtension(".json", "data/json");
     registerExtension(".spec.json", "spec/parse");
-    expect(lookupExtensionResolver("a.json")).toBe("json/parse");
+    expect(lookupExtensionResolver("a.json")).toBe("data/json");
     expect(lookupExtensionResolver("a.spec.json")).toBe("spec/parse");
   });
 

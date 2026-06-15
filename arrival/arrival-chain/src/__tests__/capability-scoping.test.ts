@@ -32,9 +32,9 @@ async function runScoped(
 }
 
 describe("capability scoping — assemble from a reduced root-set", () => {
-  it("a utils-only env binds json/parse", async () => {
-    const value = await runScoped([arrivalUtilsCapability], `(json/parse "[1,2,3]")`);
-    expect(schemeToJs(value, {})).toEqual([1, 2, 3]);
+  it("a utils-only env binds a utils verb (string-dedent)", async () => {
+    const value = await runScoped([arrivalUtilsCapability], `(string-dedent "  hi")`);
+    expect(schemeToJs(value, {})).toBe("hi");
   });
 
   it("a utils-only env does NOT bind infer — the capability you didn't assemble is absent", async () => {

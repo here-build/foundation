@@ -1,7 +1,7 @@
 /**
  * (require "x.hbs") defines a callable named after the file basename that
  * accepts a dict and returns the rendered template string. Verified across
- * three input shapes: plain JS object via json/parse, env-derived dict,
+ * three input shapes: a required .json object, env-derived dict,
  * literal scheme records.
  */
 import { describe, expect, it } from "vitest";

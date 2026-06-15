@@ -1,6 +1,6 @@
 /**
  * Verifies access patterns over V's nested data shape now that
- * (require "x.json") produces SchemeJSObjects (json/parse path) and
+ * (require "x.json") produces SchemeJSObjects (parsed at the loader membrane) and
  * the runtime preamble ships `field`, `values-of`, and `@` natively.
  *
  *   data:           { profileId: { id, versions: [ { n, state: {...} } ] } }

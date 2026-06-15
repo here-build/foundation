@@ -7,9 +7,12 @@ import dedent from "dedent";
 import { EnvCapability } from "@here.build/arrival-scheme/capability";
 import { renderTemplateCall } from "../infer-kernel.js";
 
+// No `json/parse`: arrival-scheme is platonic — a value inside the program is already a value,
+// never a string awaiting a parse. Data enters pre-parsed across the membrane (`require "x.json"`
+// parses at the loader; API args bind already-parsed). There is no raw-JSON-string-in-program case
+// left to serve, so the verb would only invite re-introducing the boundary we removed.
 export const arrivalUtilsCapability = new EnvCapability("arrival/utils", {
   symbols: {
-    "json/parse": { fn: (s: unknown) => JSON.parse(String(s)), type: "(s: SStr): unknown" },
     "string-dedent": { fn: (s: unknown) => dedent(String(s)), type: "(s: SStr): SStr" },
     "template/handlebars": {
       fn: (source: unknown, args: unknown) => renderTemplateCall(String(source), Array.isArray(args) ? args : [args]),
