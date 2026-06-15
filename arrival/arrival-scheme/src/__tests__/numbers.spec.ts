@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SchemeExact, SchemeInexact, makeNumber, parseNumber, rosettaNumbers, schemeNumbers } from "../numbers";
+import { SchemeExact, SchemeInexact, parseNumber, rosettaNumbers, schemeNumbers } from "../numbers";
 
 describe("ExactNumber", () => {
   it("creates integers", () => {
@@ -195,31 +195,5 @@ describe("parseNumber", () => {
     expect(parseNumber("#xff").toString()).toBe("255");
     expect(parseNumber("#b1010").toString()).toBe("10");
     expect(parseNumber("#o77").toString()).toBe("63");
-  });
-});
-
-describe("makeNumber", () => {
-  it("creates from bigint", () => {
-    const n = makeNumber(42n);
-    expect(n).toBeInstanceOf(SchemeExact);
-    expect((n as SchemeExact).num).toBe(42n);
-  });
-
-  it("creates from safe integer", () => {
-    const n = makeNumber(42);
-    expect(n).toBeInstanceOf(SchemeExact);
-  });
-
-  it("creates from float", () => {
-    const n = makeNumber(3.14);
-    expect(n).toBeInstanceOf(SchemeInexact);
-  });
-
-  it("passes through existing numbers", () => {
-    const exact = new SchemeExact(42n);
-    expect(makeNumber(exact)).toBe(exact);
-
-    const inexact = new SchemeInexact(3.14);
-    expect(makeNumber(inexact)).toBe(inexact);
   });
 });

@@ -901,36 +901,6 @@ export class NumberRegistry {
 export const schemeNumbers = new NumberRegistry(SchemeConfig);
 export const rosettaNumbers = new NumberRegistry(RosettaConfig);
 
-// ============================================================================
-// Compatibility layer for LNumber API
-// NOTE: These are for gradual migration. The preferred API is the registry.
-// ============================================================================
-
-/**
- * Create a number from various inputs (LNumber-compatible factory)
- * Uses the provided registry or defaults to Scheme mode
- */
-export function makeNumber(
-  value: number | bigint | string | SchemeNumeric,
-  registry: NumberRegistry = schemeNumbers,
-): SchemeNumeric {
-  switch (true) {
-    case value instanceof SchemeExact:
-    case value instanceof SchemeInexact:
-      return value;
-    case typeof value === "bigint":
-      return registry.fromInteger(value);
-    case typeof value === "number":
-      return Number.isInteger(value) && Number.isSafeInteger(value)
-        ? registry.fromInteger(value)
-        : registry.fromFloat(value);
-    case typeof value === "string":
-      return parseNumber(value, registry);
-    default:
-      invariant(false, `Cannot create number from ${typeof value}`);
-  }
-}
-
 /**
  * Parse a number from string representation
  */
@@ -1030,7 +1000,7 @@ export function isNumeric(value: unknown): boolean {
 }
 
 // ============================================================================
-// Type Checking Functions (replaces LNumber static methods)
+// Type Checking Functions
 // ============================================================================
 
 /** Check if value is a native JS number or bigint */
