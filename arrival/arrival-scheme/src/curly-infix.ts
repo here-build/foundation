@@ -11,7 +11,7 @@
 // involved). Precedence is granted only where it is overlearned (PEMDAS); every other operator mix
 // is an errors-as-door `ParseError`. See docs/working-proposals/arrival-sweet-extension-design-ideation-2026-06-15.md §5.2.
 
-import { FIXITY, normalizeGlyph, opName, prec } from "./canonizer.js";
+import { normalizeGlyph } from "./canonizer.js";
 import type { SourceLocation } from "./errors.js";
 import { ParseError } from "./errors.js";
 import { Pair } from "./Pair.js";
@@ -20,9 +20,38 @@ import { nil, type SchemeValue } from "./types.js";
 
 type Loc = SourceLocation | null | undefined;
 
-// FIXITY / opName / prec now live in the canonizer registry (canonizer.ts).
-// Re-export FIXITY so the pure-module tests keep importing it from here.
-export { FIXITY };
+interface Fixity {
+  prec: number;
+  assoc: "left";
+}
+
+/** The license table — the ONLY operators that get read-time precedence (the formal divergence).
+ *  Multiplicative binds tighter than additive; both left-associative. Levels are relative; only the
+ *  ordering matters (headroom left around them deliberately). Anything not here is a door. */
+export const FIXITY: Record<string, Fixity> = {
+  "*": { prec: 7, assoc: "left" },
+  "/": { prec: 7, assoc: "left" },
+  modulo: { prec: 7, assoc: "left" },
+  quotient: { prec: 7, assoc: "left" },
+  remainder: { prec: 7, assoc: "left" },
+  "+": { prec: 6, assoc: "left" },
+  "-": { prec: 6, assoc: "left" },
+};
+
+/** The operator name of a value, or null if it isn't a symbol. */
+function opName(v: SchemeValue): string | null {
+  if (v instanceof SchemeSymbol) {
+    const n = v.__name__;
+    return typeof n === "string" ? n : String(v.valueOf());
+  }
+  return null;
+}
+
+/** Binding power of a value as an infix operator, or -1 if it isn't a licensed operator. */
+function prec(v: SchemeValue): number {
+  const name = opName(v);
+  return name !== null && name in FIXITY ? FIXITY[name].prec : -1;
+}
 
 function list(items: SchemeValue[]): SchemeValue {
   return Pair.fromArray(items, false) as SchemeValue;
