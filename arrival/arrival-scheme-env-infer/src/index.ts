@@ -24,10 +24,11 @@ export {
   schemaSlot,
 } from "./infer.js";
 
+export { arrivalDeriveCapability } from "./derive.js";
+
 export {
   arrivalAgenticCapability,
   arrivalMcpCapability,
-  defineMcpRosettas,
   describeMcpEffect,
   dispatchThroughChain,
   inertMcpResolver,

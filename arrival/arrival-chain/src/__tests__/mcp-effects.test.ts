@@ -16,10 +16,13 @@
 import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
 import { describe, expect, it, vi } from "vitest";
 
+import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
+
 import { ArrivalChain } from "../arrival-chain.js";
 import { effectLogCollector, mcpEffectKey } from "../effect-log.js";
 import {
-  defineMcpRosettas,
   inertMcpResolver,
   wrapMcpResolver,
   type McpEffect,
@@ -133,7 +136,7 @@ describe("mcp-effects — server-tape record/replay", () => {
 
 // ── the scheme-facing dispatch verbs, in isolation (like data-effects.test.ts) ──
 
-function mcpEnv(resolve: McpEffectResolver): ReturnType<typeof sandboxedEnv.inherit> {
+async function mcpEnv(resolve: McpEffectResolver): Promise<ReturnType<typeof sandboxedEnv.inherit>> {
   const env = sandboxedEnv.inherit("mcp-verb-test");
   env.defineRosetta("dict", {
     fn: (...args: unknown[]) => {
@@ -142,7 +145,7 @@ function mcpEnv(resolve: McpEffectResolver): ReturnType<typeof sandboxedEnv.inhe
       return out;
     },
   });
-  defineMcpRosettas(env, resolve);
+  await assembleEnv(env as unknown as SchemeEnv, [arrivalMcpCapability.lower({ config: { mcp: resolve } })]);
   return env;
 }
 const runScm = async (env: ReturnType<typeof sandboxedEnv.inherit>, scm: string): Promise<unknown> => {
@@ -154,7 +157,7 @@ const runScm = async (env: ReturnType<typeof sandboxedEnv.inherit>, scm: string)
 describe("mcp-effects — dispatch verbs cross the membrane", () => {
   it("(mcp/call …) builds the canonical McpEffect (no-args ⇒ {})", async () => {
     let captured: McpEffect | undefined;
-    const env = mcpEnv(async (_c, e) => {
+    const env = await mcpEnv(async (_c, e) => {
       captured = e;
       return { ok: true };
     });
@@ -172,7 +175,7 @@ describe("mcp-effects — dispatch verbs cross the membrane", () => {
 
   it("(mcp/list …) → tools/list", async () => {
     let captured: McpEffect | undefined;
-    const env = mcpEnv(async (_c, e) => {
+    const env = await mcpEnv(async (_c, e) => {
       captured = e;
       return [];
     });
@@ -181,7 +184,7 @@ describe("mcp-effects — dispatch verbs cross the membrane", () => {
   });
 
   it("inert by default — the verb throws the teaching error", async () => {
-    await expect(runScm(mcpEnv(inertMcpResolver), `(mcp/call "linear" "x" (dict))`)).rejects.toThrow(
+    await expect(runScm(await mcpEnv(inertMcpResolver), `(mcp/call "linear" "x" (dict))`)).rejects.toThrow(
       /MCP is not enabled/,
     );
   });

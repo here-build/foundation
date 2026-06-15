@@ -126,7 +126,6 @@ export function wrapMcpResolver(inner: McpEffectResolver, seam: McpTapeSeam): Mc
 // across arrival-chain (and the chain barrel) keep resolving unchanged.
 
 export {
-  defineMcpRosettas,
   describeMcpEffect,
   dispatchThroughChain,
   inertMcpResolver,

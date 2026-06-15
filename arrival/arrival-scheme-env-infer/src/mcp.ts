@@ -12,16 +12,13 @@
 // record/replay over the effect-log). That is run orchestration, not the capability; it
 // imports the seam types from here, one-way.
 
-import { captureSymbols, type Activation, EnvCapability } from "@here.build/arrival-scheme/capability";
+import { type Activation, EnvCapability } from "@here.build/arrival-scheme/capability";
 import {
   type ChatMessage,
   DerivableEntity,
-  type EntityMiddleware,
   InferString,
   isDerivableEntity,
   isMcpBreak,
-  LLM_PARAM_TYPES,
-  type LlmParams,
   MCP_BREAK,
   type McpDefinedMethod,
   runAgenticLoop,
@@ -32,6 +29,7 @@ import { schemeToJs, Nil } from "@here.build/arrival-scheme";
 import invariant from "tiny-invariant";
 import { z } from "zod";
 
+import { arrivalDeriveCapability } from "./derive.js";
 import { arrivalInferCapability, asLlmModel, type InferFn, inferList, inferThroughChain } from "./infer.js";
 
 // ── MCP protocol surface ──────────────────────────────────────────────────────
@@ -142,35 +140,10 @@ export const inertMcpResolver: McpEffectResolver = (_ctx, effect) => {
   );
 };
 
-// ── server-as-value: the (mcp :name) getter handle ───────────────────────────
-
-/** The brand arrival-scheme stamps on a keyword's accessor function (Environment.ts:40).
- *  A global registered symbol, so it's reconstructable without importing it. */
-const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
-
-/** Coerce a server-name argument to its string name. A keyword (`:linear`) evaluates to a
- *  branded accessor function carrying its field; a string/symbol stringifies directly. */
-function serverNameOf(raw: unknown): string {
-  if (typeof raw === "function") {
-    const field = (raw as unknown as Record<symbol, unknown>)[KEYWORD_ACCESSOR_FIELD];
-    if (typeof field === "string") return field;
-  }
-  return String(raw);
-}
-
-/** Validate + coerce one `(llm/with …)` value to its declared param type. A wrong type is a
- *  legible throw — never a silent coerce of `:temperature "hot"`, never storing `:system #f`. */
-function coerceLlmParam(key: string, value: unknown, expected: "number" | "string"): unknown {
-  if (expected === "number") {
-    invariant(typeof value === "number" && Number.isFinite(value), `llm/with: :${key} must be a number`);
-    return value;
-  }
-  invariant(
-    value != null && typeof value !== "number" && typeof value !== "boolean" && typeof value !== "function",
-    `llm/with: :${key} must be a string`,
-  );
-  return String(value);
-}
+// ── dispatch helpers ──────────────────────────────────────────────────────────
+// The entity getters (`mcp`/`llm`/`derive`/`llm/with`/`mcp/define`) + `mcp/break` live in
+// ./derive (the config-less `arrivalDeriveCapability`); this file keeps the resolver-bearing
+// dispatch (`mcp/call`/`mcp/list`), the chain runner, and the agentic loop.
 
 /** Coerce a tool-args value crossing the rosetta membrane into the request shape. Absent /
  *  the empty scheme list (`Nil`) ⇒ `{}` (no arguments); a real dict arrives already
@@ -204,106 +177,6 @@ export function dispatchThroughChain(
     return resolve(ctx, { kind: "mcp", server: server.name, method, request: schemeToJs(req) });
   };
   return runMiddlewareChain(server.middleware, method, honest, request, progress);
-}
-
-// ── scheme-facing dispatch verbs ─────────────────────────────────────────────
-
-/** A minimal host accepting rosetta definitions — satisfied structurally by the recording
- *  host {@link captureSymbols} hands the wire callback (and by a real SchemeEnv). */
-interface RosettaHost {
-  defineRosetta(
-    name: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- verb args are call-shape-checked at the boundary
-    config: { fn: (...args: any[]) => any; withContext?: boolean; options?: Record<string, unknown>; type?: string },
-  ): void;
-}
-
-/**
- * Register the low-level MCP dispatch verbs on `env`, routing each through the single
- * resolved `resolve` seam:
- *
- *   (mcp :name) / (llm :name)         → opaque entity getters (connection-as-value)
- *   (llm/with base :k v …)            → bind content params to an (llm …)
- *   (derive base :method handler)     → install observe-only middleware (kind-agnostic)
- *   (mcp/define name :method h …)     → fabricate an mcp entity from handlers
- *   (mcp/call "server" "tool" args)   → tools/call
- *   (mcp/list "server")               → tools/list
- *
- * Disarmed default: with {@link inertMcpResolver} the dispatch verbs throw the teaching
- * error rather than reach a server (present-but-inert, never an unbound symbol).
- */
-export function defineMcpRosettas(env: RosettaHost, resolve: McpEffectResolver): void {
-  env.defineRosetta("mcp", {
-    type: "(name: unknown): unknown",
-    fn: (name: unknown) => new DerivableEntity("mcp", serverNameOf(name)),
-  });
-  env.defineRosetta("llm", {
-    type: "(name: unknown): unknown",
-    fn: (name: unknown) => new DerivableEntity("llm", serverNameOf(name)),
-  });
-  env.defineRosetta("llm/with", {
-    type: "(base: unknown, ...pairs: unknown[]): unknown",
-    fn: (base: unknown, ...pairs: unknown[]) => {
-      invariant(base instanceof DerivableEntity, "llm/with: first arg must be an (llm …) entity");
-      invariant(base.kind === "llm", `llm/with: base must be an (llm …), got kind "${base.kind}"`);
-      invariant(pairs.length % 2 === 0, "llm/with: expects an (llm …) then :key value pairs");
-      const patch: Record<string, unknown> = {};
-      for (let i = 0; i < pairs.length; i += 2) {
-        const key = serverNameOf(pairs[i]);
-        const expected = (LLM_PARAM_TYPES as Record<string, "number" | "string" | undefined>)[key];
-        invariant(
-          expected !== undefined,
-          `llm/with: unknown param ":${key}" — allowed: ${Object.keys(LLM_PARAM_TYPES).join(", ")}`,
-        );
-        patch[key] = coerceLlmParam(key, pairs[i + 1], expected);
-      }
-      return base.withParams(patch as Partial<LlmParams>);
-    },
-  });
-  env.defineRosetta("derive", {
-    type: "(base: unknown, method: unknown, handler: unknown): unknown",
-    fn: (base: unknown, method: unknown, handler: unknown) => {
-      invariant(
-        base instanceof DerivableEntity,
-        "derive: first arg must be a derivable entity (from (mcp …) / (llm …))",
-      );
-      invariant(typeof handler === "function", "derive: handler must be a (req next progress) lambda");
-      return base.withMiddleware({
-        method: serverNameOf(method),
-        handler: handler as EntityMiddleware["handler"],
-      });
-    },
-  });
-  env.defineRosetta("mcp/define", {
-    type: "(name: unknown, ...pairs: unknown[]): unknown",
-    fn: (name: unknown, ...pairs: unknown[]) => {
-      invariant(pairs.length % 2 === 0, "mcp/define: expects a name then :method handler pairs");
-      const defined: Partial<Record<string, McpDefinedMethod>> = {};
-      for (let i = 0; i < pairs.length; i += 2) {
-        const method = serverNameOf(pairs[i]);
-        invariant(typeof pairs[i + 1] === "function", `mcp/define: handler for ${method} must be a (req) lambda`);
-        defined[method] = pairs[i + 1] as McpDefinedMethod;
-      }
-      return new DerivableEntity("mcp", serverNameOf(name), [], defined);
-    },
-  });
-  env.defineRosetta("mcp/call", {
-    withContext: true,
-    type: "(server: unknown, tool: unknown, args?: unknown): unknown",
-    fn: (ctx: McpEffectContext, server: unknown, tool: unknown, args?: unknown): Promise<unknown> =>
-      resolve(ctx, {
-        kind: "mcp",
-        server: String(server),
-        method: "tools/call",
-        request: { tool: String(tool), args: mcpArgs(args) },
-      }),
-  });
-  env.defineRosetta("mcp/list", {
-    withContext: true,
-    type: "(server: unknown): unknown",
-    fn: (ctx: McpEffectContext, server: unknown): Promise<unknown> =>
-      resolve(ctx, { kind: "mcp", server: String(server), method: "tools/list", request: {} }),
-  });
 }
 
 // ── :tools desugar — server values → the model's tool set + dispatch routing ──
@@ -434,16 +307,38 @@ export async function runAgenticInfer(
 
 type McpActivation = Activation<{ mcp: z.ZodOptional<z.ZodType<McpEffectResolver>> }, Record<string, never>>;
 
-/** The low-level MCP dispatch verbs (`mcp/call`, `mcp/list`, the entity getters, `mcp/break`).
- *  Helper-delegating: the verbs are captured from {@link defineMcpRosettas}. The resolver is
- *  CONFIG (optional — INERT until the host arms `mcp`). */
+/** The resolver-bearing MCP DISPATCH verbs (`mcp/call`, `mcp/list`) — the program-initiated
+ *  membrane crossing. The resolver is CONFIG (optional — INERT until the host arms `mcp`).
+ *  `deps: [derive]` brings the entity getters + `mcp/break` into the same scope. */
 export const arrivalMcpCapability = new EnvCapability("arrival/mcp", {
   configuration: { mcp: z.custom<McpEffectResolver>().optional() },
-  symbols: (a: McpActivation) =>
-    captureSymbols((env) => {
-      defineMcpRosettas(env as unknown as RosettaHost, a.configuration.mcp ?? inertMcpResolver);
-      env.set("mcp/break", MCP_BREAK);
-    }),
+  deps: [arrivalDeriveCapability],
+  symbols: {
+    "mcp/call": {
+      withContext: true,
+      type: "(server: unknown, tool: unknown, args?: unknown): unknown",
+      fn(this: McpActivation, ctx: unknown, server: unknown, tool: unknown, args?: unknown): Promise<unknown> {
+        return (this.configuration.mcp ?? inertMcpResolver)(ctx as McpEffectContext, {
+          kind: "mcp",
+          server: String(server),
+          method: "tools/call",
+          request: { tool: String(tool), args: mcpArgs(args) },
+        });
+      },
+    },
+    "mcp/list": {
+      withContext: true,
+      type: "(server: unknown): unknown",
+      fn(this: McpActivation, ctx: unknown, server: unknown): Promise<unknown> {
+        return (this.configuration.mcp ?? inertMcpResolver)(ctx as McpEffectContext, {
+          kind: "mcp",
+          server: String(server),
+          method: "tools/list",
+          request: {},
+        });
+      },
+    },
+  },
 });
 
 type AgenticActivation = Activation<

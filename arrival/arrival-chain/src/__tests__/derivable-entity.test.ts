@@ -13,15 +13,19 @@
  * chain around the model call is the next increment. Here we prove the algebra in isolation.
  */
 import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
+import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { arrivalDeriveCapability } from "@here.build/arrival-scheme-env-infer";
 import { describe, expect, it } from "vitest";
 
-import { DerivableEntity, defineMcpRosettas, inertMcpResolver } from "../mcp-effects.js";
+import { DerivableEntity } from "../mcp-effects.js";
 
-/** Run scheme against an env with the derivable-entity verbs wired (inert resolver — these
- *  are PURE value constructions, no dispatch crosses the membrane). Return the last value. */
+/** Run scheme against an env with the derive-algebra verbs wired (the config-less
+ *  `arrivalDeriveCapability` — these are PURE value constructions, no dispatch crosses the
+ *  membrane). Return the last value. */
 async function run(scm: string): Promise<unknown> {
   const env = sandboxedEnv.inherit("derivable-entity-test");
-  defineMcpRosettas(env, inertMcpResolver);
+  await assembleEnv(env as unknown as SchemeEnv, [arrivalDeriveCapability.lower({})]);
   const r = await exec(scm, { env });
   return r.at(-1);
 }

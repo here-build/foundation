@@ -22,6 +22,8 @@ import {
 import invariant from "tiny-invariant";
 import { z } from "zod";
 
+import { arrivalDeriveCapability } from "./derive.js";
+
 // ── the inference seam (host config) ──────────────────────────────────────────
 
 /**
@@ -123,6 +125,8 @@ type InferActivation = Activation<{ infer: z.ZodType<InferFn> }, Record<string, 
 
 export const arrivalInferCapability = new EnvCapability("arrival/infer", {
   configuration: { infer: z.custom<InferFn>() },
+  // `(infer (llm …) …)` needs the `llm` entity getter — the derive algebra's scheme surface.
+  deps: [arrivalDeriveCapability],
   symbols: {
     infer: {
       withContext: true,

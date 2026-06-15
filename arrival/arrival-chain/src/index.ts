@@ -156,7 +156,6 @@ export {
   type McpEffect,
   type McpEffectResolver,
   type McpMethod,
-  defineMcpRosettas,
   describeMcpEffect,
   inertMcpResolver,
   wrapMcpResolver,

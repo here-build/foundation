@@ -10,8 +10,11 @@
 import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
 import { describe, expect, it } from "vitest";
 
+import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
+
 import {
-  defineMcpRosettas,
   inertMcpResolver,
   isDerivableEntity,
   DerivableEntity,
@@ -22,10 +25,14 @@ import {
 
 const ctx = {};
 
+/** Wire the mcp dispatch + derive verbs onto an env (arrivalMcpCapability deps derive). */
+const wireMcp = (env: unknown, resolve: McpEffectResolver): Promise<unknown> =>
+  assembleEnv(env as SchemeEnv, [arrivalMcpCapability.lower({ config: { mcp: resolve } })]);
+
 /** Run scheme against an env with the mcp verbs wired; return the last (awaited) value. */
 async function runScm(scm: string, resolve: McpEffectResolver = inertMcpResolver): Promise<unknown> {
   const env = sandboxedEnv.inherit("mcp-server-value-test");
-  defineMcpRosettas(env, resolve);
+  await wireMcp(env, resolve);
   const r = await exec(scm, { env });
   const last = r.at(-1);
   return last && typeof (last as { then?: unknown }).then === "function" ? await last : last;
@@ -52,7 +59,7 @@ describe("(mcp :name) getter — server-as-value", () => {
 
   it("round-trips opaque through scheme: getter return → bound → another rosetta's arg", async () => {
     const env = sandboxedEnv.inherit("mcp-roundtrip-test");
-    defineMcpRosettas(env, inertMcpResolver);
+    await wireMcp(env, inertMcpResolver);
     // A probe rosetta that reads the handle's name — proves the DerivableEntity survived
     // the scheme round-trip (schemeToJs/jsToScheme pass it through untouched).
     env.defineRosetta("server-name", { fn: (s: unknown) => (s instanceof DerivableEntity ? s.name : "NOT-A-SERVER") });
