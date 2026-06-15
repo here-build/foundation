@@ -12,6 +12,9 @@ export * from "./McpEnvCapability.js";
 // Value-shaped discovery tool: `new DiscoveryTool(name, capability, {description})` — the
 // subclass-free shell that derives schema + catalog + eval from the one aggregating capability.
 export * from "./DiscoveryTool.js";
+// Value-shaped mutation tool: `new ActionTool(name, {description, contextSchema, actions})` — the
+// subclass-free, typed-builder sibling of DiscoveryTool for the tuple-dispatch batch tier.
+export * from "./ActionTool.js";
 // Wire DiscoveryTools onto the official @modelcontextprotocol/sdk Server (describe→list, call→call).
 export * from "./sdk-adapter.js";
 export * from "./dispatch.js";
