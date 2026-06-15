@@ -18,6 +18,20 @@ import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./SchemeBool.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeVector } from "./SchemeVector.js";
+import {
+  assertAllocatable,
+  asBytevector,
+  asVector,
+  charValue,
+  coerceNumeric,
+  eqv,
+  getAllocationLimit,
+  isSchemeNumber,
+  setAllocationLimit,
+  stringValue,
+  toIndex,
+  withInputProvenance,
+} from "./op-helpers.js";
 import { global_env, env as userEnv, exec } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { SchemeString } from "./SchemeString.js";
@@ -40,156 +54,12 @@ import "./errors.js";
 // Import global environment for initBridge - this is safe because bridge.ts
 // doesn't get imported during lips.ts initialization
 
-// Allocation cap — DoS defense for size-parameterized constructors. `make-string`
-// / `make-vector` take an unbounded length `k`. V8 throws RangeError only above
-// its own ceiling (~2^29 chars, ~2^32 slots), but that's the ENGINE's limit, not
-// OUR policy, and the attack window is BELOW it: `(make-string 1e8)` allocates
-// 200MB of UTF-16 in ~1ms and succeeds, `(make-vector 1e8)` spins >10s on 100M
-// slots — one sandbox call drives host memory pressure. So we check length O(1)
-// BEFORE allocation.
-//
-// Default: 2^24 (16,777,216). Large enough that no legitimate Scheme program
-// hits it (a 16M-char string / 16M-slot vector is already pathological for an
-// in-memory AST language), small enough that the worst case is ~32MB UTF-16 /
-// one 16M-slot array — recoverable, not a host-killer. Host-overridable via
-// `setAllocationLimit` so a tighter sandbox (or a looser trusted batch job)
-// can retune without forking.
-let allocationLimit = 1 << 24; // 16,777,216
-
-/** Current per-call allocation cap for size-parameterized constructors. */
-export function getAllocationLimit(): number {
-  return allocationLimit;
-}
-
-/**
- * Override the per-call allocation cap (`make-string` / `make-vector` length).
- * Pass `Infinity` to disable (trusted contexts only). Negative / NaN is
- * rejected — the cap must be a meaningful upper bound.
- */
-export function setAllocationLimit(limit: number): void {
-  invariant(
-    typeof limit === "number" && !Number.isNaN(limit) && limit >= 0,
-    `setAllocationLimit: expected a non-negative number, got ${limit}`,
-  );
-  allocationLimit = limit;
-}
-
-/**
- * Throw a Scheme-surfaceable error (O(1), pre-allocation) when a requested
- * length exceeds the cap or is otherwise not a usable count. `len` is read
- * once by the caller; we validate it here so both constructors share one
- * message shape and one policy.
- */
-function assertAllocatable(len: number, fnName: string): void {
-  invariant(
-    Number.isFinite(len) && len >= 0,
-    `${fnName}: length must be a non-negative integer, got ${len}`,
-  );
-  invariant(
-    len <= allocationLimit,
-    `${fnName}: requested length ${len} exceeds allocation limit ${allocationLimit}`,
-  );
-}
-
-// ============================================================================
-// Internal Helpers (extracted to avoid duplication)
-// ============================================================================
-
-/**
- * Extract character value from SchemeCharacter
- */
-function charValue(char: unknown): string {
-  return (char as SchemeCharacter).__char__;
-}
-
-/**
- * Extract string value from SchemeString or convert to string
- */
-function stringValue(str: unknown): string {
-  return str instanceof SchemeString ? str.valueOf() : String(str);
-}
-
-/**
- * Convert unknown to index number (for vector/string operations)
- */
-function toIndex(v: unknown): number {
-  return typeof v === "number" ? v : Number((v as SchemeExact).valueOf());
-}
-
-/**
- * Resolve a vector argument to its raw element array (read/mutate view).
- * Accepts a boxed SchemeVector (returns __vector__ by reference, so in-place
- * mutators write through) or a raw JS array (transition: raw vectors still flow
- * until S7 producers + S10 tighten). Throws on anything else.
- */
-function asVector(obj: unknown, fnName: string, forMutation = false): SchemeValue[] {
-  if (obj instanceof SchemeVector) {
-    if (forMutation && obj.frozen) {
-      TypeError.invariant(false, `${fnName}: cannot mutate an immutable vector literal`);
-    }
-    return obj.__vector__;
-  }
-  if (Array.isArray(obj)) return obj;
-  TypeError.invariant(false, `${fnName}: expected vector`);
-}
-
-/**
- * Convert bytevector-like value to Uint8Array view.
- * Accepts Uint8Array, ArrayBuffer, DataView, Node Buffer.
- * Preserves identity for Uint8Array, creates view for others.
- */
-function asBytevector(obj: unknown, fnName: string, forMutation = false): Uint8Array {
-  switch (true) {
-    case obj instanceof SchemeBytevector:
-      // Unwrap by reference so in-place mutators (bytevector-u8-set!,
-      // bytevector-copy!) write through to the boxed payload.
-      if (forMutation && obj.frozen) {
-        TypeError.invariant(false, `${fnName}: cannot mutate an immutable bytevector literal`);
-      }
-      return obj.__bytevector__;
-    case obj instanceof Uint8Array:
-      // FFI coercion: a raw Uint8Array handed to byte vector op (e.g., from a
-      // JS function) is coerced in place. Stays permanently — it's the FFI
-      // adapter. (bytevector? tightens to instanceof-only in S4; asBytevector
-      // keeps coercing raw forms.)
-      return obj;
-    case obj instanceof ArrayBuffer:
-      return new Uint8Array(obj);
-    case obj instanceof DataView:
-      return new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
-    case typeof Buffer !== "undefined" && obj instanceof Buffer:
-      return new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
-    default:
-      TypeError.invariant(false, `${fnName}: expected bytevector, got ${typeof obj}`);
-  }
-}
-
-/**
- * eqv? comparison - identity plus numeric value equality
- *
- * R7RS § 6.1: eqv? is #t for two characters with the same `char=?` value
- * (`(eqv? #\a #\a)` → #t) even across distinct heap instances — so `(memv #\a
- * (list #\a))` must succeed. SchemeCharacter heap-distinct copies would fail the
- * `a === b` line, so compare `__char__` explicitly.
- */
-function eqv(a: unknown, b: unknown): boolean {
-  switch (true) {
-    case a === b:
-      return true;
-    case typeof a === "number" && typeof b === "number":
-      return a === b;
-    case a instanceof SchemeExact && b instanceof SchemeExact:
-      return a.cmp(b) === 0;
-    case a instanceof SchemeInexact && b instanceof SchemeInexact:
-      return a.cmp(b) === 0;
-    case a instanceof SchemeBool && b instanceof SchemeBool:
-      return a.value === b.value;
-    case a instanceof SchemeCharacter && b instanceof SchemeCharacter:
-      return a.__char__ === b.__char__;
-    default:
-      return false;
-  }
-}
+// The allocation cap, value-type coercions (charValue/stringValue/toIndex/
+// asVector/asBytevector), eqv, coerceNumeric/isSchemeNumber, and the provenance
+// stamp (withInputProvenance) now live in the leaf `op-helpers.ts` — shared with
+// the value-domain cluster packs. Re-exported below for the external importers
+// (evaluator, tests) that still reach for them via `bridge.js`.
+export { coerceNumeric, getAllocationLimit, isSchemeNumber, setAllocationLimit };
 
 // ============================================================================
 // R7RS Error Types (Section 6.11)
@@ -246,34 +116,6 @@ export class RaisedException extends Error {
  * of producing a nonsense result. (Contrast `parseNumber`, which PARSES numeric
  * literal strings — a different job.)
  */
-export function coerceNumeric(value: unknown): SchemeNumeric {
-  switch (true) {
-    case value instanceof SchemeExact:
-    case value instanceof SchemeInexact:
-      return value;
-    case typeof value === "bigint":
-      return new SchemeExact(value);
-    // Safe integers become exact (likely from Scheme integer literals)
-    // Non-safe integers and floats become inexact
-    case typeof value === "number":
-      return Number.isSafeInteger(value) ? new SchemeExact(BigInt(value)) : new SchemeInexact(value);
-    case value && typeof value === "object" && "valueOf" in value && typeof value.valueOf === "function": {
-      const val = value.valueOf();
-      switch (true) {
-        case typeof val === "bigint":
-          return new SchemeExact(val);
-        case typeof val === "number":
-          return Number.isSafeInteger(val) ? new SchemeExact(BigInt(val)) : new SchemeInexact(val);
-        default:
-          TypeError.invariant(false, `Cannot convert to SchemeNumeric: ${val}`);
-      }
-      break;
-    }
-    default:
-      TypeError.invariant(false, `Cannot convert to SchemeNumeric: ${value}`);
-  }
-}
-
 /**
  * Wrap an Operator to work with LIPS values.
  * Returns a function that converts args from LIPS, calls the operator, and converts result back.
@@ -448,54 +290,6 @@ function speculativeCompare(name: string, args: unknown[]): unknown | undefined 
   return hb.decide(verdict).then((bool) =>
     provenance.size > 0 ? (bool ? schemeTrue : schemeFalse).withProvenance(provenance) : bool,
   );
-}
-
-/**
- * Stamp `result` with the union of `args`' provenances. Parallel to lips.ts's
- * `withInputProvenance` (same algebra, separate file because these builtins
- * live in bridge.ts — `string-append`, `string-copy`, `list-copy`, `vector`,
- * etc. all produce fresh AValue / array / Uint8Array results whose provenance
- * must inherit from their inputs).
- *
- * Like the lips.ts twin, we deliberately don't box raw JS bool/number/bigint —
- * boxing bool here would break the same `!== false` callers that withInputProvenance
- * keeps sealed. Raw JS strings get boxed via `AValue.fromJs` so provenance has
- * somewhere to live (mirrors lips.ts:2052).
- */
-function withInputProvenance<T>(args: readonly unknown[], result: T): T {
-  const inputs = args.filter((a): a is AValue => a instanceof AValue);
-  if (inputs.length === 0) return result;
-  const prov = unionProvenance(inputs);
-  if (prov.size === 0) return result;
-  if (result instanceof AValue) return result.withProvenance(prov) as T;
-  if (typeof result === "string") return AValue.fromJs(result, prov) as T;
-  return result;
-}
-
-/**
- * Check if a value can be converted to SchemeNumeric (without throwing)
- */
-export function isSchemeNumber(value: unknown): boolean {
-  switch (true) {
-    case value instanceof SchemeExact:
-    case value instanceof SchemeInexact:
-      return true;
-    case typeof value === "bigint":
-    case typeof value === "number":
-      return true;
-    case value && typeof value === "object" && "valueOf" in value && typeof value.valueOf === "function": {
-      const val = value.valueOf();
-      switch (true) {
-        case typeof val === "bigint":
-        case typeof val === "number":
-          return true;
-        default:
-          return false;
-      }
-    }
-    default:
-      return false;
-  }
 }
 
 /**
