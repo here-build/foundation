@@ -13,11 +13,15 @@
 import { type InferStoreLike } from "@here.build/arrival-inference";
 import { EvalTrace } from "@here.build/arrival-provenance";
 import type { Environment } from "@here.build/arrival-scheme";
+import * as z from "zod";
 
+import { compileExposeSig } from "./compile-expose-sig.js";
 import { effectLogCollector, type EffectLog } from "./effect-log.js";
+import { extractExpose } from "./extract-expose.js";
 import { makeProjectLoader } from "./loader.js";
 import type { Project } from "./project.js";
 import { ResultHandle } from "./result-handle.js";
+import { schemaToZod } from "./schema-to-zod.js";
 import { assertWireSafe } from "./wire-safe.js";
 
 /** How a program is read (Chiang's causal⟷teleological pairing — see ResultHandle). `"causal"` (the
@@ -181,6 +185,27 @@ export async function runNamed(
   return finalize(new ResultHandle(value, build), parser);
 }
 
+/** Typed-arg gate for `require/call`, layered ON TOP of the wire-safe floor: if the named fn
+ *  declares an input schema (`define/exposed` / `declare/expose`), validate the dict against it
+ *  through the SAME `schemaToZod` lowering the `/fn` route uses, and return the validated value.
+ *  No declared input ⇒ the dict passes through unchanged (floor only). Pure + handler-free — the
+ *  schema slices evaluate in a sandbox via `compileExposeSig`; the fn's body never runs here. */
+async function typedCallArg(source: string, file: string, fnName: string, args: unknown): Promise<unknown> {
+  const info = (await extractExpose(source).catch(() => [])).find((i) => i.name === fnName);
+  if (!info || info.inputSrc === null) return args;
+  const { input } = await compileExposeSig(info);
+  if (input == null) return args;
+  try {
+    return schemaToZod(input).parse(args);
+  } catch (e) {
+    const detail =
+      e instanceof z.ZodError
+        ? e.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")
+        : String(e);
+    throw new Error(`require/call "${file}" :${fnName}: argument does not match the declared input schema — ${detail}`);
+  }
+}
+
 /** `(require/call "file" :fn (dict …))` — load + call one named fn with wire-safe args. */
 export async function runNamedCall(
   project: Project,
@@ -194,10 +219,12 @@ export async function runNamedCall(
   assertWireSafe(args, `argument to (require/call "${file}" :${fnName} …)`);
   const { path, source } = await readSource(project, file);
   const dirname = dirOf(path);
-  // Append `(fn <arg>)` and bind the (already-wire-safe) arg directly in the run env — the isolated
-  // run plane has no host-capability registry, so the argument crosses as a plain env binding.
+  // Floor (wire-safe) then ceiling (declared schema, if any): the bound arg is the validated value.
+  const callArg = await typedCallArg(source, file, fnName, args);
+  // Append `(fn <arg>)` and bind the (wire-safe, schema-validated) arg directly in the run env — the
+  // isolated run plane has no host-capability registry, so the argument crosses as a plain env binding.
   const callSource = `${source}\n(${fnName} ${CALL_ARG_SYM})\n`;
-  const extendEnv = (env: Environment): void => void env.set(CALL_ARG_SYM, args);
+  const extendEnv = (env: Environment): void => void env.set(CALL_ARG_SYM, callArg);
   const { value, effectLog, finished } = await runCausal(project, callSource, { dirname, extendEnv, signal, infer });
   assertWireSafe(value, `result of (require/call "${file}" :${fnName} …)`);
   const build = finished

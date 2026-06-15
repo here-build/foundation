@@ -50,6 +50,21 @@ describe("require/* planes + why/where/how", () => {
     expect(await run('(result-value (require/call "greet.scm" :greet (dict :name "x")))')).toBe("hi x");
   });
 
+  it("typed args: an exposed fn's declared input schema validates the dict (valid passes)", async () => {
+    const run = await discoveryFor({
+      "greet.scm": `(define/exposed greet :input (s/object (s/field/string "name")) (lambda (d) (string-append "hi " (@ d "name"))))`,
+    });
+    expect(await run('(result-value (require/call "greet.scm" :greet (dict :name "x")))')).toBe("hi x");
+  });
+
+  it("typed args: a dict that violates the declared input schema is rejected before the run", async () => {
+    const run = await discoveryFor({
+      "greet.scm": `(define/exposed greet :input (s/object (s/field/string "name")) (lambda (d) (@ d "name")))`,
+    });
+    // name must be a string — a number is rejected against the declared schema (not the wire-safe floor).
+    await expect(run('(require/call "greet.scm" :greet (dict :name 42))')).rejects.toThrow(/declared input schema/i);
+  });
+
   it("isolation: a run cannot call reflection — (why) is unbound in the run plane", async () => {
     const run = await discoveryFor({ "bad.scm": "(why 1)" });
     await expect(run('(require/eval "bad.scm")')).rejects.toThrow(/why/i);
