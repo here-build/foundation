@@ -8,13 +8,19 @@
 //   compose / comp   right-to-left composition  ((compose f g) x) => (f (g x))
 //   pipe / flow      left-to-right composition   ((pipe f g) x)    => (g (f x))
 //
-// CONCEPTUAL SIBLING — the `(:key obj)` keyword accessor. It belongs to the same
-// polyglot principle (Clojure-style keyword-as-accessor) and threads beautifully
-// with this family: (->> p :versions last :state). It is NOT defined here because
-// it is HOST-level syntax dispatch — `Environment.get` returns a JS pluck closure
-// for any `:`-prefixed symbol (membrane.ts does the provenance-stamped read), so
-// it cannot live in a scheme prelude without lifting dispatch out of the env. The
-// dispatch stays in `Environment.get`; this pack is its documented conceptual home.
+// MEMBER ACCESS — the polyglot read protocol is part of this family. `@` / `@?` /
+// `@keys` (the explicit read/has/keys surface) and `(:key obj)` (the keyword
+// accessor, Clojure-style) are TWO SYNTAXES over ONE interop read — Graal's
+// `InteropLibrary.readMember` — implemented as `readMember`/`hasMember`/`memberKeys`
+// in membrane.ts. They are origin-agnostic: a dict, a membrane-exposed foreign
+// value, and an array all read the same way (arrival is a polyglot runtime, not a
+// host with a fenced guest). They thread with the idioms here: (->> p :versions
+// last :state). The reads are NOT in this prelude because they are native
+// member-access primitives — `@` is a base binding, a `:`-prefixed symbol resolves
+// to a pluck closure in `Environment.get` — but both bottom out in the same
+// membrane core. This pack is their conceptual home; lifting the *definition* onto
+// the capability is the open mechanical question (a membrane primitive can't be
+// rosetta-wrapped), tracked with the sandbox→pack migration.
 //
 // Wiring-only (no resources) → pause-trivial. NOTE: scoped to the self-contained
 // idiom family — cut/cute (which need gensym + JS interop) ship as SRFI-26 instead.

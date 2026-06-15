@@ -1,10 +1,9 @@
 import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
 import { global_env, registerCxrResolver } from "./stdlib.js";
-import { Nil, nil } from "./types.js";
+import { nil } from "./types.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
-import { sandboxedAccess, sandboxedHas, sandboxedKeys, NOT_FOUND, SandboxViolationError } from "./sandbox-boundary.js";
-import { fromJS, SchemeJSArray, SchemeJSObject } from "./membrane.js";
+import { SchemeJSArray, readMember, hasMember, memberKeys } from "./membrane.js";
 import { is_false } from "./guards.js";
 import { Pair } from "./Pair.js";
 import { AValue } from "./AValue.js";
@@ -167,88 +166,14 @@ export const sandboxedEnv = new Environment(
       }
       return builtinReduce.call(this, fn, init, collection);
     },
-    /**
-     * Sandboxed field accessor.
-     * Uses the sandbox boundary security model - blocks prototype chain escapes.
-     */
-    "@": (obj: any, key: any) => {
-      if (obj == null) return nil;
-
-      // Handle LIPS types (SchemeSymbol, SchemeString) - use valueOf() to get actual value
-      const rawKeyStr = key.valueOf?.() ?? key;
-      // `instanceof Nil` not `=== nil`: after the AValue refactor, `nil.withProvenance(p)`
-      // mints fresh Nil clones (types.ts:87). Reference-equality misses them, so a
-      // Nil-valued key would skip this guard and end up String()-cast at line 128,
-      // yielding "[object Object]" as the lookup key. Mirrors guards.ts:is_nil
-      // (Tier-1 fix in 5f7f9e46a).
-      if (rawKeyStr == null || rawKeyStr instanceof Nil) {
-        return nil;
-      }
-
-      // Strip leading colon for keyword-style access
-      const keyStr = String(rawKeyStr).startsWith(":") ? String(rawKeyStr).slice(1) : String(rawKeyStr);
-
-      // Block _-prefixed internals
-      if (keyStr.startsWith("_")) return nil;
-
-      try {
-        // SchemeJSObject is the membrane wrapper — route through its `.get`
-        // so the cached, provenance-stamped entry surfaces (spec §5.3:
-        // `(@ obj "key")` carries the key's tag, which after Option C deep-
-        // stamping at the rosetta boundary IS the wrapper's provenance).
-        // Identity is stable: `(eq? (@ x :a) (@ x :a))` returns #t.
-        if (obj instanceof SchemeJSObject) {
-          return obj.get(keyStr);
-        }
-        // SchemeJSArray + raw JS objects fall through to inline access —
-        // arrays don't carry provenance through indexed access today; raw
-        // JS objects are escaped from the sandbox path (rosetta-emitted
-        // values are always SchemeJSObject post-deep-stamp).
-        const rawObj = obj instanceof SchemeJSArray ? obj.source : obj;
-        const result = sandboxedAccess(rawObj, keyStr);
-        if (result === NOT_FOUND) {
-          return nil;
-        }
-        // Wrap JS arrays as SchemeJSArray so car/cdr work on property access results
-        if (Array.isArray(result)) {
-          return new SchemeJSArray(result);
-        }
-        return fromJS(result);
-      } catch (e) {
-        if (e instanceof SandboxViolationError) {
-          // Security violation - return nil instead of exposing error details
-          return nil;
-        }
-        throw e;
-      }
-    },
-
-    /**
-     * Check if object has a property (sandboxed).
-     */
-    "@?": (obj: any, key: any) => {
-      if (obj == null) return false;
-
-      const rawKeyStr = key.valueOf?.() ?? key;
-      // `instanceof Nil`: see "@" above — Nil-valued keys must short-circuit before
-      // String()-cast leaks "[object Object]" into the host's property lookup.
-      if (rawKeyStr == null || rawKeyStr instanceof Nil) {
-        return false;
-      }
-
-      const keyStr = String(rawKeyStr).startsWith(":") ? String(rawKeyStr).slice(1) : String(rawKeyStr);
-      const rawObj = obj instanceof SchemeJSObject ? obj.source : obj;
-      return sandboxedHas(rawObj, keyStr);
-    },
-
-    /**
-     * Get object's own keys (sandboxed).
-     */
-    "@keys": (obj: any) => {
-      if (obj == null) return [];
-      const rawObj = obj instanceof SchemeJSObject ? obj.source : obj;
-      return sandboxedKeys(rawObj);
-    },
+    // Polyglot member access — `@` / `@?` / `@keys` are the read/has/keys surface
+    // of the interop protocol (Graal `InteropLibrary`). The implementation lives
+    // in membrane.ts (`readMember`/`hasMember`/`memberKeys`), shared verbatim with
+    // the `:key` keyword accessor — one protocol, two syntaxes. Origin-agnostic:
+    // it reads a dict, a membrane-exposed foreign value, or an array uniformly.
+    "@": readMember,
+    "@?": hasMember,
+    "@keys": memberKeys,
     // ── Type conversion (R7RS standard, models expect these) ──
     "symbol->string": (sym: any) => {
       if (sym && typeof sym === "object" && "__name__" in sym) {

@@ -797,3 +797,64 @@ AValue.registerBoxer("object", (v, p) => {
 });
 
 AValue.registerBoxer("function", (v, p) => new SchemeJSFunction(v as Function, p));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Polyglot member access — the interop read protocol (Graal `InteropLibrary`).
+//
+// arrival is a polyglot runtime, not a host with a fenced guest: a value is a
+// value whichever language minted it. `readMember`/`hasMember`/`memberKeys` are
+// the uniform `readMember`/`hasMember`/`getMembers` over any polyglot value —
+// a native dict (a plain record of members), a membrane-exposed foreign value
+// (`SchemeJSObject`, carrying provenance), or an array. Origin-agnostic by
+// design: the rules below define what counts as a *readable member*, not a host
+// defense. These back the `@`/`@?`/`@keys` surface (polyglot pack) and the
+// `:key` keyword accessor — one protocol, two syntaxes.
+//
+//   • internal members (`_`-prefixed) and meta-members (`constructor`/`__proto__`/
+//     `prototype`, blocked inside `sandboxedAccess`) are not members of the
+//     interop value — reading them yields nil, same as Graal hides a value's
+//     meta-object from a peer language.
+//   • a foreign value routes through its `SchemeJSObject.get` so the read carries
+//     the cached, provenance-stamped member; everything else reads structurally.
+
+/** `readMember(obj, key)` — read a member off any polyglot value. Missing/blocked → nil. */
+export function readMember(obj: unknown, key: unknown): SchemeValue {
+  if (obj == null) return nil;
+  const rawKey = (key as { valueOf?: () => unknown })?.valueOf?.() ?? key;
+  if (rawKey == null || rawKey instanceof Nil) return nil;
+  // keyword-style member: a leading `:` is the accessor sigil, not part of the name.
+  let keyStr = String(rawKey);
+  if (keyStr.startsWith(":")) keyStr = keyStr.slice(1);
+  if (keyStr.startsWith("_")) return nil;
+  // membrane-exposed foreign value → provenance-cached read.
+  if (obj instanceof SchemeJSObject) return obj.get(keyStr);
+  try {
+    const source = obj instanceof SchemeJSArray ? obj.source : obj;
+    const result = sandboxedAccess(source, keyStr);
+    if (result === NOT_FOUND) return nil;
+    // re-present a JS array as a polyglot array so car/cdr work on the result.
+    if (Array.isArray(result)) return new SchemeJSArray(result);
+    return fromJS(result);
+  } catch (e) {
+    if (e instanceof SandboxViolationError) return nil;
+    throw e;
+  }
+}
+
+/** `hasMember(obj, key)` — does the polyglot value expose this member? */
+export function hasMember(obj: unknown, key: unknown): boolean {
+  if (obj == null) return false;
+  const rawKey = (key as { valueOf?: () => unknown })?.valueOf?.() ?? key;
+  if (rawKey == null || rawKey instanceof Nil) return false;
+  let keyStr = String(rawKey);
+  if (keyStr.startsWith(":")) keyStr = keyStr.slice(1);
+  const source = obj instanceof SchemeJSObject ? obj.source : obj;
+  return sandboxedHas(source, keyStr);
+}
+
+/** `memberKeys(obj)` — the polyglot value's own member names. */
+export function memberKeys(obj: unknown): string[] {
+  if (obj == null) return [];
+  const source = obj instanceof SchemeJSObject ? obj.source : obj;
+  return sandboxedKeys(source);
+}
