@@ -24,9 +24,12 @@ import {
   asVector,
   charValue,
   coerceNumeric,
+  deriveOrd,
   eqv,
   getAllocationLimit,
+  isOrd,
   isSchemeNumber,
+  ORD_REL,
   setAllocationLimit,
   stringValue,
   toIndex,
@@ -311,37 +314,10 @@ function makeTypePredicate(name: string, predicate: (n: SchemeNumeric) => boolea
   return fn;
 }
 
-// Fantasy Land Ord: the comparison operators consult `fantasy-land/lte` when their operands
-// are ordered ENTITIES (a DateTime, a Version, …), exactly as equal? consults a Setoid's
-// `fantasy-land/equals`. All four relations derive from the single `lte`; a chain (< a b c)
-// holds iff each adjacent pair does. Numeric operands take the original numeric/speculative
-// path unchanged — the FL check is one inexpensive property read, false for every number.
-interface FLOrd {
-  "fantasy-land/lte"(other: unknown): boolean;
-}
-const isOrd = (x: unknown): x is FLOrd =>
-  x != null && typeof (x as Partial<FLOrd>)["fantasy-land/lte"] === "function";
-const flLte = (a: FLOrd, b: unknown): boolean => Boolean(a["fantasy-land/lte"](b));
-// The four relations of a total order, all derived from the single `lte`.
-const ORD_REL: Record<"<" | ">" | "<=" | ">=", (a: FLOrd, b: FLOrd) => boolean> = {
-  "<": (a, b) => !flLte(b, a),
-  ">": (a, b) => !flLte(a, b),
-  "<=": (a, b) => flLte(a, b),
-  ">=": (a, b) => flLte(b, a),
-};
-// n-ary ordered comparison derived purely from the operands' `fantasy-land/lte`
-// (wave-1 Ord). The per-type order lives in the entity's instance, so the
-// string<? / char<? families are now type-agnostic chains over it — adding a new
-// ordered type needs no new comparison builtin.
-function deriveOrd(sym: "<" | ">" | "<=" | ">="): (...args: unknown[]) => boolean {
-  const rel = ORD_REL[sym];
-  return (...args: unknown[]): boolean => {
-    for (let i = 0; i < args.length - 1; i++) {
-      if (!rel(args[i] as FLOrd, args[i + 1] as FLOrd)) return false;
-    }
-    return true;
-  };
-}
+// The FL-Ord derivation (`isOrd` / `ORD_REL` / `deriveOrd`) lives in op-helpers —
+// shared with the chars + strings clusters, whose `char<?` / `string<?` families
+// ARE `deriveOrd` chains. `wrapOrd` stays here: it wraps a NUMERIC operator with
+// the FL-Ord fallback, so it belongs with the numeric bridge core.
 function wrapOrd(numeric: (...a: unknown[]) => unknown, sym: "<" | ">" | "<=" | ">="): (...a: unknown[]) => unknown {
   const rel = ORD_REL[sym];
   const fn = (...args: unknown[]): unknown => {
