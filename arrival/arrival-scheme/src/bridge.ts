@@ -701,31 +701,31 @@ export function initBridge(): Promise<void> {
     exec(src as string, { env: env as Environment, skipBootstrapWait: true });
 
   // Evaluate bootstrap Scheme code asynchronously, then expose a curated set of
-  // bootstrap-defined bindings in the sandbox. They live in user_env; copy the
-  // values into sandboxedEnv so sandboxed/showcase code can reach them:
+  // bootstrap-defined bindings in the inference plane. They live in user_env; copy the
+  // values into inferenceEnv so inference-plane/showcase code can reach them:
   //   • threading macros ->/->>/~>/~>>  — pure code-rewrites.
   //   • SRFI-26 cut/cute               — partial application; expand to a lambda.
   //   • gensym                          — cut/cute call it at expansion time for
   //                                       capture-safe slot names, so it has to be
-  //                                       reachable from a sandboxed (cut …) site.
-  // All pure: a macro's expansion still evaluates under the sandbox allowlist, so
-  // none adds a capability. (Dynamic import avoids a static bridge<->sandbox-env
+  //                                       reachable from an inference-plane (cut …) site.
+  // All pure: a macro's expansion still evaluates under the inference env, so
+  // none adds a capability. (Dynamic import avoids a static bridge<->inference-env
   // import cycle.)
   //
   // NOT copied: the hygienic syntax family (define-syntax / let-syntax /
   // letrec-syntax + syntax-rules). They evaluate fine in the FULL env (the chibi
   // R7RS suite drives them), but the LIPS pattern matcher misbehaves under the
-  // sandbox env — a `(double 50)` use of a sandbox-defined syntax-rules macro
+  // inference env — a `(double 50)` use of a inference-plane-defined syntax-rules macro
   // fails "no matching syntax in macro (50)". Env-specific matcher issue, tracked
   // separately; define-macro (an evaluator special form) is the working path for
-  // user macros in the sandbox today.
+  // user macros in the inference plane today.
   //   • SRFI-1 (the missing third) + safe head accessor first?/first-or — pure list
   //     procedures. first?/first-or make (car (filter …)) on an empty match — the
   //     dominant avoidable crash in generated Scheme — unnecessary. `remove` is now
-  //     the SOLE source of `remove` in the sandbox (it used to shadow a broken Ramda
+  //     the SOLE source of `remove` in the inference plane (it used to shadow a broken Ramda
   //     `remove`; Ramda has since been evicted, so this copy is what supplies it).
   //   • Composition + quantifiers compose/comp/pipe/flow (polyglot) and some/every
-  //     (SRFI-1). The inference plane (sandboxedEnv) is the totalic env where models
+  //     (SRFI-1). The inference plane (inferenceEnv) is the totalic env where models
   //     author Scheme; this composition/quantifier vocabulary used to reach it via the
   //     Ramda spread. Ramda is now evicted into @here.build/arrival-scheme-env-ramda
   //     (opt-in), so copying the bootstrap definitions over is what keeps the plane's
@@ -746,15 +746,15 @@ export function initBridge(): Promise<void> {
       ),
     )
     .then(async () => {
-      const { sandboxedEnv } = await import("./sandbox-env.js");
+      const { inferenceEnv } = await import("./inference-env.js");
       // The FL/array-interop overlay (car/cdr/filter/map/reduce) is its own capability
       // pack. Assemble it onto the inference-plane base env HERE — after global_env's
       // native assembly and the base packs — so its lazily-captured `builtin*` refs
       // (read at first call from global_env) are guaranteed live. Doing it inside
       // whenBootstrapComplete's chain means a public exec never sees a half-assembled
-      // inferenceEnv. (Dynamic import mirrors the sandbox-env one — avoids an init cycle.)
+      // inferenceEnv. (Dynamic import mirrors the inference-env one — avoids an init cycle.)
       const flInterop = (await import("./env/fl-interop.js")).default;
-      await assembleEnv(sandboxedEnv as unknown as SchemeEnv, [flInterop.lower()]);
+      await assembleEnv(inferenceEnv as unknown as SchemeEnv, [flInterop.lower()]);
       for (const name of [
         "->",
         "->>",
@@ -780,7 +780,7 @@ export function initBridge(): Promise<void> {
         "every",
       ]) {
         const value = userEnv.get(name, { throwError: false });
-        if (value) sandboxedEnv.set(name, value);
+        if (value) inferenceEnv.set(name, value);
       }
     });
   // Publish the COMPLETION promise so a public `exec` racing a fire-and-forget

@@ -19,7 +19,7 @@
  */
 import invariant from "tiny-invariant";
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+import { markInteropBoundary } from "./interop-access.js";
 
 // ============================================================================
 // Type Definitions
@@ -1078,19 +1078,19 @@ AValue.registerBoxer("number", (v, p) => {
 });
 
 // ============================================================================
-// SANDBOX BOUNDARIES
+// INTEROP BOUNDARIES
 // ============================================================================
 // War story (2026-05-28 audit): SchemeExact and SchemeInexact carry the
 // numeric-tower behavior surface (isInteger/isRational/isReal getters plus
 // the full arithmetic protocol on their prototypes). Numeric values are the
-// densest object population in any sandbox computation — every arithmetic
+// densest object population in any inference computation — every arithmetic
 // step creates a fresh instance. Symbol-to-field auto-resolution means each
 // number is a potential probe point into the host numeric tower.
-// Boundary-marking restricts sandbox access to own properties (num/denom for
+// Boundary-marking restricts interop member-access to own properties (num/denom for
 // exact, real/imag for inexact) which are the intended data surface; the
 // methods (which expose tower internals and host-side bigint helpers) become
 // blocked. The arithmetic ops scheme code actually uses (`+`, `*`, `floor`,
 // …) live in the env bindings, not on these prototypes.
 // ============================================================================
-markAsSandboxBoundary(SchemeExact);
-markAsSandboxBoundary(SchemeInexact);
+markInteropBoundary(SchemeExact);
+markInteropBoundary(SchemeInexact);

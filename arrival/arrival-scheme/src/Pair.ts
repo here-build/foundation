@@ -4,7 +4,7 @@
  * not in a sidecar map, so a value and its origin travel together and survive
  * structure sharing. Runtime cycles (from `set-cdr!`) are detected actively by
  * `isCircularList` (Floyd's), which keeps spine-walking builtins from spinning.
- * The class is a sandbox boundary (see the bottom of the file).
+ * The class is a interop boundary (see the bottom of the file).
  */
 import invariant from "tiny-invariant";
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
@@ -16,7 +16,7 @@ import { SchemeVector } from "./SchemeVector.js";
 import { SchemeSymbol } from "./SchemeSymbol.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { __cycles__, __data__, __location__, __ref__ } from "./primitives.js";
-import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+import { markInteropBoundary } from "./interop-access.js";
 import { type PairLike } from "./types.js";
 import { Nil, nil, setPairConstructor } from "./types.js";
 
@@ -785,9 +785,9 @@ function chainPair(f: (x: unknown) => Pair | Nil, pair: unknown): Pair | Nil {
 // Register Pair constructor with types.ts for Nil.append
 setPairConstructor(Pair);
 
-// Sandbox boundary. A cons cell's rich prototype (`match`/`fromArray`/`toArray`,
+// Interop boundary. A cons cell's rich prototype (`match`/`fromArray`/`toArray`,
 // the cycle/ref-tracking helpers) and metadata symbols (`__data__`, `__location__`)
 // are reachable from any held Pair via symbol-to-field auto-resolution; the
 // ref-tracking helpers in particular would leak host-side identity comparisons.
 // This marker stops the prototype-chain walk at Pair before any helper is reached.
-markAsSandboxBoundary(Pair);
+markInteropBoundary(Pair);

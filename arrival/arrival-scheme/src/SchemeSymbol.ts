@@ -1,5 +1,5 @@
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+import { markInteropBoundary } from "./interop-access.js";
 import type { SchemeStringLike } from "./types.js";
 import { isSchemeString, isString } from "./types.js";
 
@@ -19,7 +19,7 @@ export class SchemeSymbol extends AValue {
   readonly kind = "symbol" as const;
   // Interning table for string-named symbols.
   // `Object.create(null)` (NOT `{}`): a plain object inherits Object.prototype,
-  // so `(string->symbol "__proto__")` — string->symbol is sandbox-exposed —
+  // so `(string->symbol "__proto__")` — string->symbol is inference-exposed —
   // would assign through the inherited setter and pollute Object.prototype.
   // A null-prototype map has no inherited keys/setters to walk into.
   static readonly list: Record<string, SchemeSymbol> = Object.create(null);
@@ -140,16 +140,16 @@ function is_gensym(symbol: unknown): boolean {
 }
 
 // ============================================================================
-// SANDBOX BOUNDARY
+// INTEROP BOUNDARY
 // ============================================================================
 // War story (2026-05-28 audit): SchemeSymbol carries a process-global intern
 // table (`SchemeSymbol.list`) and tracks gensym/literal metadata via well-known
 // symbols (`SchemeSymbol.literal`, `SchemeSymbol.object`). Symbol-to-field
 // auto-resolution exposes any class-level or prototype-level property to
-// sandbox scheme — including the static `list` (read-write, would let sandbox
+// inference-plane scheme — including the static `list` (read-write, would let inference-plane reads
 // poison the intern table) and the literal/object metadata symbols.
 // Marking the boundary blocks inherited-property access on instances; static
 // access via `(.AValue.list)` is already blocked separately by the AValue
 // non-export policy (see registry-poisoning tests in sandbox-escape.test.ts).
 // ============================================================================
-markAsSandboxBoundary(SchemeSymbol);
+markInteropBoundary(SchemeSymbol);

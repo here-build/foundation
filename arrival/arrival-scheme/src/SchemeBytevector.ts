@@ -10,7 +10,7 @@
  * Boxing track: docs/plan-2026-06-10-boxing-track.md (S1).
  */
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+import { markInteropBoundary } from "./interop-access.js";
 
 // The membrane's TO_JS protocol key, resolved from the global symbol registry
 // rather than imported from membrane.js. `Symbol.for` returns the SAME symbol as
@@ -157,9 +157,9 @@ export class SchemeBytevector extends AValue {
 // the membrane's list-conser (R6). Boxing is producer-driven.
 
 // ============================================================================
-// SANDBOX BOUNDARY
+// INTEROP BOUNDARY
 // ============================================================================
 // Same rationale as SchemeString (SchemeString.ts): block inherited-method exposure
-// when sandbox symbol-to-field resolution walks the prototype chain. Own
+// when interop symbol-to-field resolution walks the prototype chain. Own
 // properties (the algebra methods) remain the intended API.
-markAsSandboxBoundary(SchemeBytevector);
+markInteropBoundary(SchemeBytevector);

@@ -13,7 +13,7 @@
  */
 
 import invariant from "tiny-invariant";
-import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+import { markInteropBoundary } from "./interop-access.js";
 
 const EMPTY_PROVENANCE: ReadonlySet<number> = new Set<number>();
 
@@ -118,15 +118,15 @@ export function pointProvenance(callId: number): ReadonlySet<number> {
 export { EMPTY_PROVENANCE };
 
 // ============================================================================
-// SANDBOX BOUNDARY (defensive on the abstract base)
+// INTEROP BOUNDARY (defensive on the abstract base)
 // ============================================================================
 // War story (2026-05-28 audit): the symbol-to-field auto-resolution in
-// `sandboxedAccess` walks the prototype chain of any object reachable from
-// sandbox scheme. Subtypes (SchemeString, Pair, …) graft methods onto their
+// `accessMember` walks the prototype chain of any object reachable from
+// inference-plane scheme. Subtypes (SchemeString, Pair, …) graft methods onto their
 // own prototypes — those subtypes are individually marked at their definition
 // sites — but marking the abstract `AValue` base is a defensive belt: any
 // future AValue subtype that forgets its own marker still inherits the
 // boundary from the base prototype chain, so accidental method exposure
 // degrades to "blocked" rather than "exposed."
 // ============================================================================
-markAsSandboxBoundary(AValue);
+markInteropBoundary(AValue);

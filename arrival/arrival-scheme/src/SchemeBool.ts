@@ -1,5 +1,5 @@
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+import { markInteropBoundary } from "./interop-access.js";
 
 export class SchemeBool extends AValue {
   static __class__ = "boolean";
@@ -43,12 +43,12 @@ AValue.registerBoxer("boolean", (v, p) =>
 );
 
 // ============================================================================
-// SANDBOX BOUNDARY
+// INTEROP BOUNDARY
 // ============================================================================
 // War story (2026-05-28 audit): SchemeBool's prototype is narrow today but
 // the boundary marker still matters — the singletons `schemeTrue` and
 // `schemeFalse` are heavily reused, so any future helper grafted onto
 // SchemeBool.prototype reaches every Boolean-valued response from the
-// sandbox. Mark now so the surface stays empty by default.
+// inference plane. Mark now so the surface stays empty by default.
 // ============================================================================
-markAsSandboxBoundary(SchemeBool);
+markInteropBoundary(SchemeBool);

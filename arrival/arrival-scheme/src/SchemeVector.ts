@@ -13,7 +13,7 @@
  * Boxing track: docs/plan-2026-06-10-boxing-track.md (S5).
  */
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+import { markInteropBoundary } from "./interop-access.js";
 import { structuralEqual } from "./structural-equal.js";
 import type { SchemeValue } from "./types.js";
 
@@ -124,8 +124,8 @@ export class SchemeVector extends AValue {
 // producer-driven.
 
 // ============================================================================
-// SANDBOX BOUNDARY
+// INTEROP BOUNDARY
 // ============================================================================
 // Same rationale as SchemeString/SchemeBytevector: block inherited-method
-// exposure when sandbox symbol-to-field resolution walks the prototype chain.
-markAsSandboxBoundary(SchemeVector);
+// exposure when interop symbol-to-field resolution walks the prototype chain.
+markInteropBoundary(SchemeVector);

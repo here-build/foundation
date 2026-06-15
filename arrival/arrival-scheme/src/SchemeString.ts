@@ -2,7 +2,7 @@
 // code-point view, with provenance and Fantasy Land algebras on the instance.
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import type { SchemeNumeric } from "./numbers.js";
-import { markAsSandboxBoundary } from "./sandbox-boundary.js";
+import { markInteropBoundary } from "./interop-access.js";
 import { SchemeCharacter } from "./types.js";
 import { typecheck } from "./utils/typecheck.js";
 
@@ -199,23 +199,23 @@ AValue.registerBoxer("string", (v, p) => new SchemeString(v as string, p));
 }
 
 // ============================================================================
-// SANDBOX BOUNDARY
+// INTEROP BOUNDARY
 // ============================================================================
 // War story (2026-05-28 audit): the loop above grafts EVERY method from
 // `String.prototype` onto `SchemeString.prototype` as OWN enumerable
 // properties — `.replace`, `.match`, `.split`, `.concat`, the entire surface.
-// Because they're OWN (not inherited), the fast-path in `sandboxedAccess`
+// Because they're OWN (not inherited), the fast-path in `accessMember`
 // returns them without checking any boundary. Symbol-to-field auto-resolution
-// means a sandbox holding a SchemeString can reach every one of these via
+// means an inference-plane holder of a SchemeString can reach every one of these via
 // scheme property access. The methods themselves are harmless on the string
 // payload, but the surface area is unaudited — any future graft (e.g. a
 // method that returns the underlying object) becomes an exfiltration vector.
 //
-// Marking the class as a boundary lets `isSandboxBoundary(proto)` return true
-// when the prototype-chain walk in `sandboxedAccess` reaches the SchemeString
+// Marking the class as a boundary lets `isInteropBoundary(proto)` return true
+// when the prototype-chain walk in `accessMember` reaches the SchemeString
 // prototype, blocking the inherited surface. Own properties remain accessible
 // (the fast path is untouched) — this is correct because grafted methods are
 // own, so the boundary only blocks future inherited additions, not the
 // current intended API. Defense-in-depth via the AValue base marker.
 // ============================================================================
-markAsSandboxBoundary(SchemeString);
+markInteropBoundary(SchemeString);
