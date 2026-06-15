@@ -1,5 +1,5 @@
 (define-macro (exec code)
-  (lips.evaluate code & (:use_dynamic true)))
+  (scheme.evaluate code & (:use_dynamic true)))
 
 (test "dynamic: let"
   (lambda (t)

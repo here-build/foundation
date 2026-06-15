@@ -84,7 +84,7 @@
     (t.is '| \x9;\x9; |'| \t \t |)
     ;; found in
     ;; https://docs.scheme.org/surveys/reader-vertical-bar-concatenated-with-number/
-    (t.is (lips.tokenize "|1|aaa |a|b|c| |foo bar|")
+    (t.is (scheme.tokenize "|1|aaa |a|b|c| |foo bar|")
       #( "|1|aaa" "|a|b|c|" "|foo bar|"))))
 
 (test "core: dot comma"
@@ -146,7 +146,7 @@
     ;; we should know about changing of signature
     (load "./examples/scheme-detect.scm")
 
-    (t.is (detect:name) 'lips)))
+    (t.is (detect:name) 'scheme)))
 
 (test "core: it should throw exception why calling with improper list"
   (lambda (t)
@@ -256,7 +256,7 @@
 (test "core: regex"
   (lambda (t)
     (for-each (lambda (str)
-                (let ((re (. (lips.parse str) 0)))
+                (let ((re (. (scheme.parse str) 0)))
                   (t.is (regex? re) true)
                   (t.is (repr re) str)))
       '("#/(\\((?:env|dir|help|apropos)[^)]*\\))/g"

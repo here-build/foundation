@@ -799,7 +799,7 @@ function is_bound(obj) {
 function is_runtime_bound_context(obj) {
   if (is_function(obj)) {
     const context = obj[__context__];
-    if (context && (context === lips || context.constructor?.__class__)) {
+    if (context && (context === scheme || context.constructor?.__class__)) {
       return true;
     }
   }
@@ -2344,7 +2344,7 @@ export const parse = async (arg: SchemeValue, env?: Environment, source?: string
   return result;
 };
 
-export const lips = {
+export const scheme = {
   env: global_env,
   exec,
   parse,
@@ -2358,7 +2358,7 @@ export const lips = {
   SchemeSymbol,
   SchemeString,
 };
-global_env.set("lips", lips);
+global_env.set("scheme", scheme);
 
 // Additional exports needed by Environment.ts
 export { eof as eof };

@@ -29,7 +29,7 @@ import { Lexer } from "./Lexer.js";
 import { call_function } from "./call-function.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeVector } from "./SchemeVector.js";
-import { global_env, lips, unpromise } from "./stdlib.js";
+import { global_env, scheme, unpromise } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { parse_argument } from "./utils/parsing.js";
 import { SchemeString } from "./SchemeString.js";
@@ -168,12 +168,12 @@ export class Parser {
     // expose parser and change stdin so parser extension can use current-input
     // to read data from the parser stream #150
     // Cast needed because __parser__ is an internal extension not in SchemeValue
-    global_env.set("lips", {
-      ...lips,
+    global_env.set("scheme", {
+      ...scheme,
       __parser__: this,
     } as unknown as EnvironmentValue);
     const cleanup = () => {
-      global_env.set("lips", lips);
+      global_env.set("scheme", scheme);
     };
     return unpromise(
       fn(),

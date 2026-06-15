@@ -169,12 +169,12 @@ const EXPECTED_FAILURES: { pattern: string | RegExp; reason: string }[] = [
   },
   // -----------------------------------------------------------------------
   // 6.5 Symbols — bootstrap's symbol->string / string->symbol uses raw
-  // JS-property dot-syntax (`s.__name__`, `new lips.SchemeSymbol`) that
+  // JS-property dot-syntax (`s.__name__`, `new scheme.SchemeSymbol`) that
   // doesn't resolve through the current Environment.get path. Pre-L1.
   // -----------------------------------------------------------------------
   {
     pattern: /symbol->string|string->symbol/,
-    reason: "bootstrap.ts uses JS dot-access (s.__name__, lips.SchemeSymbol) that no longer resolves — pre-L1",
+    reason: "bootstrap.ts uses JS dot-access (s.__name__, scheme.SchemeSymbol) that no longer resolves — pre-L1",
   },
 ];
 

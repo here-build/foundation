@@ -1,7 +1,7 @@
 (test "env: unset & parent env"
   (lambda (t)
     (define (string-append str)
-      (let ((string-append (--> lips.env.__parent__ (get "string-append"))))
+      (let ((string-append (--> scheme.env.__parent__ (get "string-append"))))
         (string-append str " world")))
     (let ((msg (string-append "hello")))
       (t.is msg "hello world"))

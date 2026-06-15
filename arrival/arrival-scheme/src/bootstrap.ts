@@ -245,7 +245,7 @@ export const BOOTSTRAP_SCHEME = `
 (define (%else-literal? obj)
   (and (symbol? obj)
        (or (eq? obj 'else)
-           (eq? (--> (new lips.SchemeString (obj.literal))
+           (eq? (--> (new scheme.SchemeString (obj.literal))
                      (cmp "else")) 0))))
 
 ;; -----------------------------------------------------------------------------
@@ -426,7 +426,7 @@ export const BOOTSTRAP_SCHEME = `
 
 (define (string->symbol string)
   (typecheck "string->symbol" string "string")
-  (let ((symbol (new lips.SchemeSymbol string)))
+  (let ((symbol (new scheme.SchemeSymbol string)))
     (%as.data symbol)))
 
 ;; -----------------------------------------------------------------------------
@@ -546,7 +546,7 @@ export const BOOTSTRAP_SCHEME = `
   (and (symbol? value) (--> value (is_gensym))))
 
 (define (environment? obj)
-  (instanceof lips.Environment obj))
+  (instanceof scheme.Environment obj))
 
 (define (defmacro? obj)
   (and (macro? obj) (. obj 'defmacro)))
@@ -560,7 +560,7 @@ export const BOOTSTRAP_SCHEME = `
 (define (alist->object alist)
   (if (pair? alist)
       (alist.to_object)
-      (alist->object (new lips.Pair #void '()))))
+      (alist->object (new scheme.Pair #void '()))))
 
 (define (object->alist object)
   (typecheck "object->alist" object "object")
