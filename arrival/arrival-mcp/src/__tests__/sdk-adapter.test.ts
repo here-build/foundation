@@ -5,9 +5,10 @@ import { port, type Resource } from "@here.build/arrival-scheme/resources";
 import { describe, expect, it } from "vitest";
 import * as z from "zod";
 
+import { ActionTool } from "../ActionTool.js";
 import { DiscoveryTool } from "../DiscoveryTool.js";
 import { McpEnvCapability } from "../McpEnvCapability.js";
-import { registerDiscoveryTools } from "../sdk-adapter.js";
+import { type McpTool, registerTools } from "../sdk-adapter.js";
 
 const greeter = (cfg: { who: string }): Resource<{ hello: () => string }> => ({
   kind: "greeter",
@@ -32,10 +33,27 @@ function demoTool(): DiscoveryTool {
   return new DiscoveryTool("demo", capability, { description: "demo tool" });
 }
 
+/** An ActionTool sharing the same wiring — to prove both tiers register identically. Typed as
+ *  `McpTool` (CS-erased): `ActionTool<CS>` is invariant in CS, so a concrete CS won't widen. */
+function echoActionTool(): McpTool {
+  return new ActionTool("echo-edit", {
+    description: "echo action tool",
+    contextSchema: { docId: z.string() },
+    actions: (action) => ({
+      append: action({
+        description: "append text",
+        context: ["docId"],
+        props: { text: z.string() },
+        handler: (ctx, props) => ({ ok: true, doc: ctx.docId, text: props.text }),
+      }),
+    }),
+  });
+}
+
 /** A real round-trip through the official SDK: Client ↔ Server over a linked in-memory transport. */
-async function connectedClient(tools: DiscoveryTool[]): Promise<Client> {
+async function connectedClient(tools: McpTool[]): Promise<Client> {
   const server = new McpServer({ name: "test", version: "0.0.0" }, { capabilities: { tools: {} } });
-  registerDiscoveryTools(server, tools, () => ({ session: { id: "s1", state: {} } }));
+  registerTools(server, tools, () => ({ session: { id: "s1", state: {} } }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "tester", version: "0" }, { capabilities: {} });
@@ -43,7 +61,20 @@ async function connectedClient(tools: DiscoveryTool[]): Promise<Client> {
   return client;
 }
 
-describe("registerDiscoveryTools (official @modelcontextprotocol/sdk round-trip)", () => {
+describe("registerTools (official @modelcontextprotocol/sdk round-trip)", () => {
+  it("registers BOTH a DiscoveryTool and an ActionTool on one McpServer", async () => {
+    const client = await connectedClient([demoTool(), echoActionTool()]);
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name).sort()).toEqual(["demo", "echo-edit"]);
+    // the ActionTool dispatches a batch and its result object serializes over the wire
+    const res = await client.callTool({
+      name: "echo-edit",
+      arguments: { docId: "d1", actions: [["append", "hi"]] },
+    });
+    expect((res.content as { type: string; text: string }[])[0]!.text).toContain("hi");
+    await client.close();
+  });
+
   it("lists a DiscoveryTool through tools/list, with the config-derived input schema", async () => {
     const client = await connectedClient([demoTool()]);
     const { tools } = await client.listTools();
