@@ -11,6 +11,7 @@
 // involved). Precedence is granted only where it is overlearned (PEMDAS); every other operator mix
 // is an errors-as-door `ParseError`. See docs/working-proposals/arrival-sweet-extension-design-ideation-2026-06-15.md §5.2.
 
+import { normalizeGlyph } from "./canonizer.js";
 import type { SourceLocation } from "./errors.js";
 import { ParseError } from "./errors.js";
 import { Pair } from "./Pair.js";
@@ -62,13 +63,15 @@ export function canonicalizeCurly(E: SchemeValue[], loc?: Loc): SchemeValue {
   if (n === 0) return nil; //                         {}      → ()
   if (n === 1) return E[0]; //                        {x}     → x   (escape, no wrap)
   if (n === 2) return list([E[0], E[1]]); //          {- x}   → (- x)  (unary/prefix; SRFI-105 rule)
-  // n >= 3: a same-operator run is n-ary infix; everything else goes to the resolver.
-  if (n % 2 === 1 && allSameOperator(E)) {
-    const op = E[1];
-    const operands = E.filter((_, i) => i % 2 === 0);
-    return list([op, ...operands]); //                {a + b + c} → (+ a b c)
+  // n >= 3: lower glyph operators (odd positions) to verbs first, so `&&`/`and` are one equivalence
+  // class before classification; then a same-operator run is n-ary infix, else the resolver.
+  const ops = E.map((el, i) => (i % 2 === 1 ? normalizeGlyph(el) : el));
+  if (n % 2 === 1 && allSameOperator(ops)) {
+    const op = ops[1];
+    const operands = ops.filter((_, i) => i % 2 === 0);
+    return list([op, ...operands]); //                {a + b + c} → (+ a b c); {a && b} → (and a b)
   }
-  return resolveNfx(E, loc);
+  return resolveNfx(ops, loc);
 }
 
 /** True iff every odd-index element is the same SchemeSymbol (a homogeneous infix run). */
