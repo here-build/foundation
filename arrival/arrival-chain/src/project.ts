@@ -30,6 +30,7 @@ import {
 import { loaderFromResolver, makeProjectLoader, type Loader, type RequireResolver } from "./loader.js";
 import { type McpEffectResolver, wrapMcpResolver } from "./mcp-effects.js";
 import type { ResolveOverride } from "./overridable.js";
+import { defineRegisterExtensionRosetta, sealRegisterExtension } from "./loader-extensions.js";
 import { arrivalCapabilities, arrivalLoaderCorePack } from "./packs/index.js";
 import { Program, ProgramVersion } from "./program.js";
 import { RunSpend } from "@here.build/arrival-inference";
@@ -66,10 +67,16 @@ export async function buildArrivalEnv(opts: BuildArrivalEnvOpts): Promise<Return
   // identity). loader-core is the raw plumbing pack, appended last (lowest precedence). Capability
   // scoping is `arrivalCapabilities()`: lower a reduced root-set to build a narrower env.
   const base = sandboxedEnv.inherit(opts.name);
+  // `require/register-extension` is bound for the BOOTSTRAP phase only: every capability's
+  // prelude may register a file-type resolver while the env assembles, then it is sealed so
+  // a running program cannot teach the loader new file types (a resolver is a capability
+  // grant, not runtime data). See loader-extensions.ts for the rationale.
+  defineRegisterExtensionRosetta(base);
   // Capabilities lower to `EnvPack<SchemeEnv>`; loader-core is `EnvPack<ArrivalEnv>`. Both apply over a
   // concrete `Environment` (its SchemeEnv face), so pin `E` to the base's type for the mixed root list.
   const capabilityPacks = arrivalCapabilities().map((cap) => cap.lower({ config: opts }));
   const { env } = await assembleEnv<typeof base>(base, [...capabilityPacks, arrivalLoaderCorePack(opts)]);
+  sealRegisterExtension(env);
   return env;
 }
 
