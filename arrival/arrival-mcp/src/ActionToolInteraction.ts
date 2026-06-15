@@ -52,9 +52,8 @@ export abstract class ActionToolInteraction<
     props,
     handler,
   }: ActionDeclaration<ExecutionContext, TT, Context>) {
-    // we have some inheritance issues here
     this.actions ??= {};
-    // Process props in a predictable order
+    // Positional arg order IS prop insertion order — args[] and argNames[] index in lockstep.
     const propEntries = Object.entries(props);
 
     this.actions[name] = {
@@ -68,7 +67,8 @@ export abstract class ActionToolInteraction<
   }
 
   async getToolSchema(): Promise<Tool["inputSchema"]> {
-    // bare minimum of props that should be in each call
+    // Props every action shares = the intersection of all actions' required contexts; only
+    // those can be marked `required` at the batch level (a batch shares one context scope).
     const universallyRequiredProps = Object.values(this.actions).reduce(
       (acc, { context }) => acc.intersection(new Set(context)),
       new Set(Object.keys(this.contextSchema)),
@@ -139,10 +139,9 @@ export abstract class ActionToolInteraction<
     };
   }
 
-  // this may be incorrect in parallel computations, but here each interaction gets its own place
+  // Per-instance, so concurrent interactions don't share it (each call gets its own tool instance).
   loadingExecutionContext: Partial<ExecutionContext> = {};
 
-  // hook for inherited elements
   protected async beforeAct(context: ExecutionContext) {}
 
   /** Override to include context state in action responses. Called after successful act(). */
@@ -187,13 +186,11 @@ export abstract class ActionToolInteraction<
     if (actions.length !== beforeFlatten) {
       console.log(`[actions] flattened nested batches: ${beforeFlatten} → ${actions.length} actions`);
     }
-    // Log final shape for debugging
     console.log(
       `[actions] ${actions.length} actions: [${actions.map((a) => (Array.isArray(a) ? a[0] : typeof a)).join(", ")}]`,
     );
     this.loadingExecutionContext = {};
 
-    // Ensure actions are initialized (defensive)
     this.actions ??= {};
 
     type ValidationError =

@@ -5,9 +5,9 @@
 export * from "./ToolInteraction.js";
 export * from "./DiscoveryToolInteraction.js";
 export * from "./ActionToolInteraction.js";
-// MCP-annotated capability: EnvCapability + per-verb { description, args } the discovery
-// tool reflects into its catalog + input schema. The FULL tool definition lives here, so
-// the transport can offload to it — and this package compacts toward a standalone MCP lib.
+// EnvCapability + per-verb { description, inputSchema } the discovery tool reflects into
+// its catalog + input schema — so the transport offloads the whole verb definition here,
+// and this package can compact toward a standalone MCP lib.
 export * from "./McpEnvCapability.js";
 export * from "./dispatch.js";
 export * from "./ArrivalServer.js";

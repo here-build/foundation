@@ -4,13 +4,13 @@ import type { Context } from "hono";
 export type MCPClientInfo = Record<string, any>;
 export type UserlandCallToolResult = File | string | object;
 
-/** Tool interaction represents the whole interaction lifecycle:
- - discovery and description (non-contextual as it describes the context input itself, yet already hono context aware)
- - interaction (contextual as happens within the context provided)
- That's why we pass hono context, but not tool call context - tool call is lower-level interaction.
-
- Specific Tool is mostly not thinking in terms of MCP server wherever possible.
- Execution is returning just blobs, texts and objects, not mcp representations of those
+/**
+ * One tool across its whole lifecycle: description (non-contextual — it describes the input
+ * shape, though it already sees the Hono context) and execution (contextual). Hence we thread
+ * the Hono context but NOT the per-call tool-call context — that's the lower-level interaction.
+ *
+ * Subclasses stay MCP-agnostic: `executeTool` returns plain blobs/text/objects, and the
+ * transport (dispatch.ts) lowers them to MCP wire shapes.
  */
 
 export abstract class ToolInteraction<ExecutionContext extends Record<string, any>> {

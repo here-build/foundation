@@ -11,7 +11,9 @@ function asArray<T>(value: T | T[]): T[] {
 }
 
 /**
- * Serialize userland results (string | object | Blob) to MCP CallToolResult format.
+ * Userland returns plain strings/objects/Blobs; this lowers them to MCP `CallToolResult`.
+ * Convention: an object with `success: false` marks the call as an error WITHOUT throwing —
+ * so a tool can report a soft failure (e.g. validation) as data, not an exception.
  */
 export async function serializeResult(
   callToolResult: UserlandCallToolResult | UserlandCallToolResult[],
@@ -52,9 +54,9 @@ export async function serializeResult(
   };
 }
 
-/**
- * Classify an error into an ErrorType for the store.
- */
+// Bucket an error by message substrings — the SDK/interpreter throw plain Errors, so the
+// classification the store wants (validation vs parse vs eval vs timeout) is only recoverable
+// from the message text.
 function classifyError(error: unknown, toolName?: string): { errorType: ErrorType; errorMessage: string } {
   if (error instanceof Error) {
     const msg = error.message;
@@ -71,11 +73,9 @@ function classifyError(error: unknown, toolName?: string): { errorType: ErrorTyp
 }
 
 /**
- * Dispatch a tool call: find the tool class, instantiate, execute, serialize result.
- * Pure logic — no transport, no protocol, no session management.
- *
- * When `store` is provided, records every interaction (success and failure).
- * Store writes are fire-and-forget — never block the response.
+ * The seam below MCP: no transport, protocol, or session management touched here. When `store`
+ * is set, every interaction (success AND soft-failure) is recorded fire-and-forget — recording
+ * never blocks the response.
  */
 export async function dispatchTool(
   tools: Constructor<ToolInteraction<any>>[],
@@ -89,7 +89,6 @@ export async function dispatchTool(
   const startTime = Date.now();
   const intent = request.arguments?.intent as string | undefined;
 
-  // Unknown tool
   const ToolClass = tools.find(({ name }) => name === request.name);
   if (!ToolClass) {
     const interaction = {
@@ -115,7 +114,8 @@ export async function dispatchTool(
     const result = await tool.executeTool(clientInfo);
     const serialized = await serializeResult(result);
 
-    // Record success (or validation failure — success=false from tool)
+    // success=false here is a soft failure the tool returned as data (not a throw), so it's
+    // still a completed interaction — recorded with its classified error.
     const isError = serialized.isError ?? false;
     if (store) {
       const resultText = serialized.content.map((c: any) => ("text" in c ? c.text : "")).join("\n");
@@ -135,7 +135,6 @@ export async function dispatchTool(
 
     return serialized;
   } catch (error) {
-    // Record runtime/eval/parse errors
     const { errorType, errorMessage } = classifyError(error);
     if (store) {
       store.recordInteraction({
@@ -155,10 +154,7 @@ export async function dispatchTool(
   }
 }
 
-/**
- * Get tool definitions from all registered tool classes.
- * Pure logic — no transport, no protocol.
- */
+/** A tool whose definition throws is skipped (warned), not fatal — one broken tool can't blank the list. */
 export async function getToolDefinitions(
   tools: Constructor<ToolInteraction<any>>[],
   context: Context,

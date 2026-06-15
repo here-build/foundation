@@ -1,9 +1,5 @@
 import type { ArrivalSessionStore, ErrorType, InteractionRecord, SessionRecord } from "./store.js";
 
-/**
- * In-memory implementation of ArrivalSessionStore.
- * For tests and local development. Not persistent.
- */
 export class InMemorySessionStore implements ArrivalSessionStore {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly interactions: InteractionRecord[] = [];

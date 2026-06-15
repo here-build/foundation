@@ -1,30 +1,20 @@
 /**
- * Pluggable async store for arrival MCP interactions.
- *
- * Records every tool call — intent, arguments, result, errors.
- * Failed invocations (phantoms) are interactions with success=false,
- * queryable separately for custdev analysis.
- *
- * Implementations:
- * - InMemorySessionStore (tests)
- * - PostgresSessionStore (production, future)
+ * Failed invocations (phantoms) are recorded as interactions with `success: false`, queryable
+ * separately for custdev analysis — they're data to study, not dropped errors.
  */
 
 export interface SessionRecord {
   id: string;
   startedAt: number;
   endedAt?: number;
-  /** MCP client name, e.g. "claude-ai", "chatgpt", "cursor" */
+  /** e.g. "claude-ai", "chatgpt", "cursor" */
   clientName?: string;
-  /** MCP client/SDK version */
   clientVersion?: string;
-  /** Model identifier if known, e.g. "gpt-oss-120b-heretic-v2" */
+  /** e.g. "gpt-oss-120b-heretic-v2" */
   modelId?: string;
-  /** Raw user-agent header */
   userAgent?: string;
-  /** Client IP */
   ip?: string;
-  /** Accumulated counters (updated on queries, not guaranteed real-time) */
+  /** Updated on queries — not guaranteed real-time. */
   interactionCount: number;
   phantomCount: number;
 }
@@ -35,21 +25,18 @@ export interface InteractionRecord {
   id: string;
   sessionId: string;
   timestamp: number;
-  /** Tool name: "project-discovery", "project-editing", etc. */
+  /** e.g. "project-discovery", "project-editing" */
   tool: string;
-  /** Natural language intent — what the model was trying to accomplish */
+  /** Free-text goal the model stated for the call. */
   intent?: string;
-  /** Full tool arguments (for replay/analysis) */
+  /** Stored in full, for replay/analysis. */
   arguments: Record<string, unknown>;
-  /** Whether the tool call succeeded */
   success: boolean;
-  /** Truncated result for review (not full payload) */
+  /** Truncated — not the full payload. */
   resultSummary?: string;
-  /** Execution wall time */
   durationMs: number;
-  /** Error classification (when success=false) */
+  /** Both set when `success` is false. */
   errorType?: ErrorType;
-  /** Error message (when success=false) */
   errorMessage?: string;
 }
 

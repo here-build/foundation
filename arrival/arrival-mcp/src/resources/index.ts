@@ -1,10 +1,6 @@
 /**
- * MCP Resources support for arrival framework.
- *
- * Application provides a `ResourceProvider` that resolves URIs to content.
- * Framework wires `resources/list` and `resources/read` MCP requests to it.
- *
- * See docs/proposals/in-flight/arrival-resources.md for design rationale.
+ * The application supplies a `ResourceProvider`; the framework wires it to the `resources/list`
+ * and `resources/read` MCP requests. Design rationale: docs/proposals/in-flight/arrival-resources.md
  */
 
 import type {
@@ -17,17 +13,10 @@ import type { Context } from "hono";
 export type ArrivalResourceContents = TextResourceContents | BlobResourceContents;
 
 export interface ResourceProvider {
-  /**
-   * Enumerate resources visible to the session.
-   * v1: typically returns [] — clients construct URIs from discovery tool responses.
-   */
+  /** v1 typically returns [] — clients construct URIs from discovery-tool responses instead. */
   list(context: Context, state: Record<string, any>): Promise<Resource[]>;
 
-  /**
-   * Resolve a URI to one or more content items.
-   * Throws (or returns rejected Promise) with classified error for not-found,
-   * malformed URI, auth-denied cases.
-   */
+  /** Rejects with a classified error for not-found, malformed-URI, and auth-denied cases. */
   read(
     context: Context,
     state: Record<string, any>,

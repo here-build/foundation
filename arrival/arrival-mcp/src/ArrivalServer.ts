@@ -15,11 +15,7 @@ import type { ResourceProvider } from "./resources/index.js";
 import type { ArrivalSessionStore } from "./store.js";
 import type { ToolInteraction, MCPClientInfo } from "./ToolInteraction.js";
 
-/**
- * Pluggable session state storage.
- * Default: in-memory Map on the session object.
- * Override for Durable Objects, Redis, etc.
- */
+/** Default is an in-memory Map on the session object; override for Durable Objects, Redis, etc. */
 export interface SessionStore {
   get(context: Context, sessionId: string): Promise<Record<string, any>>;
 
@@ -42,18 +38,14 @@ export interface ArrivalServerOptions {
   tools: Constructor<ToolInteraction<any>>[];
   instructions?: string;
   sessionStore?: SessionStore;
-  /** Pluggable interaction store for recording all tool calls, intents, and errors. */
   arrivalStore?: ArrivalSessionStore;
-  /** Optional resource provider. When set, advertises MCP `resources` capability. */
+  /** When set, advertises the MCP `resources` capability. */
   resourceProvider?: ResourceProvider;
 }
 
 /**
- * MCP server built on the official SDK transport + arrival-mcp tool patterns.
- *
- * Manages per-session SDK Server + Transport pairs.
- * Routes Hono requests to the right session.
- * Threads Hono context to tool handlers.
+ * One SDK Server + Transport pair PER session (keyed by `mcp-session-id`), with the live Hono
+ * context threaded into each handler so tools see the current request.
  *
  * Usage:
  * ```typescript
@@ -71,10 +63,7 @@ export class ArrivalServer {
 
   constructor(private readonly options: ArrivalServerOptions) {}
 
-  /**
-   * Handle an incoming Hono request. Routes to the correct session
-   * or creates a new one for initialize requests.
-   */
+  /** A missing or unknown `mcp-session-id` starts a fresh session. */
   async handleRequest(c: Context): Promise<Response> {
     const sessionId = c.req.header("mcp-session-id");
 
@@ -83,14 +72,12 @@ export class ArrivalServer {
       if (session) {
         session.currentContext = c;
 
-        // Load state from external store if configured
         if (this.options.sessionStore) {
           session.state = await this.options.sessionStore.get(c, sessionId);
         }
 
         const response = await session.transport.handleRequest(c.req.raw);
 
-        // Persist state after request completes
         if (this.options.sessionStore) {
           await this.options.sessionStore.set(c, sessionId, session.state);
         }
@@ -98,13 +85,12 @@ export class ArrivalServer {
         return response;
       }
 
-      // DELETE for unknown/expired session — clean response
+      // A client DELETEing an already-gone session should still see success, not an error.
       if (c.req.method === "DELETE") {
         return new Response(null, { status: 200 });
       }
     }
 
-    // No session or unknown session — create new
     const session = await this.createSession(c);
     session.currentContext = c;
     return session.transport.handleRequest(c.req.raw);
@@ -120,7 +106,6 @@ export class ArrivalServer {
       state: {},
     };
 
-    // Record session start
     this.options.arrivalStore?.startSession({
       id: sessionId,
       startedAt: Date.now(),
