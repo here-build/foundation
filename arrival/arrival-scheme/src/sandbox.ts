@@ -26,20 +26,13 @@
 import type { EnvironmentModule } from "./bindings.js";
 import type { SchemeValue } from "./types.js";
 import { Environment } from "./Environment.js";
-import { sandboxedEnv, FORBIDDEN_IN_SANDBOX } from "./sandbox-env.js";
+import { sandboxedEnv } from "./sandbox-env.js";
 import { nil } from "./types.js";
 
 // Re-export types needed for sandbox usage
 export { Environment as Environment } from "./Environment.js";
 export type { EnvironmentModule as EnvironmentModule } from "./bindings.js";
 export type { SchemeValue as SchemeValue } from "./types.js";
-
-/**
- * The SINGLE enforced block list — re-exported from the production sandbox
- * (sandbox-env.ts). One Set decides what a sandbox may NOT see; the old
- * advisory array in modules/pure-scheme.ts is gone.
- */
-export { FORBIDDEN_IN_SANDBOX as FORBIDDEN_IN_SANDBOX };
 
 /**
  * The names a sandbox exposes, DERIVED from the production `sandboxedEnv` — the

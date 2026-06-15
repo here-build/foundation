@@ -55,11 +55,10 @@ describe("CRITICAL: sandbox escape vectors", () => {
    */
   it("eval defaults to sandbox env, NOT global, when no env arg", async () => {
     await initBridge();
-    // `+` is NOT in sandboxedEnv directly (sandbox uses scheme arithmetic),
-    // but IS in global_env (via applyToEnvironment in initBridge).
-    // Post-#43 fix: eval is no longer in sandboxedEnv (FORBIDDEN_IN_SANDBOX
-    // strip in sandbox-env.ts), so the eval-escape path is closed entirely —
-    // the throw is Unbound on `eval` itself, not on `+`.
+    // `+` is NOT in sandboxedEnv directly (sandbox uses scheme arithmetic).
+    // eval no longer exists at all — the host-language sweep deleted it from
+    // wrappedOps — so the eval-escape path is closed at the source; the throw is
+    // Unbound on `eval` itself, not on `+`.
     await expect(exec("(eval (quote +))", { env: sandboxedEnv })).rejects.toThrow(/Unbound/);
   });
 
@@ -71,31 +70,27 @@ describe("CRITICAL: sandbox escape vectors", () => {
   it("eval-escaped function cannot be invoked to perform host computation", async () => {
     await initBridge();
     // Build a sandbox program that pulls + via eval and applies it.
-    // Pre-#43: returned 5 (eval-escape worked).
-    // Post-#43: throws Unbound at the eval site — eval is no longer in the
-    // sandbox env, so the very first form `(eval ...)` fails to resolve.
+    // Historically returned 5 (eval-escape worked). Now: throws Unbound at the
+    // eval site — eval no longer exists, so the very first form `(eval ...)`
+    // fails to resolve.
     await expect(
       exec(`((eval (quote +)) 2 3)`, { env: sandboxedEnv })
     ).rejects.toThrow(/Unbound/);
   });
 
   /**
-   * `load` and `set-obj!` are in FORBIDDEN_IN_SANDBOX (modules/pure-scheme.ts:336,353)
-   * — explicitly listed as "should not be available". They're not bound under
-   * those names in sandboxedEnv, but the LIPS bootstrap registers them in
-   * global_env, so the eval-escape reaches them anyway. Probe confirmed
-   * both return JS Function from `(eval (quote load))` / `(eval (quote set-obj!))`.
-   *
-   * `set-obj!` is the worst of the three: it can install arbitrary properties
-   * on arbitrary JS objects, which combined with the eval escape lets a
-   * sandbox program mutate host state.
+   * `load` / `set-obj!` / `new` / `instanceof` were the host-language verbs the
+   * eval-escape historically reached (the LIPS bootstrap registered them in
+   * global_env; `(eval (quote set-obj!))` handed back the JS function). The
+   * sweep deleted all of them — and eval itself — so there is nothing left to
+   * reach and nothing to reach it with.
    */
-  it("FORBIDDEN_IN_SANDBOX names cannot be reached via eval", async () => {
+  it("host-language verbs cannot be reached via eval", async () => {
     await initBridge();
-    // Post-#43 fix: `eval` itself is no longer in sandboxedEnv, so the lookup
-    // of `eval` in the head position fails before the forbidden name is even
-    // quoted. The error message is Unbound on `eval`, not on the inner name —
-    // but the security invariant ("forbidden name not reachable") holds.
+    // `eval` no longer exists, so the lookup of `eval` in the head position
+    // fails before the inner name is even quoted. The error is Unbound on
+    // `eval` — and the inner names don't exist either, so the security
+    // invariant ("host-language verb not reachable") holds doubly.
     for (const forbidden of ["load", "set-obj!", "new", "instanceof"]) {
       await expect(
         exec(`(eval (quote ${forbidden}))`, { env: sandboxedEnv }),

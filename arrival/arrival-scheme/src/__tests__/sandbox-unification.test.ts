@@ -2,10 +2,10 @@
  * Sandbox unification guards (S8-CORE, 2026-06-09).
  *
  * Locks the audit's ST-partial: there must be exactly ONE sandbox binding set
- * and ONE enforced block list. Before this work there were TWO construction
- * paths (`sandboxedEnv` vs `createSandbox`/`PURE_SCHEME_BINDINGS`) and a dead
- * ADVISORY `FORBIDDEN_IN_SANDBOX` array that nothing consulted, so adding or
- * removing a name in one place silently failed to change the sandbox.
+ * (`sandboxedEnv` and `createSandbox`/`PURE_SCHEME_BINDINGS` cannot drift apart).
+ * The host-language verbs a block list once fenced (eval / load / set-obj! / …)
+ * no longer exist at all — the sweep deleted them at the source — so the second
+ * half of these tests pins their non-existence rather than a filter's coverage.
  *
  * These tests fail the moment the two paths drift apart again — which is the
  * whole point of the unification (the oracle's Σ layer reads the SAME bound
@@ -14,8 +14,14 @@
 
 import { describe, expect, it, beforeAll } from "vitest";
 import { initBridge } from "../bridge";
-import { sandboxedEnv, FORBIDDEN_IN_SANDBOX } from "../sandbox-env";
+import { sandboxedEnv } from "../sandbox-env";
 import { createSandbox, PURE_SCHEME_BINDINGS } from "../sandbox";
+
+// The host-language verbs the sweep deleted at the source. The old
+// FORBIDDEN_IN_SANDBOX block list fenced them per-env; now they simply do not
+// exist anywhere, which is what this suite pins — a regression re-introducing
+// any of them turns these red.
+const HOST_LANGUAGE_VERBS = ["eval", "load", "set-obj!", "set-special!", "new", "instanceof"] as const;
 
 beforeAll(async () => {
   await initBridge();
@@ -24,18 +30,12 @@ beforeAll(async () => {
   await import("../index");
 });
 
-describe("S8-CORE: one enforced block list", () => {
-  it("every FORBIDDEN_IN_SANDBOX name is genuinely Unbound in sandboxedEnv", () => {
-    expect(FORBIDDEN_IN_SANDBOX.size).toBeGreaterThan(0);
-    for (const forbidden of FORBIDDEN_IN_SANDBOX) {
-      const value = sandboxedEnv.get(forbidden, { throwError: false });
-      expect(value, `'${forbidden}' must NOT be bound in sandboxedEnv`).toBeUndefined();
+describe("S8-CORE: host-language verbs are non-existent", () => {
+  it("every host-language verb is genuinely Unbound in sandboxedEnv", () => {
+    for (const verb of HOST_LANGUAGE_VERBS) {
+      const value = sandboxedEnv.get(verb, { throwError: false });
+      expect(value, `'${verb}' must NOT be bound in sandboxedEnv`).toBeUndefined();
     }
-  });
-
-  it("FORBIDDEN_IN_SANDBOX is the enforced Set (not the old advisory array)", () => {
-    // The dead 36-entry array was an Array; the single source of truth is a Set.
-    expect(FORBIDDEN_IN_SANDBOX).toBeInstanceOf(Set);
   });
 });
 
@@ -87,10 +87,10 @@ describe("S8-CORE: one binding set across both entry points", () => {
     expect(PURE_SCHEME_BINDINGS).not.toContain(probe);
   });
 
-  it("no FORBIDDEN name leaks into the derived binding list", () => {
+  it("no host-language verb leaks into the derived binding list", () => {
     const names = new Set(PURE_SCHEME_BINDINGS);
-    for (const forbidden of FORBIDDEN_IN_SANDBOX) {
-      expect(names.has(forbidden), `'${forbidden}' must not appear in the sandbox surface`).toBe(false);
+    for (const verb of HOST_LANGUAGE_VERBS) {
+      expect(names.has(verb), `'${verb}' must not appear in the sandbox surface`).toBe(false);
     }
   });
 });

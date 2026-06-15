@@ -121,71 +121,18 @@ async function asyncFLReduce(fn: Function, init: any, structure: any): Promise<a
   return acc;
 }
 
-// ============================================================================
-// FORBIDDEN_IN_SANDBOX — direct-spread defense (task #43)
-// ============================================================================
-// War story (2026-05-28 audit): the sandbox had TWO surfaces leaking forbidden
-// names into user code.
-//
-//   (1) Allowlist path: `PURE_SCHEME_BINDINGS` in modules/pure-scheme.ts. Task
-//       #39 banned `eval` from that allowlist — see the "INTENTIONALLY OMITTED"
-//       block at pure-scheme.ts:251-266. Closed.
-//
-//   (2) Direct-spread path: THIS file. `sandboxedEnv` was constructed by
-//       spreading `...wrappedOps` directly (bridge.ts:327 export). `wrappedOps`
-//       includes `eval` (bridge.ts:1430 — `eval(expr, env?) { evaluate(expr,
-//       { env: env || global_env }) }`). Sandbox code calling `(eval x)`
-//       with no second argument fell back to `global_env` — the FULLY
-//       UNSANDBOXED global env containing every LIPS bootstrap entry. From
-//       there, `(eval (quote +))` returned an unwrapped JS function;
-//       `(eval (quote set-obj!))` handed the sandbox arbitrary host-property-
-//       write capability. Task #43 (this fix) closes that path by stripping
-//       `eval` from the spread.
-//
-// Defense in depth: even though only `eval` is currently in `wrappedOps`,
-// future wrappedOps additions could re-expose other escape vectors. The set
-// below is the canonical block list — each entry's specific escape vector
-// is documented inline.
-// The SINGLE, enforced block list (S8-CORE unification). Exported so the public
-// sandbox entry point (sandbox.ts via modules/pure-scheme.ts) re-exports THIS
-// Set rather than maintaining a parallel advisory array that nothing consulted.
-// Adding/removing a name here is the one lever that changes what the sandbox
-// strips from `wrappedOps`.
-export const FORBIDDEN_IN_SANDBOX = new Set([
-  // The primary escape vector this fix closes. With `env || global_env`
-  // fallback, `(eval (quote name))` reaches any global LIPS binding —
-  // including `+`, `load`, `set-obj!`, the whole surface. Eval-with-explicit-
-  // env still works for non-sandbox callers; sandbox callers no longer have
-  // `eval` at all.
-  "eval",
-  // Loads + evaluates source from a file/URL. If ever added to wrappedOps,
-  // it's a direct path to arbitrary code execution outside the sandbox.
-  "load",
-  // Mutates arbitrary properties on arbitrary JS objects. Combined with any
-  // path to a host object reference, this is direct host-state mutation.
-  "set-obj!",
-  // Constructs Special-form bindings in the host environment. Lets sandbox
-  // code install host-level macros that intercept future evaluation.
-  "set-special!",
-  // `(new Cls args...)` reflectively constructs JS classes. Combined with
-  // any object reference, lets sandbox code instantiate arbitrary host
-  // constructors (Function, Worker, fetch handlers, etc.).
-  "new",
-  // `(instanceof obj Cls)` exposes host prototype identity. Information
-  // disclosure on its own; combined with `new`, enables type-confusion
-  // attacks against host membrane checks.
-  "instanceof",
-]);
-
-const safeWrappedOps = Object.fromEntries(
-  Object.entries(wrappedOps).filter(([k]) => !FORBIDDEN_IN_SANDBOX.has(k)),
-);
-
+// `wrappedOps` is spread directly: the host-language verbs a block list once
+// stripped (eval / load / set-obj! / set-special! / new / instanceof) no longer
+// EXIST — the host-language sweep deleted them at the source rather than fencing
+// them per-env. Non-existence is a stronger guarantee than a filter, and it
+// removes the "two construction paths must agree on one block list" hazard the
+// 2026-05-28 escape audit was built around. Safety is structural: the only host
+// door is the always-on membrane (`@` / `@?` / `@keys` + sandboxedAccess).
 export const sandboxedEnv = new Environment(
   "sandbox",
   {
     ...Object.fromEntries(SAFE_BUILTINS.map((name) => [name, global_env.get(name, { throwError: false })])),
-    ...safeWrappedOps,
+    ...wrappedOps,
     nil,
     // SchemeJSArray-aware car/cdr — unwrap lazy array wrappers, delegate pairs to LIPS
     car: (list: any) => list instanceof SchemeJSArray ? list.at(0) : builtinCar(list),

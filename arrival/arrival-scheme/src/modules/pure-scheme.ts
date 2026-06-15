@@ -10,17 +10,20 @@
  * UNIFICATION (S8-CORE, 2026-06-09)
  * ============================================================================
  * The audit found two divergent allowlists. This module used to own a SECOND,
- * hand-maintained `PURE_SCHEME_BINDINGS` array plus a dead, ADVISORY
- * `FORBIDDEN_IN_SANDBOX` array that nothing consulted. Both are gone:
+ * hand-maintained `PURE_SCHEME_BINDINGS` array. It is gone:
  *
  *   • The allowlist is now `SAFE_BUILTINS` (one list). `createPureSchemeModule`
  *     projects exactly those names off the source env.
- *   • `FORBIDDEN_IN_SANDBOX` (the ENFORCED Set) and `PURE_SCHEME_BINDINGS` (now
- *     DERIVED from the live `sandboxedEnv` surface) are exported from
- *     ../sandbox.ts, which can safely import ../sandbox-env.ts (it is a leaf,
- *     outside the Environment↔pure-scheme module cycle). Re-exporting them from
- *     HERE would pull the heavy sandbox-env graph into that cycle and break
- *     class initialization — so they live next to `createSandbox` instead.
+ *   • `PURE_SCHEME_BINDINGS` (now DERIVED from the live `sandboxedEnv` surface)
+ *     is exported from ../sandbox.ts, which can safely import ../sandbox-env.ts
+ *     (it is a leaf, outside the Environment↔pure-scheme module cycle).
+ *     Re-exporting it from HERE would pull the heavy sandbox-env graph into that
+ *     cycle and break class initialization — so it lives next to `createSandbox`.
+ *
+ * There is no longer a sandbox block list at all: the host-language verbs one
+ * once fenced (eval / load / set-obj! / new / …) were deleted at the source by
+ * the host-language sweep, so the allowlist is the only lever and non-existence
+ * is the guarantee.
  *
  * The SANDBOX itself has one source of truth: `sandboxedEnv`. `createSandbox`
  * projects it directly (see ../sandbox.ts); this module is the general-purpose
