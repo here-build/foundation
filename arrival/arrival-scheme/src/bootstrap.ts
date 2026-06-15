@@ -14,6 +14,8 @@
 
 import { THREADING_SCM } from "./env/macros.js";
 import { SRFI1_SCM } from "./env/srfi/srfi-1.js";
+import { SRFI2_SCM } from "./env/srfi/srfi-2.js";
+import { SRFI8_SCM } from "./env/srfi/srfi-8.js";
 import { SRFI26_SCM } from "./env/srfi/srfi-26.js";
 import { SRFI43_SCM } from "./env/srfi/srfi-43.js";
 import { SRFI128_SCM } from "./env/srfi/srfi-128.js";
@@ -612,22 +614,6 @@ ${SRFI128_SCM}
 
 ;; ============ SRFI-8 receive + SRFI-2 and-let* (expression macros) ============
 ;; (let-values / let*-values already live above as define-macro forms.)
-
-;; receive (SRFI-8) — bind the values of the producer expr to formals over body.
-(define-syntax receive
-  (syntax-rules ()
-    ((_ formals expr body ...)
-     (call-with-values (lambda () expr) (lambda formals body ...)))))
-
-;; and-let* (SRFI-2) — sequential AND with binding. Claw (var expr) binds+tests var;
-;; claw (expr) is a bare guard. Any #f short-circuits the whole form to #f.
-(define-syntax and-let*
-  (syntax-rules ()
-    ((_ ()) #t)
-    ((_ () body ...) (begin body ...))
-    ((_ ((var expr) claws ...) body ...)
-     (let ((var expr)) (if var (and-let* (claws ...) body ...) #f)))
-    ((_ ((expr) claws ...) body ...)
-     (if expr (and-let* (claws ...) body ...) #f))))
-
+${SRFI8_SCM}
+${SRFI2_SCM}
 `;
