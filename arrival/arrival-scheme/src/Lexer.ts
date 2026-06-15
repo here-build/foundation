@@ -1,6 +1,12 @@
-// -------------------------------------------------------------------------
-// :: Finite State Machine based incremental Lexer
-// -------------------------------------------------------------------------
+/**
+ * Incremental, table-driven FSM tokenizer. The Parser drives it through `peek()`/`skip()` (one token
+ * of lookahead, never the whole string), so a streaming or partial parse never re-lexes from the top.
+ *
+ * The non-obvious part is rule ORDERING: rules concatenate `_rules` → `_brackets` → specials →
+ * `_symbol_rules`, symbols last. That layering is the disambiguation strategy — a delimiter like
+ * `(`/`{` is claimed as a bracket before the symbol rules could absorb it, which is why adding the
+ * SRFI-105 `{}` delimiter was a one-line widening of the bracket char-class.
+ */
 import invariant from "tiny-invariant";
 import { eof } from "./EOF.js";
 import { Unterminated } from "./errors.js";

@@ -39,16 +39,13 @@ import "./errors.js";
 // Import global environment for initBridge - this is safe because bridge.ts
 // doesn't get imported during lips.ts initialization
 
-// ============================================================================
-// Allocation cap — DoS defense for size-parameterized constructors
-// ============================================================================
-// War story (2026-05-30 sandbox-escape audit): `make-string` / `make-vector`
-// take an unbounded length `k`. V8 has its own ceiling (~2^29 chars, ~2^32
-// array slots) and throws RangeError above it — but that's the ENGINE's limit,
-// not OUR policy, and the attack window is exactly BELOW it: `(make-string 1e8)`
-// allocates 200MB of UTF-16 in ~1ms and succeeds, `(make-vector 1e8)` spins for
-// >10s materializing 100M slots. A single sandbox call drives host memory
-// pressure. The fix is an O(1) length check BEFORE allocation.
+// Allocation cap — DoS defense for size-parameterized constructors. `make-string`
+// / `make-vector` take an unbounded length `k`. V8 throws RangeError only above
+// its own ceiling (~2^29 chars, ~2^32 slots), but that's the ENGINE's limit, not
+// OUR policy, and the attack window is BELOW it: `(make-string 1e8)` allocates
+// 200MB of UTF-16 in ~1ms and succeeds, `(make-vector 1e8)` spins >10s on 100M
+// slots — one sandbox call drives host memory pressure. So we check length O(1)
+// BEFORE allocation.
 //
 // Default: 2^24 (16,777,216). Large enough that no legitimate Scheme program
 // hits it (a 16M-char string / 16M-slot vector is already pathological for an
@@ -309,25 +306,16 @@ export function coerceNumeric(value: unknown): SchemeNumeric {
 export function wrapOperator<In extends any[], InRest extends Codec<any, any> | undefined, Out extends Codec<any, any>>(
   op: Operator<In, InRest, Out>,
 ): (...args: unknown[]) => unknown {
-  // ════════════════════════════════════════════════════════════════════════════
-  // War story (fuzz audit #42): `(- (* 0 "") (- (- 0 0) 0))` surfaced as
-  // "Unbound variable `-'" — pointing at a downstream env lookup, not the
-  // real cause (string was passed to `*`). Trace: coerceNumeric throws on `""`,
-  // the TypeError travels up through `Array.map` (line below) → `op.call`
-  // → `call_function` (lips.ts:4057) → `apply` (lips.ts:4067) → into
-  // `evaluate` (lips.ts:4180). The masking happens because every catch path
-  // on the way up either swallows or rewraps the original, and only the
-  // OUTER form's name remained on a downstream `env.get(first)` retry, so
-  // the *symptom* presented as a name-lookup failure on an unrelated symbol.
+  // Why stamp coerceNumeric failures HERE: a type error from coercion (e.g. a
+  // string passed to `*`) travels up through several catch paths that swallow or
+  // rewrap it, and a downstream `env.get(first)` retry leaves only the outer
+  // form's name on the message — so the symptom mis-presents as an unbound-symbol
+  // lookup failure on an unrelated operator. This boundary is the only frame that
+  // holds both pieces needed to name the real cause (op.name here, type() on the
+  // args). The original TypeError rides along via `cause` so the membrane stack
+  // still traces the converter's invariant. We don't catch op.call itself —
+  // operator-internal failures already carry `op.name` (see membrane.ts).
   //
-  // The fix stags coerceNumeric conversion failures with operator name + arg type
-  // names at THIS boundary — the only frame that has both pieces (op.name
-  // here, type() applied to args). Original TypeError carried via `cause`
-  // so the membrane/sandbox stack still traces the converter's invariant.
-  // No catch on op.call itself — operator-internal failures (arity, codec
-  // mismatch on already-numeric args, etc.) already include `op.name` in
-  // their messages via membrane.ts:671-679.
-  // ════════════════════════════════════════════════════════════════════════════
   // The synchronous numeric core: convert args, apply the operator, stamp
   // provenance. Factored out so the speculative path can run it either eagerly
   // or after forcing a HalfBaked carrier.

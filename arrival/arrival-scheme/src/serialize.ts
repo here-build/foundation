@@ -1,5 +1,3 @@
-// ----------------------------------------------------------------------
-// Helper to parse integer string with radix to BigInt
 import { is_undef } from "./guards.js";
 import { SchemeString } from "./SchemeString.js";
 import { SchemeSymbol } from "./SchemeSymbol.js";

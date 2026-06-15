@@ -1,6 +1,3 @@
-// -------------------------------------------------------------------------
-// :: Continuations object from call/cc
-// -------------------------------------------------------------------------
 import invariant from "tiny-invariant";
 
 export class Continuation {

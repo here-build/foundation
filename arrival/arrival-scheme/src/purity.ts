@@ -1,6 +1,4 @@
-// -------------------------------------------------------------------------
-// :: Purity doors — the typed throw behind every omitted feature
-// -------------------------------------------------------------------------
+// Purity doors — the typed throw behind every omitted feature.
 //
 // arrival is PURE DATAFLOW, not general Scheme. Two whole families are omitted
 // by design — DYNAMICS (call/cc, dynamic-wind, make-parameter/parameterize,

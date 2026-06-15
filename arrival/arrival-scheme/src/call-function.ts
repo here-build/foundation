@@ -40,10 +40,8 @@ export function call_function(
   return resolve_promises(fn.apply(context, args));
 }
 
-// ----------------------------------------------------------------------
-// :; wrap tree of Promises with single Promise or return argument as is
-// :: if tree have no Promises
-// ----------------------------------------------------------------------
+// Collapse a tree that may contain Promises into a single Promise; if the tree
+// holds none, return the argument untouched (the common no-await fast path).
 export function resolve_promises(arg: SchemeValue): SchemeValue {
   const promises: Promise<unknown>[] = [];
   traverse(arg);

@@ -1,6 +1,4 @@
-// ----------------------------------------------------------------------
-// TODO: Don't put Syntax as Macro they are not runtime
-// ----------------------------------------------------------------------
+// TODO: Syntax shouldn't extend Macro — syntax transformers aren't runtime values.
 import { Macro, MacroInvokeContext } from "./Macro.js";
 
 // Type for syntax object (can be Syntax or Function)

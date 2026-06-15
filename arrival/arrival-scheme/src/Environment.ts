@@ -1,6 +1,3 @@
-// -------------------------------------------------------------------------
-// :: Environment class - Scheme environment for variable bindings
-// -------------------------------------------------------------------------
 import type { EnvironmentModule, FallbackResolver } from "./bindings.js";
 import { isBridgeInitialized } from "./boot.js";
 import type { EOF } from "./EOF.js";

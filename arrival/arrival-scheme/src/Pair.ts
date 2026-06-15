@@ -1,6 +1,11 @@
-// -------------------------------------------------------------------------
-// :: Pair - the cons cell (fundamental Lisp data structure)
-// -------------------------------------------------------------------------
+/**
+ * The cons cell. Beyond car/cdr, a Pair carries its own metadata — source
+ * location, datum-label/cycle marks, provenance — on the instance (symbol-keyed),
+ * not in a sidecar map, so a value and its origin travel together and survive
+ * structure sharing. Runtime cycles (from `set-cdr!`) are detected actively by
+ * `isCircularList` (Floyd's), which keeps spine-walking builtins from spinning.
+ * The class is a sandbox boundary (see the bottom of the file).
+ */
 import invariant from "tiny-invariant";
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import { type SourceLocation } from "./errors.js";
@@ -24,9 +29,8 @@ interface PairWithMetadata<Car = unknown, Cdr = unknown> extends Pair<Car, Cdr> 
   [__location__]?: SourceLocation;
 }
 
-// ----------------------------------------------------------------------
-// :: Thunk for trampolining (used by mark_cycles)
-// ----------------------------------------------------------------------
+// Trampoline thunk: `mark_cycles` walks arbitrarily deep lists, so it bounces
+// through these instead of recursing and overflowing the native stack.
 class Thunk {
   fn: () => Thunk | void;
   cont: () => void;
@@ -61,19 +65,16 @@ function unwind(result: Thunk | void): void {
   }
 }
 
-// ----------------------------------------------------------------------
-// :: Cycle detection for pairs
-// ----------------------------------------------------------------------
 /**
  * Floyd's tortoise/hare cycle detection on the cdr-spine. O(n) time, O(1) space.
  * Returns true iff the list is CIRCULAR (a cdr eventually revisits a node).
  *
  * Unlike `have_cycles()` (a metadata read populated only by the reader for `#0=`
  * datum labels), this ACTIVELY detects cycles created at runtime by `set-cdr!` —
- * the gap behind the list?/length/append/memq/reverse/list-copy non-termination
- * (caveat-sweep 2026-06-11). Spine-walking builtins guard on this so a circular
- * list terminates (list? → #f) or raises a clean error instead of spinning /
- * stack-overflowing. Never throws; the caller decides what a cycle means.
+ * the gap behind the list?/length/append/memq/reverse/list-copy non-termination.
+ * Spine-walking builtins guard on this so a circular list terminates (list? → #f)
+ * or raises a clean error instead of spinning. Never throws; the caller decides
+ * what a cycle means.
  */
 export function isCircularList(head: unknown): boolean {
   let slow: unknown = head;
@@ -164,9 +165,6 @@ function mark_cycles(pair: Pair): void {
   }
 }
 
-// ----------------------------------------------------------------------
-// :: Basic value stringifier for Pair.toString()
-// ----------------------------------------------------------------------
 interface ObjectWithToString {
   toString: (quote?: boolean) => string;
 }
@@ -229,9 +227,6 @@ function stringifyValue(obj: unknown, quote?: boolean): string {
   return String(obj);
 }
 
-// ----------------------------------------------------------------------
-// :: Pair class
-// ----------------------------------------------------------------------
 export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLike<Car, Cdr> {
   static __class__ = "pair";
   readonly kind = "pair" as const;
@@ -379,11 +374,9 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
 
   to_array(deep = true): unknown[] {
     // A circular list can't be materialized to a finite array — the recursion on
-    // `this.cdr` below would stack-overflow (the list-copy/reverse symptom). Detect
-    // and raise a clean error instead. (have_cycles() misses runtime set-cdr! cycles.)
-    if (isCircularList(this)) {
-      throw new Error("cannot convert a circular list to an array");
-    }
+    // `this.cdr` below would stack-overflow. `isCircularList` (Floyd's) is needed
+    // here because `have_cycles()` misses runtime `set-cdr!` cycles.
+    invariant(!isCircularList(this), "cannot convert a circular list to an array");
     let result: unknown[] = [];
     if (is_pair(this.car)) {
       if (deep) {
@@ -738,11 +731,8 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
   }
 }
 
-// ----------------------------------------------------------------------
-// :: Structure-algebra recursors (module-local helpers for the Fantasy Land
-// :: methods above). All terminate on `instanceof Nil` — see the class-body
-// :: comment for why reference-equality (`=== nil`) is wrong here.
-// ----------------------------------------------------------------------
+// Structure-algebra recursors for the Fantasy Land methods above. They terminate
+// on `instanceof Nil`, not `=== nil` — see the class-body comment for why.
 
 // The empty-list sentinel: `new Pair()` (no args) yields `Pair(undefined, nil)`,
 // the shape arrival uses for "empty list" wherever a bare Pair is constructed.
@@ -806,16 +796,9 @@ function chainPair(f: (x: unknown) => Pair | Nil, pair: unknown): Pair | Nil {
 // Register Pair constructor with types.ts for Nil.append
 setPairConstructor(Pair);
 
-// ============================================================================
-// SANDBOX BOUNDARY
-// ============================================================================
-// War story (2026-05-28 audit): Pair carries a rich prototype surface
-// (`match`, `fromArray`, `toArray`, iteration helpers, cycle-detection
-// internals) plus instance-level metadata symbols (`__data__`, `__location__`).
-// A sandbox holding any cons cell can reach all of these via symbol-to-field
-// auto-resolution. The cycle/ref-tracking helpers in particular operate on
-// raw object references and would leak host-side identity comparisons if
-// exposed. Boundary marker stops the prototype-chain walk at Pair before any
-// inherited helper is reachable.
-// ============================================================================
+// Sandbox boundary. A cons cell's rich prototype (`match`/`fromArray`/`toArray`,
+// the cycle/ref-tracking helpers) and metadata symbols (`__data__`, `__location__`)
+// are reachable from any held Pair via symbol-to-field auto-resolution; the
+// ref-tracking helpers in particular would leak host-side identity comparisons.
+// This marker stops the prototype-chain walk at Pair before any helper is reached.
 markAsSandboxBoundary(Pair);

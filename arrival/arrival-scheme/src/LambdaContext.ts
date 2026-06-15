@@ -1,4 +1,3 @@
-// -------------------------------------------------------------------------
 import type { BindingName, Environment, EnvironmentValue } from "./Environment.js";
 
 interface LambdaContextPayload {

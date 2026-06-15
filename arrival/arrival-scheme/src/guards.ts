@@ -1,4 +1,3 @@
-// ----------------------------------------------------------------------
 import { Continuation } from "./Continuation.js";
 import { Environment } from "./Environment.js";
 import { LambdaContext } from "./LambdaContext.js";

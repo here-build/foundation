@@ -1,4 +1,3 @@
-// ----------------------------------------------------------------------
 // Leaf value-kernel predicates.
 //
 // These four type guards depend ONLY on the value kernel (Pair, Nil, the

@@ -1,10 +1,6 @@
-// ----------------------------------------------------------------------
-// :: Macro constructor
-// ----------------------------------------------------------------------
 import { trim_lines } from "./utils/trim_lines.js";
 import { typecheck } from "./utils/typecheck.js";
 
-// Interface for macro invocation context
 export interface MacroInvokeContext {
   env: unknown;
   error?: (e: Error) => void;

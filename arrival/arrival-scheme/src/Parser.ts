@@ -1,7 +1,12 @@
-// -------------------------------------------------------------------------
-// :: Parser inspired by BiwaScheme
-// :: ref: https://github.com/biwascheme/biwascheme/blob/master/src/system/parser.js
-// -------------------------------------------------------------------------
+/**
+ * The reader's second stage: the Lexer's token stream → Scheme data, and the single text→datum entry
+ * point (evaluator, analysis tools, and MCP all read through here).
+ *
+ * Two non-obvious things in `_read_object`: reader extensions (the quote family, the `specials`
+ * registry) are evaluated at PARSE time, not later; and `_enterNesting` bounds native-stack descent so
+ * a pathological input fails with a `ParseError` instead of a host `RangeError` (see the war story
+ * below). Structure inspired by BiwaScheme's parser.
+ */
 import { DatumReference } from "./DatumReference.js";
 import { foldcase_string } from "./foldcase.js";
 import * as specials from "./specials.js";
@@ -22,10 +27,8 @@ import type { EOF } from "./EOF.js";
 import { eof } from "./EOF.js";
 import { type SourceLocation, ParseError, Unterminated } from "./errors.js";
 import { Lexer } from "./Lexer.js";
-// -------------------------------------------------------------------------
-// :: Runtime dependencies - ES6 live bindings resolve the cycle
-// :: (these are only used inside methods, not at module evaluation time)
-// -------------------------------------------------------------------------
+// These deps form an import cycle with the value/eval modules; ES6 live bindings
+// resolve it, since they're referenced only inside methods, not at module-eval time.
 import { call_function } from "./call-function.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeVector } from "./SchemeVector.js";
@@ -41,30 +44,13 @@ import type { Nil, SchemeValue } from "./types.js";
 import { nil } from "./types.js";
 import invariant from "tiny-invariant";
 
-// ---------------------------------------------------------------------------
-// Nesting-depth cap — native-stack-overflow defense for the parser.
-// ---------------------------------------------------------------------------
-// War story (2026-05-30 sandbox-escape audit): `_read_object` ⇄ `read_list`
-// recurse through real JS call frames, one level per open paren. Input like
-// `"(".repeat(10000) + "1" + ")".repeat(10000)` overflows the native stack
-// BEFORE the parser can produce a structured value, surfacing as a raw
-// `RangeError: Maximum call stack size exceeded` — a host-implementation leak
-// that sandbox code can't `guard` cleanly. The parser already tracks a running
-// paren balance (`_state.parentheses`), which is exactly the live descent depth
-// while reading (it only decrements once a list closes, after the recursion for
-// its contents has returned). So an O(1) check at each open site bails with a
-// Scheme-level ParseError well before V8's frame limit.
-//
-// Default: 2,000. Calibrated against the MOST fragile downstream consumer, not
-// the parser alone. Empirical overflow points on Node/V8 (2026-05-30):
-//   - parser recursion alone: graceful past depth 12,000;
-//   - generator trampoline eval (the sandbox/MCP runtime path): stack-SAFE at
-//     every depth — deep input yields a graceful "cannot apply" error;
-//   - legacy `lips.exec` recursive evaluator: native stack overflow at ~3,500.
-// 2,000 sits comfortably below that 3,500 floor (so a deeply-nested form is
-// rejected at PARSE time, before any evaluator recurses into it) while staying
-// orders of magnitude above any hand-written or machine-generated s-expression
-// depth. Host-overridable via `setMaxNestingDepth` for trusted/looser contexts.
+// Nesting-depth cap — rejects a deeply-nested input at PARSE time before it can
+// overflow the native JS stack. `_read_object`/`read_list` recurse one real frame
+// per open delimiter, so without this a pathological input throws a host
+// `RangeError` (uncatchable by sandbox `guard`) instead of a Scheme `ParseError`.
+// The check is O(1): `_state.parentheses` already IS the live descent depth. The
+// cap sits below the most fragile downstream consumer's overflow floor (a recursive
+// evaluator overflows ~3,500) and far above any real s-expression depth.
 let maxNestingDepth = 2_000;
 
 /** Current parser nesting-depth cap (open delimiters before a ParseError). */
@@ -85,9 +71,6 @@ export function setMaxNestingDepth(depth: number): void {
   maxNestingDepth = depth;
 }
 
-/**
- * Token metadata from lexer.
- */
 export interface TokenMeta {
   token: string;
   col: number;
@@ -95,9 +78,6 @@ export interface TokenMeta {
   line: number;
 }
 
-/**
- * Parser options.
- */
 interface ParserOptions {
   env?: Environment;
   meta?: boolean;
@@ -107,19 +87,14 @@ interface ParserOptions {
   source?: string;
 }
 
-// -------------------------------------------------------------------------
-// :: Default formatter for tokens with metadata
-// -------------------------------------------------------------------------
 function defaultFormatter(token: { token: string; col: number; offset: number; line: number }) {
   return token;
 }
 
-// -------------------------------------------------------------------------
 export class Parser {
   // Re-export for backwards compatibility
   public static readonly Unterminated = Unterminated;
 
-  // Instance properties
   __lexer__!: Lexer;
   __env__?: Environment;
   private readonly _formatter!: (token: TokenMeta) => TokenMeta;
@@ -166,9 +141,8 @@ export class Parser {
   }
 
   _with_syntax_scope<T>(fn: () => T | Promise<T>): T | Promise<T> {
-    // expose parser and change stdin so parser extension can use current-input
-    // to read data from the parser stream #150
-    // Cast needed because __parser__ is an internal extension not in SchemeValue
+    // Expose this parser on `scheme` so a parser extension can pull from the live
+    // input stream (current-input). Cast: `__parser__` is internal, not in SchemeValue.
     global_env.set("scheme", {
       ...scheme,
       __parser__: this,
@@ -247,10 +221,6 @@ export class Parser {
     this.__lexer__.skip();
   }
 
-  /**
-   * Get the source location of the current token.
-   * Returns undefined if no token metadata is available.
-   */
   _getLocation(): SourceLocation | undefined {
     const meta = this.__lexer__.__token__;
     if (!meta) return undefined;
@@ -387,12 +357,8 @@ export class Parser {
   }
 
   async evaluate(code: SchemeValue): Promise<SchemeValue> {
-    // Generator evaluator (evaluator.ts). `exec` drives the flat trampoline and
-    // resolves to a settled SchemeValue; this method is already async and its
-    // sole caller (`_read_object`'s parser-extension macro path) awaits it, so
-    // the Promise boundary is honored. The legacy `error: throw` callback is
-    // unneeded — `run()` rejects the returned Promise on evaluation error, which
-    // surfaces identically through the `await` here.
+    // Runs a parse-time parser-extension through the generator evaluator. Errors
+    // surface as a rejected promise via the `await` — no error callback needed.
     return (await generatorExec(code, {
       env: this.__env__!,
     })) as SchemeValue;
@@ -510,13 +476,9 @@ export class Parser {
         litBv.freeze();
         return litBv;
       }
-      // Built-in parser extensions are mapping short symbols to longer symbols
-      // that can be function or macro. Parser doesn't care
-      // if it's not built-in and the extension can be macro or function.
-      // FUNCTION: when it's used, it gets arguments like FEXPR and the
-      // result is returned by parser as is the macro.
-      // MACRO: if macro is used, then it is evaluated in place and the
-      // result is returned by parser and it is quoted.
+      // A parser extension is a symbol that expands at read time, in one of two
+      // ways: a FUNCTION extension is applied FEXPR-style (result returned as-is);
+      // a MACRO extension is evaluated in place and its result quoted (see below).
       const special = specials.get(token);
       const builtin = is_builtin(token);
       this.skip();
@@ -561,13 +523,11 @@ export class Parser {
         return expr;
       }
       invariant(extension instanceof Macro, () => `Parse Error: invalid parser extension: ${special.symbol}`);
-      // Evaluate parser extension at parse time
       const result = await this._with_syntax_scope(() => {
         return this.evaluate(expr);
       });
-      // We need literal quotes to make that macro's return pairs works
-      // because after the parser returns the value it will be evaluated again
-      // by the interpreter, so we create quoted expressions.
+      // Quote the macro's result: the parser's output is evaluated again by the
+      // interpreter, so a bare pair/symbol would be (re-)evaluated unintentionally.
       if (is_pair(result) || result instanceof SchemeSymbol) {
         const quoted = Pair.fromArray([new SchemeSymbol("quote"), result]) as Pair;
         if (loc) quoted.setLocation(loc);
@@ -605,7 +565,6 @@ export class Parser {
       this._enterNesting();
       this.skip();
       const list = await this.read_list();
-      // Attach location of opening paren to head of list
       if (loc && is_pair(list)) {
         list.setLocation(loc);
       }

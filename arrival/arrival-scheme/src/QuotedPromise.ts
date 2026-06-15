@@ -1,6 +1,5 @@
-// ----------------------------------------------------------------------
-// Class used to escape promises: feature #54
-// ----------------------------------------------------------------------
+// Wraps a Promise so it travels through Scheme code as an opaque value instead
+// of being auto-forced, letting `(quote …)` survive an async boundary.
 import invariant from "tiny-invariant";
 import { is_function } from "./guards.js";
 import type { SchemeValue } from "./types.js";

@@ -1,7 +1,3 @@
-// ----------------------------------------------------------------------
-// :: Parser macros transformers
-// ----------------------------------------------------------------------
-
 import { SchemeSymbol } from "./SchemeSymbol.js";
 
 export const LITERAL = Symbol.for("literal");

@@ -1,6 +1,6 @@
-// -------------------------------------------------------------------------
-// :: Different object than value used as object for (values)
-// -------------------------------------------------------------------------
+// The carrier for `(values …)`: a distinct wrapper, not a plain value, so a
+// multiple-values return is distinguishable from a single value that happens
+// to be a collection.
 export class Values {
   __values__: unknown[];
 
