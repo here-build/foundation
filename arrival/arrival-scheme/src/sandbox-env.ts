@@ -1,6 +1,6 @@
 import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
-import { global_env, registerCxrResolver } from "./stdlib.js";
+import { global_env, env as userEnv, registerCxrResolver } from "./stdlib.js";
 import { nil } from "./types.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
 import { SchemeJSArray, readMember, hasMember, memberKeys, keywordAccessorResolver } from "./membrane.js";
@@ -252,7 +252,12 @@ export const sandboxedEnv = new Environment(
       return Array.isArray(collection) ? collection.length : 0;
     },
   },
-  null,
+  // Inherit the full env (user_env) instead of being a curated null-parent island.
+  // Post-sweep the full env leaks nothing host-reaching (eval/load/new deleted, the
+  // scheme namespace gone), so the allowlist projection + whitelist-copy that this
+  // null parent forced are now redundant — the sandbox is collapsing into a thin
+  // membrane/FL overlay on the one env.
+  userEnv,
 );
 
 // The unbounded `c[ad]+r` catchall. SAFE_BUILTINS copies only a hand-maintained
