@@ -17,9 +17,9 @@
 // feature as an internal routing/telemetry key (errors-as-doors Rule 3/5) — so
 // the language owns the list and the host owns the structured error.
 
-import { LipsError } from "./LipsError.js";
+import { ArrivalError } from "./ArrivalError.js";
 
-export class PurityError extends LipsError {
+export class PurityError extends ArrivalError {
   static __class__ = "purity-error";
   readonly owner = "owned-by/purity-invariant";
 

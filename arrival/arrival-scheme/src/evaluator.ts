@@ -33,7 +33,7 @@ import {
 } from "./guards.js";
 import { HalfBaked, is_half_baked } from "./HalfBaked.js";
 import { SchemeJSFunction } from "./membrane.js";
-import { LipsError } from "./LipsError.js";
+import { ArrivalError } from "./ArrivalError.js";
 import { SchemeSymbol } from "./SchemeSymbol.js";
 import { SchemeVector } from "./SchemeVector.js";
 import { Macro } from "./Macro.js";
@@ -59,7 +59,7 @@ export interface StackFrame {
 /**
  * Enhanced error with Scheme stack trace.
  */
-export class SchemeError extends LipsError {
+export class SchemeError extends ArrivalError {
   readonly name = "SchemeError";
 
   constructor(
