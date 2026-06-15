@@ -856,6 +856,12 @@ const native_lambda = _parse(
                                         (throw "Invalid Invocation"))`),
 )[0];
 // -------------------------------------------------------------------------------
+// Native property accessor — interpreter infrastructure below the membrane, wired
+// into the runtime via setSchemeRuntime and used by Environment for member
+// resolution. NOT a Scheme-facing builtin: the `.` / `get` verbs that exposed this
+// to Scheme code were removed (the host-language sweep) — Scheme reaches host data
+// only through the blessed `@` / `@?` / `@keys` membrane accessors now. Access still
+// routes through sandboxedAccess / SchemeJSObject.get so the membrane is enforced.
 export const get = doc("get", function get(object, ...args) {
   let value;
   const len = args.length;
@@ -1350,31 +1356,6 @@ export const global_env = new Environment(
     // hygiene redirect to evalDefine WITH a test that actually reaches it.
     define: genMacroWrapper("define"),
     // ------------------------------------------------------------------
-    "set-obj!": doc("set-obj!", function (obj, key, value, options = null) {
-      const obj_type = typeof obj;
-      invariant(!is_null(obj), () => typeErrorMessage("set-obj!", type(obj), ["object", "function"]));
-      invariant(obj_type === "object" || obj_type === "function", () =>
-        typeErrorMessage("set-obj!", type(obj), ["object", "function"]),
-      );
-      typecheck("set-obj!", key, ["string", "symbol", "number"]);
-      obj = unbind(obj);
-      key = key.valueOf();
-      if (arguments.length === 2) {
-        delete obj[key];
-      } else if (is_prototype(obj) && is_function(value)) {
-        obj[key] = unbind(value);
-        obj[key][__prototype__] = true;
-      } else if (is_function(value) || is_native(value) || is_nil(value)) {
-        obj[key] = value;
-      } else {
-        obj[key] = value && !is_prototype(value) ? value.valueOf() : value;
-      }
-      if (options) {
-        const value = obj[key];
-        Object.defineProperty(obj, key, { ...(options as PropertyDescriptor), value });
-      }
-    }),
-    // ------------------------------------------------------------------
     "null-environment": doc("null-environment", function () {
       return global_env.inherit("null");
     }),
@@ -1695,24 +1676,7 @@ export const global_env = new Environment(
       return escape_regex(string.valueOf());
     }),
     // ------------------------------------------------------------------
-    new: doc("new", function (obj, ...args) {
-      // Unwrap membrane-wrapped functions to get the actual constructor
-      let constructor = obj;
-      if (constructor instanceof SchemeJSFunction) {
-        constructor = constructor.source;
-      }
-      constructor = unbind(constructor);
-      return new constructor(...args.map((x) => unbox(x)));
-    }),
-    // ------------------------------------------------------------------
     typecheck: doc(null, typecheck),
-    // ------------------------------------------------------------------
-    get,
-    ".": get,
-    // ------------------------------------------------------------------
-    instanceof: doc("instanceof", function (type, obj) {
-      return obj instanceof unbind(type);
-    }),
     // ------------------------------------------------------------------
     "function?": doc("function?", is_function),
     // ------------------------------------------------------------------
@@ -2320,6 +2284,11 @@ export const parse = async (arg: SchemeValue, env?: Environment, source?: string
   return result;
 };
 
+// Interpreter infrastructure (NOT a Scheme-facing binding on the production base):
+// `is_runtime_bound_context` identity-checks against it, and Parser._with_syntax_scope
+// spreads it for reader extensions. It is bound into the RAW global_env only — the
+// production sandboxedEnv does not expose it — so the eventual global_env↔sandboxedEnv
+// collapse (Phase 4 of the host-language sweep) is where this binding retires.
 export const scheme = {
   env: global_env,
   exec,

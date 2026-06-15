@@ -122,40 +122,8 @@ export const BOOTSTRAP_SCHEME = `
 ;; -----------------------------------------------------------------------------
 ;; Helper functions for macros
 ;; -----------------------------------------------------------------------------
-(define (quoted-symbol? x)
-   (and (pair? x) (eq? (car x) 'quote) (symbol? (cadr x)) (null? (cddr x))))
-
 (define (single list)
   (and (pair? list) (not (cdr list))))
-
-;; -----------------------------------------------------------------------------
-;; Method chaining macro
-;; -----------------------------------------------------------------------------
-(define-macro (--> expr . body)
-  (let ((obj (gensym "obj")))
-    \`(let* ((,obj ,expr))
-       ,@(map (lambda (code)
-                (let* ((value (gensym "value"))
-                       (name (if (quoted-symbol? code)
-                                 (symbol->string (cadr code))
-                                 (if (symbol? code)
-                                     (symbol->string code)
-                                     (if (pair? code)
-                                         (symbol->string (car code))
-                                         code))))
-                       (accessor (if (string? name)
-                                     \`(. ,obj ,@(split "." name))
-                                     \`(. ,obj ,name)))
-                       (call (and (pair? code) (not (quoted-symbol? code)))))
-                  \`(let ((,value ,accessor))
-                     ,(if call
-                          \`(if (not (function? ,value))
-                               (throw (string-append "--> " ,(repr name)
-                                                                " is not a function"))
-                               (set! ,obj (,value ,@(cdr code))))
-                          \`(set! ,obj ,value)))))
-              body)
-       ,obj)))
 
 ${POLYGLOT_SCM}
 
