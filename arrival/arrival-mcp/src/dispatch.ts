@@ -36,10 +36,7 @@ export async function serializeResult(
           case result instanceof Blob && result.type.startsWith("audio/"): {
             let binary = "";
             const bytes = new Uint8Array(await result.arrayBuffer());
-            const length_ = bytes.byteLength;
-            for (let index = 0; index < length_; index++) {
-              binary += String.fromCodePoint(bytes[index]);
-            }
+            for (const byte of bytes) binary += String.fromCodePoint(byte);
             return {
               type: result.type.split("/")[0] as "image" | "audio",
               data: btoa(binary),

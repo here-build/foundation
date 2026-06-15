@@ -32,7 +32,7 @@ export interface RefShape<Ctx> {
   /** Short human description for LLM-facing rendering. */
   readonly describe: string;
   /** Fast predicate; if false, shape is skipped without invoking resolve. */
-  match(input: unknown): boolean;
+  matches(input: unknown): boolean;
   /** Produce T or accumulated errors. Must not throw. */
   resolve(input: unknown, ctx: Ctx): Result<unknown>;
   /** Contribution to the oneOf JSON Schema union. */
@@ -65,7 +65,7 @@ export function defineRef<T, Ctx = unknown>(spec: RefSpec<Ctx>): Ref<T, Ctx> {
     parse(input, ctx) {
       const errors: ParseError[] = [];
       for (const shape of shapes) {
-        if (!shape.match(input)) continue;
+        if (!shape.matches(input)) continue;
         const result = shape.resolve(input, ctx);
         if (result.ok) return result as Result<T>;
         errors.push(...result.errors);
@@ -162,7 +162,7 @@ export function uuidShape<Ctx>(
   return {
     tag: "uuid",
     describe: opts.describe ?? "UUID",
-    match: (input) => typeof input === "string" && input.length > 0 && !input.includes(" "),
+    matches: (input) => typeof input === "string" && input.length > 0 && !input.includes(" "),
     resolve: (input, ctx) => {
       const resolved = resolve(input as string, ctx);
       if (resolved == null) {
@@ -182,7 +182,7 @@ export function nameShape<Ctx>(
   return {
     tag: "name",
     describe: opts.describe ?? "name",
-    match: (input) => typeof input === "string",
+    matches: (input) => typeof input === "string",
     resolve: (input, ctx) => {
       const resolved = resolve(input as string, ctx);
       if (resolved == null) {
@@ -212,7 +212,7 @@ export function objectShape<S extends z.ZodObject<any>, T, Ctx>(
   return {
     tag,
     describe,
-    match: (input) => {
+    matches: (input) => {
       if (typeof input !== "object" || input == null || Array.isArray(input)) return false;
       if (discriminatorField) {
         const discVal = (input as Record<string, unknown>)[discriminatorField];
@@ -258,7 +258,7 @@ export function instanceShape<Ctx>(
   return {
     tag: "instance",
     describe: opts.describe ?? cls.name,
-    match: (input) => input instanceof cls,
+    matches: (input) => input instanceof cls,
     resolve: (input) => ({ ok: true, value: input }),
     jsonSchema: () => ({ description: `${cls.name} instance` }),
   };

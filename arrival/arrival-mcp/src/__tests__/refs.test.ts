@@ -95,19 +95,19 @@ describe("primitives", () => {
     it("rejects mismatched types with informative errors", () => {
       const r = primitiveParse(str(), 42);
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.errors[0].message).toContain("expected string");
+      if (!r.ok) expect(r.errors[0]!.message).toContain("expected string");
     });
 
     it("rejects enum values not in list", () => {
       const r = primitiveParse(oneOf(["a", "b"]), "c");
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.errors[0].message).toContain("expected one of a|b");
+      if (!r.ok) expect(r.errors[0]!.message).toContain("expected one of a|b");
     });
 
     it("required = undefined fails with `required`", () => {
       const r = primitiveParse(str(), undefined);
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.errors[0].message).toBe("required");
+      if (!r.ok) expect(r.errors[0]!.message).toBe("required");
     });
 
     it("optional = undefined passes with undefined value", () => {
@@ -200,8 +200,8 @@ describe("defineRef — multi-branch fallthrough", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.errors).toHaveLength(1);
-      expect(r.errors[0].shape).toBe("ref");
-      expect(r.errors[0].message).toContain("no shape matched");
+      expect(r.errors[0]!.shape).toBe("ref");
+      expect(r.errors[0]!.message).toContain("no shape matched");
     }
   });
 
@@ -295,8 +295,8 @@ describe(".list()", () => {
     const r = ref.parse("not-an-array", makeCtx());
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.errors[0].shape).toBe("list");
-      expect(r.errors[0].message).toContain("expected array");
+      expect(r.errors[0]!.shape).toBe("list");
+      expect(r.errors[0]!.message).toContain("expected array");
     }
   });
 
@@ -367,16 +367,16 @@ describe("objectShape", () => {
   it("filters match by discriminator value — wrong kind does not match first shape", () => {
     const shape = objectShape(z.object({ kind: z.literal("first"), label: z.string() }), (p) => p);
     // match() should be false because discriminator doesn't equal "first".
-    expect(shape.match({ kind: "second", label: "x" })).toBe(false);
-    expect(shape.match({ kind: "first", label: "x" })).toBe(true);
+    expect(shape.matches({ kind: "second", label: "x" })).toBe(false);
+    expect(shape.matches({ kind: "first", label: "x" })).toBe(true);
   });
 
   it("rejects non-object (array, null, string) in match", () => {
     const shape = objectShape(z.object({ id: z.string() }), (p) => p);
-    expect(shape.match([])).toBe(false);
-    expect(shape.match(null)).toBe(false);
-    expect(shape.match("string")).toBe(false);
-    expect(shape.match({ id: "abc" })).toBe(true);
+    expect(shape.matches([])).toBe(false);
+    expect(shape.matches(null)).toBe(false);
+    expect(shape.matches("string")).toBe(false);
+    expect(shape.matches({ id: "abc" })).toBe(true);
   });
 
   it("carries zod validation errors with path", () => {
@@ -410,8 +410,8 @@ describe("objectShape", () => {
     const r = ref.parse({ kind: "boom", id: "1" }, makeCtx());
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.errors[0].shape).toBe("myTag");
-      expect(r.errors[0].message).toBe("build failure");
+      expect(r.errors[0]!.shape).toBe("myTag");
+      expect(r.errors[0]!.message).toBe("build failure");
     }
   });
 
@@ -431,17 +431,17 @@ describe("objectShape", () => {
 describe("uuidShape", () => {
   it("matches non-empty strings without spaces", () => {
     const shape = uuidShape<Ctx>(() => null);
-    expect(shape.match("abc")).toBe(true);
-    expect(shape.match("")).toBe(false);
-    expect(shape.match("has space")).toBe(false);
-    expect(shape.match(123)).toBe(false);
+    expect(shape.matches("abc")).toBe(true);
+    expect(shape.matches("")).toBe(false);
+    expect(shape.matches("has space")).toBe(false);
+    expect(shape.matches(123)).toBe(false);
   });
 
   it("returns typed error when resolver returns null", () => {
     const shape = uuidShape<Ctx>(() => null);
     const r = shape.resolve("unknown", makeCtx());
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors[0].shape).toBe("uuid");
+    if (!r.ok) expect(r.errors[0]!.shape).toBe("uuid");
   });
 
   it("resolver receives the string input", () => {
@@ -459,25 +459,25 @@ describe("uuidShape", () => {
 describe("nameShape", () => {
   it("matches any string (including with spaces)", () => {
     const shape = nameShape<Ctx>(() => null);
-    expect(shape.match("a b c")).toBe(true);
-    expect(shape.match("")).toBe(true);
-    expect(shape.match(null)).toBe(false);
+    expect(shape.matches("a b c")).toBe(true);
+    expect(shape.matches("")).toBe(true);
+    expect(shape.matches(null)).toBe(false);
   });
 
   it("returns typed error with 'no entity with that name' when resolver returns null", () => {
     const shape = nameShape<Ctx>(() => null);
     const r = shape.resolve("whatever", makeCtx());
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors[0].message).toContain("no entity with that name");
+    if (!r.ok) expect(r.errors[0]!.message).toContain("no entity with that name");
   });
 });
 
 describe("instanceShape", () => {
   it("matches instances of the declared class", () => {
     const shape = instanceShape<Ctx>(LocalItem);
-    expect(shape.match(new LocalItem("1", "x"))).toBe(true);
-    expect(shape.match({ id: "1" })).toBe(false);
-    expect(shape.match(null)).toBe(false);
+    expect(shape.matches(new LocalItem("1", "x"))).toBe(true);
+    expect(shape.matches({ id: "1" })).toBe(false);
+    expect(shape.matches(null)).toBe(false);
   });
 
   it("passes the instance through unchanged", () => {

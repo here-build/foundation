@@ -242,7 +242,7 @@ export class DiscoveryTool {
 
   /** The capability's `configuration` fields, picked out of the call args (validated by `lower`). */
   private config(args: DiscoveryArgs): Record<string, unknown> {
-    const schema = (this.capability.spec as McpCapabilitySpec<never, never>).configuration ?? {};
+    const schema = (this.capability.spec as McpCapabilitySpec<Record<string, z.ZodType>, never>).configuration ?? {};
     return Object.fromEntries(Object.keys(schema).map((k) => [k, args[k]]));
   }
 
@@ -256,7 +256,8 @@ export class DiscoveryTool {
     // ONE zod object is the source — the capability's `configuration` (transforms and all) merged
     // with expr/intent. `toJSONSchema` derives the wire shape; nothing hand-assembled, and the
     // required config args land in `required` (the hand-built version wrongly required only `expr`).
-    const configShape = (this.capability.spec as McpCapabilitySpec<never, never>).configuration ?? {};
+    const configShape =
+      (this.capability.spec as McpCapabilitySpec<Record<string, z.ZodType>, never>).configuration ?? {};
     const input = z.object({
       intent: z
         .string()
