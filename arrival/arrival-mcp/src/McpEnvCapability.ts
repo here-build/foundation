@@ -42,6 +42,10 @@ export interface McpAnnotation {
    * getter is evaluated per-call with the live activation.
    */
   inputSchema?: readonly z.ZodType[];
+  /** Extra names this symbol is ALSO bound under (same fn + same `inputSchema` parsing). Aliases
+   *  are runtime bindings only — they never enter the catalog (`allAnnotations` keys by the primary
+   *  name), so they're undocumented shorthands an actor can call but the verb list won't advertise. */
+  aliases?: readonly string[];
 }
 
 /** A `CapabilitySpec` plus per-symbol MCP annotations (keyed by symbol name). */
@@ -86,8 +90,17 @@ function wrapSymbol(def: any, annotation: McpAnnotation | undefined): any {
  *  record and the builder (`(activation) => record`) `symbols` forms. */
 
 function withArgParsing(symbols: any, annotations: Record<string, McpAnnotation>): any {
-  const wrapRecord = (rec: Record<string, any>): Record<string, any> =>
-    Object.fromEntries(Object.entries(rec).map(([name, def]) => [name, wrapSymbol(def, annotations[name])]));
+  const wrapRecord = (rec: Record<string, any>): Record<string, any> => {
+    const out: Record<string, any> = {};
+    for (const [name, def] of Object.entries(rec)) {
+      const wrapped = wrapSymbol(def, annotations[name]);
+      out[name] = wrapped;
+      // Bind each alias to the SAME wrapped fn (identical arg-parsing). Catalog-invisible: only
+      // `name` is an annotation key, so `allAnnotations` never lists the alias.
+      for (const alias of annotations[name]?.aliases ?? []) out[alias] = wrapped;
+    }
+    return out;
+  };
 
   return typeof symbols === "function" ? (activation: any) => wrapRecord(symbols(activation)) : wrapRecord(symbols);
 }

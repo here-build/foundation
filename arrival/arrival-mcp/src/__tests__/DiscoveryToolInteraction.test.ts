@@ -171,4 +171,29 @@ describe("DiscoveryToolInteraction", () => {
       expect(result).toEqual(["'P:x'"]);
     });
   });
+
+  describe("symbol aliases", () => {
+    class AliasTool extends DiscoveryToolInteraction<Record<string, unknown>> {
+      static readonly name = "alias-tool";
+      readonly description = "alias test";
+      readonly contextSchema = {};
+      protected capability(): McpEnvCapability {
+        return new McpEnvCapability("alias-caps", {
+          symbols: { echo: { fn: () => "hi" } },
+          annotations: { echo: { description: "says hi", aliases: ["e2"] } },
+        });
+      }
+    }
+
+    it("binds aliases as callable symbols but keeps them out of the catalog", async () => {
+      // Both the primary and the alias resolve to the same fn.
+      expect(await new AliasTool(mockContext, undefined, { expr: "(echo)" }).executeTool()).toEqual(["'hi'"]);
+      expect(await new AliasTool(mockContext, undefined, { expr: "(e2)" }).executeTool()).toEqual(["'hi'"]);
+      // The verb catalog advertises only the primary name.
+      const schema = await new AliasTool(mockContext).getToolSchema();
+      const catalog = (schema.properties!.expr as { description: string }).description;
+      expect(catalog).toContain("(echo)");
+      expect(catalog).not.toContain("(e2)");
+    });
+  });
 });
