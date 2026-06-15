@@ -69,16 +69,12 @@ export {
   SchemeInexact as SchemeInexact,
   type SchemeNumeric as SchemeNumeric,
   RosettaConfig as RosettaConfig,
-  schemeNumbers as schemeNumbers,
-  rosettaNumbers as rosettaNumbers,
-  makeNumber as makeNumber,
   parseNumber as parseNumber,
 } from "./numbers.js";
 
 // Membrane (Codec-based boundary crossing)
 export {
   AnyNum as AnyNum,
-  Int as Int,
   Real as Real,
   Num as Num,
   Bool as Bool,
@@ -111,7 +107,6 @@ export {
   type Invocation,
   type StackFrame,
 } from "./evaluator.js";
-export { default as runGenerator } from "./evaluator.js";
 
 // Generator Exec Entry Point (LIPS parser + generator evaluator)
 // Use this for string-to-value evaluation with the generator evaluator

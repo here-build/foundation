@@ -31,7 +31,7 @@ import { nil } from "./types.js";
 
 // Re-export types needed for sandbox usage
 export { Environment as Environment } from "./Environment.js";
-export type { EnvironmentModule as EnvironmentModule, FallbackResolver as FallbackResolver } from "./bindings.js";
+export type { EnvironmentModule as EnvironmentModule } from "./bindings.js";
 export type { SchemeValue as SchemeValue } from "./types.js";
 
 /**
