@@ -126,6 +126,18 @@ export {
   AssemblePackError,
   AssemblePackTimeoutError,
 } from "@here.build/arrival-scheme/env";
+// The capability authoring kit: the `EnvCapability` class + `captureSymbols` (run an imperative
+// `defineXRosettas` helper against a recording host, capture its wiring as a declarative symbol
+// record). A consumer authoring its own host capability (e.g. sift's L0 bridge) reaches them via
+// this one barrel, same as the assembly toolkit above — no deep import of arrival-scheme/capability.
+export {
+  EnvCapability,
+  captureSymbols,
+  type Activation,
+  type CapabilitySpec,
+  type LoweredPack,
+  type SymbolDef,
+} from "@here.build/arrival-scheme/capability";
 export { defineRequireExtensionRosetta } from "./require-extension.js";
 export {
   buildChainEnv,

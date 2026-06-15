@@ -97,6 +97,11 @@ export interface ChainConfig {
   tap?: EvalTrace;
   mcp?: McpEffectResolver;
   extensions?: ChainExtension[];
+  /** Pre-lowered env packs applied to the chain env (P3: the successor seam to `extensions` — a
+   *  consumer lowers an `EnvCapability` to a pack and hands it in, rather than wrapping imperative
+   *  `defineRosetta` wiring in a `ChainExtension`). A lowered capability IS an `EnvPack`; these
+   *  assemble into the env through the SAME C3 pass as the extension-derived packs. */
+  packs?: EnvPack<ChainEnv>[];
   /** Host-armed registry of named extension packs for `(require/extension :name)`. Programs reach a
    *  capability by name; the host decides what each resolves to. Absent ⇒ the verb is unbound. */
   extensionRegistry?: ReadonlyMap<string, EnvPack<ChainEnv>>;
@@ -225,6 +230,7 @@ export class ChainEnvironment {
   readonly router: ModelRouter;
   readonly infer: InferFn;
   private readonly exts: ChainExtension[];
+  private readonly packs: EnvPack<ChainEnv>[];
   private readonly runId: string;
   private readonly tap: EvalTrace;
   private started = false;
@@ -273,6 +279,7 @@ export class ChainEnvironment {
         : {}),
     };
     this.exts = config.extensions ?? [];
+    this.packs = config.packs ?? [];
     // P3 + async env-build: both the env assembly and extension registration are deferred to async
     // init() — capability lowering + DAG assembly are async by construction. Nothing touches the env
     // between construction and init() (run() awaits init() first), so deferring the build is safe.
@@ -289,8 +296,11 @@ export class ChainEnvironment {
     // Roots reversed so the least-precedence-first apply order matches the extensions' array order
     // (C3 applies highest-precedence root last). Order is immaterial for disjoint registrations, but
     // preserving array order keeps behavior identical to the pre-P3 register/init loops.
-    const packs = this.exts.map((ext, i) => extensionToPack(ext, i, initCtx)).reverse();
-    this.assembledExts = await assembleEnv(this.env, packs);
+    const extPacks = this.exts.map((ext, i) => extensionToPack(ext, i, initCtx)).reverse();
+    // Pre-lowered capability packs (config.packs) assemble alongside the extension packs in ONE C3
+    // pass — they register disjoint verbs, so order is immaterial; their disposers are torn down LIFO
+    // by the same assembled env. This is the P3 seam: a consumer hands in a lowered EnvCapability.
+    this.assembledExts = await assembleEnv(this.env, [...this.packs, ...extPacks]);
   }
 
   /** Run a scheme program string (already loaded). Returns the JS-projected last value + trace.
