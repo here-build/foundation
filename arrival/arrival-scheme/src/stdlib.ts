@@ -67,8 +67,8 @@ import { SchemeVector } from "./SchemeVector.js";
 import {
   keywordAccessorResolver,
   NOT_FOUND,
-  sandboxedAccess,
-  SandboxViolationError,
+  accessMember,
+  InteropAccessError,
   SchemeJSObject,
 } from "./membrane.js";
 import { collapseProvenance, taintString } from "./provenance-collapse.js";
@@ -840,7 +840,7 @@ const native_lambda = _parse(
 // resolution. NOT a Scheme-facing builtin: the `.` / `get` verbs that exposed this
 // to Scheme code were removed (the host-language sweep) — Scheme reaches host data
 // only through the blessed `@` / `@?` / `@keys` membrane accessors now. Access still
-// routes through sandboxedAccess / SchemeJSObject.get so the membrane is enforced.
+// routes through accessMember / SchemeJSObject.get so the membrane is enforced.
 export const get = doc("get", function get(object, ...args) {
   let value;
   const len = args.length;
@@ -858,21 +858,21 @@ export const get = doc("get", function get(object, ...args) {
     } else if (name === "__code__" && is_function(object) && object.__code__ === undefined) {
       value = native_lambda;
     } else if (object instanceof SchemeJSObject) {
-      // Use SchemeJSObject.get() for sandboxed membrane access
+      // Use SchemeJSObject.get() for interop membrane access
       value = object.get(name);
     } else {
       // Route raw property access through the SAME isolation as `@` /
       // SchemeJSObject.get: blocked names (constructor, __proto__, prototype, …)
-      // and inherited props past a sandbox boundary (Function.prototype.*,
+      // and inherited props past the interop boundary (Function.prototype.*,
       // Array.prototype.*) must not be reachable via dot-notation — otherwise
       // `f.constructor("…")()` is RCE. Absent or blocked → undefined, the
       // chain-terminator the `value === undefined` check below already handles.
       const key = typeof name === "symbol" ? name : String(name);
       try {
-        const accessed = sandboxedAccess(object, key);
+        const accessed = accessMember(object, key);
         value = accessed === NOT_FOUND ? undefined : accessed;
       } catch (e) {
-        if (e instanceof SandboxViolationError) {
+        if (e instanceof InteropAccessError) {
           value = undefined;
         } else {
           throw e;
@@ -1909,11 +1909,11 @@ export function cxrAccessor(name: string): ((arg: SchemeValue) => SchemeValue) |
 }
 
 /**
- * Install the unbounded `c[ad]+r` catchall on an environment. Registered on the
- * two roots — `global_env` (here) and `sandboxedEnv` (sandbox-env.ts) — because
- * the sandbox has a null parent and does NOT inherit global_env's resolvers.
- * The catchall makes ANY accessor word resolvable, so whatever the sweet lens
- * fuses in unbounded mode (caddddr, caddadar, …) still evaluates.
+ * Install the unbounded `c[ad]+r` catchall on an environment. Registered on
+ * `global_env` (here) and `inferenceEnv` (inference-env.ts) — the inference env
+ * registers it on its own frame so the catchall is local, independent of what it
+ * inherits through the chain. The catchall makes ANY accessor word resolvable, so
+ * whatever the sweet lens fuses in unbounded mode (caddddr, caddadar, …) still evaluates.
  */
 export function registerCxrResolver(env: Environment): void {
   env.registerResolver({
@@ -1928,9 +1928,9 @@ export function registerCxrResolver(env: Environment): void {
 // accessor word (cadr … caddddr and beyond) is synthesized on lookup; declaring a
 // finite prefix as own bindings was just enumeration cosmetics.
 registerCxrResolver(global_env);
-// The `:key` keyword accessor — a catchall sibling to c[ad]+r. Registered on both
-// roots (global_env here, sandboxedEnv in sandbox-env.ts) since the sandbox has a
-// null parent and does not inherit resolvers. Owned by the polyglot capability.
+// The `:key` keyword accessor — a catchall sibling to c[ad]+r. Registered on
+// global_env here (and on the inference env in inference-env.ts). Owned by the
+// polyglot capability.
 global_env.registerResolver(keywordAccessorResolver);
 
 // -------------------------------------------------------------------------
