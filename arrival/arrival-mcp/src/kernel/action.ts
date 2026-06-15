@@ -1,16 +1,9 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import dedent from "dedent";
 
-import type { FieldSpec, InferProps } from "./refs.js";
-import { fieldJsonSchema, fieldParse } from "./refs.js";
 import type { ExactClass, MCPClientInfo, Services } from "./discovery.js";
-import {
-  checkSizeLimit,
-  classifyError,
-  DEFAULT_SIZE_LIMITS,
-  type SizeLimits,
-  withTimeout,
-} from "./errors.js";
+import { checkSizeLimit, classifyError, DEFAULT_SIZE_LIMITS, type SizeLimits, withTimeout } from "./errors.js";
+import { type FieldSpec, type InferProps, fieldJsonSchema, fieldParse } from "./refs.js";
 
 /**
  * Action tool — tuple-invoked JSON dispatch. NOT installed in any Scheme env.
@@ -24,7 +17,7 @@ import {
  *   - Svc      — ambient services from Hono context
  *   - Prep     — prep ctx extension; defaults to Svc (services passthrough)
  *
- * Composed from ActionClusters. Each cluster is authored independently against
+ * Composed of ActionClusters. Each cluster is authored independently against
  * a minimum Ctx; the tool composes clusters whose MinCtx ⊆ tool's Ctx.
  */
 
@@ -38,8 +31,7 @@ import {
 // Handlers get `Ctx & Required<Pick<Ctx, N[number]>>` — ctx with needed fields
 // guaranteed non-undefined — plus a typed props object. No runtime casts.
 
-type NarrowNeeds<Ctx, N extends readonly (keyof Ctx)[]> =
-  Ctx & Required<Pick<Ctx, N[number]>>;
+type NarrowNeeds<Ctx, N extends readonly (keyof Ctx)[]> = Ctx & Required<Pick<Ctx, N[number]>>;
 
 export interface Act<
   Ctx,
@@ -55,11 +47,7 @@ export interface Act<
   receiverKey?: keyof Ctx;
   desc: string;
   props?: P;
-  handle(
-    ctx: NarrowNeeds<Ctx, N>,
-    receiver: unknown,
-    props: InferProps<P>,
-  ): unknown | Promise<unknown>;
+  handle(ctx: NarrowNeeds<Ctx, N>, receiver: unknown, props: InferProps<P>): unknown | Promise<unknown>;
 }
 
 // ─── Action builder — typed-Ctx-carrying factory ────────────────────────────
@@ -103,9 +91,7 @@ export interface ActionClusterSpec<Ctx> {
  * compatible with (a subtype of) every tool that composes it — TS enforces
  * via standard assignment.
  */
-export function defineCluster<Ctx>(
-  spec: ActionClusterSpec<Ctx>,
-): ActionCluster<Ctx> {
+export function defineCluster<Ctx>(spec: ActionClusterSpec<Ctx>): ActionCluster<Ctx> {
   const builder = makeActBuilder<Ctx>();
   return {
     name: spec.name,
@@ -124,16 +110,11 @@ export interface ActionToolSpec<BaseCtx, Svc extends Services, Prep> {
    * Optional setup. If omitted, services pass through as prep.
    * Returns { prep, cleanup } — cleanup runs in finally regardless of success.
    */
-  prepare?: (
-    ctx: BaseCtx,
-    svc: Svc,
-  ) => Promise<{ prep: Prep; cleanup?: () => Promise<void> | void }>;
+  prepare?: (ctx: BaseCtx, svc: Svc) => Promise<{ prep: Prep; cleanup?: () => Promise<void> | void }>;
   /** Clusters whose Ctx is assignable from BaseCtx & Prep & {intent}. */
   clusters?: readonly ActionCluster<any>[];
   /** Inline actions authored directly on this tool (typed via builder callback). */
-  actions?: (
-    b: ActBuilder<BaseCtx & Prep & { intent: string }>,
-  ) => readonly Act<BaseCtx & Prep & { intent: string }>[];
+  actions?: (b: ActBuilder<BaseCtx & Prep & { intent: string }>) => readonly Act<BaseCtx & Prep & { intent: string }>[];
   additionalNotes?: string;
   /**
    * Optional. Runs after context refs resolve, before handler dispatch.
@@ -147,20 +128,14 @@ export interface ActionToolSpec<BaseCtx, Svc extends Services, Prep> {
    * transaction wrapping (e.g. plexus.transact) so all handlers run atomically.
    * Default: invoke runBatch() directly.
    */
-  wrapBatch?: (
-    ctx: BaseCtx & Prep & { intent: string },
-    runBatch: () => Promise<unknown[]>,
-  ) => Promise<unknown[]>;
+  wrapBatch?: (ctx: BaseCtx & Prep & { intent: string }, runBatch: () => Promise<unknown[]>) => Promise<unknown[]>;
   /**
    * Optional. Customizes the success-response shape. Receives the final ctx
    * and handler results. Default: `{ results }` under the outer success envelope.
    *
    * Legacy project-editing parity: returns `{context: reflectContext(), created: nonNull, ...}`.
    */
-  shapeResponse?: (
-    ctx: BaseCtx & Prep & { intent: string },
-    results: unknown[],
-  ) => Record<string, unknown>;
+  shapeResponse?: (ctx: BaseCtx & Prep & { intent: string }, results: unknown[]) => Record<string, unknown>;
   /**
    * Per-phase deadlines (milliseconds). Omitted → use defaults.
    */
@@ -179,7 +154,7 @@ export interface ActionToolSpec<BaseCtx, Svc extends Services, Prep> {
 }
 
 const DEFAULT_TIMEOUTS = {
-  prepare: 5_000,
+  prepare: 5000,
   handler: 30_000,
   batch: 60_000,
 } as const;
@@ -202,11 +177,9 @@ export interface ActionTool<BaseCtx, Svc extends Services, Prep> {
   register(cluster: ActionCluster<any>): ActionTool<BaseCtx, Svc, Prep>;
 }
 
-export function defineActionTool<
-  BaseCtx = Record<string, unknown>,
-  Svc extends Services = Services,
-  Prep = Svc,
->(spec: ActionToolSpec<BaseCtx, Svc, Prep>): ActionTool<BaseCtx, Svc, Prep> {
+export function defineActionTool<BaseCtx = Record<string, unknown>, Svc extends Services = Services, Prep = Svc>(
+  spec: ActionToolSpec<BaseCtx, Svc, Prep>,
+): ActionTool<BaseCtx, Svc, Prep> {
   // Inline actions become an anonymous cluster.
   const clusters: ActionCluster<any>[] = [...(spec.clusters ?? [])];
   if (spec.actions) {
@@ -347,11 +320,7 @@ export interface ValidationError {
 
 export interface CompiledActionTool<Svc extends Services> {
   getToolDescription(clientInfo?: MCPClientInfo): Tool;
-  dispatch(
-    request: ActionRequest,
-    svc: Svc,
-    clientInfo?: MCPClientInfo,
-  ): Promise<ActionResult>;
+  dispatch(request: ActionRequest, svc: Svc, clientInfo?: MCPClientInfo): Promise<ActionResult>;
 }
 
 export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
@@ -378,8 +347,7 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
           properties: {
             intent: {
               type: "string",
-              description:
-                "Required. What you're accomplishing. Shown in the studio UI as live AI presence.",
+              description: "Required. What you're accomplishing. Shown in the studio UI as live AI presence.",
             },
             actions: {
               type: "array",
@@ -410,8 +378,8 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
       const actionsArr = Array.isArray(request.actions) ? request.actions : [];
       try {
         checkSizeLimit(actionsArr.length, limits.maxActions, "batch action count");
-      } catch (e) {
-        const err = classifyError(e);
+      } catch (error) {
+        const err = classifyError(error);
         return {
           success: false,
           validation: "failed",
@@ -451,8 +419,8 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
           );
           prep = prepared.prep;
           cleanup = prepared.cleanup;
-        } catch (e) {
-          const err = classifyError(e, "prepare");
+        } catch (error) {
+          const err = classifyError(error, "prepare");
           return {
             success: false,
             validation: "failed",
@@ -495,8 +463,8 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
         const errors: ValidationError[] = [];
 
         const actions = Array.isArray(request.actions) ? request.actions : [];
-        for (let i = 0; i < actions.length; i++) {
-          const call = normalizeActionCall(actions[i]);
+        for (const [i, action] of actions.entries()) {
+          const call = normalizeActionCall(action);
           if ("error" in call) {
             errors.push({ actionIndex: i, message: call.error });
             continue;
@@ -524,12 +492,7 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
             });
             continue;
           }
-          const propsResult = parseProps(
-            pick.act.props ?? {},
-            call.props,
-            fullCtx,
-            limits.maxStringFieldSize,
-          );
+          const propsResult = parseProps(pick.act.props ?? {}, call.props, fullCtx, limits.maxStringFieldSize);
           if (!propsResult.ok) {
             for (const e of propsResult.errors) {
               errors.push({ actionIndex: i, actionName: call.name, ...e });
@@ -562,12 +525,12 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
                 act.name,
               );
               results.push(handlerResult);
-            } catch (e) {
+            } catch (error) {
               // Attach failure info so wrapBatch callers can surface it.
               const err = new BatchFailureError(
                 i,
                 act.name,
-                e instanceof Error ? e.message : String(e),
+                error instanceof Error ? error.message : String(error),
                 results,
                 resolved.length,
               );
@@ -585,21 +548,21 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
             "dispatch",
             tool.name,
           );
-        } catch (e) {
-          if (e instanceof BatchFailureError) {
+        } catch (error) {
+          if (error instanceof BatchFailureError) {
             return {
               success: false,
               partial: true,
               intent: request.intent,
-              executed: e.executed,
-              total: e.total,
-              results: e.priorResults,
-              failedAction: { index: e.actionIndex, name: e.actionName, error: e.error },
+              executed: error.executed,
+              total: error.total,
+              results: error.priorResults,
+              failedAction: { index: error.actionIndex, name: error.actionName, error: error.error },
             };
           }
           // Timeout or wrapBatch-level failure — surface as failedAction so the
           // LLM sees a structured, diagnosable error rather than a raw throw.
-          const err = classifyError(e);
+          const err = classifyError(error);
           return {
             success: false,
             partial: true,
@@ -620,8 +583,8 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
         if (cleanup) {
           try {
             await cleanup();
-          } catch (e) {
-            console.error(`[action] cleanup failed for ${tool.name}:`, e);
+          } catch (error) {
+            console.error(`[action] cleanup failed for ${tool.name}:`, error);
           }
         }
       }
@@ -631,9 +594,7 @@ export function compileActionTool<BaseCtx, Svc extends Services, Prep>(
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function normalizeActionCall(
-  raw: unknown,
-): { name: string; props: Record<string, unknown> } | { error: string } {
+function normalizeActionCall(raw: unknown): { name: string; props: Record<string, unknown> } | { error: string } {
   if (!Array.isArray(raw) || raw.length === 0) {
     return { error: `expected [name, propsObject] tuple, got ${typeOf(raw)}` };
   }
@@ -643,16 +604,11 @@ function normalizeActionCall(
   }
   const propsRaw = rest.length === 0 ? {} : rest[0];
   const props =
-    propsRaw && typeof propsRaw === "object" && !Array.isArray(propsRaw)
-      ? (propsRaw as Record<string, unknown>)
-      : {};
+    propsRaw && typeof propsRaw === "object" && !Array.isArray(propsRaw) ? (propsRaw as Record<string, unknown>) : {};
   return { name, props };
 }
 
-function pickReceiver<Ctx>(
-  bucket: Act<Ctx>[],
-  ctx: Ctx,
-): { act: Act<Ctx>; receiver: unknown } | { error: string } {
+function pickReceiver<Ctx>(bucket: Act<Ctx>[], ctx: Ctx): { act: Act<Ctx>; receiver: unknown } | { error: string } {
   for (const act of bucket) {
     if (!act.on) {
       return { act, receiver: undefined };
@@ -682,8 +638,7 @@ function parseContextFields(
   ctx: Record<string, unknown>,
   phase: "primitive" | "ref",
 ): { ok: true; value: Record<string, unknown> } | { ok: false; errors: ValidationError[] } {
-  const obj =
-    typeof input === "object" && input != null ? (input as Record<string, unknown>) : {};
+  const obj = typeof input === "object" && input != null ? (input as Record<string, unknown>) : {};
   const out: Record<string, unknown> = {};
   const errors: ValidationError[] = [];
   for (const [key, field] of Object.entries(schema)) {
@@ -739,28 +694,20 @@ function contextProps(schema: Record<string, FieldSpec<any>>): Record<string, ob
   return out;
 }
 
-function renderActionsDescription(
-  byName: Map<string, Act<any>[]>,
-  additionalNotes?: string,
-): string {
+function renderActionsDescription(byName: Map<string, Act<any>[]>, additionalNotes?: string): string {
   const lines: string[] = [];
   for (const [name, bucket] of byName.entries()) {
     const receivers = bucket.filter((a) => a.on).map((a) => a.on!.name);
     const receiverNote = receivers.length > 0 ? ` — receiver: ${receivers.join(" | ")}` : "";
     lines.push(`  ["${name}", {...props}]${receiverNote} — ${bucket[0].desc}`);
   }
-  return (
-    dedent`
+  return `${dedent`
       List of actions to execute sequentially.
       Each action is a tuple: [name, propsObject].
       Batch is stop-on-first-failure — a failing action halts the rest; prior actions persist.
 
       Available:
-    ` +
-    "\n" +
-    lines.join("\n") +
-    (additionalNotes ? `\n\n${dedent(additionalNotes)}` : "")
-  );
+    `}\n${lines.join("\n")}${additionalNotes ? `\n\n${dedent(additionalNotes)}` : ""}`;
 }
 
 function renderActionItemSchemas(byName: Map<string, Act<any>[]>): object[] {
@@ -787,9 +734,7 @@ function propsRecordSchema(props: Record<string, FieldSpec>): object {
     const optional = "kind" in field ? field.optional === true : false;
     if (!optional) required.push(key);
   }
-  return required.length > 0
-    ? { type: "object", properties, required }
-    : { type: "object", properties };
+  return required.length > 0 ? { type: "object", properties, required } : { type: "object", properties };
 }
 
 function typeOf(input: unknown): string {

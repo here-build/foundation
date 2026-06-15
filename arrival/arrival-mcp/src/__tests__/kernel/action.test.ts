@@ -287,11 +287,13 @@ describe("compileActionTool — getToolDescription / schema", () => {
 
   it("actions oneOf contains an item schema per action", () => {
     const d = compileActionTool(buildTool()).getToolDescription();
+    // Draft 2020-12 positional tuples use `prefixItems` (the Anthropic tool-use form), not draft-07
+    // `items`-array; the first prefix slot pins the action name.
     const items = (d.inputSchema as unknown as {
-      properties: { actions: { items: { oneOf: { items: { const?: string }[] }[] } } };
+      properties: { actions: { items: { oneOf: { prefixItems: { const?: string }[] }[] } } };
     }).properties.actions.items.oneOf;
     expect(items).toHaveLength(1);
-    expect(items[0].items[0]).toEqual({ const: "create" });
+    expect(items[0].prefixItems[0]).toEqual({ const: "create" });
   });
 
   it("renders action-description with additionalNotes", () => {

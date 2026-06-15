@@ -367,7 +367,7 @@ export type Primitive =
   | StringSpec
   | NumberSpec
   | BooleanSpec
-  | EnumSpec<readonly string[]>
+  | EnumSpec
   | StringRecordSpec
   | ScalarSpec
   | RawListSpec;
