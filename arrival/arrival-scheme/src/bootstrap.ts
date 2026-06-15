@@ -7,12 +7,12 @@
  * Previously loaded from lib/bootstrap.scm, now embedded directly
  * for faster startup and no file I/O dependency.
  *
- * SRFI bodies live in their own observable modules (src/env/srfi/*, src/env/macros.ts)
+ * SRFI bodies live in their own observable modules (src/env/srfi/*, src/env/polyglot.ts)
  * as exported `*_SCM` consts; BOOTSTRAP_SCHEME concatenates them so each SRFI has a
  * single definition site. Non-SRFI core stays inline below.
  */
 
-import { THREADING_SCM } from "./env/macros.js";
+import { POLYGLOT_SCM } from "./env/polyglot.js";
 import { SRFI1_SCM } from "./env/srfi/srfi-1.js";
 import { SRFI2_SCM } from "./env/srfi/srfi-2.js";
 import { SRFI8_SCM } from "./env/srfi/srfi-8.js";
@@ -166,7 +166,7 @@ export const BOOTSTRAP_SCHEME = `
             expr
             \`(. ,(string->symbol (car parts)) ,@(cdr parts))))))
 
-${THREADING_SCM}
+${POLYGLOT_SCM}
 
 ${SRFI26_SCM}
 

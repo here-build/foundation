@@ -1,23 +1,31 @@
-// @here.build/arrival-scheme/macros — threading & composition idiom macros,
-// as a palette pack. Pure SchemePackSpec: name + bootstrap scheme source.
+// @here.build/arrival-scheme/polyglot — the polyglot idiom pack.
 //
-// LLMs and humans reach for whichever Lisp/FP idiom they know, so the family is
-// accepted whole rather than forcing one dialect:
+// One principle: LLMs and humans reach for whichever Lisp/FP idiom they already
+// know, so accept the whole family rather than forcing one dialect. Today that
+// family is threading & composition:
 //   ->  / ~>   thread the value as the FIRST argument  (Clojure -> , Racket ~>)
 //   ->> / ~>>  thread the value as the LAST argument    (Clojure ->>, Racket ~>>)
 //   compose / comp   right-to-left composition  ((compose f g) x) => (f (g x))
 //   pipe / flow      left-to-right composition   ((pipe f g) x)    => (g (f x))
 //
-// Wiring-only (no resources) → pause-trivial. NOTE: scoped to the self-contained
-// idiom family — cut/cute (which need gensym + JS interop) stay out of this atomic pack.
+// CONCEPTUAL SIBLING — the `(:key obj)` keyword accessor. It belongs to the same
+// polyglot principle (Clojure-style keyword-as-accessor) and threads beautifully
+// with this family: (->> p :versions last :state). It is NOT defined here because
+// it is HOST-level syntax dispatch — `Environment.get` returns a JS pluck closure
+// for any `:`-prefixed symbol (membrane.ts does the provenance-stamped read), so
+// it cannot live in a scheme prelude without lifting dispatch out of the env. The
+// dispatch stays in `Environment.get`; this pack is its documented conceptual home.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `THREADING_SCM` and
+// Wiring-only (no resources) → pause-trivial. NOTE: scoped to the self-contained
+// idiom family — cut/cute (which need gensym + JS interop) ship as SRFI-26 instead.
+//
+// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `POLYGLOT_SCM` and
 // concatenates it, so this module is the sole definition site. It used to be
 // byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
 
 import { EnvCapability } from "./capability.js";
 
-export const THREADING_SCM = `
+export const POLYGLOT_SCM = `
 ;; -----------------------------------------------------------------------------
 ;; Threading & composition (polyglot)
 ;; -----------------------------------------------------------------------------
@@ -70,5 +78,5 @@ export const THREADING_SCM = `
 (define-macro (~>> x . forms) \`(->> ,x ,@forms))
 `;
 
-/** Threading & composition idiom macros. Prelude-only module-singleton capability. */
-export default new EnvCapability("scheme/macros-threading", { prelude: THREADING_SCM });
+/** The polyglot idiom pack (threading & composition). Prelude-only module-singleton capability. */
+export default new EnvCapability("scheme/polyglot", { prelude: POLYGLOT_SCM });

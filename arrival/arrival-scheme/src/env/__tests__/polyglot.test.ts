@@ -1,16 +1,16 @@
-// macros palette pack — assemble onto a real env, then RUN the threading macros.
+// polyglot pack — assemble onto a real env, then RUN the threading macros.
 import { exec, sandboxedEnv } from "../../index.js";
 import { assembleEnv } from "../kernel.js";
 import { type SchemeEnv } from "../scheme-env.js";
 import { describe, expect, it } from "vitest";
 
-import macros from "../macros.js";
+import polyglot from "../polyglot.js";
 
-describe("@here.build/arrival-scheme/macros", () => {
+describe("@here.build/arrival-scheme/polyglot", () => {
   it("installs the idiom macros and they thread correctly", async () => {
-    const env = sandboxedEnv.inherit("macros-test");
+    const env = sandboxedEnv.inherit("polyglot-test");
     const evalScheme = (e: SchemeEnv, src: string) => exec(src, { env: e as never });
-    await assembleEnv(env as unknown as SchemeEnv, [macros.lower({ evalScheme })]);
+    await assembleEnv(env as unknown as SchemeEnv, [polyglot.lower({ evalScheme })]);
 
     const num = async (src: string) => Number((await exec(src, { env }))[0]);
     // -> threads FIRST: (+ 5 1)=6 ; (* 6 2)=12
@@ -24,7 +24,7 @@ describe("@here.build/arrival-scheme/macros", () => {
   });
 
   it("exports a well-formed SchemePackSpec", () => {
-    expect(macros.name).toBe("scheme/macros-threading");
-    expect(macros.spec.prelude).toContain("define-macro (->");
+    expect(polyglot.name).toBe("scheme/polyglot");
+    expect(polyglot.spec.prelude).toContain("define-macro (->");
   });
 });
