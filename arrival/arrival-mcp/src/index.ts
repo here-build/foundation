@@ -9,6 +9,9 @@ export * from "./ActionToolInteraction.js";
 // its catalog + input schema — so the transport offloads the whole verb definition here,
 // and this package can compact toward a standalone MCP lib.
 export * from "./McpEnvCapability.js";
+// Value-shaped discovery tool: `new DiscoveryTool(name, capability, {description})` — the
+// subclass-free shell that derives schema + catalog + eval from the one aggregating capability.
+export * from "./DiscoveryTool.js";
 export * from "./dispatch.js";
 export * from "./ArrivalServer.js";
 export * from "./resources/index.js";
