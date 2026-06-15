@@ -2,9 +2,7 @@ import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
 import { global_env, env as userEnv, registerCxrResolver } from "./stdlib.js";
 import { nil } from "./types.js";
-import { readMember, hasMember, memberKeys, keywordAccessorResolver } from "./membrane.js";
-import { is_false } from "./guards.js";
-import { structuralEqual } from "./structural-equal.js";
+import { keywordAccessorResolver } from "./membrane.js";
 
 // The inference-plane base env: the totalic environment where models author and
 // evaluate Scheme. NOT a security fence — the Graal-thesis sweep deleted every
@@ -33,14 +31,9 @@ export const inferenceEnv = new Environment(
     // car/cdr/filter/map/reduce — the SchemeJSArray-aware + FL-dispatching interop
     // overlay — moved to the `scheme/fl-interop` capability (env/fl-interop.ts),
     // assembled onto this env in the bootstrap chain (bridge.ts initBridge).
-    // Polyglot member access — `@` / `@?` / `@keys` are the read/has/keys surface
-    // of the interop protocol (Graal `InteropLibrary`). The implementation lives
-    // in membrane.ts (`readMember`/`hasMember`/`memberKeys`), shared verbatim with
-    // the `:key` keyword accessor — one protocol, two syntaxes. Origin-agnostic:
-    // it reads a dict, a membrane-exposed foreign value, or an array uniformly.
-    "@": readMember,
-    "@?": hasMember,
-    "@keys": memberKeys,
+    // `@` / `@?` / `@keys` (polyglot member access) are no longer shadowed here —
+    // the polyglot capability binds the identical `readMember`/`hasMember`/`memberKeys`
+    // on user_env, reachable by inheritance. (`:key` keeps its resolver below.)
     // ── Type conversion (R7RS standard, models expect these) ──
     "symbol->string": (sym: any) => {
       if (sym && typeof sym === "object" && "__name__" in sym) {
@@ -74,29 +67,20 @@ export const inferenceEnv = new Environment(
       (haystack?.__string__ ?? String(haystack)).includes(needle?.__string__ ?? String(needle)),
     "string-ref": (s: any, i: any) => (s?.__string__ ?? String(s))[i?.valueOf?.() ?? i] ?? nil,
 
-    // ── Deep equality ──
-    // Structural walk with an occurs-check (see structuralEqual) — replaces the
-    // old JSON.stringify fallback that threw a native "circular structure" error
-    // on cyclic input. Always returns a boolean.
-    "equal?": (a: any, b: any) => structuralEqual(a, b, new Map()),
+    // `equal?` is no longer shadowed here — the equality cluster binds the identical
+    // `structuralEqual(a, b)` (its `seen` map defaults to `new Map()`), reachable by
+    // inheritance.
 
     // first/last/second/third, assoc, sort, length — the array-aware (JS-array +
     // LIPS-pair) nil-tolerant accessors — moved to the `scheme/fl-interop`
     // capability (env/fl-interop.ts), assembled onto this env in the bootstrap
     // chain (bridge.ts initBridge), alongside car/cdr/filter/map/reduce.
 
-    // ── Control flow (R7RS) ──
-    "when": function when(this: any, ...args: any[]) {
-      // (when test expr ...) — if test is truthy, evaluate exprs, return last
-      // This needs to be a macro but we can approximate for sandbox use
-      const [test, ...body] = args;
-      return !is_false(test) ? body[body.length - 1] : nil;
-    },
-    "unless": function unless(this: any, ...args: any[]) {
-      const [test, ...body] = args;
-      return is_false(test) ? body[body.length - 1] : nil;
-    },
-
+    // `when` / `unless` are no longer shadowed here — they are real `define-macro`s
+    // (with evaluator special-forms), so the macro is resolved before any frame
+    // lookup. The inline procedure approximations they replaced were dead (never
+    // reached) AND broken (a procedure gets pre-evaluated args, so the "conditional"
+    // could not condition).
   },
   // Inherit the full env (user_env) instead of being a curated null-parent island.
   // Post-sweep the full env leaks nothing host-reaching (eval/load/new deleted, the

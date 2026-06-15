@@ -32,9 +32,8 @@
 
 import { describe, expect, it } from "vitest";
 import { is_nil } from "../guards";
-import { isSchemeValue, toJS } from "../membrane";
+import { hasMember, isSchemeValue, readMember, toJS } from "../membrane";
 import { schemeToJs } from "../rosetta";
-import { sandboxedEnv } from "../sandbox-env";
 import { COMBINATOR_OPS } from "../env/combinators";
 import { LIST_OPS } from "../env/lists";
 import { Pair } from "../Pair";
@@ -298,20 +297,20 @@ describe("sandbox-env.ts — `=== nil` identity-equality sites", () => {
   // which is silently empty rather than visibly invalid.
   // Note: sandboxedEnv `@` and `@?` accept *any* JS value as `key`, so the
   // guard is on the membrane boundary — clone-leak is observable.
-  it("sandboxedEnv '@' obj nil-clone — should return nil, not String(Nil) lookup (sandbox-env.ts:123)", () => {
-    // We invoke the bare accessor function. `sandboxedEnv.get(name)` returns
-    // the JS impl directly; we use the internal `@` accessor.
-    const accessor = sandboxedEnv.get("@") as (obj: unknown, key: unknown) => unknown;
+  it("'@' obj nil-clone — should return nil, not String(Nil) lookup (membrane.readMember)", () => {
+    // The `@` accessor IS membrane's `readMember` (the polyglot capability binds it
+    // verbatim); invoke it directly rather than through an async-assembled env.
+    const accessor = readMember as (obj: unknown, key: unknown) => unknown;
     const result = accessor({ "()": "PHANTOM" }, cloneNil());
     // A nil-key access should be nil (not the phantom value at key "()").
     expect(is_nil(result)).toBe(true);
   });
 
-  // sandbox-env.ts:163 — Same shape as :123 but for the `@?` "has" accessor.
-  // A Nil clone bypasses the guard and `sandboxedHas(obj, "()")` runs;
+  // Same shape but for the `@?` "has" accessor (membrane's `hasMember`).
+  // A Nil clone bypasses the guard and `hasMember(obj, "()")` runs;
   // returns true if the object happens to have the literal key "()".
-  it("sandboxedEnv '@?' obj nil-clone — should return false, not has(\"()\") (sandbox-env.ts:163)", () => {
-    const accessor = sandboxedEnv.get("@?") as (obj: unknown, key: unknown) => boolean;
+  it("'@?' obj nil-clone — should return false, not has(\"()\") (membrane.hasMember)", () => {
+    const accessor = hasMember as (obj: unknown, key: unknown) => boolean;
     const result = accessor({ "()": "PHANTOM" }, cloneNil());
     expect(result).toBe(false);
   });
