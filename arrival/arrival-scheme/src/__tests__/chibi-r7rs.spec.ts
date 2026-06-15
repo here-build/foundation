@@ -99,7 +99,8 @@ const EXCLUDED_TESTS: (string | RegExp)[] = [
   // Record types
   "define-record-type",
 
-  // eval/environment functions that need special support
+  // eval/environment reification — omitted by design (arrival is pure dataflow;
+  // env-as-value reaches the interpreter host, which the membrane forbids)
   "environment",
   "null-environment",
   "scheme-report-environment",

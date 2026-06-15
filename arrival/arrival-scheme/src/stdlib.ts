@@ -1356,10 +1356,6 @@ export const global_env = new Environment(
     // hygiene redirect to evalDefine WITH a test that actually reaches it.
     define: genMacroWrapper("define"),
     // ------------------------------------------------------------------
-    "null-environment": doc("null-environment", function () {
-      return global_env.inherit("null");
-    }),
-    // ------------------------------------------------------------------
     values: doc("values", function values(...args) {
       return Values.from(args);
     }),
