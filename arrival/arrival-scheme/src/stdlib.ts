@@ -1725,12 +1725,6 @@ export const global_env = new Environment(
     // ------------------------------------------------------------------
     typecheck: doc(null, typecheck),
     // ------------------------------------------------------------------
-    "set-special!": doc("set-special!", function (seq, name, type = specials.LITERAL) {
-      typecheck("set-special!", seq, "string", 1);
-      typecheck("set-special!", name, "symbol", 2);
-      specials.append(seq.valueOf(), name, type);
-    }),
-    // ------------------------------------------------------------------
     get,
     ".": get,
     // ------------------------------------------------------------------
