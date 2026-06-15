@@ -18,7 +18,7 @@ import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./SchemeBool.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeVector } from "./SchemeVector.js";
-import { global_env as lipsGlobalEnv, env as userEnv, exec } from "./stdlib.js";
+import { global_env, env as userEnv, exec } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { SchemeString } from "./SchemeString.js";
 import { SchemeSymbol } from "./SchemeSymbol.js";
@@ -1633,7 +1633,7 @@ export const wrappedOps = {
     // path via the `is_promise(value)` yield in `evaluatePair`/`evaluateArgs`,
     // and even the operator-position case `((eval (quote +)) 2 3)` awaits the
     // promise before applying — so the Scheme-level result is unchanged.
-    return generatorExec(expr as SchemeValue, { env: env || lipsGlobalEnv });
+    return generatorExec(expr as SchemeValue, { env: env || global_env });
   },
 
   // ============================================================================
@@ -1795,7 +1795,7 @@ export function initBridge(): Promise<void> {
   markBridgeInitialized();
 
   // Apply TypeScript bindings synchronously
-  applyToEnvironment(lipsGlobalEnv);
+  applyToEnvironment(global_env);
 
   // Evaluate bootstrap Scheme code asynchronously, then expose a curated set of
   // bootstrap-defined bindings in the sandbox. They live in user_env; copy the

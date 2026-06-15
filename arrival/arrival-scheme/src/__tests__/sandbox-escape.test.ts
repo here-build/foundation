@@ -32,9 +32,9 @@ import {
 // CRITICAL: sandbox escape vectors
 // ============================================================================
 //
-// Audit finding: `bridge.ts:1342` — `eval(expr, env?) { return evaluate(expr, { env: env || lipsGlobalEnv }) }`
+// Audit finding: `bridge.ts:1342` — `eval(expr, env?) { return evaluate(expr, { env: env || global_env }) }`
 // When Scheme code calls `(eval x)` with no second argument, the host-side
-// `env` parameter is `undefined`, so eval falls back to `lipsGlobalEnv`. The
+// `env` parameter is `undefined`, so eval falls back to `global_env`. The
 // global env contains EVERY wrappedOps entry (~hundreds of names: `+`, `*`,
 // `load`, `set-obj!`, `new`, `instanceof`, plus the entire LIPS bootstrap).
 // Any of those are reachable from inside the sandbox via
@@ -43,20 +43,20 @@ import {
 
 describe("CRITICAL: sandbox escape vectors", () => {
   /**
-   * The smoking gun. `+` is in wrappedOps, so it's in lipsGlobalEnv. The
+   * The smoking gun. `+` is in wrappedOps, so it's in global_env. The
    * sandbox doesn't export `+` by JS-name but it does export `(eval)`; calling
    * `(eval (quote +))` reaches into the global env and hands the sandbox the
    * unwrapped JS function. Probe confirmed: returned value IS callable, and
    * `f(2,3)` returns 5 (i.e., it's the real arithmetic op, not a stub).
    *
    * Secure invariant: eval with no env arg must default to the CALLER's env
-   * (i.e., the sandbox), NOT to lipsGlobalEnv. Inside the sandbox, looking up
+   * (i.e., the sandbox), NOT to global_env. Inside the sandbox, looking up
    * `+` should fail with Unbound — `+` isn't an exported sandbox binding.
    */
   it("eval defaults to sandbox env, NOT global, when no env arg", async () => {
     await initBridge();
     // `+` is NOT in sandboxedEnv directly (sandbox uses scheme arithmetic),
-    // but IS in lipsGlobalEnv (via applyToEnvironment in initBridge).
+    // but IS in global_env (via applyToEnvironment in initBridge).
     // Post-#43 fix: eval is no longer in sandboxedEnv (FORBIDDEN_IN_SANDBOX
     // strip in sandbox-env.ts), so the eval-escape path is closed entirely —
     // the throw is Unbound on `eval` itself, not on `+`.
@@ -83,7 +83,7 @@ describe("CRITICAL: sandbox escape vectors", () => {
    * `load` and `set-obj!` are in FORBIDDEN_IN_SANDBOX (modules/pure-scheme.ts:336,353)
    * — explicitly listed as "should not be available". They're not bound under
    * those names in sandboxedEnv, but the LIPS bootstrap registers them in
-   * lipsGlobalEnv, so the eval-escape reaches them anyway. Probe confirmed
+   * global_env, so the eval-escape reaches them anyway. Probe confirmed
    * both return JS Function from `(eval (quote load))` / `(eval (quote set-obj!))`.
    *
    * `set-obj!` is the worst of the three: it can install arbitrary properties
@@ -406,7 +406,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
 describe("registry poisoning vectors", () => {
   /**
    * Probe confirmed: `(eval (quote AValue))` throws Unbound — AValue is not
-   * registered in lipsGlobalEnv under that name. Good. This test pins that:
+   * registered in global_env under that name. Good. This test pins that:
    * any future PR that exposes AValue (e.g., as part of a debug pack) MUST NOT
    * land without also wrapping it.
    */

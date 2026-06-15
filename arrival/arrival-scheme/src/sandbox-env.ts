@@ -1,6 +1,6 @@
 import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
-import { global_env as lipsGlobalEnv, registerCxrResolver } from "./stdlib.js";
+import { global_env, registerCxrResolver } from "./stdlib.js";
 import { Nil, nil } from "./types.js";
 import { RAMDA_FUNCTIONS } from "./ramda-functions.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
@@ -12,12 +12,12 @@ import { AValue } from "./AValue.js";
 import { SchemeString } from "./SchemeString.js";
 import { structuralEqual } from "./structural-equal.js";
 
-const lipsCar = lipsGlobalEnv.get("car", { throwError: false }) as Function;
-const lipsCdr = lipsGlobalEnv.get("cdr", { throwError: false }) as Function;
-const lipsFilter = lipsGlobalEnv.get("filter", { throwError: false }) as Function;
-const lipsMap = lipsGlobalEnv.get("map", { throwError: false }) as Function;
-const lipsReduce = lipsGlobalEnv.get("reduce", { throwError: false }) as Function;
-const lipsJoin = lipsGlobalEnv.get("join", { throwError: false }) as Function;
+const lipsCar = global_env.get("car", { throwError: false }) as Function;
+const lipsCdr = global_env.get("cdr", { throwError: false }) as Function;
+const lipsFilter = global_env.get("filter", { throwError: false }) as Function;
+const lipsMap = global_env.get("map", { throwError: false }) as Function;
+const lipsReduce = global_env.get("reduce", { throwError: false }) as Function;
+const lipsJoin = global_env.get("join", { throwError: false }) as Function;
 
 /**
  * Provenance taint for value-collapsing string combinators.
@@ -135,8 +135,8 @@ async function asyncFLReduce(fn: Function, init: any, structure: any): Promise<a
 //   (2) Direct-spread path: THIS file. `sandboxedEnv` was constructed by
 //       spreading `...wrappedOps` directly (bridge.ts:327 export). `wrappedOps`
 //       includes `eval` (bridge.ts:1430 — `eval(expr, env?) { evaluate(expr,
-//       { env: env || lipsGlobalEnv }) }`). Sandbox code calling `(eval x)`
-//       with no second argument fell back to `lipsGlobalEnv` — the FULLY
+//       { env: env || global_env }) }`). Sandbox code calling `(eval x)`
+//       with no second argument fell back to `global_env` — the FULLY
 //       UNSANDBOXED global env containing every LIPS bootstrap entry. From
 //       there, `(eval (quote +))` returned an unwrapped JS function;
 //       `(eval (quote set-obj!))` handed the sandbox arbitrary host-property-
@@ -153,7 +153,7 @@ async function asyncFLReduce(fn: Function, init: any, structure: any): Promise<a
 // Adding/removing a name here is the one lever that changes what the sandbox
 // strips from `wrappedOps`.
 export const FORBIDDEN_IN_SANDBOX = new Set([
-  // The primary escape vector this fix closes. With `env || lipsGlobalEnv`
+  // The primary escape vector this fix closes. With `env || global_env`
   // fallback, `(eval (quote name))` reaches any global LIPS binding —
   // including `+`, `load`, `set-obj!`, the whole surface. Eval-with-explicit-
   // env still works for non-sandbox callers; sandbox callers no longer have
@@ -186,7 +186,7 @@ export const sandboxedEnv = new Environment(
   "sandbox",
   {
     ...RAMDA_FUNCTIONS,
-    ...Object.fromEntries(SAFE_BUILTINS.map((name) => [name, lipsGlobalEnv.get(name, { throwError: false })])),
+    ...Object.fromEntries(SAFE_BUILTINS.map((name) => [name, global_env.get(name, { throwError: false })])),
     ...safeWrappedOps,
     nil,
     // SchemeJSArray-aware car/cdr — unwrap lazy array wrappers, delegate pairs to LIPS
@@ -314,8 +314,8 @@ export const sandboxedEnv = new Environment(
     },
     "string->symbol": (str: any) => {
       const s = typeof str === "string" ? str : str?.__string__ ?? String(str);
-      return lipsGlobalEnv.get("string->symbol", { throwError: false })
-        ? lipsGlobalEnv.get("string->symbol")(s)
+      return global_env.get("string->symbol", { throwError: false })
+        ? global_env.get("string->symbol")(s)
         : Symbol.for(s);
     },
 

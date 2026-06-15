@@ -11,7 +11,7 @@
  * with no arrival-internal imports, so it sits cycle-neutral.
  *
  * The flag is realm-global on purpose: the bridge bootstrap mutates global
- * singletons (lipsGlobalEnv, sandboxedEnv) exactly once per realm, so every
+ * singletons (global_env, sandboxedEnv) exactly once per realm, so every
  * `Environment` reads the same flag. This is what makes the re-entrant inner
  * `exec(BOOTSTRAP_SCHEME)` safe — by the time it runs, the flag already reads
  * true (bridge.ts sets it at the top of initBridge, before the bootstrap exec),
