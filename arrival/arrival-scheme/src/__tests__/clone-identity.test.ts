@@ -24,7 +24,7 @@
  *   - quotes the file:line of the bug source,
  *   - mints a nil clone via `nil.withProvenance(new Set([42]))`,
  *   - exercises ONLY the path gated by that `=== nil` check,
- *   - asserts the value `is_nil`-equivalent and behaviour-equivalent should produce.
+ *   - asserts the value `is_nil`-equivalent and behavior-equivalent should produce.
  *
  * When a fix lands, removing `.failing` flips the test green; the test file
  * doubles as the migration acceptance suite.
@@ -32,8 +32,8 @@
 
 import { describe, expect, it } from "vitest";
 import { is_nil } from "../guards";
-import { isSchemeValue, toJS, fromJS } from "../membrane";
-import { lipsToJs, jsToLips } from "../rosetta";
+import { isSchemeValue, toJS } from "../membrane";
+import { lipsToJs } from "../rosetta";
 import { RAMDA_FUNCTIONS } from "../ramda-functions";
 import { sandboxedEnv } from "../sandbox-env";
 import { wrappedOps } from "../bridge";

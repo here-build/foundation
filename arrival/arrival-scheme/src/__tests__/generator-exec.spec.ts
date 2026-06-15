@@ -9,9 +9,8 @@ import { describe, expect, it } from "vitest";
 import { exec, execExpr, parse } from "../generator-exec";
 import { SchemeBool } from "../LBool";
 import { SchemeSymbol } from "../LSymbol";
-import { SchemeExact, SchemeInexact } from "../numbers";
+import { SchemeExact } from "../numbers";
 import { Pair } from "../Pair";
-import { nil } from "../types";
 
 describe("generator-exec", () => {
   describe("exec() - basic operations", () => {

@@ -1,9 +1,8 @@
-import { exec, global_env, env as global_environment, parse, evaluate } from "./src/lips";
-import { initBridge, applyToEnvironment, wrappedOps } from "./src/bridge";
+import { env as global_environment, evaluate, exec, Pair as PairFromLips, parse } from "./src/lips";
+import { applyToEnvironment, initBridge, wrappedOps } from "./src/bridge";
 import { is_function, is_pair } from "./src/guards";
 import { LSymbol } from "./src/LSymbol";
 import { Pair as PairFromSource } from "./src/Pair";
-import { Pair as PairFromLips } from "./src/lips";
 import * as path from "node:path";
 
 // Initialize like the test does

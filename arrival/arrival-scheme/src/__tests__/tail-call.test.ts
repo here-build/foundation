@@ -39,7 +39,7 @@
  *     WRONG. We assert the exact accumulated value. (Heap-residue measurement
  *     was also tried and rejected: without `--expose-gc` the `heapUsed` delta is
  *     GC-timing noise — a 50k non-tail run measured ~110MB while a 50k tail run
- *     measured ~130MB, i.e. the signal inverted. Any fixed MB floor/ceiling is
+ *     measured ~130MB, i.e., the signal inverted. Any fixed MB floor/ceiling is
  *     therefore flaky here.)
  *
  *   • cond's `=>` arm USED to be a deliberately-non-tail position — it applied
@@ -103,7 +103,7 @@ describe("tail-call optimization (R7RS §3.5)", () => {
          (even? ${DEPTH})`,
       );
       // `even?` returns a boxed SchemeBool (#t), not the JS primitive `true`;
-      // compare via String like the other cases. 50000 is even.
+      // compare via String like the other cases. 50,000 is even.
       expect(String(r)).toBe("#t");
     }, T);
 

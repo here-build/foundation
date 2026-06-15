@@ -1,5 +1,5 @@
 /**
- * Polyglot threading + composition (bootstrap.ts).
+ * Polyglot threading and composition (bootstrap.ts).
  *
  * arrival-scheme accepts the whole cross-dialect family so writers (LLMs
  * included) can use whatever muscle-memory they have, exactly like :key

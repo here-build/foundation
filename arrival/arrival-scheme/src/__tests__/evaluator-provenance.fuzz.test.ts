@@ -39,7 +39,7 @@ beforeAll(async () => {
 
 /**
  * Recursive grammar for small Scheme programs. Two terminal categories
- * (literals + scoped variable refs) prevent infinite recursion via
+ * (literals and scoped variable refs) prevent infinite recursion via
  * fast-check's letrec depth cap. Operators chosen to span the
  * `wrapOperator` boundary (arithmetic), `withInputProvenance` boundary
  * (string-append), and the control-flow restriction (if/when/unless).

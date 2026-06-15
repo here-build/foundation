@@ -47,10 +47,10 @@ describe("CRITICAL: sandbox escape vectors", () => {
    * sandbox doesn't export `+` by JS-name but it does export `(eval)`; calling
    * `(eval (quote +))` reaches into the global env and hands the sandbox the
    * unwrapped JS function. Probe confirmed: returned value IS callable, and
-   * `f(2,3)` returns 5 (i.e. it's the real arithmetic op, not a stub).
+   * `f(2,3)` returns 5 (i.e., it's the real arithmetic op, not a stub).
    *
    * Secure invariant: eval with no env arg must default to the CALLER's env
-   * (i.e. the sandbox), NOT to lipsGlobalEnv. Inside the sandbox, looking up
+   * (i.e., the sandbox), NOT to lipsGlobalEnv. Inside the sandbox, looking up
    * `+` should fail with Unbound — `+` isn't an exported sandbox binding.
    */
   it("eval defaults to sandbox env, NOT global, when no env arg", async () => {
@@ -407,7 +407,7 @@ describe("registry poisoning vectors", () => {
   /**
    * Probe confirmed: `(eval (quote AValue))` throws Unbound — AValue is not
    * registered in lipsGlobalEnv under that name. Good. This test pins that:
-   * any future PR that exposes AValue (e.g. as part of a debug pack) MUST NOT
+   * any future PR that exposes AValue (e.g., as part of a debug pack) MUST NOT
    * land without also wrapping it.
    */
   it("AValue is NOT reachable from sandbox via direct lookup", async () => {
@@ -426,7 +426,7 @@ describe("registry poisoning vectors", () => {
 
   /**
    * Documents what would happen if the boxer registry were ever poisoned.
-   * Today, no sandbox path can reach `registerBoxer` (probe-confirmed above).
+   * Today no sandbox path can reach `registerBoxer` (probe-confirmed above).
    * This test is here as the canary: the day someone wraps and exposes AValue,
    * `registerBoxer` becomes a critical attack vector. The test asserts the
    * registry has NO access-control surface today — a hardening fix should

@@ -41,7 +41,7 @@ export default [
       "no-console": "off",
       // Interpreter code is inherently complex
       "sonarjs/cognitive-complexity": "off",
-      // PascalCase files are intentional for classes (LString, Pair, etc)
+      // PascalCase files are intentional for classes (LString, Pair, etc.)
       "unicorn/filename-case": "off",
       // Lisp interpreter needs Function type for dynamic dispatch
       "@typescript-eslint/no-unsafe-function-type": "off",

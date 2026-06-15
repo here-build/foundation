@@ -10,7 +10,7 @@
 //   3. the resumable session and from-scratch analyze AGREE on every prefix (the property the
 //      integration plan §A1 names as the acceptance gate for Layer S);
 //   4. the char-vs-token gap case: feasible(acceptedPrefix + candidateTokenString) on a mid-symbol
-//      prefix like "(net" — structurally feasible because the token completes some valid program.
+//      prefix like "(net" — structurally possible because the token completes some valid program.
 //
 // === Why the reference reader is INLINED here, not imported from sift ===
 //
@@ -272,11 +272,11 @@ describe("oracle Layer-S — resumable session agrees with from-scratch analyze 
 describe("oracle Layer-S — char-vs-token gap (the load-bearing subtlety)", () => {
   it("feasible(acceptedPrefix + candidateTokenString) on a mid-symbol prefix like '(net'", () => {
     // "(net" is mid-token (an atom being typed). A constrained decoder asks: is the candidate token
-    // string a feasible continuation? Structurally, completing the symbol and the form is feasible.
+    // string a possible continuation? Structurally, completing the symbol and the form is possible.
     expect(structuralScanner.feasible("(net")).toBe(true);
-    // Appending the rest of a plausible token keeps it feasible.
+    // Appending the rest of a plausible token keeps it possible.
     expect(structuralScanner.feasible("(net" + "work")).toBe(true);
-    // Completing the form is feasible (and closeable).
+    // Completing the form is possible (and closeable).
     expect(structuralScanner.feasible("(network)")).toBe(true);
     expect(structuralScanner.analyze("(network)").closeable).toBe(true);
     // The mid-symbol prefix is NOT closeable (an open form, a half-typed atom).

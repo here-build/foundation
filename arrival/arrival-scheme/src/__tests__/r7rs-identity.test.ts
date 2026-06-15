@@ -51,7 +51,7 @@ async function evalScheme(src: string): Promise<unknown> {
 
 describe("r7rs identity — passing invariants (regression guards)", () => {
   it("eq? on interned symbols is #t (R7RS § 6.1)", async () => {
-    // Symbols are interned by the parser — both occurrences of 'foo resolve
+    // The parser interns symbols — both occurrences of 'foo resolve
     // to the same heap SchemeSymbol, so eq? must be #t.
     const r = await evalScheme("(eq? 'foo 'foo)");
     expect(truthy(r)).toBe(true);

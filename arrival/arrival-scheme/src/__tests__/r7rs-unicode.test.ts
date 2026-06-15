@@ -74,9 +74,9 @@ describe("r7rs unicode — known bugs (it.fails — flipping to green = regressi
       // R7RS § 6.6: `char->integer` returns the Unicode scalar value.
       // `bridge.ts:649` uses `charValue(char).charCodeAt(0)` which returns
       // the FIRST UTF-16 code unit. For U+1F600 (😀), the high surrogate
-      // is 0xD83D = 55357, not the actual code point 128512.
+      // is 0xD83D = 55,357, not the actual code point 128,512.
       //
-      // Predicted failure value: 55357 instead of 128512.
+      // Predicted failure value: 55,357 instead of 128,512.
       const r = await evalScheme("(char->integer #\\😀)");
       expect(num(r)).toBe(128512);
     },
@@ -88,12 +88,12 @@ describe("r7rs unicode — known bugs (it.fails — flipping to green = regressi
       // R7RS § 6.6: `integer->char` is the inverse of `char->integer` over
       // the Unicode code point range. `bridge.ts:655` uses
       // `String.fromCharCode(code)` which silently truncates values > 0xFFFF
-      // modulo 0x10000 — 128512 % 65536 = 62976 → "". Round-tripping
+      // modulo 0x10000 — 128,512 % 65,536 = 62,976 → "". Round-tripping
       // through char->integer yields 62976 (compounded with the bug above,
       // because char->integer also misreads — but here `` is a single
       // BMP code unit so charCodeAt(0) returns 62976 correctly).
       //
-      // Predicted failure value: 62976 instead of 128512.
+      // Predicted failure value: 62,976 instead of 128,512.
       const r = await evalScheme("(char->integer (integer->char 128512))");
       expect(num(r)).toBe(128512);
     },

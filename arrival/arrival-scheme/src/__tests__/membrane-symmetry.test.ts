@@ -16,7 +16,7 @@
  *    type-checking specific AValue subtypes — so a primitive in/primitive out
  *    looks "round-trip correct" by accident even though the cross-membrane
  *    SHAPE is different from what `AValue.fromJs` would produce.
- *  - membrane `isSchemeValue` enumerates AValue subtypes by explicit
+ *  - membrane `isSchemeValue` lists AValue subtypes by explicit
  *    `instanceof` checks. Any AValue subtype that isn't listed will mis-route.
  *    Nil is technically listed by `=== nil`, but clones miss (see
  *    clone-identity.test.ts for the meta-bug).
@@ -25,15 +25,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { AValue, EMPTY_PROVENANCE } from "../AValue";
+import { AValue } from "../AValue";
 import { is_nil } from "../guards";
-import {
-  fromJS,
-  isSchemeValue,
-  SchemeJSFunction,
-  SchemeJSObject,
-  toJS,
-} from "../membrane";
+import { fromJS, isSchemeValue, SchemeJSFunction, SchemeJSObject, toJS } from "../membrane";
 import { jsToLips, lipsToJs } from "../rosetta";
 import { SchemeBool, schemeFalse, schemeTrue } from "../LBool";
 import { SchemeString } from "../LString";
@@ -162,7 +156,7 @@ describe("jsToLips → lipsToJs round-trip", () => {
   });
 
   // String pass-through round trips by accident — raw in, raw out.
-  // This IS expected behaviour today and is the green guard for the
+  // This IS expected behavior today and is the green guard for the
   // primitive-passthrough contract.
   it("string round-trips by passthrough (raw → raw)", () => {
     expect(lipsToJs(jsToLips("hello"))).toBe("hello");
@@ -264,7 +258,7 @@ describe("isSchemeValue completeness — every native AValue subtype is recognis
     expect(isSchemeValue(new QuotedPromise(Promise.resolve(1)))).toBe(true);
   });
 
-  // Nil clones — should be recognised but aren't. See clone-identity.test.ts
+  // Nil clones — should be recognized but aren't. See clone-identity.test.ts
   // for the full enumeration of `=== nil` sites. This is a duplicate of the
   // membrane.ts:71 site, deliberately kept here for the completeness map.
   it("Nil clone → true (see membrane.ts:71 + clone-identity.test.ts; fixed via `instanceof Nil`)", () => {
