@@ -114,10 +114,12 @@ describe("curly-infix — arithmetic precedence (our formal divergence)", () => 
 });
 
 describe("curly-infix — any single operator folds (SRFI-105)", () => {
-  it("a lone comparison operator is a plain binary", async () => {
+  it("a lone boolean/comparison operator is a plain binary", async () => {
+    expect(await readOne("{a && b}")).toBe("(&& a b)");
     expect(await readOne("{a < b}")).toBe("(< a b)");
   });
   it("a same-operator run folds n-ary regardless of which operator", async () => {
+    expect(await readOne("{a && b && c}")).toBe("(&& a b c)");
     expect(await readOne("{a < b < c}")).toBe("(< a b c)");
   });
   it("any symbol in operator position is the operator", async () => {
@@ -125,25 +127,11 @@ describe("curly-infix — any single operator folds (SRFI-105)", () => {
   });
 });
 
-describe("curly-infix — glyph map lowers to readable verbs (read side)", () => {
-  it("lowers && / == / ?? to and / equal? / or/maybe", async () => {
-    expect(await readOne("{a && b}")).toBe("(and a b)");
-    expect(await readOne("{a == b}")).toBe("(equal? a b)");
-    expect(await readOne("{a ?? b}")).toBe("(or/maybe a b)");
-  });
-  it("a glyph run folds n-ary as the verb", async () => {
-    expect(await readOne("{a && b && c}")).toBe("(and a b c)");
-  });
-  it("a glyph and its verb are one equivalence class", async () => {
-    expect(await readOne("{a && b and c}")).toBe("(and a b c)");
-  });
-});
-
 describe("curly-infix — errors-as-door for MIXED operators (never emits $nfx$)", () => {
-  // NOTE: `||`→`or` is still deferred (R7RS pipe-symbol collision); `&&`/`==`/`??` lower (above).
-  // `{a && b and c}` is NOT a door — `&&` lowers to `and`, so it's one operator run → `(and a b c)`.
-  it("doors on genuinely mixed operators (after glyph lowering)", async () => {
-    await expect(readOne("{a && b == c}")).rejects.toThrow("ambiguous operator mix");
+  // NOTE: `||` is R7RS pipe-symbol syntax (`|sym|`), so we use `&&`/`and`/`<` here.
+  // The `||`→`or` (and `&&`→`and`, `==`→`equal?`) glyph map is a separate, deferred sweet feature.
+  it("doors on mixed boolean/comparison operators", async () => {
+    await expect(readOne("{a && b and c}")).rejects.toThrow("ambiguous operator mix");
     await expect(readOne("{a < b && c}")).rejects.toThrow("ambiguous operator mix");
   });
   it("doors on arithmetic mixed with an unlicensed operator, with a teaching hint", async () => {
