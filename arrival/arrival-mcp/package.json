@@ -1,7 +1,7 @@
 {
   "name": "@here.build/arrival-mcp",
   "version": "0.1.0",
-  "description": "MCP server framework for building Model Context Protocol servers",
+  "description": "Build Model Context Protocol tools as values (discovery + action tiers) on the official SDK",
   "keywords": [
     "mcp",
     "model-context-protocol",
