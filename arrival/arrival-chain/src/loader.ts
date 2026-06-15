@@ -41,6 +41,7 @@ import { parse as parseToml } from "smol-toml";
 import invariant from "tiny-invariant";
 import { parse as parseYaml } from "yaml";
 
+import { lookupExtensionResolver } from "./loader-extensions.js";
 import type { Project } from "./project.js";
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -573,9 +574,25 @@ export function defineRequireRosetta(opts: {
 
       const load = (async (): Promise<{ value: unknown }> => {
         const contents = await loader.read(path);
-        const handler = pickHandler(path, loader.resolvers);
-        invariant(handler, `require: no resolver for ${path}`);
-        const result = await handler.resolve(contents, { path });
+        // Registry overlay (proposal §7): a capability-registered resolver for this suffix
+        // wins over the loader's built-in table. The registry stores the resolver verb's
+        // NAME; we resolve it against THIS env (late-bind), so a resource-armed resolver
+        // (e.g. `.prompt` → `prompt/compile`) uses THIS env's resource, and an env that
+        // never rooted the owning capability simply has no binding → a legible error here.
+        const resolverName = lookupExtensionResolver(path);
+        let result: ResolverResult;
+        if (resolverName !== undefined) {
+          const resolver = env.get(resolverName, { throwError: false });
+          invariant(
+            typeof resolver === "function",
+            `require: "${path}" needs the "${resolverName}" resolver, which is not bound in this env — root the capability that registers it.`,
+          );
+          result = (await (resolver as ContentResolver)(contents, { path })) as ResolverResult;
+        } else {
+          const handler = pickHandler(path, loader.resolvers);
+          invariant(handler, `require: no resolver for ${path}`);
+          result = await handler.resolve(contents, { path });
+        }
 
         let value: unknown;
         if (result.kind === "value") {
