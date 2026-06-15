@@ -68,7 +68,11 @@ export { arrivalSourceReadCapability } from "./source-read.js";
 export { arrivalSuperDefineCapability } from "./superdefine.js";
 export { arrivalUtilsCapability } from "./utils.js";
 
-// loader-core is the one raw `EnvPack` (the imperative plumbing floor — `import`/`require` +
-// `require/extension`), NOT a capability. `buildArrivalEnv` assembles it alongside the lowered
-// capabilities, applied last (lowest precedence).
+// loader-core is the one raw `EnvPack` (the imperative plumbing floor — `require` + when armed
+// `require/extension`), NOT a capability. It stays raw BY NECESSITY, not omission: the `require`
+// rosetta closes over per-env mutable state (the single-flight `inflight` cache, the cycle
+// `loadingStack`, the `dirStack`) and returns a `clearCache()` to the host, and `require/extension`
+// needs the live-env RuntimeAssembler — all of which want the concrete env at WIRE time, which the
+// declarative capability surface (symbols + prelude, env-at-CALL-time via ctx) does not provide.
+// `buildArrivalEnv` assembles it alongside the lowered capabilities, applied last (lowest precedence).
 export { arrivalLoaderCorePack } from "./loader-core.js";
