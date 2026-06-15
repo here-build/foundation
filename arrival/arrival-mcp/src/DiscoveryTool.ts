@@ -14,7 +14,7 @@
 //                  the eval membrane — a run can't reach it, so session/other-call state stays out.
 //   • describe-time → infra closed over when the host built the capability (the welcome).
 
-import { type Environment, execSerialized, sandboxedEnv } from "@here.build/arrival";
+import { type Environment, execSerialized, jsToScheme, sandboxedEnv, schemeToJs, tokenize } from "@here.build/arrival";
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod";
@@ -37,6 +37,76 @@ function argTypeName(item: z.ZodType): string {
   if (item instanceof z.ZodArray) return `list${opt}${desc}`;
   if (item instanceof z.ZodEnum) return item.options.map((v) => `"${v}"`).join("|");
   return `value${opt}${desc}`;
+}
+
+// ── REPL replay: structural cache per top-level statement ──────────────────────────────────────
+// A REPL session re-establishes its bindings each call (the env is per-call). Rather than re-running
+// every prior statement (which would re-fire its membrane penetrations), each statement is cached by
+// its canonical SOURCE: a `(define …)` whose value is wire-safe is RESTORED from cache (its statement
+// is never re-run, so the penetration never re-fires); a closure/uncacheable define is re-run, which
+// is penetration-free because defining a lambda doesn't evaluate its body. The wire-safe membrane is
+// what makes this sound — every penetrating statement yields a cacheable value, every uncacheable one
+// is a closure. No verb-wrap, no interpreter tap: the statement source IS the structural key.
+
+const DEFINE_NAME = /^\(define\s+\(?\s*([^\s()]+)/;
+
+/** The bound name of a `(define x …)` / `(define (f …) …)`, or undefined for a bare expression. */
+function defineName(canonicalSrc: string): string | undefined {
+  return DEFINE_NAME.exec(canonicalSrc.trim())?.[1];
+}
+
+const OPEN = new Set(["(", "[", "{"]);
+const CLOSE = new Set([")", "]", "}"]);
+const QUOTE_PREFIX = new Set(["'", "`", ",", ",@"]);
+const isSkippable = (tok: string): boolean => /^\s+$/.test(tok) || tok.startsWith(";") || tok.startsWith("#|") || tok.startsWith("#;");
+
+/** Split scheme source into top-level statements via the real lexer (so `#\(`, `#|…|#`, string
+ *  literals, and quote prefixes are tokenized correctly — a hand-scanner would miscount `#\(`).
+ *  Each statement's EXACT source is its structural cache key + the re-executable unit; we slice by
+ *  token start-offsets, so a list stays `(a b)` (the value-printer would render it `(list a b)`). */
+function splitTopLevel(source: string): string[] {
+  const tokens = tokenize(source, true) as { token: string; offset: number }[];
+  const starts: number[] = [];
+  let depth = 0;
+  let between = true; // not currently inside a statement
+  for (const { token, offset } of tokens) {
+    if (isSkippable(token)) continue;
+    if (between) {
+      starts.push(offset);
+      between = false;
+    }
+    if (OPEN.has(token)) depth++;
+    else if (CLOSE.has(token)) {
+      if (depth > 0) depth--;
+      if (depth === 0) between = true;
+    } else if (depth === 0 && !QUOTE_PREFIX.has(token)) {
+      between = true; // a depth-0 atom/string completes its statement; a quote prefix waits for the next form
+    }
+  }
+  return starts.map((s, i) => source.slice(s, starts[i + 1] ?? source.length).trim()).filter(Boolean);
+}
+
+/** Can this JS value (already `schemeToJs`-peeled) round-trip through JSON faithfully? True for
+ *  primitives, plain arrays/objects of the same; FALSE for functions/symbols/bigint and non-plain
+ *  objects (bytevectors, class instances) — those statements re-run rather than restore. */
+function jsonRoundTrippable(v: unknown, seen = new Set<unknown>()): boolean {
+  if (v === null) return true;
+  switch (typeof v) {
+    case "number":
+    case "string":
+    case "boolean":
+      return true;
+    case "object": {
+      if (seen.has(v)) return false;
+      seen.add(v);
+      if (Array.isArray(v)) return v.every((x) => jsonRoundTrippable(x, seen));
+      const proto = Object.getPrototypeOf(v);
+      if (proto !== Object.prototype && proto !== null) return false; // bytevector / class instance
+      return Object.values(v as Record<string, unknown>).every((x) => jsonRoundTrippable(x, seen));
+    }
+    default:
+      return false; // function / symbol / bigint / undefined
+  }
 }
 
 /** The dispatch-time context the host threads per call — ABOVE the eval membrane, so a run can't
@@ -66,8 +136,6 @@ export interface InteractionLog {
 
 export interface DiscoveryToolOptions {
   description: string | Promise<string>;
-  /** The base env capabilities assemble onto. Defaults to a fresh sandbox. */
-  baseEnv?: () => Environment;
   /** Wall-clock eval budget (the interpreter TICK-checks it). */
   budgetMs?: number;
 }
@@ -96,49 +164,67 @@ export class DiscoveryTool {
   }
 
   /** Evaluate `args.expr` in the env assembled from the capability, under the dispatch-time ctx.
-   *  Replays the session's prior pure `(define …)`s first (honest replay against CURRENT state),
-   *  threads `ctx.signal` + a wall-clock budget into the eval, and records the interaction. */
+   *  Re-establishes the session's prior bindings (structural cache), runs the new input statement
+   *  by statement — REPL-style, so earlier statements' values stand even if a later one crashes —
+   *  and threads `ctx.signal` + a wall-clock budget into every eval. A cancellation propagates; a
+   *  runtime crash is surfaced as an `(error …)` form and stops the rest of the input. */
   async call(args: DiscoveryArgs, ctx: ToolCallCtx = {}): Promise<string[]> {
     const startTime = Date.now();
     const budgetMs = this.options.budgetMs ?? this.MAX_EXECUTION_TIME;
     const { signal } = ctx;
     const env = await this.environment(args);
     const state = ctx.session?.state ?? {};
+    const history = (state.__repl__ as string[] | undefined) ?? [];
+    const cache = (state.__cache__ as Record<string, string> | undefined) ?? {};
 
-    try {
-      // Replay ONLY pure top-level `(define …)` (never a run-channel form) to re-establish bindings
-      // against current state — a define that no longer reproduces is dropped, not allowed to poison.
-      const history = (state.__repl__ as string[] | undefined) ?? [];
-      const survived: string[] = [];
-      for (const past of history) {
-        if (!/^\(define\b/.test(past.trim()) || /\brequire\/(eval|call)\b/.test(past)) continue;
-        try {
-          await execSerialized(past, { env, budgetMs, signal });
-          survived.push(past);
-        } catch {
-          /* dead binding — drop from history */
-        }
+    // Re-establish prior bindings: restore a wire-safe define from the structural cache (NOT re-run →
+    // its membrane penetration never re-fires); re-run a closure/uncacheable define (penetration-free,
+    // since defining a lambda doesn't evaluate its body). A re-run that no longer reproduces is dropped
+    // rather than allowed to poison the session. History holds only define statements.
+    for (const src of history) {
+      const name = defineName(src);
+      if (cache[src] !== undefined && name) {
+        env.set(name, jsToScheme(JSON.parse(cache[src])));
+        continue;
       }
-
-      const result = await execSerialized(args.expr, { env, budgetMs, signal });
-      survived.push(args.expr);
-      state.__repl__ = survived;
-
-      this.log(ctx, args, startTime, { success: true });
-      return result;
-    } catch (error) {
-      this.log(ctx, args, startTime, {
-        success: false,
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
+      try {
+        await execSerialized(src, { env, budgetMs, signal });
+      } catch (error) {
+        if (signal?.aborted) throw error; // cancellation, not a dead binding
+      }
     }
+
+    // Run the new input statement-by-statement; cache each wire-safe define's value by its source.
+    const out: string[] = [];
+    let crashed: string | undefined;
+    for (const src of splitTopLevel(args.expr)) {
+      try {
+        out.push(...(await execSerialized(src, { env, budgetMs, signal })));
+      } catch (error) {
+        if (signal?.aborted) throw error; // cancellation propagates — not a REPL crash
+        crashed = error instanceof Error ? error.message : String(error);
+        out.push(`(error ${JSON.stringify(crashed)})`); // REPL-style: earlier values stand; stop here
+        break;
+      }
+      const name = defineName(src);
+      if (!name) continue; // bare expression — output only, nothing to replay
+      if (!history.includes(src)) history.push(src);
+      const js = schemeToJs(env.get(name));
+      if (jsonRoundTrippable(js)) cache[src] = JSON.stringify(js);
+    }
+    state.__repl__ = history;
+    state.__cache__ = cache;
+
+    this.log(ctx, args, startTime, crashed ? { success: false, errorMessage: crashed } : { success: true });
+    return out;
   }
 
   // ── env assembly: config from the actor args, resources armed by the capability ──
 
   private environment(args: DiscoveryArgs): Promise<Environment> {
-    const base = this.options.baseEnv?.() ?? sandboxedEnv.inherit("Discovery sandbox", {});
+    // The base is the constant safe floor (SAFE_BUILTINS) — vocabulary is added ONLY by the
+    // capability's deps (the audited grant), never by swapping the base out from under it.
+    const base = sandboxedEnv.inherit(this.name, {});
     return assembleEnv(base, [
       this.capability.lower({
         config: this.config(args),
@@ -167,23 +253,17 @@ export class DiscoveryTool {
         ? `\n\nNOTE${aiName ? ` FOR ${aiName.toUpperCase()}` : ""}: some verb descriptions are session-generated live — treat this as a welcome screen.`
         : "");
 
-    const configSchema = (this.capability.spec as McpCapabilitySpec<never, never>).configuration ?? {};
-    const configProps = Object.fromEntries(
-      Object.entries(configSchema as Record<string, z.ZodType>).map(([key, value]) => {
-        const { $schema: _drop, ...schema } = z.toJSONSchema(value);
-        return [key, schema];
-      }),
-    );
-
-    return {
-      type: "object",
-      properties: {
-        intent: { type: "string", description: "What you're exploring and why. Shown to collaborating users." },
-        expr: { type: "string", description: exprDoc },
-        ...configProps,
-      },
-      required: ["expr"],
-    };
+    // ONE zod object is the source — the capability's `configuration` (transforms and all) merged
+    // with expr/intent. `toJSONSchema` derives the wire shape; nothing hand-assembled, and the
+    // required config args land in `required` (the hand-built version wrongly required only `expr`).
+    const configShape = (this.capability.spec as McpCapabilitySpec<never, never>).configuration ?? {};
+    const input = z.object({
+      intent: z.string().describe("What you're exploring and why. Shown to collaborating users.").optional(),
+      expr: z.string().describe(exprDoc),
+      ...(configShape as z.ZodRawShape),
+    });
+    const { $schema: _drop, ...jsonSchema } = z.toJSONSchema(input);
+    return jsonSchema as Tool["inputSchema"];
   }
 
   /** The verb catalog reflected off the capability's dep-closure annotations. A STATIC `inputSchema`

@@ -61,10 +61,11 @@ describe("registerDiscoveryTools (official @modelcontextprotocol/sdk round-trip)
     await client.close();
   });
 
-  it("a runtime error comes back as an isError tool result, not a transport fault", async () => {
+  it("a runtime crash comes back as an (error …) form in the content (REPL-style, not a transport fault)", async () => {
     const client = await connectedClient([demoTool()]);
     const res = await client.callTool({ name: "demo", arguments: { expr: "(this-verb-does-not-exist)", who: "ada" } });
-    expect(res.isError).toBe(true);
+    // A statement crash is normal REPL output (a door), not a hard isError — earlier statements stand.
+    expect((res.content as { type: string; text: string }[])[0]!.text).toMatch(/^\(error /);
     await client.close();
   });
 });

@@ -60,6 +60,42 @@ describe("DiscoveryTool (value-shaped, capability-derived)", () => {
     expect(await tool.call({ expr: "n", who: "ada" }, { session })).toEqual(["5"]);
   });
 
+  it("structural cache: a penetration-define is RESTORED on replay, the verb is NOT re-fired", async () => {
+    // `tick` stands in for a membrane penetration — its call count is observable.
+    let calls = 0;
+    const cap = new McpEnvCapability("tick-caps", {
+      symbols: { tick: { fn: () => ++calls } },
+      annotations: { tick: { description: "increments + returns a counter" } },
+    });
+    const tool = new DiscoveryTool("tick", cap, { description: "tick tool" });
+    const session = { id: "s1", state: {} as Record<string, unknown> };
+
+    await tool.call({ expr: "(define a (tick))" }, { session }); // tick → 1
+    expect(calls).toBe(1);
+    await tool.call({ expr: "(define b (tick))" }, { session }); // replay a from cache (no tick) + b → 2
+    expect(calls).toBe(2); // NOT 3 — a's (tick) was restored, not re-fired
+    expect(await tool.call({ expr: "a" }, { session })).toEqual(["1"]); // a restored to its original value
+    expect(calls).toBe(2); // reading a fires nothing
+  });
+
+  it("REPL-style partial success: earlier statements' values stand when a later one crashes", async () => {
+    const tool = new DiscoveryTool("demo", demoCapability(), { description: "demo tool" });
+    const out = await tool.call(
+      { expr: "(+ 1 1)\n(+ 2 2)\n(this-verb-does-not-exist)", who: "ada" },
+      { session: { id: "s1", state: {} } },
+    );
+    expect(out.slice(0, 2)).toEqual(["2", "4"]); // first two ran
+    expect(out[2]).toMatch(/^\(error /); // third surfaced as a door, not a thrown call
+  });
+
+  it("a closure define re-runs on replay (penetration-free) and stays callable", async () => {
+    const tool = new DiscoveryTool("demo", demoCapability(), { description: "demo tool" });
+    const session = { id: "s1", state: {} as Record<string, unknown> };
+    // a lambda value isn't cacheable, so its statement re-runs — but defining it fires nothing.
+    await tool.call({ expr: "(define inc (lambda (x) (+ x 1)))", who: "ada" }, { session });
+    expect(await tool.call({ expr: "(inc 41)", who: "ada" }, { session })).toEqual(["42"]);
+  });
+
   it("records the interaction with the session id + authed user (dispatch-time, above the eval)", async () => {
     const tool = new DiscoveryTool("demo", demoCapability(), { description: "demo tool" });
     const record = vi.fn<(i: InteractionLog) => void>();
