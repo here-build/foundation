@@ -1,11 +1,8 @@
-// arrivalRunCapability — the RUN channel of the discovery plane, as an EnvCapability.
-//
-// Same impl as `arrivalRunPack`, reshaped onto the capability surface: the `Project` is
-// CONFIG (validated by zod as an opaque custom value), the verbs are METHODS reading
-// `this.configuration.project`.
-//
-// `(require/eval "f")`            → run the whole program in an isolated plane → ResultHandle
-// `(require/call "f" :fn (dict …))` → run the program, call one named fn with WIRE-SAFE args → ResultHandle
+// arrivalRunCapability — the discovery plane's only way to RUN code: name a file, launch it in an
+// isolated plane, get a ResultHandle back. There is deliberately no anonymous `(require …)` here
+// (that's loader-core, off this plane) — the sole launch path goes through a named file + isolation,
+// so a discovery session can't reach into the calling env. The `Project` is opaque config (the host
+// owns the file substrate); the launch is by NAME, never by program-supplied source.
 
 import { KEYWORD_ACCESSOR_FIELD } from "@here.build/arrival-scheme";
 import { EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";

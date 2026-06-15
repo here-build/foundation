@@ -1,7 +1,6 @@
-// arrivalUtilsCapability — pure string/json/template utilities as an EnvCapability.
-//
-// Same verbs as `arrivalUtilsPack`, reshaped onto the capability surface: no config,
-// no deps; the json/string/template verbs are plain rosetta-spec `methods`.
+// arrivalUtilsCapability — the pure-function floor: no config, no resource, no deps, so any
+// scope can root it in isolation (e.g. a compute sandbox with no infer/effects). It's also why
+// `ext/handlebars` deps on THIS — `template/handlebars` is the verb its resolved lambda calls.
 
 import dedent from "dedent";
 

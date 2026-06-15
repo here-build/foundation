@@ -1,13 +1,9 @@
-// arrivalSourceReadCapability — the PURE source channel of the discovery plane, as an EnvCapability.
+// arrivalSourceReadCapability — read a file's SOURCE as data (`require/string` → raw text,
+// `require/ast` → homoiconic forms for analysis/edit-prep).
 //
-// Same impl as `arrivalSourceReadPack`, reshaped onto the capability surface: the `Project` is
-// CONFIG (validated by zod as an opaque custom value), the verbs are METHODS reading
-// `this.configuration.project`.
-//
-// `(require/ast "f")`  → the program's homoiconic forms (for analysis / edit-prep)
-// `(require/string "f")` → the program's raw text
-//
-// Neither runs anything: they read SOURCE as data — no isolation concern.
+// Split out from the run-launchers (arrival/run) for a security reason, not a tidiness one:
+// reading source executes NOTHING, so it carries no isolation concern and can sit on the read
+// plane next to the provenance readers. `Project` is opaque config (the host owns the substrate).
 
 import { type Environment, parse } from "@here.build/arrival-scheme";
 import { EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";

@@ -1,13 +1,15 @@
-// arrivalSuperDefineCapability — the superpowered-define family, as an EnvCapability.
+// arrivalSuperDefineCapability — the public-surface declaration family (`declare/expose`,
+// `define/overridable`, the approval verbs) as ONE capability.
 //
-// Same impl as `arrivalSuperDefinePack`: `declare/expose` + `define/overridable` + the approval
-// verbs — ONE conceptual capability (the public-surface declaration family). It delegates to three
-// `defineXRosetta(env, …)` helpers, so it uses the `wire` escape hatch.
+// Grouped together not by accident but because they answer the same question — "how does a program
+// expose a hole to the outside world" — and a host that wants one almost always wants the set. Every
+// host sink is optional config: absent a sink, each verb still evaluates and resolves to its
+// in-program value (an exposed fn stays callable, an overridable resolves to its default), it just
+// registers nowhere — so a program runs identically whether or not a host is listening.
 //
-// The host sinks/channels (onExpose, onOverridable, resolveOverride, onApprovalRequest,
-// resolveApproval) are CONFIG. All optional — each helper falls back to its "capability optional,
-// verb always present" posture when its sink is absent. `buildDict` is a module-level fold, not a
-// per-env knob, so it stays an import (as in the original pack).
+// Three existing `defineXRosetta(env, …)` helpers wire the verbs, so the symbols use the BUILDER
+// form (`captureSymbols`) to keep them as the single source. `buildDict` is a module-level fold, not
+// a per-env knob, so it stays a plain import.
 
 import { captureSymbols, EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
 import { z } from "zod";

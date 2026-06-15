@@ -1,8 +1,9 @@
-// arrivalBudgetCapability — reflective inference-budget reads as an EnvCapability.
+// arrivalBudgetCapability — a program reading what THIS run has spent so far (the ROI/TCO loop).
 //
-// Same verbs as `arrivalBudgetPack`: infer/spent, infer/calls. The `RunSpend` (formerly
-// `opts.spend`) is CONFIG (validated by zod, optional); the verbs read
-// `this.configuration.spend?.…` and keep the inert `?? 0` default when absent.
+// `spend` is OPTIONAL config so the verbs are present-but-inert when the host doesn't feed a
+// budget: `?? 0` means `(infer/spent)` answers honestly (nothing spent) instead of throwing in a
+// non-metered run. Same "verb always there, capability optional" posture as data/mcp/infer — a
+// program never branches on whether it's being metered.
 
 import type { RunSpend } from "@here.build/arrival-inference";
 

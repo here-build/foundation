@@ -1,8 +1,9 @@
-// arrivalReflectCapability — the provenance reflection of the discovery plane as an EnvCapability.
+// arrivalReflectCapability — the "ask a finished run why" half of the discovery plane.
 //
-// Same verbs as `arrivalReflectPack`: why / where / how / dag / result-value, each one ONE
-// `buildSlice(handle.trace, handle.outputNode)` projected. No config, no deps — it consumes
-// handles, never mints them.
+// No config, no deps BY DESIGN: it only ever READS provenance off a ResultHandle some other verb
+// (`require/eval`/`require/call`) already minted — it never launches a run itself. That clean split
+// (run-launchers in arrival/run, readers here) is what lets the read plane be rooted without the
+// project/infer config the launchers need.
 
 import { EnvCapability } from "@here.build/arrival-scheme/capability";
 import { dagOf, howOf, whereOf, whyOf } from "../handle-provenance.js";

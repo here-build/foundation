@@ -1,18 +1,23 @@
-// @here.build/arrival-scheme-env-ramda — Ramda verbs as a palette pack.
+// @here.build/arrival-scheme-env-ramda — Ramda as an OPT-IN palette pack.
 //
-// A JS-WIRING pack (no scheme source): its `apply` sets raw JS functions as env
-// bindings, exactly how the original sandbox spreads `RAMDA_FUNCTIONS`. Scoped to
-// the PURE-Ramda subset — the accessor moat + collection/logic/string ops that map
-// straight to `R.*` with no arrival-scheme-internal coupling. The polymorphic
-// `map`/`filter`/`reduce` (which need LIPS `Pair`/`Nil` internals) are deliberately
-// OUT — the sandbox owns those. Names mirror arrival-scheme/src/ramda-functions.ts
-// (originals untouched).
+// Ramda was evicted from the base sandbox (it's an external dep the interpreter shouldn't carry);
+// this package is where a host that wants it opts back in. So the cut here is "what can re-enter
+// cleanly": the accessor moat + collection/logic/string ops that are pure `R.*` with no
+// arrival-scheme-internal coupling. The polymorphic `map`/`filter`/`reduce` are NOT here — the
+// sandbox now ships its OWN hardened versions (they need LIPS `Pair`/`Nil` internals), and a second
+// set would shadow them.
+//
+// The design choice worth seeing: each verb is offered under EVERY name a user might reach for — a
+// vocabulary, not an API. `prop`/`get`/`access`/`fetch` all resolve to `R.prop` so the program reads
+// in whatever mental model its author thinks in; the aliases below are intentional, not redundant.
 
 import { EnvCapability } from "@here.build/arrival-scheme/capability";
 import * as R from "ramda";
 
 const RAMDA: Record<string, (...args: never[]) => unknown> = {
-  // property access — multiple mental models, all R.prop
+  // (Section dividers below group by what the user is trying to DO; the multiple names per row are
+  // the deliberate aliasing — same R fn, different vocabulary.)
+  // property access
   prop: R.prop,
   get: R.prop,
   access: R.prop,
@@ -67,12 +72,11 @@ const RAMDA: Record<string, (...args: never[]) => unknown> = {
   "to-upper": R.toUpper,
 };
 
-/** The wired verb names — for tests / introspection. */
+/** The wired verb names — so a test can assert the surface without re-listing it. */
 export const ramdaVerbs: readonly string[] = Object.keys(RAMDA);
 
-/** The Ramda verbs as a module-singleton capability (methods-only). The full
- *  RAMDA_FUNCTIONS (incl. polymorphic map/filter/reduce) is a mechanical extension
- *  once the LIPS-Pair-aware wrappers are exported from arrival-scheme. */
+// Symbols-only, no config/resource/deps: rooting this capability is the whole opt-in. A scope that
+// doesn't want Ramda simply doesn't list it, and (sideEffects:false) tree-shakes the dep away.
 export default new EnvCapability("scheme/ramda", {
   symbols: RAMDA,
 });

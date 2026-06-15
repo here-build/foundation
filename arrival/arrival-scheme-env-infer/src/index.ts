@@ -1,19 +1,20 @@
 // @here.build/arrival-scheme-env-infer — the inference palette package.
 //
-// Two packs, built FOR REAL on `@here.build/arrival-inference` (the engine + the
-// derive-entity/middleware algebra), with zero arrival-chain dependency:
-//   • `arrivalInferCapability` (./infer)     — `infer` / `infer/chat`, no deps.
-//   • `arrivalMcpCapability` + `arrivalAgenticCapability` (./mcp) — mcp dispatch + the
-//     agentic loop (`deps: [infer]`), plus the MCP client membrane.
+// Stands on `@here.build/arrival-inference` (the engine + the derive-entity/middleware algebra)
+// and depends only DOWN — no arrival-chain import — which is the whole reason it's a separate
+// package: it isolates the inference dep out of the chain core, and the dependency edge runs
+// chain → here, never back. Three capabilities, in a deliberate dep order:
+//   • `arrivalDeriveCapability` (./derive) — the pure entity/derive algebra (`mcp`/`llm`/`derive`).
+//   • `arrivalInferCapability`  (./infer)  — `infer`/`infer/chat`; `deps: [derive]` (needs `llm`).
+//   • `arrivalMcpCapability` + `arrivalAgenticCapability` (./mcp) — mcp dispatch + the agentic loop.
 //
-// The barrel exposes only what crosses the package boundary today. Most of the verb
-// toolkit + membrane internals stay module-private (still `export`ed from ./infer / ./mcp
-// for the packs' own tests, just not surfaced here). arrival-chain consumes:
-//   - the three capabilities (rooted into its base env);
-//   - `InferFn` (the host inference seam — also re-exported to host);
-//   - the seal helpers its `.prompt` compiler (makeCompileInferUnit) still reaches for —
-//     these disappear from the barrel once that seal moves into this package;
-//   - the membrane symbols its host server-tape + mcp tests touch.
+// The barrel surfaces only what crosses the package boundary. The rest stays module-private
+// (still `export`ed from the source files for their own tests, just not re-exported here). What
+// leaves: the capabilities (rooted into chain's base env); `InferFn` (the host inference seam,
+// also reaching host); the seal helpers chain's `sealPromptUnit` imports (`asLlmModel`,
+// `canonicalizeMessages`, `schemaSlot`, `nullable` — the seal lives in chain because it also needs
+// the handlebars render, so it pulls these in rather than the reverse); the membrane symbols the
+// host server-tape + mcp tests touch.
 
 export {
   arrivalInferCapability,

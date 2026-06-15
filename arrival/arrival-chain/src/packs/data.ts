@@ -1,10 +1,13 @@
-// arrivalDataCapability — the data-effect verbs (`http/*`, `sql/query`) as an EnvCapability.
+// arrivalDataCapability — the data-effect membrane (`http/*`, `sql/query`).
 //
-// Same impl as `arrivalDataPack`, reshaped onto the capability surface. This pack is
-// HELPER-DELEGATING: it defines its verbs via `defineDataEffectRosettas(env, …)` rather
-// than an inline method map, so it uses the `wire` escape hatch. The `DataEffectResolver`
-// is CONFIG (validated by zod, optional — INERT until the host arms `data`), and `wire`
-// passes `this.configuration.data ?? inertDataResolver` to the same helper data.ts uses.
+// Inert by construction: when the host doesn't arm `data`, the verbs fall back to
+// `inertDataResolver`, which THROWS a teaching error at call time — so the OSS engine ships the
+// verbs present but disarmed, never reaching a network or DB and never silently no-op'ing. The SaaS
+// host injects the credentialed resolver via config.
+//
+// The verbs are wired by the existing `defineDataEffectRosettas(env, …)` helper, so the symbols use
+// the BUILDER form (`captureSymbols`): run that helper against a recording env and capture what it
+// sets — the helper stays the single source of the verbs, with zero re-homing into a method map.
 
 import { captureSymbols, EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
 import { z } from "zod";
