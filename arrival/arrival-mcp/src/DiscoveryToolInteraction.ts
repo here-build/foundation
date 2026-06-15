@@ -1,24 +1,34 @@
-import { Environment, execSerialized, SAFE_BUILTINS, sandboxedEnv } from "@here.build/arrival";
+import { Environment, execSerialized, sandboxedEnv } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival-scheme/env";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { format } from "date-fns";
 import dedent from "dedent";
 import invariant from "tiny-invariant";
-import type { NonEmptyTuple } from "type-fest";
 import * as z from "zod";
 
 import { ToolInteraction, type MCPClientInfo } from "./ToolInteraction.js";
+import type { McpEnvCapability } from "./McpEnvCapability.js";
 
 export interface DiscoveryQuery {
   expr: string;
 }
 
-interface RegisteredFunction {
-  description:
-    | DiscoveryFunctionDescription
-    | (() => DiscoveryFunctionDescription | Promise<DiscoveryFunctionDescription>);
-  params: [] | NonEmptyTuple<z.ZodType>;
-  handler: (...args: any[]) => any;
-  aliases?: string[];
+/** Render one positional zod arg as a Scheme-doc type token for the verb catalog. */
+function argTypeName(item: z.ZodType): string {
+  let postfix = "";
+  try {
+    if (item.safeParse(undefined).success) postfix += "?";
+  } catch {
+    // some complex transforms throw on a probe parse — treat as required
+  }
+  if (item.description) postfix += ` (${item.description})`;
+  if (item instanceof z.ZodString) return `string${postfix}`;
+  if (item instanceof z.ZodNumber) return `number${postfix}`;
+  if (item instanceof z.ZodBoolean) return `boolean${postfix}`;
+  if (item instanceof z.ZodArray) return `list${postfix}`;
+  if (item instanceof z.ZodEnum) return item.options.map((v) => `"${v}"`).join("|");
+  if (item instanceof z.ZodAny) return `any`;
+  return `value${postfix}`;
 }
 
 type DiscoveryFunctionDescription = string | { dynamic: true; value: string };
@@ -26,9 +36,9 @@ type DiscoveryFunctionDescription = string | { dynamic: true; value: string };
 export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<string, any>> extends ToolInteraction<
   DiscoveryQuery & ExecutionContext
 > {
-  private readonly MAX_EXECUTION_TIME = 5000; // 5 seconds
+  /** Wall-clock eval budget (the interpreter TICK-checks it — replaces the old cooperative timeout). */
+  private readonly MAX_EXECUTION_TIME = 5000;
   public readonly contextSchema: Record<string, z.ZodType> = {};
-  private readonly functions = new Map<string, RegisteredFunction>();
 
   async getToolDescription(clientInfo?: MCPClientInfo): Promise<Tool> {
     return {
@@ -49,7 +59,6 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
   }
 
   async getToolSchema(clientInfo?: MCPClientInfo): Promise<Tool["inputSchema"]> {
-    this.registerFunctions();
     const availableFunctions = await this.getAvailableFunctions();
     const availableFunctionStrings = availableFunctions.map((description) =>
       typeof description === "object" ? description.value : description,
@@ -57,6 +66,7 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
     const dynamic = availableFunctions.some((description) => typeof description === "object" && description.dynamic);
     const now = new Date();
     const aiName = this.getAIPersonalizedName(clientInfo);
+    const baseSymbols = this.baseEnvSymbols().join(", ");
     return {
       type: "object",
       properties: {
@@ -73,8 +83,8 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
             This sandbox is providing access to the actual system state snapshot at the moment of request.
             This snapshot is stored locally and can be traversed in full.
             You can do anything you want, do any data transformations, lenses, views of any complexity.
-            Sandbox provides following standard symbols to use in any way you need:
-            ${SAFE_BUILTINS}
+            Sandbox provides the following base-environment symbols (use freely):
+            ${baseSymbols}
 
             This REPL supports batch queries. You can express your curiosity like this in single \`expr\` request (e.g.):
             \`\`\`
@@ -82,13 +92,7 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
             (all-projects)
             \`\`\`
             and this server will provide response in two messages per each top-level expression.
-            You can use any lisp features to obtain data you need: filter, map 
-
-            Use Fantasy Land combinators for compositional queries:
-            - (fmap fn structure) - map over Functors
-            - (chain structure fn) - flatMap for Monads
-            - (filter predicate list) - filter with predicates
-            - (compose f g) - function composition
+            You can use any lisp features to obtain data you need: filter, map
 
             Domain-specific functions available in sandbox:
             `,
@@ -125,12 +129,8 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
 
   async executeTool(): Promise<string | string[]> {
     invariant(this.executionContext, "execution context should be provided for tool execution");
-    const timeoutRef = { current: false };
-    this.registerFunctions();
-    const env = await this.createEnvironment(timeoutRef);
-    setTimeout(() => {
-      timeoutRef.current = true;
-    }, this.MAX_EXECUTION_TIME);
+    const env = await this.createEnvironment();
+    const budgetMs = this.MAX_EXECUTION_TIME;
 
     const expr = this.executionContext.expr;
 
@@ -154,7 +154,7 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
     for (const past of history) {
       if (!isPureDefine(past)) continue; // keep in history (below) but don't replay non-bindings
       try {
-        await execSerialized(past, { env });
+        await execSerialized(past, { env, budgetMs });
       } catch {
         continue; // dead binding — references state that no longer reproduces; drop from history.
       }
@@ -163,7 +163,7 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
     this.state.__repl__ = survived;
 
     // Evaluate the new expression and return its result
-    const result = await execSerialized(expr, { env });
+    const result = await execSerialized(expr, { env, budgetMs });
 
     // Record this input for future replay (appended to the pruned survivors)
     survived.push(expr);
@@ -172,112 +172,60 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
     return result;
   }
 
-  protected abstract registerFunctions(): void;
+  /** The aggregating MCP capability whose `deps` ARE the verb set — env + catalog both derive
+   *  from it (env via `assembleEnv`'s dep-closure; catalog via `allAnnotations`). */
+  protected abstract capability(): McpEnvCapability;
 
-  protected registerFunction<T extends [] | NonEmptyTuple<z.ZodType>>(
-    name: string,
-    description:
-      | DiscoveryFunctionDescription
-      | (() => DiscoveryFunctionDescription | Promise<DiscoveryFunctionDescription>),
-    params: T,
-    handler: (...args: any[]) => any,
-    aliases?: string[],
-  ) {
-    const funcDef = { description, params, handler, aliases };
-
-    // Register primary name
-    this.functions.set(name, funcDef);
-
-    // Register all aliases pointing to the same definition
-    if (aliases) {
-      for (const alias of aliases) {
-        this.functions.set(alias, funcDef);
-      }
-    }
+  /** Config passed to the capability's `lower()` (e.g. `{ project }`). Defaults to the
+   *  execution context; override for a narrower/typed config. */
+  protected capabilityConfig(): Record<string, unknown> {
+    return (this.executionContext ?? {}) as Record<string, unknown>;
   }
 
-  // Note: Manual conversion methods removed - now handled by arrival's Rosetta Environment
+  /** The base env capabilities assemble onto — the foundation vocabulary the tool PROVIDES
+   *  alongside the env capabilities. Override to supply a different base. */
+  protected baseEnv(): Environment {
+    return sandboxedEnv.inherit("Discovery sandbox", {});
+  }
+
+  /** The base env's full symbol set (chain-walked, sorted) — advertised in the schema in place
+   *  of a hardcoded builtin constant, so the docs are FAITHFUL to the real env we run. */
+  private baseEnvSymbols(): string[] {
+    const names = new Set<string>();
+    for (let e: Environment | null = this.baseEnv(); e; e = e.__parent__) {
+      for (const k of e.list()) if (typeof k === "string") names.add(k);
+    }
+    return [...names].sort();
+  }
+
+  /** The verb catalog — reflected off the capability's dep-closure annotations (dynamic
+   *  descriptions resolved). One declaration site (the capability), nothing hand-listed. */
   protected getAvailableFunctions(): Promise<DiscoveryFunctionDescription[]> {
-    this.registerFunctions();
-    // Deduplicate: only show primary name in docs, aliases work silently
-    const seen = new Set<RegisteredFunction>();
-    const uniqueFunctions = [...this.functions.entries()].filter(([name, func]) => {
-      if (seen.has(func)) return false;
-      seen.add(func);
-      return true;
-    });
-
     return Promise.all(
-      uniqueFunctions.map(async ([name, { description, params }]) => {
-        // Generate signature from Zod schema
-        const signature = params
-          .map((item: any) => {
-            let postfix = "";
-            try {
-              if (item.safeParse().success) {
-                postfix += "?";
-              }
-            } catch {
-              // this sometimes throws when we are doing complex transforms
-            }
-            if (item.description) {
-              postfix += ` (${item.description})`;
-            }
-            // Basic type checks
-            if (item instanceof z.ZodString) return `string${postfix}`;
-            if (item instanceof z.ZodNumber) return `number${postfix}`;
-            if (item instanceof z.ZodBoolean) return `boolean${postfix}`;
-            if (item instanceof z.ZodArray) return `list${postfix}`;
-
-            // Enum shows possible values
-            if (item instanceof z.ZodEnum) {
-              return item.options.map((v) => `"${v}"`).join("|");
-            }
-
-            // For z.any() or complex types, use generic names
-            if (item instanceof z.ZodAny) {
-              return `any`;
-            }
-
-            return `value${postfix}`;
-          })
-          .join(" ");
-
-        const resolvedDescription = typeof description === "function" ? await description() : description;
-        const dynamic = typeof resolvedDescription === "object" ? resolvedDescription.dynamic : false;
-        const descriptionText =
-          typeof resolvedDescription === "object" ? resolvedDescription.value : resolvedDescription;
-        const fullDescription = `(${name}${signature ? ` ${signature}` : ""}) - ${descriptionText}`;
-
-        return dynamic
-          ? {
-              dynamic: true,
-              value: fullDescription,
-            }
-          : fullDescription;
+      Object.entries(this.capability().allAnnotations()).map(async ([name, a]) => {
+        // Only a STATIC inputSchema array renders a sig; a getter (resource-resolving) mustn't
+        // be invoked here (no live activation) — read the descriptor, don't access it.
+        const d = Object.getOwnPropertyDescriptor(a, "inputSchema");
+        const sig = d && !d.get && Array.isArray(d.value) ? d.value.map(argTypeName).join(" ") : "";
+        const resolved = typeof a.description === "function" ? await a.description() : a.description;
+        const dynamic = typeof resolved === "object" ? resolved.dynamic : false;
+        const text = typeof resolved === "object" ? resolved.value : resolved;
+        const full = `(${name}${sig ? ` ${sig}` : ""}) - ${text}`;
+        return dynamic ? { dynamic: true as const, value: full } : full;
       }),
     );
   }
 
-  protected createEnvironment(timeoutRef: { current: boolean }): any {
-    const env = sandboxedEnv.inherit("Discovery sandbox", {});
-
-    // Register functions using arrival's Rosetta Environment for seamless LIPS ↔ JS interop
-    for (const [name, { handler, params }] of this.functions.entries()) {
-      env.defineRosetta(name, {
-        fn: async (...args: any[]) => {
-          invariant(!timeoutRef.current, "Timeout");
-          try {
-            return params.length > 0
-              ? handler(...z.tuple(params as [z.ZodType, ...z.ZodType[]]).parse(args))
-              : handler();
-          } catch (error: any) {
-            throw new Error(`${name}: ${error.message}`);
-          }
-        },
-      });
-    }
-
-    return env;
+  /** Assemble the env from the aggregating capability — its `deps` closure (C3-linearized by
+   *  `assembleEnv`) IS the verb set; arg-parsing lives in the capability, the eval is
+   *  budget-bounded in `executeTool`. `lower()`'s apply is async, hence `assembleEnv`. */
+  protected createEnvironment(): Promise<any> {
+    const base = this.baseEnv();
+    return assembleEnv(base, [
+      this.capability().lower({
+        config: this.capabilityConfig(),
+        evalScheme: (e, src) => execSerialized(src, { env: e }),
+      }),
+    ]).then(({ env }) => env);
   }
 }

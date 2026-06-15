@@ -16,7 +16,10 @@ import { toSExprString } from "@here.build/arrival-serializer";
  */
 export async function execSerialized(expr: string, options?: any): Promise<string[]> {
   const result = await exec(`(list ${expr})`, {
-    env: options?.env?.__env__ ? options?.env : sandboxedEnv.inherit("sandbox", options?.env)
+    env: options?.env?.__env__ ? options?.env : sandboxedEnv.inherit("sandbox", options?.env),
+    // Thread through the eval bounds (previously dropped) so callers can budget/cancel a run.
+    budgetMs: options?.budgetMs,
+    signal: options?.signal,
   });
 
   // The result should be an array with one element (the list)
