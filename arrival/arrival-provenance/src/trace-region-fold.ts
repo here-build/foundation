@@ -345,6 +345,23 @@ export class TraceRegionFold {
       return v;
     };
     const liveValueById = (id: number): unknown => this.#liveById.get(id)?.value;
+    // Mirror of from-scratch `livePointsUnder` (trace-to-regions): the topmost provenance
+    // points in an invocation's live subtree, for pluck-off-infer decision operands whose
+    // stamped value was GC-pruned. MUST match the one-shot exactly or the parity test trips.
+    type LiveNode = { id: number; isProvenancePoint?: boolean; children?: readonly LiveNode[] };
+    const livePointsUnder = (id: number): number[] => {
+      const root = this.#liveById.get(id) as LiveNode | undefined;
+      if (!root) return [];
+      const out: number[] = [];
+      const stack: LiveNode[] = [...(root.children ?? [])];
+      while (stack.length > 0) {
+        const n = stack.pop()!;
+        if (n.isProvenancePoint) {
+          if (this.#pointIds.has(n.id)) out.push(n.id);
+        } else stack.push(...(n.children ?? []));
+      }
+      return out;
+    };
 
     const knotArm: { knot: number; arm: number }[] = [];
     const knotInputs: { knot: number; from: number }[] = [];
@@ -391,6 +408,7 @@ export class TraceRegionFold {
       pointIds: this.#pointIds,
       valueById,
       liveValueById,
+      livePointsUnder,
       fieldPointMeta: this.#trace.fieldPointMeta,
       originCache: this.#originCache,
       knotArm,

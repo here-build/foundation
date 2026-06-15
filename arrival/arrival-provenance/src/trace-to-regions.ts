@@ -380,7 +380,18 @@ const outcomeOf = (inv: PlainInv, testNode: unknown, valueById: (id: number) => 
   const sym = symOf(testNode);
   if (sym !== undefined) {
     const r = resolveRaw(inv, sym, valueById);
-    if (r !== undefined) return r.value === false ? "no" : "yes";
+    // Only a KNOWN value decides the polarity. A pruned operand (a field-pluck whose stamped
+    // value was GC'd by `pruneChildProvenance`) reads back undefined — which is NOT `#f`, so we
+    // must NOT treat it as truthy; fall through to the structural arm check.
+    if (r?.value !== undefined) return r.value === false ? "no" : "yes";
+  }
+  // Prune-proof: the taken branch actually ran, so its arm expression is a child invocation.
+  // `(if TEST THEN ELSE)` → THEN ran ⇒ "yes", ELSE ran ⇒ "no". Recovers polarity for an operand
+  // whose value was pruned (the same field-pluck-off-infer case the wiring gate handles).
+  if (headOf(inv) === "if") {
+    const parts = listOf(inv.node);
+    if (inv.children.some((c) => c.node === parts[2])) return "yes";
+    if (parts[3] !== undefined && inv.children.some((c) => c.node === parts[3])) return "no";
   }
   return undefined;
 };
@@ -600,6 +611,13 @@ export interface RegionWalkCtx {
   /** Live value of an invocation id (for decision-operand provenance) — the snapshot
    *  drops plumbing values, so the decision path reads the live trace. */
   liveValueById: (id: number) => unknown;
+  /** The provenance POINTS in an invocation's live subtree (topmost ones — not descending
+   *  past a point). A field-pluck off an infer (`(:big (car (infer …)))`) carries its
+   *  provenance on the stamped pluck VALUE, but that value is GC-pruned as non-point
+   *  plumbing before the region build runs (`Trace#pruneChildProvenance`). The provenance
+   *  survives STRUCTURALLY — the infer point lives in the pluck invocation's subtree, and
+   *  points are never pruned — so the decision gate recovers it by walking here. */
+  livePointsUnder: (id: number) => readonly number[];
   fieldPointMeta: PlainTrace["fieldPointMeta"];
   originCache: Map<number, number>;
   /** Collectors filled during the walk (knot→arm control wires, knot→operand data
@@ -776,11 +794,14 @@ export function regionsAt(inv: PlainInv, ctx: RegionWalkCtx): Region[] {
     const wired = new Set<string>();
     const inputs: number[] = [];
     for (const { sym, producerId } of decisionInputProducers(inv, ctx.valueById)) {
-      const origins = ctx.pointIds.has(producerId)
+      let origins = ctx.pointIds.has(producerId)
         ? [producerId]
         : [...valueProvenance(ctx.liveValueById(producerId))]
             .map((p) => resolveOriginVia(p, ctx.fieldPointMeta, ctx.originCache))
             .filter((o) => ctx.pointIds.has(o));
+      // Pruned pluck value (`(:big (car (infer …)))`): its stamped provenance was GC'd, but the
+      // infer point survives in the live subtree — recover the origins structurally.
+      if (origins.length === 0) origins = [...ctx.livePointsUnder(producerId)];
       if (origins.length === 0) continue;
       wired.add(sym);
       inputs.push(...origins);
@@ -1093,6 +1114,24 @@ export function buildRegions(snap: PlainTrace, trace: EvalTrace): RegionGraph {
     return v;
   };
   const liveValueById = (id: number): unknown => liveById.get(id)?.value;
+  // The topmost provenance points in an invocation's live subtree (do NOT descend past a
+  // point — we want the immediate inference origins feeding the operand). Recovers a
+  // pluck-off-infer's provenance structurally after `pruneChildProvenance` nulled the
+  // stamped value (see `RegionWalkCtx.livePointsUnder`).
+  type LiveNode = { id: number; isProvenancePoint?: boolean; children?: readonly LiveNode[] };
+  const livePointsUnder = (id: number): number[] => {
+    const root = liveById.get(id) as LiveNode | undefined;
+    if (!root) return [];
+    const out: number[] = [];
+    const stack: LiveNode[] = [...(root.children ?? [])];
+    while (stack.length > 0) {
+      const n = stack.pop()!;
+      if (n.isProvenancePoint) {
+        if (pointIds.has(n.id)) out.push(n.id);
+      } else stack.push(...(n.children ?? []));
+    }
+    return out;
+  };
 
   // Edges (Hasse transitive reduction) over the points, in ascending id order.
   const originCache = new Map<number, number>();
@@ -1117,6 +1156,7 @@ export function buildRegions(snap: PlainTrace, trace: EvalTrace): RegionGraph {
     pointIds,
     valueById,
     liveValueById,
+    livePointsUnder,
     fieldPointMeta: snap.fieldPointMeta,
     originCache,
     knotArm,
