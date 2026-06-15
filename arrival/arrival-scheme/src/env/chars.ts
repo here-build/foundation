@@ -13,9 +13,9 @@ import foldCase from "fold-case";
 import unicodeProperties from "unicode-properties";
 import invariant from "tiny-invariant";
 
-import { charValue, coerceNumeric, deriveOrd } from "../op-helpers.js";
-import { SchemeExact } from "../numbers.js";
-import { SchemeCharacter } from "../types.js";
+import { charValue, coerceNumeric, deriveOrd } from "../values/op-helpers.js";
+import { SchemeExact } from "../values/numbers.js";
+import { SchemeCharacter } from "../values/types.js";
 import { EnvCapability } from "./capability.js";
 
 export const CHAR_OPS = {

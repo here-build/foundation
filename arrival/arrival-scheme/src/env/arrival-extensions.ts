@@ -16,7 +16,7 @@
 // SINGLE SOURCE: `base-packs.ts` assembles `ARRIVAL_EXTENSIONS_SCM`
 // and evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 import { EnvCapability } from "./capability.js";
-import { SchemeSymbol } from "../SchemeSymbol.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
 import { typecheck } from "../utils/typecheck.js";
 
 export const ARRIVAL_EXTENSIONS_SCM = `

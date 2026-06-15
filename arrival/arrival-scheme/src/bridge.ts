@@ -7,16 +7,16 @@
  * 3. Drop-in replacements for global_env numeric operations
  */
 
-import { AValue, unionProvenance } from "./AValue.js";
+import { AValue, unionProvenance } from "./values/AValue.js";
 import { isBridgeInitialized, markBridgeInitialized, setBootstrapComplete } from "./boot.js";
 import { EnvCapability } from "./env/capability.js";
 import { assembleEnv } from "./env/kernel.js";
 import { BASE_PACKS } from "./env/base-packs.js";
 import type { EvalSchemeInto, SchemeEnv } from "./env/scheme-env.js";
-import { HalfBaked, type Interval, is_half_baked } from "./HalfBaked.js";
+import { HalfBaked, type Interval, is_half_baked } from "./values/HalfBaked.js";
 import type { Environment } from "./Environment.js";
-import { schemeFalse, schemeTrue } from "./SchemeBool.js";
-import { coerceNumeric, getAllocationLimit, isOrd, isSchemeNumber, ORD_REL, setAllocationLimit } from "./op-helpers.js";
+import { schemeFalse, schemeTrue } from "./values/SchemeBool.js";
+import { coerceNumeric, getAllocationLimit, isOrd, isSchemeNumber, ORD_REL, setAllocationLimit } from "./values/op-helpers.js";
 // Value-domain primitive clusters — each is the carved-out source of truth for one
 // R7RS domain (chars/strings/lists/vectors/bytevectors + combinators + equality).
 // They are no longer spread into `wrappedOps`: `initBridge` ASSEMBLES them onto
@@ -25,16 +25,16 @@ import { coerceNumeric, getAllocationLimit, isOrd, isSchemeNumber, ORD_REL, setA
 // Operator/Profunctor↔Scheme bridge).
 import { NATIVE_PACKS } from "./env/native-packs.js";
 import { env as userEnv, exec, global_env } from "./stdlib.js";
-import { SchemeString } from "./SchemeString.js";
+import { SchemeString } from "./values/SchemeString.js";
 import type { Codec, Operator } from "./membrane.js";
-import type { SchemeNumeric } from "./numbers.js";
-import { SchemeExact, SchemeInexact } from "./numbers.js";
+import type { SchemeNumeric } from "./values/numbers.js";
+import { SchemeExact, SchemeInexact } from "./values/numbers.js";
 import * as ops from "./operators/index.js";
 // Import directly from source files to avoid circular dependency during init
-import { Pair } from "./Pair.js";
-import { nil } from "./types.js";
+import { Pair } from "./values/Pair.js";
+import { nil } from "./values/types.js";
 import { type } from "./utils/typecheck.js";
-import { Values } from "./Values.js";
+import { Values } from "./values/Values.js";
 import invariant from "tiny-invariant";
 import "./errors.js";
 // Import global environment for initBridge - this is safe because bridge.ts

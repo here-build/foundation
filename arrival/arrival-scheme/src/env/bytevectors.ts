@@ -13,14 +13,14 @@
 
 import "../errors.js";
 
-import { SchemeBytevector } from "../SchemeBytevector.js";
-import { SchemeString } from "../SchemeString.js";
+import { SchemeBytevector } from "../values/SchemeBytevector.js";
+import { SchemeString } from "../values/SchemeString.js";
 import {
   asBytevector,
   stringValue,
   toIndex,
   withInputProvenance,
-} from "../op-helpers.js";
+} from "../values/op-helpers.js";
 import { EnvCapability } from "./capability.js";
 
 export const BYTEVECTOR_OPS = {

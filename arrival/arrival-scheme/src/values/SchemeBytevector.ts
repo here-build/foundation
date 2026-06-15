@@ -10,7 +10,7 @@
  * Boxing track: docs/plan-2026-06-10-boxing-track.md (S1).
  */
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markInteropBoundary } from "./interop-access.js";
+import { markInteropBoundary } from "../interop-access.js";
 
 // The membrane's TO_JS protocol key, resolved from the global symbol registry
 // rather than imported from membrane.js. `Symbol.for` returns the SAME symbol as

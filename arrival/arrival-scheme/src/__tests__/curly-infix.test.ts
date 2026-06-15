@@ -9,13 +9,13 @@
 // (resolveNfx, in core), the errors-as-door cases (no `$nfx$` ever), quote
 // distribution, and non-regression of `()`/`[]` list reading.
 import { describe, expect, it } from "vitest";
-import { eof } from "../EOF.js";
+import { eof } from "../values/EOF.js";
 import { Lexer } from "../Lexer.js";
-import { EOF } from "../EOF.js";
+import { EOF } from "../values/EOF.js";
 import { Parser } from "../Parser.js";
-import { SchemeSymbol } from "../SchemeSymbol.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
 import { canonicalizeCurly, FIXITY } from "../curly-infix.js";
-import type { SchemeValue } from "../types.js";
+import type { SchemeValue } from "../values/types.js";
 
 function lex(input: string): string[] {
   const lexer = new Lexer(input);

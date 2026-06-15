@@ -8,10 +8,10 @@
  * SRFI-105 `{}` delimiter was a one-line widening of the bracket char-class.
  */
 import invariant from "tiny-invariant";
-import { eof } from "./EOF.js";
+import { eof } from "./values/EOF.js";
 import { Unterminated } from "./errors.js";
 import { is_string } from "./guards.js";
-import { directives, hash_literals, parsable_contants } from "./primitives.js";
+import { directives, hash_literals, parsable_contants } from "./values/primitives.js";
 import * as specials from "./specials.js";
 
 /**

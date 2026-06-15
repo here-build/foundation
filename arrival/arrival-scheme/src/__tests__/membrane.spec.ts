@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { SchemeExact, SchemeInexact } from "../numbers";
+import { SchemeExact, SchemeInexact } from "../values/numbers";
 import {
   AnyNum,
   Environment,
@@ -19,10 +19,10 @@ import {
   isSchemeValue,
   isBytevectorLike,
 } from "../membrane";
-import { nil } from "../types";
-import { SchemeString } from "../SchemeString";
-import { SchemeSymbol } from "../SchemeSymbol";
-import { Pair } from "../Pair";
+import { nil } from "../values/types";
+import { SchemeString } from "../values/SchemeString";
+import { SchemeSymbol } from "../values/SchemeSymbol";
+import { Pair } from "../values/Pair";
 import {
   abs,
   add,

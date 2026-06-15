@@ -4,7 +4,7 @@
  * this table — and its `on`/`off`/`trigger` events — to recognize special syntax
  * at read time, before the evaluator ever sees a form. Derived from upstream LIPS.
  */
-import { SchemeSymbol } from "./SchemeSymbol.js";
+import { SchemeSymbol } from "./values/SchemeSymbol.js";
 
 /** Prefix expands to a single quoted/wrapped datum (`'x` → `(quote x)`). */
 export const LITERAL = Symbol.for("literal");

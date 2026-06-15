@@ -19,10 +19,10 @@
 // list-bounds and circular-list guards below (side-effect import).
 import "@here.build/error-invariant";
 
-import { eqv, withInputProvenance } from "../op-helpers.js";
-import { isCircularList, Pair } from "../Pair.js";
-import { structuralEqual } from "../structural-equal.js";
-import { Nil, nil } from "../types.js";
+import { eqv, withInputProvenance } from "../values/op-helpers.js";
+import { isCircularList, Pair } from "../values/Pair.js";
+import { structuralEqual } from "../values/structural-equal.js";
+import { Nil, nil } from "../values/types.js";
 import { is_false } from "../guards.js";
 import { EnvCapability } from "./capability.js";
 

@@ -13,7 +13,7 @@
  */
 
 import type { Environment } from "../Environment";
-import type { SchemeValue } from "../types";
+import type { SchemeValue } from "../values/types";
 
 // Import both evaluator implementations
 import { env as lipsEnv, exec as lipsExec } from "../stdlib";

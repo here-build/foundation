@@ -12,7 +12,7 @@
 import fs from "fs";
 import { describe, expect, test } from "vitest";
 import { env, exec } from "../stdlib";
-import { nil } from "../types.js";
+import { nil } from "../values/types.js";
 import { initBridge } from "../bridge";
 import * as path from "node:path";
 

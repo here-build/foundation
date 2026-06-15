@@ -24,10 +24,10 @@
 
 import { EnvCapability } from "./capability.js";
 import { global_env } from "../stdlib.js";
-import { nil } from "../types.js";
+import { nil } from "../values/types.js";
 import { SchemeJSArray } from "../membrane.js";
 import { is_false } from "../guards.js";
-import { Pair } from "../Pair.js";
+import { Pair } from "../values/Pair.js";
 
 // ── Lazy builtin capture ────────────────────────────────────────────────────
 // Read once on first use, after bootstrap, when global_env is fully assembled.

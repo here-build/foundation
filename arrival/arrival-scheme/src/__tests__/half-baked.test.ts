@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { HalfBaked, is_half_baked, type Interval } from "../HalfBaked.js";
+import { HalfBaked, is_half_baked, type Interval } from "../values/HalfBaked.js";
 import { is_promise } from "../guards.js";
 
 /** A promise plus its resolver, so a test can settle slots one at a time. */

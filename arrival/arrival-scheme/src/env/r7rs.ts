@@ -14,7 +14,7 @@
 // SINGLE SOURCE: `base-packs.ts` assembles `R7RS_SCM` and
 // evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 import { EnvCapability } from "./capability.js";
-import { SchemeSymbol } from "../SchemeSymbol.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
 
 export const R7RS_SCM = `
 ;; %else-literal? is native (below the membrane) — see the symbols block below.

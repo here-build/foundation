@@ -3,10 +3,10 @@
 // returns the boxed value. Numeric-grammar helpers originate from the LIPS reader.
 import invariant from "tiny-invariant";
 import { is_exact, is_inexact, is_int } from "../guards.js";
-import { schemeFalse, schemeTrue } from "../SchemeBool.js";
-import { SchemeString } from "../SchemeString.js";
-import { SchemeSymbol } from "../SchemeSymbol.js";
-import { SchemeExact, SchemeInexact } from "../numbers.js";
+import { schemeFalse, schemeTrue } from "../values/SchemeBool.js";
+import { SchemeString } from "../values/SchemeString.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
+import { SchemeExact, SchemeInexact } from "../values/numbers.js";
 import {
   char_re,
   complex_bare_match_re,
@@ -20,9 +20,9 @@ import {
   rational_bare_re,
   rational_re,
   re_re,
-} from "../primitives.js";
+} from "../values/primitives.js";
 import { parseBigInt } from "../serialize.js";
-import { SchemeCharacter } from "../types.js";
+import { SchemeCharacter } from "../values/types.js";
 
 // -------------------------------------------------------------------------
 // :: ref: https://github.com/bestiejs/punycode.js/blob/master/punycode.js

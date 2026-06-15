@@ -16,16 +16,16 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { EMPTY_PROVENANCE } from "../AValue";
-import { schemeFalse, schemeTrue } from "../SchemeBool";
-import { SchemeString } from "../SchemeString";
+import { EMPTY_PROVENANCE } from "../values/AValue";
+import { schemeFalse, schemeTrue } from "../values/SchemeBool";
+import { SchemeString } from "../values/SchemeString";
 import { SchemeJSObject } from "../membrane";
-import { SchemeExact, SchemeInexact } from "../numbers";
-import { Pair } from "../Pair";
+import { SchemeExact, SchemeInexact } from "../values/numbers";
+import { Pair } from "../values/Pair";
 import { jsToScheme } from "../rosetta";
 import { sandboxedEnv } from "../sandbox-env";
 import { exec } from "../stdlib";
-import { Nil, nil } from "../types";
+import { Nil, nil } from "../values/types";
 
 const PROV = new Set<number>([42]);
 

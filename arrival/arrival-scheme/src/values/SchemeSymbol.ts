@@ -1,5 +1,5 @@
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markInteropBoundary } from "./interop-access.js";
+import { markInteropBoundary } from "../interop-access.js";
 import type { SchemeStringLike } from "./types.js";
 import { isSchemeString, isString } from "./types.js";
 

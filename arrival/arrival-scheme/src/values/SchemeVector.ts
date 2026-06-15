@@ -13,7 +13,7 @@
  * Boxing track: docs/plan-2026-06-10-boxing-track.md (S5).
  */
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markInteropBoundary } from "./interop-access.js";
+import { markInteropBoundary } from "../interop-access.js";
 import { structuralEqual } from "./structural-equal.js";
 import type { SchemeValue } from "./types.js";
 

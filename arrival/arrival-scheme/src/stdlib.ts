@@ -5,16 +5,16 @@
  * https://github.com/jcubic/lips
  */
 import invariant from "tiny-invariant";
-import { AValue, unionProvenance } from "./AValue.js";
+import { AValue, unionProvenance } from "./values/AValue.js";
 import { whenBootstrapComplete } from "./boot.js";
 import { Environment, KEYWORD_ACCESSOR_FIELD, setSchemeRuntime } from "./Environment.js";
 import { findHeapMeter, heapBudgetMessage } from "./heap-budget.js";
-import { eof } from "./EOF.js";
-import { HalfBaked, is_half_baked } from "./HalfBaked.js";
+import { eof } from "./values/EOF.js";
+import { HalfBaked, is_half_baked } from "./values/HalfBaked.js";
 import { Lexer } from "./Lexer.js";
 import { purityDoor } from "./purity.js";
 import { Parser } from "./Parser.js";
-import { QuotedPromise } from "./QuotedPromise.js";
+import { QuotedPromise } from "./values/QuotedPromise.js";
 import {
   is_env,
   is_false,
@@ -30,8 +30,8 @@ import {
   is_prototype,
   is_raw_lambda,
 } from "./guards.js";
-import { SchemeSymbol } from "./SchemeSymbol.js";
-import { eq, eqv } from "./structural-equal.js";
+import { SchemeSymbol } from "./values/SchemeSymbol.js";
+import { eq, eqv } from "./values/structural-equal.js";
 import { clear_gensyms, extract_patterns, transform_syntax } from "./syntax-rules.js";
 import { gensym, hidden_prop, quote } from "./values-repr.js";
 import {
@@ -45,25 +45,25 @@ import {
   parsable_contants,
   rational_bare_re,
   rational_re,
-} from "./primitives.js";
-import { nil, SchemeCharacter } from "./types.js";
+} from "./values/primitives.js";
+import { nil, SchemeCharacter } from "./values/types.js";
 import * as specials from "./specials.js";
 import { call_function } from "./call-function.js";
-import { SchemeExact, SchemeInexact } from "./numbers.js";
+import { SchemeExact, SchemeInexact } from "./values/numbers.js";
 import { type, typecheck, typeErrorMessage } from "./utils/typecheck.js";
 import { parse_complex, parse_float, parse_integer, parse_rational } from "./utils/parsing.js";
-import { Values } from "./Values.js";
+import { Values } from "./values/Values.js";
 import { available_class, class_map } from "./serialize.js";
 import { Macro } from "./Macro.js";
 import { Syntax } from "./Syntax.js";
-import { isCircularList, Pair } from "./Pair.js";
+import { isCircularList, Pair } from "./values/Pair.js";
 import { promise_all, unpromise } from "./utils/promises.js";
 import { compose, curry, fold, pipe } from "./utils/functional.js";
 
-import { SchemeBool } from "./SchemeBool.js";
-import { SchemeBytevector } from "./SchemeBytevector.js";
-import { SchemeString } from "./SchemeString.js";
-import { SchemeVector } from "./SchemeVector.js";
+import { SchemeBool } from "./values/SchemeBool.js";
+import { SchemeBytevector } from "./values/SchemeBytevector.js";
+import { SchemeString } from "./values/SchemeString.js";
+import { SchemeVector } from "./values/SchemeVector.js";
 import {
   keywordAccessorResolver,
   NOT_FOUND,

@@ -115,7 +115,7 @@ describe("CRITICAL: sandbox escape vectors", () => {
    * prototype-chain walk in sandboxedAccess stops at them.
    */
   it("SchemeString is marked as a sandbox boundary", async () => {
-    const { SchemeString } = await import("../SchemeString");
+    const { SchemeString } = await import("../values/SchemeString");
     // Direct check, two ways the marker can be present:
     const protoMarked =
       Object.prototype.hasOwnProperty.call(SchemeString.prototype, SANDBOX_BOUNDARY) &&
@@ -305,7 +305,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
    * behavior pin.
    */
   it("DOCUMENTED: string->symbol of N distinct names creates N intern entries", async () => {
-    const { SchemeSymbol } = await import("../SchemeSymbol");
+    const { SchemeSymbol } = await import("../values/SchemeSymbol");
     const before = Object.keys(SchemeSymbol.list).length;
     const N = 500;
     for (let i = 0; i < N; i++) {
@@ -431,7 +431,7 @@ describe("registry poisoning vectors", () => {
    * After such a fix, this test should be updated to assert the new control.
    */
   it("DOCUMENTED: AValue.registerBoxer has no access control today", async () => {
-    const { AValue } = await import("../AValue");
+    const { AValue } = await import("../values/AValue");
     // registerBoxer is an exposed static method. No frozen check, no symbol
     // guard. If AValue ever leaks to the sandbox, this is a direct write to
     // a global registry. Test pin: any PR that hardens the registry should
@@ -456,7 +456,7 @@ describe("registry poisoning vectors", () => {
 
 describe("CRITICAL: write-side prototype pollution (S6)", () => {
   it("string->symbol of '__proto__' does not pollute Object.prototype", async () => {
-    const { SchemeSymbol } = await import("../SchemeSymbol");
+    const { SchemeSymbol } = await import("../values/SchemeSymbol");
     // Minting symbols named after dangerous keys must touch only the intern
     // table as own keys — never reach Object.prototype.
     for (const name of ["__proto__", "constructor", "prototype"]) {

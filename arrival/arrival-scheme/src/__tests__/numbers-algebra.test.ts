@@ -4,8 +4,8 @@
 // so the exact/inexact instances now answer correctly).
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { SchemeExact, SchemeInexact } from "../numbers.js";
-import { structuralEqual } from "../structural-equal.js";
+import { SchemeExact, SchemeInexact } from "../values/numbers.js";
+import { structuralEqual } from "../values/structural-equal.js";
 import { setoidLaws } from "./algebra-laws.js";
 
 const FL = "fantasy-land/equals";

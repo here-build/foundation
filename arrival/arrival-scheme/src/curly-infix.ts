@@ -13,9 +13,9 @@
 
 import type { SourceLocation } from "./errors.js";
 import { ParseError } from "./errors.js";
-import { Pair } from "./Pair.js";
-import { SchemeSymbol } from "./SchemeSymbol.js";
-import { nil, type SchemeValue } from "./types.js";
+import { Pair } from "./values/Pair.js";
+import { SchemeSymbol } from "./values/SchemeSymbol.js";
+import { nil, type SchemeValue } from "./values/types.js";
 
 type Loc = SourceLocation | null | undefined;
 

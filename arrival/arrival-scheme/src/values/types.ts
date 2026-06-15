@@ -3,7 +3,7 @@
  * These are the fundamental data types for the Scheme implementation.
  */
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markInteropBoundary } from "./interop-access.js";
+import { markInteropBoundary } from "../interop-access.js";
 import invariant from "tiny-invariant";
 
 // SchemeValue is the generic type for any Scheme value

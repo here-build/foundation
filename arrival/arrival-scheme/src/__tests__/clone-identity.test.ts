@@ -36,8 +36,8 @@ import { hasMember, isSchemeValue, readMember, toJS } from "../membrane";
 import { schemeToJs } from "../rosetta";
 import { COMBINATOR_OPS } from "../env/combinators";
 import { LIST_OPS } from "../env/lists";
-import { Pair } from "../Pair";
-import { Nil, nil } from "../types";
+import { Pair } from "../values/Pair";
+import { Nil, nil } from "../values/types";
 
 // A nil clone carrying non-empty provenance — exactly what
 // `restrictControlFlowProvenance` (evaluator.ts:627) hands back when an `if`

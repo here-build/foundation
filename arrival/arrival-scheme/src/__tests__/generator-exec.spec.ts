@@ -7,10 +7,10 @@
 
 import { describe, expect, it } from "vitest";
 import { exec, execExpr, parse } from "../generator-exec";
-import { SchemeBool } from "../SchemeBool";
-import { SchemeSymbol } from "../SchemeSymbol";
-import { SchemeExact } from "../numbers";
-import { Pair } from "../Pair";
+import { SchemeBool } from "../values/SchemeBool";
+import { SchemeSymbol } from "../values/SchemeSymbol";
+import { SchemeExact } from "../values/numbers";
+import { Pair } from "../values/Pair";
 
 describe("generator-exec", () => {
   describe("exec() - basic operations", () => {

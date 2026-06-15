@@ -25,11 +25,11 @@
 // walked — a dict's own point is collected, but stringifying a dict directly is
 // not a wiring path; access a member first.
 
-import { AValue } from "./AValue.js";
-import { Pair } from "./Pair.js";
-import { SchemeVector } from "./SchemeVector.js";
+import { AValue } from "./values/AValue.js";
+import { Pair } from "./values/Pair.js";
+import { SchemeVector } from "./values/SchemeVector.js";
 import { SchemeJSArray } from "./membrane.js";
-import { SchemeString } from "./SchemeString.js";
+import { SchemeString } from "./values/SchemeString.js";
 
 /** Union the provenance point-ids of every AValue reachable in `vals`, deep-walking
  *  the structured carriers (list spines, vectors, arrays). Idempotent: only existing

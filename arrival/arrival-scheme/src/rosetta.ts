@@ -7,14 +7,14 @@
 
 import invariant from "tiny-invariant";
 
-import { AValue, EMPTY_PROVENANCE, pointProvenance, unionProvenance } from "./AValue.js";
-import { SchemeBool } from "./SchemeBool.js";
-import { SchemeBytevector } from "./SchemeBytevector.js";
-import { SchemeVector } from "./SchemeVector.js";
+import { AValue, EMPTY_PROVENANCE, pointProvenance, unionProvenance } from "./values/AValue.js";
+import { SchemeBool } from "./values/SchemeBool.js";
+import { SchemeBytevector } from "./values/SchemeBytevector.js";
+import { SchemeVector } from "./values/SchemeVector.js";
 import { SchemeJSArray, SchemeJSObject } from "./membrane.js";
-import { SchemeExact, SchemeInexact } from "./numbers.js";
-import { Pair } from "./Pair.js";
-import { Nil, nil } from "./types.js";
+import { SchemeExact, SchemeInexact } from "./values/numbers.js";
+import { Pair } from "./values/Pair.js";
+import { Nil, nil } from "./values/types.js";
 
 interface RosettaOptions {
   forceBigInt?: boolean;

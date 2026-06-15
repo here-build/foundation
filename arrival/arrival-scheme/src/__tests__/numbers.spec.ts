@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SchemeExact, SchemeInexact, parseNumber, rosettaNumbers, schemeNumbers } from "../numbers";
+import { SchemeExact, SchemeInexact, parseNumber, rosettaNumbers, schemeNumbers } from "../values/numbers";
 
 describe("ExactNumber", () => {
   it("creates integers", () => {

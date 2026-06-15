@@ -1,18 +1,18 @@
 // -------------------------------------------------------------------------
-import { EOF } from "../EOF.js";
-import { is_function, is_instance, is_iterator, is_pair } from "../value-guards.js";
-import { SchemeString } from "../SchemeString.js";
-import { SchemeSymbol } from "../SchemeSymbol.js";
-import { SchemeExact, SchemeInexact } from "../numbers.js";
-import { Pair } from "../Pair.js";
-import { type_constants } from "../primitives.js";
+import { EOF } from "../values/EOF.js";
+import { is_function, is_instance, is_iterator, is_pair } from "../values/value-guards.js";
+import { SchemeString } from "../values/SchemeString.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
+import { SchemeExact, SchemeInexact } from "../values/numbers.js";
+import { Pair } from "../values/Pair.js";
+import { type_constants } from "../values/primitives.js";
 // NOTE: Macro/Syntax are intentionally NOT imported. They are evaluator-world
 // classes; importing them here created an ESM init cycle (Macro → typecheck →
 // Syntax-extends-Macro) that resolved only by load-order luck. Their `typeOf`
 // is derived from the `constructor.__class__` brand fallback below ("macro" /
 // "syntax"), which keeps this module a leaf the value kernel can depend on.
-import { SchemeCharacter, Nil } from "../types.js";
-import { Values } from "../Values.js";
+import { SchemeCharacter, Nil } from "../values/types.js";
+import { Values } from "../values/Values.js";
 import invariant from "tiny-invariant";
 
 export function typeErrorMessage(fn: unknown, got: string, expected: unknown, position: number | null = null) {

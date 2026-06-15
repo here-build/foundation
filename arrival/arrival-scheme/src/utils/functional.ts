@@ -2,7 +2,7 @@
 // :: Functional programming utilities
 // -------------------------------------------------------------------------
 import { is_null } from "../guards.js";
-import { SchemeExact, SchemeInexact } from "../numbers.js";
+import { SchemeExact, SchemeInexact } from "../values/numbers.js";
 import { typecheck } from "./typecheck.js";
 
 type AnyFunction = (...args: unknown[]) => unknown;

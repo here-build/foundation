@@ -3,7 +3,7 @@
 // encoded as the token-pattern `rules` table. Originates from the LIPS formatter.
 import { is_special, is_symbol_string } from "./guards.js";
 import { tokenize } from "./stdlib.js";
-import { SchemeString } from "./SchemeString.js";
+import { SchemeString } from "./values/SchemeString.js";
 import {
   def_lambda_re,
   glob,
@@ -16,7 +16,7 @@ import {
   re_re,
   string_re,
   syntax_rules,
-} from "./primitives.js";
+} from "./values/primitives.js";
 import { balanced } from "./utils/balanced.js";
 import invariant from "tiny-invariant";
 

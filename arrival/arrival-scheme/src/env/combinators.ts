@@ -12,10 +12,10 @@
  */
 
 import "../errors.js";
-import { SchemeExact } from "../numbers.js";
-import { toIndex } from "../op-helpers.js";
-import { Pair } from "../Pair.js";
-import { Nil, nil } from "../types.js";
+import { SchemeExact } from "../values/numbers.js";
+import { toIndex } from "../values/op-helpers.js";
+import { Pair } from "../values/Pair.js";
+import { Nil, nil } from "../values/types.js";
 import { is_false } from "../guards.js";
 import { unpromise } from "../utils/promises.js";
 

@@ -13,11 +13,11 @@ import { collapseProvenance } from "../provenance-collapse";
 import { initBridge } from "../bridge";
 import { exec } from "../stdlib";
 import { sandboxedEnv } from "../sandbox-env";
-import { SchemeString } from "../SchemeString";
-import { SchemeVector } from "../SchemeVector";
-import { Pair } from "../Pair";
+import { SchemeString } from "../values/SchemeString";
+import { SchemeVector } from "../values/SchemeVector";
+import { Pair } from "../values/Pair";
 import { SchemeJSArray } from "../membrane";
-import { nil } from "../types";
+import { nil } from "../values/types";
 
 const stamped = (s: string, ...points: number[]) => new SchemeString(s, new Set(points));
 const sorted = (set: Set<number>) => [...set].sort((a, b) => a - b);

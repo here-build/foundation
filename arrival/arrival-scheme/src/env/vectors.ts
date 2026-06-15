@@ -9,11 +9,11 @@
  * async membrane callbacks before settling) live here.
  */
 
-import { SchemeVector } from "../SchemeVector.js";
-import { SchemeString } from "../SchemeString.js";
-import { SchemeCharacter, type SchemeValue } from "../types.js";
-import type { SchemeExact } from "../numbers.js";
-import { Pair } from "../Pair.js";
+import { SchemeVector } from "../values/SchemeVector.js";
+import { SchemeString } from "../values/SchemeString.js";
+import { SchemeCharacter, type SchemeValue } from "../values/types.js";
+import type { SchemeExact } from "../values/numbers.js";
+import { Pair } from "../values/Pair.js";
 import { is_promise } from "../guards.js";
 import { promise_all } from "../utils/promises.js";
 import invariant from "tiny-invariant";
@@ -24,7 +24,7 @@ import {
   stringValue,
   toIndex,
   withInputProvenance,
-} from "../op-helpers.js";
+} from "../values/op-helpers.js";
 
 import { EnvCapability } from "./capability.js";
 

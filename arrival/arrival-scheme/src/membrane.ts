@@ -16,21 +16,21 @@
  */
 
 import invariant from "tiny-invariant";
-import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { SchemeBool } from "./SchemeBool.js";
-import { SchemeBytevector } from "./SchemeBytevector.js";
-import { SchemeVector } from "./SchemeVector.js";
+import { AValue, EMPTY_PROVENANCE } from "./values/AValue.js";
+import { SchemeBool } from "./values/SchemeBool.js";
+import { SchemeBytevector } from "./values/SchemeBytevector.js";
+import { SchemeVector } from "./values/SchemeVector.js";
 import { Environment as SchemeEnvironment, KEYWORD_ACCESSOR_FIELD } from "./Environment.js";
 import type { ResolverSpec } from "./env/scheme-env.js";
 import { SchemePromise } from "./evaluator.js";
 import { LambdaContext } from "./LambdaContext.js";
-import { SchemeString } from "./SchemeString.js";
-import { SchemeSymbol } from "./SchemeSymbol.js";
+import { SchemeString } from "./values/SchemeString.js";
+import { SchemeSymbol } from "./values/SchemeSymbol.js";
 import { Macro } from "./Macro.js";
-import { type SchemeNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
-import { Pair } from "./Pair.js";
-import { __lambda__ } from "./primitives.js";
-import { QuotedPromise } from "./QuotedPromise.js";
+import { type SchemeNumeric, SchemeExact, SchemeInexact } from "./values/numbers.js";
+import { Pair } from "./values/Pair.js";
+import { __lambda__ } from "./values/primitives.js";
+import { QuotedPromise } from "./values/QuotedPromise.js";
 // `jsToScheme` import is intentionally a runtime cycle with rosetta.ts —
 // rosetta.ts statically imports `SchemeJSObject` from this file. ES module
 // resolution lets the cycle close at definition time (both functions are
@@ -46,7 +46,7 @@ import {
   accessKeys,
 } from "./interop-access.js";
 import { Syntax } from "./Syntax.js";
-import { type SchemeValue, Nil, nil, SchemeCharacter } from "./types.js";
+import { type SchemeValue, Nil, nil, SchemeCharacter } from "./values/types.js";
 
 // Re-export the interop-access primitives for consumers.
 export {

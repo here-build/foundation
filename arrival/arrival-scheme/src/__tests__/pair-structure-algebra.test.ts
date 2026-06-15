@@ -11,9 +11,9 @@
 // structuralEqual.
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { Pair } from "../Pair.js";
-import { nil, Nil } from "../types.js";
-import { structuralEqual } from "../structural-equal.js";
+import { Pair } from "../values/Pair.js";
+import { nil, Nil } from "../values/types.js";
+import { structuralEqual } from "../values/structural-equal.js";
 import { functorLaws } from "./algebra-laws.js";
 
 const MAP = "fantasy-land/map";

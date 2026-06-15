@@ -8,15 +8,15 @@
  */
 
 // Re-export classes with clean names
-export { SchemeString as String } from "./SchemeString.js";
-export { SchemeSymbol as Symbol } from "./SchemeSymbol.js";
-export { SchemeCharacter as Character, Nil as Nil, nil as nil } from "./types.js";
-export { Pair as Pair } from "./Pair.js";
-export { SchemeExact as Exact, SchemeInexact as Inexact } from "./numbers.js";
+export { SchemeString as String } from "./values/SchemeString.js";
+export { SchemeSymbol as Symbol } from "./values/SchemeSymbol.js";
+export { SchemeCharacter as Character, Nil as Nil, nil as nil } from "./values/types.js";
+export { Pair as Pair } from "./values/Pair.js";
+export { SchemeExact as Exact, SchemeInexact as Inexact } from "./values/numbers.js";
 export { Environment as Environment } from "./Environment.js";
 
 // Re-export type aliases
-export type { SchemeNumeric as Numeric } from "./numbers.js";
+export type { SchemeNumeric as Numeric } from "./values/numbers.js";
 
 // Re-export SchemeValue as Value for the generic "any scheme value" type
-export type { SchemeValue as Value } from "./types.js";
+export type { SchemeValue as Value } from "./values/types.js";

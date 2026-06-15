@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { env as global_environment, exec, parse } from "../stdlib";
-import { nil } from "../types.js";
-import { Pair } from "../Pair.js";
+import { nil } from "../values/types.js";
+import { Pair } from "../values/Pair.js";
 import { initBridge } from "../bridge";
-import { SchemeExact } from "../numbers";
+import { SchemeExact } from "../values/numbers";
 
 const execSimple = async (string: string, env?: object, dynamic_env?: object) => {
   return exec(string, { env, dynamic_env, use_dynamic: !!dynamic_env });

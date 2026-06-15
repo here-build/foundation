@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { SchemeExact, SchemeInexact } from "../numbers";
+import { SchemeExact, SchemeInexact } from "../values/numbers";
 import { coerceNumeric, wrapOperator, wrappedOps } from "../bridge";
 import { add, mul, sqrt, sub } from "../operators";
 

@@ -17,11 +17,11 @@
 // ----------------------------------------------------------------------
 import { is_promise } from "./guards.js";
 import { LambdaContext } from "./LambdaContext.js";
-import { Pair } from "./Pair.js";
-import { __data__ } from "./primitives.js";
-import type { SchemeValue } from "./types.js";
+import { Pair } from "./values/Pair.js";
+import { __data__ } from "./values/primitives.js";
+import type { SchemeValue } from "./values/types.js";
 import { promise_all } from "./utils/promises.js";
-import { is_pair } from "./value-guards.js";
+import { is_pair } from "./values/value-guards.js";
 
 type SchemeFunction = (...args: any[]) => any;
 

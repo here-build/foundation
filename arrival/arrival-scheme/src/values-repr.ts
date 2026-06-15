@@ -14,13 +14,13 @@
 // QuotedPromise is itself repointed.
 // ----------------------------------------------------------------------
 import { is_promise } from "./guards.js";
-import { SchemeString } from "./SchemeString.js";
-import { SchemeSymbol } from "./SchemeSymbol.js";
-import { SchemeExact, SchemeInexact } from "./numbers.js";
-import { __data__ } from "./primitives.js";
-import { SchemeCharacter } from "./types.js";
-import type { SchemeValue } from "./types.js";
-import { is_nil, is_pair } from "./value-guards.js";
+import { SchemeString } from "./values/SchemeString.js";
+import { SchemeSymbol } from "./values/SchemeSymbol.js";
+import { SchemeExact, SchemeInexact } from "./values/numbers.js";
+import { __data__ } from "./values/primitives.js";
+import { SchemeCharacter } from "./values/types.js";
+import type { SchemeValue } from "./values/types.js";
+import { is_nil, is_pair } from "./values/value-guards.js";
 
 /** Non-enumerable, non-writable Symbol-keyed slot — used for metadata that must
  *  not surface in enumeration or be clobbered (e.g. a gensym's `__literal__`). */

@@ -8,7 +8,7 @@
  */
 import invariant from "tiny-invariant";
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { type SourceLocation } from "./errors.js";
+import { type SourceLocation } from "../errors.js";
 import { is_native, is_nil, is_pair, is_plain_object } from "./value-guards.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeString } from "./SchemeString.js";
@@ -16,7 +16,7 @@ import { SchemeVector } from "./SchemeVector.js";
 import { SchemeSymbol } from "./SchemeSymbol.js";
 import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { __cycles__, __data__, __location__, __ref__ } from "./primitives.js";
-import { markInteropBoundary } from "./interop-access.js";
+import { markInteropBoundary } from "../interop-access.js";
 import { type PairLike } from "./types.js";
 import { Nil, nil, setPairConstructor } from "./types.js";
 

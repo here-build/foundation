@@ -16,7 +16,7 @@
  */
 
 import invariant from "tiny-invariant";
-import { AValue, unionProvenance } from "./AValue.js";
+import { AValue, unionProvenance } from "./values/AValue.js";
 import { Environment } from "./Environment.js";
 import { formatLocation, type SourceLocation } from "./errors.js";
 import {
@@ -31,15 +31,15 @@ import {
   is_promise,
   is_syntax,
 } from "./guards.js";
-import { HalfBaked, is_half_baked } from "./HalfBaked.js";
+import { HalfBaked, is_half_baked } from "./values/HalfBaked.js";
 import { SchemeJSFunction } from "./membrane.js";
 import { ArrivalError } from "./ArrivalError.js";
-import { SchemeSymbol } from "./SchemeSymbol.js";
-import { SchemeVector } from "./SchemeVector.js";
+import { SchemeSymbol } from "./values/SchemeSymbol.js";
+import { SchemeVector } from "./values/SchemeVector.js";
 import { Macro } from "./Macro.js";
-import { Pair } from "./Pair.js";
-import { __data__, __location__ } from "./primitives.js";
-import { nil, type SchemeValue } from "./types.js";
+import { Pair } from "./values/Pair.js";
+import { __data__, __location__ } from "./values/primitives.js";
+import { nil, type SchemeValue } from "./values/types.js";
 
 // ============================================================================
 // Error Handling with Stack Traces

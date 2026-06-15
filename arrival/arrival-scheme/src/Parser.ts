@@ -7,7 +7,7 @@
  * a pathological input fails with a `ParseError` instead of a host `RangeError` (see the war story
  * below). Structure inspired by BiwaScheme's parser.
  */
-import { DatumReference } from "./DatumReference.js";
+import { DatumReference } from "./values/DatumReference.js";
 import { foldcase_string } from "./foldcase.js";
 import * as specials from "./specials.js";
 import {
@@ -23,25 +23,25 @@ import {
   is_vector_literal,
 } from "./guards.js";
 import { Environment } from "./Environment.js";
-import type { EOF } from "./EOF.js";
-import { eof } from "./EOF.js";
+import type { EOF } from "./values/EOF.js";
+import { eof } from "./values/EOF.js";
 import { ParseError, type SourceLocation, Unterminated } from "./errors.js";
 import { Lexer } from "./Lexer.js";
 // These deps form an import cycle with the value/eval modules; ES6 live bindings
 // resolve it, since they're referenced only inside methods, not at module-eval time.
 import { call_function } from "./call-function.js";
-import { SchemeBytevector } from "./SchemeBytevector.js";
-import { SchemeVector } from "./SchemeVector.js";
+import { SchemeBytevector } from "./values/SchemeBytevector.js";
+import { SchemeVector } from "./values/SchemeVector.js";
 import { unpromise } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { parse_argument } from "./utils/parsing.js";
-import { SchemeString } from "./SchemeString.js";
-import { SchemeSymbol } from "./SchemeSymbol.js";
+import { SchemeString } from "./values/SchemeString.js";
+import { SchemeSymbol } from "./values/SchemeSymbol.js";
 import { Macro } from "./Macro.js";
-import { Pair } from "./Pair.js";
+import { Pair } from "./values/Pair.js";
 import { canonicalizeCurly } from "./curly-infix.js";
-import type { Nil, SchemeValue } from "./types.js";
-import { nil } from "./types.js";
+import type { Nil, SchemeValue } from "./values/types.js";
+import { nil } from "./values/types.js";
 import invariant from "tiny-invariant";
 
 // Nesting-depth cap — rejects a deeply-nested input at PARSE time before it can

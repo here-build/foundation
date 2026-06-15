@@ -10,7 +10,7 @@
  */
 
 import type { Environment } from "./Environment.js";
-import type { SchemeValue } from "./types.js";
+import type { SchemeValue } from "./values/types.js";
 
 /**
  * Called when normal symbol lookup fails.

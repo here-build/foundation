@@ -7,9 +7,9 @@ import { describe, expect, it } from "vitest";
 import { initBridge } from "../bridge.js";
 import { BYTEVECTOR_OPS } from "../env/bytevectors.js";
 import { VECTOR_OPS } from "../env/vectors.js";
-import { SchemeBytevector } from "../SchemeBytevector.js";
-import { SchemeString } from "../SchemeString.js";
-import { SchemeVector } from "../SchemeVector.js";
+import { SchemeBytevector } from "../values/SchemeBytevector.js";
+import { SchemeString } from "../values/SchemeString.js";
+import { SchemeVector } from "../values/SchemeVector.js";
 
 await initBridge();
 // The vector/bytevector primitives now live in their value-domain cluster packs

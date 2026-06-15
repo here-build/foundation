@@ -13,10 +13,10 @@
 // invariant the keystone must preserve, and it's robust to internal value-shape
 // changes.
 import { describe, expect, it } from "vitest";
-import { EOF } from "../EOF.js";
-import { SchemeVector } from "../SchemeVector.js";
+import { EOF } from "../values/EOF.js";
+import { SchemeVector } from "../values/SchemeVector.js";
 import { Parser } from "../Parser.js";
-import type { SchemeValue } from "../types.js";
+import type { SchemeValue } from "../values/types.js";
 
 async function readAll(src: string): Promise<SchemeValue[]> {
   const parser = new Parser({});

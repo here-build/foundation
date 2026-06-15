@@ -20,7 +20,7 @@ import { SchemeString } from "./SchemeString.js";
 import { SchemeVector } from "./SchemeVector.js";
 import { SchemeExact, SchemeInexact, type SchemeNumeric } from "./numbers.js";
 import { SchemeCharacter, type SchemeValue } from "./types.js";
-import "./errors.js";
+import "../errors.js";
 
 // ============================================================================
 // Allocation cap — DoS defense for size-parameterized constructors

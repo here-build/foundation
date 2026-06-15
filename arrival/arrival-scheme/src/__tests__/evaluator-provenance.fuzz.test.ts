@@ -23,9 +23,9 @@
 import * as fc from "fast-check";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { AValue, EMPTY_PROVENANCE, unionProvenance } from "../AValue.js";
+import { AValue, EMPTY_PROVENANCE, unionProvenance } from "../values/AValue.js";
 import { initBridge } from "../bridge.js";
-import { SchemeBool } from "../SchemeBool.js";
+import { SchemeBool } from "../values/SchemeBool.js";
 import { exec } from "./exec-adapter.js";
 
 // exec-adapter only imports lips.ts (not index.ts), so wrappedOps don't get

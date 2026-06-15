@@ -8,7 +8,7 @@
 // Environment, Macro, Continuation, …).
 //
 // guards.ts re-exports all four for backward compatibility — every existing
-// call site that imports them from "./guards.js" keeps working unchanged.
+// call site that imports them from "../guards.js" keeps working unchanged.
 //
 // The residual Pair <-> value-guards 2-cycle is intentional and harmless:
 // both live inside the future @arrival/values package, so the *cross-package*

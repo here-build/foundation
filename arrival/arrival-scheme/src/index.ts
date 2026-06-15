@@ -29,7 +29,7 @@ export {
   EMPTY_PROVENANCE,
   pointProvenance,
   unionProvenance,
-} from "./AValue.js";
+} from "./values/AValue.js";
 
 // A* aliases for arrival-chain compatibility — both spellings work until L4
 // deletes the draft AValue there. Re-exports live here (not in AValue.ts) to
@@ -41,21 +41,21 @@ export {
   schemeFalse,
   schemeTrue as ATrue,
   schemeTrue,
-} from "./SchemeBool.js";
+} from "./values/SchemeBool.js";
 export { SchemeJSFunction as AProc, SchemeJSObject as AObject } from "./membrane.js";
-export { SchemeString as AString } from "./SchemeString.js";
-export { SchemeSymbol as ASymbol } from "./SchemeSymbol.js";
-export { Pair as APair } from "./Pair.js";
-export { Nil as ANil, SchemeCharacter as AChar } from "./types.js";
+export { SchemeString as AString } from "./values/SchemeString.js";
+export { SchemeSymbol as ASymbol } from "./values/SchemeSymbol.js";
+export { Pair as APair } from "./values/Pair.js";
+export { Nil as ANil, SchemeCharacter as AChar } from "./values/types.js";
 
 // Canonical core-type re-exports. These used to ride the `export * from
 // "./stdlib.js"` barrel via a re-export block at the bottom of lips.ts; that
 // block was removed (barrel-ectomy) so these names are re-surfaced from their
 // real home modules to keep the public API identical.
-export { nil, Nil, characters, SchemeCharacter } from "./types.js";
-export { SchemeSymbol } from "./SchemeSymbol.js";
-export { SchemeString } from "./SchemeString.js";
-export { Pair } from "./Pair.js";
+export { nil, Nil, characters, SchemeCharacter } from "./values/types.js";
+export { SchemeSymbol } from "./values/SchemeSymbol.js";
+export { SchemeString } from "./values/SchemeString.js";
+export { Pair } from "./values/Pair.js";
 
 // Scheme namespace - canonical API for Scheme types
 // Usage: import { Scheme } from 'arrival-scheme'
@@ -66,8 +66,8 @@ export * as Scheme from "./Scheme.js";
 void initBridge();
 
 // Classes that may be needed for type checking or extension
-export { Continuation as Continuation } from "./Continuation.js";
-export { EOF as EOF } from "./EOF.js";
+export { Continuation as Continuation } from "./values/Continuation.js";
+export { EOF as EOF } from "./values/EOF.js";
 export { Environment as Environment, KEYWORD_ACCESSOR_FIELD } from "./Environment.js";
 
 // Number system - SchemeExact (rationals) and SchemeInexact (floats/complex)
@@ -77,7 +77,7 @@ export {
   type SchemeNumeric as SchemeNumeric,
   RosettaConfig as RosettaConfig,
   parseNumber as parseNumber,
-} from "./numbers.js";
+} from "./values/numbers.js";
 
 // Membrane (Codec-based boundary crossing)
 export {

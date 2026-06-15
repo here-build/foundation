@@ -5,12 +5,12 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { exec as lipsExec, env as lipsEnv, parse } from "../stdlib";
-import { nil } from "../types.js";
-import { Pair } from "../Pair.js";
-import { SchemeSymbol } from "../SchemeSymbol.js";
+import { nil } from "../values/types.js";
+import { Pair } from "../values/Pair.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
 import { initBridge } from "../bridge";
 import { exec as genExec } from "../evaluator";
-import type { SchemeValue } from "../types";
+import type { SchemeValue } from "../values/types";
 
 // Wait for bridge initialization
 beforeAll(async () => {

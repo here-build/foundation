@@ -6,7 +6,7 @@
 // would miss. (Boxing track S1 — docs/plan-2026-06-10-boxing-track.md.)
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { SchemeBytevector } from "../SchemeBytevector.js";
+import { SchemeBytevector } from "../values/SchemeBytevector.js";
 import { ordLaws, semigroupLaws, setoidLaws } from "./algebra-laws.js";
 
 const FL = "fantasy-land/equals";

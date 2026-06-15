@@ -7,7 +7,7 @@
 // internal `equals` works directly — no custom eq needed.
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { SchemeString } from "../SchemeString.js";
+import { SchemeString } from "../values/SchemeString.js";
 import { functorLaws, monoidLaws, semigroupLaws } from "./algebra-laws.js";
 
 const MAP = "fantasy-land/map";

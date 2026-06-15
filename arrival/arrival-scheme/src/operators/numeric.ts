@@ -7,8 +7,8 @@
 
 import type { Codec } from "../membrane.js";
 import { AnyNum, Bool, Environment, Int, Num, Operator, SafeInt } from "../membrane.js";
-import type { SchemeNumeric } from "../numbers.js";
-import { bigintISqrt, SchemeExact, SchemeInexact } from "../numbers.js";
+import type { SchemeNumeric } from "../values/numbers.js";
+import { bigintISqrt, SchemeExact, SchemeInexact } from "../values/numbers.js";
 import invariant from "tiny-invariant";
 
 // ============================================================================

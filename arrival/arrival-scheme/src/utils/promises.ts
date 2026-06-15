@@ -3,7 +3,7 @@
 // -------------------------------------------------------------------------
 import { EnvLookup } from "../EnvLookup.js";
 import { is_plain_object, is_promise } from "../guards.js";
-import { QuotedPromise } from "../QuotedPromise.js";
+import { QuotedPromise } from "../values/QuotedPromise.js";
 
 // ----------------------------------------------------------------------
 // wrapper over Promise.all that ignores quoted promises

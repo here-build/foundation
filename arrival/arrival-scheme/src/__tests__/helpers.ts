@@ -2,10 +2,10 @@
  * Shared test helpers for arrival-scheme tests
  */
 
-import { SchemeSymbol } from "../SchemeSymbol";
-import { SchemeExact, SchemeInexact } from "../numbers";
-import { Pair } from "../Pair";
-import { nil, type SchemeValue } from "../types";
+import { SchemeSymbol } from "../values/SchemeSymbol";
+import { SchemeExact, SchemeInexact } from "../values/numbers";
+import { Pair } from "../values/Pair";
+import { nil, type SchemeValue } from "../values/types";
 
 /**
  * Create a Scheme list from JS values

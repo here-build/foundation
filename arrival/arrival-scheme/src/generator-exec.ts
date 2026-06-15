@@ -13,8 +13,8 @@ import { whenBootstrapComplete } from "./boot.js";
 import type { Environment } from "./Environment.js";
 import run, { evaluate, type EvalTap } from "./evaluator.js";
 import { is_pair } from "./guards.js";
-import type { Pair } from "./Pair.js";
-import type { SchemeValue } from "./types.js";
+import type { Pair } from "./values/Pair.js";
+import type { SchemeValue } from "./values/types.js";
 
 // Lazy import to avoid circular dependency during module initialization
 let _lips: typeof import("./stdlib.js") | null = null;

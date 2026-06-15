@@ -1,8 +1,8 @@
 // -------------------------------------------------------------------------
 // :: Parameters for make-parameter and parametrize
 // -------------------------------------------------------------------------
-import { is_function } from "./guards.js";
-import { type } from "./utils/typecheck.js";
+import { is_function } from "../guards.js";
+import { type } from "../utils/typecheck.js";
 import invariant from "tiny-invariant";
 
 type ParameterFn<T> = ((value: T) => T) & { __name__?: string };

@@ -1,6 +1,6 @@
 import type { EnvironmentModule, FallbackResolver } from "./bindings.js";
 import { isBridgeInitialized } from "./boot.js";
-import type { EOF } from "./EOF.js";
+import type { EOF } from "./values/EOF.js";
 import type {
   doc as DocFn,
   get as GetFn,
@@ -9,18 +9,18 @@ import type {
   patch_value as PatchValueFn,
   unbind as UnbindFn,
 } from "./stdlib.js";
-import { SchemeString } from "./SchemeString.js";
-import { SchemeSymbol } from "./SchemeSymbol.js";
+import { SchemeString } from "./values/SchemeString.js";
+import { SchemeSymbol } from "./values/SchemeSymbol.js";
 import type { Macro } from "./Macro.js";
-import { SchemeExact, SchemeInexact } from "./numbers.js";
-import type { SchemeValue } from "./types.js";
-import { nil } from "./types.js";
+import { SchemeExact, SchemeInexact } from "./values/numbers.js";
+import type { SchemeValue } from "./values/types.js";
+import { nil } from "./values/types.js";
 import type { RosettaFunction } from "./rosetta.js";
 import { createRosettaWrapper } from "./rosetta.js";
 import { trim_lines } from "./utils/trim-lines.js";
 import { typecheck } from "./utils/typecheck.js";
 import type { Syntax } from "./Syntax.js";
-import type { QuotedPromise } from "./QuotedPromise.js";
+import type { QuotedPromise } from "./values/QuotedPromise.js";
 import invariant from "tiny-invariant";
 import { fromJS, isSchemeValue } from "./membrane.js";
 

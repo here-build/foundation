@@ -11,9 +11,9 @@
  * (`{ value }`), bypassing rosetta wrapping.
  */
 
-import { SchemeBool } from "../SchemeBool.js";
-import { SchemeSymbol } from "../SchemeSymbol.js";
-import { structuralEqual } from "../structural-equal.js";
+import { SchemeBool } from "../values/SchemeBool.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
+import { structuralEqual } from "../values/structural-equal.js";
 import { EnvCapability } from "./capability.js";
 
 export const EQUALITY_OPS = {

@@ -2,9 +2,9 @@
 // code-point view, with provenance and Fantasy Land algebras on the instance.
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import type { SchemeNumeric } from "./numbers.js";
-import { markInteropBoundary } from "./interop-access.js";
+import { markInteropBoundary } from "../interop-access.js";
 import { SchemeCharacter } from "./types.js";
-import { typecheck } from "./utils/typecheck.js";
+import { typecheck } from "../utils/typecheck.js";
 
 type StringLike = string | SchemeString | { valueOf(): string };
 type NumberLike = number | SchemeNumeric | { valueOf(): number };

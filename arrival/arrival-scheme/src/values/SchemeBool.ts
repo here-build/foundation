@@ -1,5 +1,5 @@
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markInteropBoundary } from "./interop-access.js";
+import { markInteropBoundary } from "../interop-access.js";
 
 export class SchemeBool extends AValue {
   static __class__ = "boolean";

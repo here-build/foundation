@@ -4,7 +4,7 @@
 // (numbers.ts:407-413) is NaN/Infinity-blind → prints garbage "NaNNaNi" instead
 // of the R7RS +inf.0 / -inf.0 / +nan.0.
 import { describe, expect, it } from "vitest";
-import { SchemeInexact } from "../numbers.js";
+import { SchemeInexact } from "../values/numbers.js";
 
 const inx = (real: number, imag = 0) => new SchemeInexact(real, imag);
 

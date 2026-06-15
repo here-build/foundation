@@ -23,12 +23,12 @@ import {
   stringValue,
   toIndex,
   withInputProvenance,
-} from "../op-helpers.js";
+} from "../values/op-helpers.js";
 import { collapseProvenance, taintString } from "../provenance-collapse.js";
-import { SchemeString } from "../SchemeString.js";
-import { SchemeExact } from "../numbers.js";
-import { Pair } from "../Pair.js";
-import { SchemeCharacter, nil } from "../types.js";
+import { SchemeString } from "../values/SchemeString.js";
+import { SchemeExact } from "../values/numbers.js";
+import { Pair } from "../values/Pair.js";
+import { SchemeCharacter, nil } from "../values/types.js";
 import { is_promise } from "../guards.js";
 import { promise_all } from "../utils/promises.js";
 import { EnvCapability } from "./capability.js";

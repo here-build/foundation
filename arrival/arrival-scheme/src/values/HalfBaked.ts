@@ -36,7 +36,7 @@
  */
 
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
-import { markInteropBoundary } from "./interop-access.js";
+import { markInteropBoundary } from "../interop-access.js";
 import { Pair } from "./Pair.js";
 import { nil } from "./types.js";
 
