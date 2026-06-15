@@ -13,7 +13,7 @@ import { createInferStore, InferBinding } from "@here.build/arrival-inference";
 import type { ModelSpec } from "@here.build/arrival-inference";
 import { Project } from "../project.js";
 import { singletonRouter } from "@here.build/arrival-inference";
-import { EvalTrace } from "@here.build/arrival-provenance";
+import { EvalTrace, type Invocation } from "@here.build/arrival-provenance";
 
 // A backend whose completions stay pending until the test explicitly resolves
 // them by prompt — this reproduces the in-flight window the old
@@ -180,7 +180,7 @@ describe("Layer 2 — EvalTrace records map", () => {
     project.bindInfer(createInferStore(singletonRouter({ complete: backend.complete })));
     const trace = new EvalTrace();
 
-    // 3 distinct prompts → 3 bindings → 3 invocations, all of the same inner
+    // 3 distinct prompts → 3 bindings → 3 invocations, all the same inner
     // (infer …) AST node, all sharing the same parent (the lambda body app).
     const inflight = project.run(
       `(map (lambda (i) (car (infer "slow" i))) (list "a" "b" "c"))`,
@@ -256,7 +256,7 @@ describe("Layer 2 — EvalTrace records map", () => {
 
     // Find the deepest invocation — the one whose node is (* 2 3).
     // It should walk: (* 2 3) → (+ (* 2 3) 1) → null.
-    let deepest: import("../trace.js").Invocation | undefined;
+    let deepest: Invocation | undefined;
     for (const rec of trace.records.values()) {
       for (const inv of rec.bindings) {
         if (inv.parent && !deepest) deepest = inv;
