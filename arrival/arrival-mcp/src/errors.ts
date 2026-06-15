@@ -47,10 +47,7 @@ export class MCPError extends Error {
     this.name = "MCPError";
     this.kind = kind;
     this.details = details;
-    // Preserve original stack through the type discrimination.
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, MCPError);
-    }
+    // (No Error.captureStackTrace — a subclass of Error already captures `.stack` via super().)
   }
 
   toJSON(): { kind: MCPErrorKind; message: string; details: MCPErrorDetails } {

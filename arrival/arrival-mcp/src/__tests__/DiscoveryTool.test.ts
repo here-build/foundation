@@ -38,7 +38,7 @@ describe("DiscoveryTool (value-shaped, capability-derived)", () => {
     expect(def.name).toBe("demo");
     const props = def.inputSchema.properties!;
     // `who` came from the capability's `configuration` — no separate contextSchema.
-    expect(Object.keys(props).sort()).toEqual(["expr", "intent", "who"]);
+    expect(Object.keys(props).toSorted((a, b) => a.localeCompare(b))).toEqual(["expr", "intent", "who"]);
     // the verb catalog is reflected off the capability's annotations.
     expect((props.expr as { description: string }).description).toContain("(greet)");
   });

@@ -303,7 +303,8 @@ function renderShapeDescription(schema: z.ZodObject<any>, discriminator?: string
   const discVal = discriminator ? getDiscriminatorValue(schema, discriminator) : undefined;
   const otherFields = Object.keys(shape).filter((k) => k !== discriminator);
   if (discriminator && discVal) {
-    return `{${discriminator}: "${discVal}"${otherFields.length > 0 ? `, ${otherFields.join(", ")}` : ""}}`;
+    const extra = otherFields.length > 0 ? `, ${otherFields.join(", ")}` : "";
+    return `{${discriminator}: "${discVal}"${extra}}`;
   }
   return `{${Object.keys(shape).join(", ")}}`;
 }

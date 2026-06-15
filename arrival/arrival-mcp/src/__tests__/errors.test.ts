@@ -5,7 +5,7 @@
  *   - withTimeout: race-based deadline enforcement
  *   - size limit helpers (checkSizeLimit, checkStringSize)
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   checkSizeLimit,

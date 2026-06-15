@@ -478,10 +478,10 @@ function validateClusters(clusters: readonly ActionCluster<any>[]): void {
       for (const n of [a.name, ...(a.aliases ?? [])]) {
         const key = `${n}@${receiver}`;
         const existing = seen.get(key);
-        if (existing)
-          throw new Error(
-            `action: duplicate "${n}"${a.on ? ` on ${a.on.name}` : ""} — clusters "${existing}" and "${cluster.name}"`,
-          );
+        if (existing) {
+          const onNote = a.on ? ` on ${a.on.name}` : "";
+          throw new Error(`action: duplicate "${n}"${onNote} — clusters "${existing}" and "${cluster.name}"`);
+        }
         seen.set(key, cluster.name);
       }
     }
@@ -584,13 +584,15 @@ function renderActionsDescription(byName: Map<string, Act<any>[]>, additionalNot
     const receiverNote = receivers.length > 0 ? ` — receiver: ${receivers.join(" | ")}` : "";
     lines.push(`  ["${name}", {...props}]${receiverNote} — ${bucket[0]!.desc}`);
   }
-  return `${dedent`
-      List of actions to execute sequentially.
-      Each action is a tuple: [name, propsObject].
-      Batch is stop-on-first-failure — a failing action halts the rest; prior actions persist.
+  const header = dedent`
+    List of actions to execute sequentially.
+    Each action is a tuple: [name, propsObject].
+    Batch is stop-on-first-failure — a failing action halts the rest; prior actions persist.
 
-      Available:
-    `}\n${lines.join("\n")}${additionalNotes ? `\n\n${dedent(additionalNotes)}` : ""}`;
+    Available:
+  `;
+  const notes = additionalNotes ? `\n\n${dedent(additionalNotes)}` : "";
+  return `${header}\n${lines.join("\n")}${notes}`;
 }
 
 function renderActionItemSchemas(byName: Map<string, Act<any>[]>): object[] {

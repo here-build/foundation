@@ -55,10 +55,10 @@ describe("ActionTool — value-shape, named-props, FieldSpec", () => {
     const { tool } = makeTool();
     const def = await tool.describe();
     const props = def.inputSchema.properties!;
-    expect(Object.keys(props).sort()).toEqual(["actions", "docId", "intent"]);
+    expect(Object.keys(props).toSorted((a, b) => a.localeCompare(b))).toEqual(["actions", "docId", "intent"]);
     expect(def.inputSchema.required).toEqual(["intent", "actions"]);
     const oneOf = (props.actions as { items: { oneOf: { prefixItems: [{ const: string }, object] }[] } }).items.oneOf;
-    expect(oneOf.map((o) => o.prefixItems[0].const).sort()).toEqual(["append", "boom"]);
+    expect(oneOf.map((o) => o.prefixItems[0].const).toSorted((a, b) => a.localeCompare(b))).toEqual(["append", "boom"]);
   });
 
   it("runs a batch sharing one context scope; prepare's prep is visible to every handler", async () => {

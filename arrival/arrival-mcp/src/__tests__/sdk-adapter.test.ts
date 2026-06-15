@@ -67,7 +67,7 @@ describe("registerTools (official @modelcontextprotocol/sdk round-trip)", () => 
   it("registers BOTH a DiscoveryTool and an ActionTool on one McpServer", async () => {
     const client = await connectedClient([demoTool(), echoActionTool()]);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(["demo", "echo-edit"]);
+    expect(tools.map((t) => t.name).toSorted((a, b) => a.localeCompare(b))).toEqual(["demo", "echo-edit"]);
     // the ActionTool dispatches a batch and its result object serializes over the wire
     const res = await client.callTool({
       name: "echo-edit",
@@ -83,7 +83,11 @@ describe("registerTools (official @modelcontextprotocol/sdk round-trip)", () => 
     const demo = tools.find((t) => t.name === "demo");
     expect(demo).toBeDefined();
     // `who` came from the capability's configuration — surfaced as an input property over the wire.
-    expect(Object.keys(demo!.inputSchema.properties ?? {}).sort()).toEqual(["expr", "intent", "who"]);
+    expect(Object.keys(demo!.inputSchema.properties ?? {}).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "expr",
+      "intent",
+      "who",
+    ]);
     await client.close();
   });
 
