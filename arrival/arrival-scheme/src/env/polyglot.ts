@@ -30,7 +30,7 @@
 // byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
 
 import { EnvCapability } from "./capability.js";
-import { keywordAccessorResolver } from "../membrane.js";
+import { keywordAccessorResolver, readMember, hasMember, memberKeys } from "../membrane.js";
 
 export const POLYGLOT_SCM = `
 ;; -----------------------------------------------------------------------------
@@ -85,10 +85,19 @@ export const POLYGLOT_SCM = `
 (define-macro (~>> x . forms) \`(->> ,x ,@forms))
 `;
 
-/** The polyglot idiom pack: threading & composition (prelude) + the `:key` keyword
- *  member accessor (a catchall `resolvers` contribution — the `@`-alias, owned here
- *  now that EnvCapability can carry fallback resolvers). Module-singleton capability. */
+/** The polyglot idiom pack — the full member-access surface plus the threading family:
+ *   • `@` / `@?` / `@keys` — the explicit member read/has/keys. RAW `{ value }` bindings
+ *     (env.set, NOT defineRosetta): they are membrane PRIMITIVES and must not be routed
+ *     through the membrane they implement.
+ *   • `:key` — the keyword accessor, the `@`-alias, contributed as a catchall `resolver`.
+ *   • `-> / ->> / compose / pipe / …` — threading & composition (prelude).
+ *  Module-singleton capability; `@`/`:key` bottom out in one `readMember` (membrane.ts). */
 export default new EnvCapability("scheme/polyglot", {
   prelude: POLYGLOT_SCM,
   resolvers: [keywordAccessorResolver],
+  symbols: {
+    "@": { value: readMember },
+    "@?": { value: hasMember },
+    "@keys": { value: memberKeys },
+  },
 });
