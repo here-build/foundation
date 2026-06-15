@@ -32,7 +32,7 @@ import { Lexer } from "./Lexer.js";
 import { call_function } from "./call-function.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeVector } from "./SchemeVector.js";
-import { global_env, scheme, unpromise } from "./stdlib.js";
+import { unpromise } from "./stdlib.js";
 import { exec as generatorExec } from "./evaluator.js";
 import { parse_argument } from "./utils/parsing.js";
 import { SchemeString } from "./SchemeString.js";
@@ -92,7 +92,7 @@ function defaultFormatter(token: { token: string; col: number; offset: number; l
 }
 
 export class Parser {
-  // Re-export for backwards compatibility
+  // Re-exported so callers can `instanceof Parser.Unterminated` without importing from ./errors.
   public static readonly Unterminated = Unterminated;
 
   __lexer__!: Lexer;
@@ -138,26 +138,6 @@ export class Parser {
       configurable: true,
       enumerable: false,
     });
-  }
-
-  _with_syntax_scope<T>(fn: () => T | Promise<T>): T | Promise<T> {
-    // Expose this parser on `scheme` so a parser extension can pull from the live
-    // input stream (current-input). Cast: `__parser__` is internal, not in SchemeValue.
-    global_env.set("scheme", {
-      ...scheme,
-      __parser__: this,
-    } as unknown as EnvironmentValue);
-    const cleanup = () => {
-      global_env.set("scheme", scheme);
-    };
-    return unpromise(
-      fn(),
-      (result) => {
-        cleanup();
-        return result as T;
-      },
-      cleanup,
-    ) as T | Promise<T>;
   }
 
   parse(arg: string | SchemeString) {
@@ -364,7 +344,8 @@ export class Parser {
     })) as SchemeValue;
   }
 
-  // public API that handle R7RS datum labels
+  // Public entry: reads one datum and resolves any R7RS datum labels (#n=/#n#), marking cycles so a
+  // self-referential literal terminates instead of looping during later traversal.
   async read_object(): Promise<SchemeValue | EOF> {
     this.reset();
     let object = await this._read_object();
@@ -501,13 +482,11 @@ export class Parser {
             args = object.to_array(false);
           }
           invariant(args || is_symbol, () => `Parse Error: Invalid parser extension invocation ${special.symbol}`);
-          return this._with_syntax_scope(() =>
-            call_function(extension, is_symbol ? [] : args, {
-              env: this.__env__,
-              dynamic_env: this.__env__,
-              use_dynamic: false,
-            }),
-          );
+          return call_function(extension, is_symbol ? [] : args, {
+            env: this.__env__,
+            dynamic_env: this.__env__,
+            use_dynamic: false,
+          });
         }
       }
       if (is_literal(token)) {
@@ -523,9 +502,7 @@ export class Parser {
         return expr;
       }
       invariant(extension instanceof Macro, () => `Parse Error: invalid parser extension: ${special.symbol}`);
-      const result = await this._with_syntax_scope(() => {
-        return this.evaluate(expr);
-      });
+      const result = await this.evaluate(expr);
       // Quote the macro's result: the parser's output is evaluated again by the
       // interpreter, so a bare pair/symbol would be (re-)evaluated unintentionally.
       if (is_pair(result) || result instanceof SchemeSymbol) {

@@ -796,7 +796,7 @@ function is_bound(obj) {
 function is_runtime_bound_context(obj) {
   if (is_function(obj)) {
     const context = obj[__context__];
-    if (context && (context === scheme || context.constructor?.__class__)) {
+    if (context && context.constructor?.__class__) {
       return true;
     }
   }
@@ -2083,27 +2083,6 @@ export const parse = async (arg: SchemeValue, env?: Environment, source?: string
   }
   return result;
 };
-
-// Interpreter infrastructure (NOT a Scheme-facing binding on the production base):
-// `is_runtime_bound_context` identity-checks against it, and Parser._with_syntax_scope
-// spreads it for reader extensions. It is bound into the RAW global_env only — the
-// production sandboxedEnv does not expose it — so the eventual global_env↔sandboxedEnv
-// collapse (Phase 4 of the host-language sweep) is where this binding retires.
-export const scheme = {
-  env: global_env,
-  exec,
-  parse,
-  tokenize,
-  Environment,
-  user_env,
-  Pair,
-  QuotedPromise,
-  Formatter,
-  repr,
-  SchemeSymbol,
-  SchemeString,
-};
-global_env.set("scheme", scheme);
 
 // Additional exports needed by Environment.ts
 export { eof as eof };
