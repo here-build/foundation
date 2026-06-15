@@ -353,14 +353,14 @@ export class SchemeJSFunction extends AValue {
   readonly kind = "procedure" as const;
 
   constructor(
-    readonly source: Function,
+    readonly source: (...args: unknown[]) => unknown,
     provenance: ReadonlySet<number> = EMPTY_PROVENANCE,
   ) {
     super(provenance);
   }
 
   /** Unwrap to original JS function (TO_JS protocol). */
-  [TO_JS](): Function {
+  [TO_JS](): (...args: unknown[]) => unknown {
     return this.source;
   }
 
@@ -390,7 +390,7 @@ export class SchemeJSFunction extends AValue {
     return `#<js-function ${this.source.name || "anonymous"}>`;
   }
 
-  valueOf(): Function {
+  valueOf(): (...args: unknown[]) => unknown {
     return this.source;
   }
 }
@@ -452,7 +452,7 @@ export function fromJS(value: unknown): SchemeValue {
   // Create appropriate wrapper
   let wrapper: SchemeValue;
   if (typeof value === "function") {
-    wrapper = new SchemeJSFunction(value as Function);
+    wrapper = new SchemeJSFunction(value as (...args: unknown[]) => unknown);
   } else {
     wrapper = new SchemeJSObject(value as object);
   }
@@ -807,7 +807,7 @@ AValue.registerBoxer("object", (v, p) => {
   return new SchemeJSObject(v as object, p);
 });
 
-AValue.registerBoxer("function", (v, p) => new SchemeJSFunction(v as Function, p));
+AValue.registerBoxer("function", (v, p) => new SchemeJSFunction(v as (...args: unknown[]) => unknown, p));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Polyglot member access — the interop read protocol (Graal `InteropLibrary`).

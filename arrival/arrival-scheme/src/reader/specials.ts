@@ -26,7 +26,7 @@ export function get(name) {
   return __list__[name];
 }
 // events are used in Lexer dynamic rules
-export function off(name: string | string[], fn: Function | null = null) {
+export function off(name: string | string[], fn: ((...args: unknown[]) => unknown) | null = null) {
   if (Array.isArray(name)) {
     name.forEach((n) => off(n, fn));
   } else if (fn === null) {

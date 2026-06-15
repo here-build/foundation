@@ -101,7 +101,7 @@ export const COMBINATOR_OPS = {
     return list;
   },
 
-  complement(fn: Function): Function {
+  complement(fn: (...args: unknown[]) => unknown): (...args: unknown[]) => unknown {
     // `fn` may be a scheme lambda, which returns a Promise to JS callers
     // (generator-lambda async return) — so unpromise before testing. And its
     // result may be a boxed SchemeBool (a truthy JS object), so negate via
@@ -112,13 +112,13 @@ export const COMBINATOR_OPS = {
     return result;
   },
 
-  always(constant: unknown): Function {
+  always(constant: unknown): (...args: unknown[]) => unknown {
     const result = () => constant;
     Object.defineProperty(result, "name", { value: "always" });
     return result;
   },
 
-  once(fn: Function): Function {
+  once(fn: (...args: unknown[]) => unknown): (...args: unknown[]) => unknown {
     let called = false;
     let result: unknown;
     const wrapped = (...args: unknown[]) => {
@@ -132,13 +132,13 @@ export const COMBINATOR_OPS = {
     return wrapped;
   },
 
-  flip(fn: Function): Function {
+  flip(fn: (...args: unknown[]) => unknown): (...args: unknown[]) => unknown {
     const result = (a: unknown, b: unknown, ...rest: unknown[]) => fn(b, a, ...rest);
     Object.defineProperty(result, "name", { value: "flip" });
     return result;
   },
 
-  "n-ary"(n: unknown, fn: Function): Function {
+  "n-ary"(n: unknown, fn: (...args: unknown[]) => unknown): (...args: unknown[]) => unknown {
     const count = toIndex(n);
     const result = (...args: unknown[]) => fn(...args.slice(0, count));
     Object.defineProperty(result, "name", { value: "n-ary" });

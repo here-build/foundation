@@ -126,7 +126,7 @@ export const VECTOR_OPS = {
   // vector-copy! — OMITTED by the purity invariant (mutates its destination);
   // doored in core.ts. The non-mutating `vector-copy` (above) stays.
 
-  "vector-map"(proc: Function, ...vectors: unknown[]): SchemeVector | Promise<SchemeVector> {
+  "vector-map"(proc: (...args: unknown[]) => SchemeValue, ...vectors: unknown[]): SchemeVector | Promise<SchemeVector> {
     invariant(vectors.length > 0, "vector-map: expected at least one vector argument");
     const arrays = vectors.map((v) => asVector(v, "vector-map"));
     const minLen = Math.min(...arrays.map((a) => a.length));
@@ -147,7 +147,7 @@ export const VECTOR_OPS = {
     return withInputProvenance(vectors, new SchemeVector(result));
   },
 
-  "vector-for-each"(proc: Function, ...vectors: unknown[]): void | Promise<void> {
+  "vector-for-each"(proc: (...args: unknown[]) => unknown, ...vectors: unknown[]): void | Promise<void> {
     invariant(vectors.length > 0, "vector-for-each: expected at least one vector argument");
     const arrays = vectors.map((v) => asVector(v, "vector-for-each"));
     const minLen = Math.min(...arrays.map((a) => a.length));

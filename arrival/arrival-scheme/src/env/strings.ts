@@ -168,7 +168,7 @@ export const STRING_OPS = {
     return withInputProvenance([str], new SchemeString(foldCase(stringValue(str))));
   },
 
-  "string-map"(proc: Function, ...strings: unknown[]): string | Promise<string> {
+  "string-map"(proc: (...args: unknown[]) => unknown, ...strings: unknown[]): string | Promise<string> {
     invariant(strings.length > 0, "string-map: expected at least one string");
     const strs = strings.map(stringValue);
     const minLen = Math.min(...strs.map((s) => s.length));
@@ -188,7 +188,7 @@ export const STRING_OPS = {
     return join(results);
   },
 
-  "string-for-each"(proc: Function, ...strings: unknown[]): void | Promise<void> {
+  "string-for-each"(proc: (...args: unknown[]) => unknown, ...strings: unknown[]): void | Promise<void> {
     invariant(strings.length > 0, "string-for-each: expected at least one string");
     const strs = strings.map(stringValue);
     const minLen = Math.min(...strs.map((s) => s.length));

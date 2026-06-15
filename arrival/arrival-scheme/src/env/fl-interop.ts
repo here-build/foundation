@@ -29,21 +29,32 @@ import { SchemeJSArray } from "../membrane.js";
 import { is_false } from "../eval/guards.js";
 import { Pair } from "../values/Pair.js";
 
+// ── FL protocol surface ──────────────────────────────────────────────────────
+// Fantasy-Land structures are opaque carriers — we only ever touch their FL
+// methods, never their internals. Model them as that minimal interface, not `any`.
+interface FantasyLand {
+  "fantasy-land/reduce"<A>(f: (acc: A, val: unknown) => A, init: A): A;
+  "fantasy-land/map"(f: (val: unknown) => unknown): unknown;
+  "fantasy-land/filter"(p: (val: unknown) => unknown): unknown;
+}
+
+type Callable = (...args: unknown[]) => unknown;
+
 // ── Lazy builtin capture ────────────────────────────────────────────────────
 // Read once on first use, after bootstrap, when global_env is fully assembled.
-let builtinCar: Function | undefined;
-let builtinCdr: Function | undefined;
-let builtinFilter: Function | undefined;
-let builtinMap: Function | undefined;
-let builtinReduce: Function | undefined;
+let builtinCar: Callable | undefined;
+let builtinCdr: Callable | undefined;
+let builtinFilter: Callable | undefined;
+let builtinMap: Callable | undefined;
+let builtinReduce: Callable | undefined;
 
 function captureBuiltins(): void {
   if (builtinCar !== undefined) return;
-  builtinCar = global_env.get("car", { throwError: false }) as Function;
-  builtinCdr = global_env.get("cdr", { throwError: false }) as Function;
-  builtinFilter = global_env.get("filter", { throwError: false }) as Function;
-  builtinMap = global_env.get("map", { throwError: false }) as Function;
-  builtinReduce = global_env.get("reduce", { throwError: false }) as Function;
+  builtinCar = global_env.get("car", { throwError: false }) as Callable;
+  builtinCdr = global_env.get("cdr", { throwError: false }) as Callable;
+  builtinFilter = global_env.get("filter", { throwError: false }) as Callable;
+  builtinMap = global_env.get("map", { throwError: false }) as Callable;
+  builtinReduce = global_env.get("reduce", { throwError: false }) as Callable;
 }
 
 // ── FL async-dispatch helpers (module-private) ───────────────────────────────
@@ -52,9 +63,9 @@ function captureBuiltins(): void {
  * Collect all leaf values from an FL Foldable using fantasy-land/reduce.
  * Returns values in traversal order (same order as map visits them).
  */
-function flCollectValues(structure: any): any[] {
-  const values: any[] = [];
-  structure["fantasy-land/reduce"]((acc: any, val: any) => { values.push(val); return acc; }, null);
+function flCollectValues(structure: FantasyLand): unknown[] {
+  const values: unknown[] = [];
+  structure["fantasy-land/reduce"]((acc: null, val: unknown) => { values.push(val); return acc; }, null);
   return values;
 }
 
@@ -63,12 +74,13 @@ function flCollectValues(structure: any): any[] {
  * When LIPS lambdas produce SchemeExact/SchemeString/etc, FL structures
  * should store JS-native values, not LIPS internals.
  */
-function unwrapLipsValue(v: any): any {
+function unwrapLipsValue(v: unknown): unknown {
   if (v == null || typeof v !== "object") return v;
-  const name = v.constructor?.name;
-  if (name === "SchemeExact" || name === "SchemeInexact") return v.valueOf();
-  if (name === "SchemeString") return v.__string__;
-  if (name === "SchemeSymbol") return String(v.__name__);
+  const box = v as { constructor?: { name?: string }; valueOf(): unknown; __string__?: unknown; __name__?: unknown };
+  const name = box.constructor?.name;
+  if (name === "SchemeExact" || name === "SchemeInexact") return box.valueOf();
+  if (name === "SchemeString") return box.__string__;
+  if (name === "SchemeSymbol") return String(box.__name__);
   if (name === "Nil") return null;
   return v;
 }
@@ -82,29 +94,29 @@ function unwrapLipsValue(v: any): any {
  * Value-based caching is order-independent (filter visits bottom-up,
  * reduce visits top-down — both get correct results from cache).
  */
-async function asyncFLMap(fn: Function, structure: any): Promise<any> {
+async function asyncFLMap(fn: (v: unknown) => unknown, structure: FantasyLand): Promise<unknown> {
   const values = flCollectValues(structure);
-  const cache = new Map<any, any>();
+  const cache = new Map<unknown, unknown>();
   await Promise.all(values.map(async (v) => {
     if (!cache.has(v)) {
       cache.set(v, unwrapLipsValue(await fn(v)));
     }
   }));
-  return structure["fantasy-land/map"]((v: any) => cache.get(v));
+  return structure["fantasy-land/map"]((v: unknown) => cache.get(v));
 }
 
-async function asyncFLFilter(pred: Function, structure: any): Promise<any> {
+async function asyncFLFilter(pred: (v: unknown) => unknown, structure: FantasyLand): Promise<unknown> {
   const values = flCollectValues(structure);
-  const cache = new Map<any, any>();
+  const cache = new Map<unknown, unknown>();
   await Promise.all(values.map(async (v) => {
     if (!cache.has(v)) {
       cache.set(v, await pred(v));
     }
   }));
-  return structure["fantasy-land/filter"]((v: any) => !is_false(cache.get(v)));
+  return structure["fantasy-land/filter"]((v: unknown) => !is_false(cache.get(v)));
 }
 
-async function asyncFLReduce(fn: Function, init: any, structure: any): Promise<any> {
+async function asyncFLReduce(fn: (acc: unknown, val: unknown) => unknown, init: unknown, structure: FantasyLand): Promise<unknown> {
   const values = flCollectValues(structure);
   let acc = init;
   for (const val of values) {
@@ -117,11 +129,11 @@ async function asyncFLReduce(fn: Function, init: any, structure: any): Promise<a
 
 export const FL_INTEROP_OPS = {
   // SchemeJSArray-aware car/cdr — unwrap lazy array wrappers, delegate pairs to LIPS
-  car: (list: any) => {
+  car: (list: unknown) => {
     captureBuiltins();
     return list instanceof SchemeJSArray ? list.at(0) : builtinCar!(list);
   },
-  cdr: (list: any) => {
+  cdr: (list: unknown) => {
     captureBuiltins();
     return list instanceof SchemeJSArray
       ? (list.length <= 1 ? nil : new SchemeJSArray(list.source.slice(1)))
@@ -130,7 +142,7 @@ export const FL_INTEROP_OPS = {
   // FL-dispatch: external Fantasy Land entities → async-aware FL helpers, LIPS types → Scheme
   // LIPS Pairs implement FL but must use scheme filter/map (FL impl inverts results)
   // LIPS lambdas are async; FL methods are sync. asyncFL* bridges this gap.
-  filter: function filter(this: any, arg: any, list: any) {
+  filter: function filter(this: unknown, arg: (v: unknown) => unknown, list: unknown) {
     captureBuiltins();
     // Nil-tolerant: a `(first? …)`/`(if …)` that yielded #f or void flowing into a
     // filter resolves to the empty list, not a crash — so a multi-leaf proof can still
@@ -138,23 +150,23 @@ export const FL_INTEROP_OPS = {
     // (Matches the `@` accessor, which already returns nil for a null object. nil/'()
     // is NOT caught here — it passes through to builtinFilter as a valid empty list.)
     if (list == null || is_false(list)) return nil;
-    if (list && typeof list === "object" && !(list instanceof Pair) && list["fantasy-land/filter"]) {
-      return asyncFLFilter(arg, list);
+    if (list && typeof list === "object" && !(list instanceof Pair) && (list as Partial<FantasyLand>)["fantasy-land/filter"]) {
+      return asyncFLFilter(arg, list as FantasyLand);
     }
     return builtinFilter!.call(this, arg, list);
   },
-  map: function map(this: any, fn: any, ...lists: any[]) {
+  map: function map(this: unknown, fn: (v: unknown) => unknown, ...lists: unknown[]) {
     captureBuiltins();
     if (lists.length === 1 && (lists[0] == null || is_false(lists[0]))) return nil; // nil-tolerant (see filter)
-    if (lists.length === 1 && !(lists[0] instanceof Pair) && lists[0]?.["fantasy-land/map"]) {
-      return asyncFLMap(fn, lists[0]);
+    if (lists.length === 1 && !(lists[0] instanceof Pair) && (lists[0] as Partial<FantasyLand> | undefined)?.["fantasy-land/map"]) {
+      return asyncFLMap(fn, lists[0] as FantasyLand);
     }
     return builtinMap!.call(this, fn, ...lists);
   },
-  reduce: function reduce(this: any, fn: any, init: any, collection: any) {
+  reduce: function reduce(this: unknown, fn: (acc: unknown, val: unknown) => unknown, init: unknown, collection: unknown) {
     captureBuiltins();
-    if (collection && typeof collection === "object" && !(collection instanceof Pair) && collection["fantasy-land/reduce"]) {
-      return asyncFLReduce(fn, init, collection);
+    if (collection && typeof collection === "object" && !(collection instanceof Pair) && (collection as Partial<FantasyLand>)["fantasy-land/reduce"]) {
+      return asyncFLReduce(fn, init, collection as FantasyLand);
     }
     return builtinReduce!.call(this, fn, init, collection);
   },
