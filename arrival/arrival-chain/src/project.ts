@@ -1158,6 +1158,16 @@ export const BUILTIN_PREAMBLE = `
          (kwargs (reverse (cdr (reverse clauses)))))
     \`(define ,name (declare/expose (symbol->string (quote ,name)) ,@kwargs :handler ,body))))
 ;;
+;; (define/mcp name :description "…" :aliases '(alt …) <handler>)
+;;   → declares an MCP CATALOG PRIMITIVE (name + description + aliases) on the onMcp
+;;     sink; the verb stays callable in-program. Same kwargs+handler shape as
+;;     define/exposed. :aliases is a quoted name list — bound but never cataloged.
+;;     Lowers directly to mcp/declare.
+(define-macro (define/mcp name . clauses)
+  (let* ((body (car (reverse clauses)))
+         (kwargs (reverse (cdr (reverse clauses)))))
+    \`(define ,name (mcp/declare (symbol->string (quote ,name)) ,@kwargs :handler ,body))))
+;;
 ;; (run/continue-after-approval spec result)
 ;;   → THUNKS result (does NOT evaluate it until approved — the irreversible
 ;;     action isn't run before permission lands), hands a request to the host,

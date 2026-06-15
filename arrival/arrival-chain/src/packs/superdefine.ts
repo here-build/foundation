@@ -17,6 +17,7 @@ import { z } from "zod";
 import { defineApprovalRosetta, type OnApprovalRequest, type ResolveApproval } from "../approval.js";
 import { defineExposeRosetta, type OnExpose } from "../expose.js";
 import { type ArrivalEnv, buildDict } from "../infer-kernel.js";
+import { defineMcpRosetta, type OnMcp } from "../mcp-declare.js";
 import { defineOverridableRosetta, type OnOverridable, type ResolveOverride } from "../overridable.js";
 
 type SuperDefineActivation = Activation<
@@ -26,6 +27,7 @@ type SuperDefineActivation = Activation<
     resolveOverride: z.ZodOptional<z.ZodType<ResolveOverride>>;
     onApprovalRequest: z.ZodOptional<z.ZodType<OnApprovalRequest>>;
     resolveApproval: z.ZodOptional<z.ZodType<ResolveApproval>>;
+    onMcp: z.ZodOptional<z.ZodType<OnMcp>>;
   },
   Record<string, never>
 >;
@@ -37,6 +39,7 @@ export const arrivalSuperDefineCapability = new EnvCapability("arrival/superdefi
     resolveOverride: z.custom<ResolveOverride>().optional(),
     onApprovalRequest: z.custom<OnApprovalRequest>().optional(),
     resolveApproval: z.custom<ResolveApproval>().optional(),
+    onMcp: z.custom<OnMcp>().optional(),
   },
   // helper-delegating → a symbols BUILDER: run the same three `defineXRosetta` helpers
   // against a recording host, capturing their verbs as a declarative symbol record (no
@@ -44,9 +47,10 @@ export const arrivalSuperDefineCapability = new EnvCapability("arrival/superdefi
   symbols: (a: SuperDefineActivation) =>
     captureSymbols((schemeEnv) => {
       const env = schemeEnv as never as ArrivalEnv;
-      const { onExpose, onOverridable, resolveOverride, onApprovalRequest, resolveApproval } = a.configuration;
+      const { onExpose, onOverridable, resolveOverride, onApprovalRequest, resolveApproval, onMcp } = a.configuration;
       defineExposeRosetta({ env, buildDict, onExpose });
       defineOverridableRosetta({ env, onOverridable, resolveOverride });
       defineApprovalRosetta({ env, onApprovalRequest, resolveApproval });
+      defineMcpRosetta({ env, buildDict, onMcp });
     }),
 });
