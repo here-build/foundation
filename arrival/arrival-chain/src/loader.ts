@@ -129,7 +129,7 @@ function dirOf(path: string): string {
   return i === -1 ? "" : path.slice(0, i);
 }
 
-// ── data parsers (moved from require.ts) ──────────────────────────────────────
+// ── data parsers ──────────────────────────────────────────────────────────────
 
 const DATA_PARSERS: Record<string, (text: string) => unknown> = {
   ".json": (text) => JSON.parse(text),

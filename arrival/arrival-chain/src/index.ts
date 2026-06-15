@@ -59,9 +59,9 @@ export { schemeToJs } from "@here.build/arrival-scheme";
 // consumers like sift can brand entities with the correct boundary symbol, not the forgeable hack).
 export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "@here.build/arrival-scheme";
 export { Program, ProgramVersion } from "./program.js";
-// NOTE: provenance trace-capture + analysis (EvalTrace, extractDefines, traceTo*,
-// collapseMDL, slice/uneval, region tooling, trace-artifact, snapshotTrace) moved to
-// `@here.build/arrival-provenance` — import directly from there.
+// Provenance trace-capture + analysis (EvalTrace, extractDefines, traceTo*, collapseMDL,
+// slice/uneval, region tooling, trace-artifact, snapshotTrace) lives in
+// `@here.build/arrival-provenance` — import it directly, not through this barrel.
 export {
   Project,
   buildArrivalEnv,
@@ -90,8 +90,8 @@ export {
 } from "./project.js";
 // The capability palette: every chain pack is an EnvCapability (singleton-by-construction, zod
 // config, lifecycle-bearing). loader-core is the sole exception (raw EnvPack — see note below).
-// The inference cluster (infer / mcp / agentic) now lives in the env-infer package; chain
-// consumes it one-way and re-exports here for back-compat.
+// The inference cluster (infer / mcp / agentic) lives in the env-infer package; chain consumes it
+// one-way (chain → env-infer) and surfaces it here so the whole palette is reachable via one barrel.
 export { arrivalAgenticCapability, arrivalInferCapability, arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
 export { arrivalUtilsCapability } from "./packs/utils.js";
 export { arrivalReflectCapability } from "./packs/reflect.js";
@@ -104,14 +104,15 @@ export { arrivalDataCapability } from "./packs/data.js";
 // `(require/register-extension …)`; the loader stays prompt/template-agnostic.
 export { arrivalHandlebarsCapability } from "./packs/ext-handlebars.js";
 export { arrivalPromptCapability } from "./packs/ext-prompt.js";
-// NOTE: loader-core has NO capability form. Its `wire` calls the `defineRequire*Rosetta` helpers,
-// which need the LIVE env at wire time to bake the `require` rosetta closure (no ctx thread). It
-// keeps its `arrivalLoaderCorePack` (EnvPack) form, assembled in `packs/index.ts`. (The `.prompt`
-// seal that USED to anchor loader-core here now lives in `ext/prompt`: it reaches the env lazily via
-// the sealed proc's `withContext` ctx at CALL time — the move S5 made.)
+// NOTE: loader-core has NO capability form. The `require` rosetta needs the LIVE env at wire time
+// (to bake its closure over per-env state — there's no ctx thread), so it can't be expressed as the
+// declarative symbols+prelude surface; it keeps its `arrivalLoaderCorePack` (EnvPack) form, assembled
+// in `packs/index.ts`. (Resource-armed file-type seals like `.prompt` CAN be capabilities — they
+// reach the env at CALL time via the sealed proc's `withContext` ctx — which is why `ext/prompt`,
+// not loader-core, owns `.prompt`.)
 export { arrivalSuperDefineCapability } from "./packs/superdefine.js";
-// Env-pack capability-DAG assembly (P0–P4): the pack type + the construction/runtime assemblers, so a
-// host can author extension packs and arm a `(require/extension :name)` registry.
+// Env-pack capability-DAG assembly: the pack type + the construction/runtime assemblers, so a host
+// can author extension packs and arm a `(require/extension :name)` registry.
 export {
   assembleEnv,
   createRuntimeAssembler,
@@ -255,9 +256,9 @@ export {
 export { inferTasksByScope } from "./infer-content.js";
 
 // ── Sweet-expression lens ─────────────────────────────────────────────
-// The classic↔sweet lens moved to its own zero-dep package `@here.build/arrival-sweet`
-// (schemeToSweet / sweetToScheme / readSweet / parseSexprs / alignSweetClassic / paramHints).
-// Import it directly — it no longer rides the arrival-chain barrel or the `/sweet` subpath.
+// The classic↔sweet lens is its own zero-dep package `@here.build/arrival-sweet`
+// (schemeToSweet / sweetToScheme / readSweet / parseSexprs / alignSweetClassic / paramHints) —
+// import it directly; it does not ride this barrel or a `/sweet` subpath.
 
 // ── Backend authoring helpers ────────────────────────────────────────
 //

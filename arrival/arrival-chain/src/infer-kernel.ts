@@ -22,8 +22,8 @@ import { type EnvPack, type RuntimeAssembler } from "@here.build/arrival-scheme/
 import type { OnExpose } from "./expose.js";
 import { type Loader } from "./loader.js";
 import { type McpEffectResolver } from "./mcp-effects.js";
-// The infer-verb toolkit + agentic driver now live in the env-infer package. Imported for
-// internal use (makeCompileInferUnit) and re-exported below for back-compat.
+// The infer-verb toolkit + agentic driver live in env-infer; `sealPromptUnit` (below) pulls them
+// in because the seal also needs the handlebars render, which keeps it here in chain.
 import {
   asLlmModel,
   canonicalizeMessages,
@@ -78,12 +78,6 @@ export function buildInputsProvenance(kv: unknown[], kvProv: readonly ReadonlySe
   return out;
 }
 
-/** Canonicalise a `(role content)` message list to the single prompt string used
- *  as a task's content key (the cache/dedup identity). Shared by `infer/chat` and
- *  the `.prompt` proc, so both mint IDENTICAL task keys for the same messages —
- *  the property that keeps a `.prompt` run replayable against the same cache. */
-// canonicalizeMessages + parseSchemeChatMessages moved to the env-infer package (imported
-// + re-exported at the top of this module).
 
 /**
  * Execution circuit-breaker, threaded into `exec`/`execExpr` and checked at the
@@ -295,13 +289,9 @@ export function renderTemplateCall(source: string, args: unknown[]): string {
   return tm.render(data);
 }
 
-// nullable + schemaSlot moved to the env-infer package (imported + re-exported above).
-
 /** A `(dict …)` folds to a plain JS record; the `:meta` config slot must be one. */
 const isPlainRecord = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);
-
-// The InferFn seam type moved to the env-infer package (imported + re-exported above).
 
 // ── tool-enabled inference: identity folding + record/replay shape ─────────────
 //
@@ -359,11 +349,6 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
     : completion.value;
 }
 
-// The infer-verb toolkit (asLlmModel / inferThroughChain / BREAK_ON_SINGLE_INFER) and the
-// agentic loop driver (runAgenticInfer) moved to `@here.build/arrival-scheme-env-infer`
-// (the inference package). Imported + re-exported at the top of this module so existing
-// arrival-chain import paths (and `sealPromptUnit` below) keep resolving.
-
 /**
  * Build a sandboxed arrival-chain environment with the standard rosettas —
  * `infer`, `infer/chat`, `json/parse`, `template/handlebars`, plus
@@ -381,7 +366,7 @@ export function freshInfer(completion: Completion, hasTools: boolean): unknown {
  * disarmed default {@link inertDataResolver}), never a network/DB call and never
  * a silent no-op. The OSS engine ships the verbs disarmed; the SaaS host injects
  * the credentialed resolver. The verb BODIES (`http/get`, `sql/query`, …) are
- * registered by node A3 over the `data` capability resolved here.
+ * registered by the `arrival/data` capability, which reads this same resolver.
  */
 export interface BuildArrivalEnvOpts {
   name: string;
@@ -396,10 +381,9 @@ export interface BuildArrivalEnvOpts {
    * The per-run reflective budget accumulator backing `(infer/spent)` /
    * `(infer/calls)`. When the host feeds it (calling `spend.record(...)` as each
    * cell settles), those forms return the running fold over THIS run's own fresh
-   * inference costs. When absent (back-compat default), the namespace is still
-   * bound but inert — `(infer/spent)` returns 0 — so existing callers are
-   * unaffected and a program that reads it never throws. Reserve level: namespace
-   * present, no runtime trap. See `RunSpend`.
+   * inference costs. When absent, the namespace is still bound but inert —
+   * `(infer/spent)` returns 0 — so a program that reads it outside a metered run
+   * never throws. Reserve level: namespace present, no runtime trap. See `RunSpend`.
    */
   spend?: RunSpend;
   /**
@@ -771,15 +755,9 @@ export function sealPromptUnit(unit: PromptUnit, opts: Pick<BuildArrivalEnvOpts,
 /** The arrival env handle — a sandbox-inherited Environment the packs contribute rosettas to. */
 export type ArrivalEnv = ReturnType<typeof sandboxedEnv.inherit>;
 
-// inferList moved to the env-infer package (imported + re-exported above).
-
-// ── shared rosetta-coercion helpers ───────────────────────────────────────────
-// isPlainRecord stays here (a `(dict …)` helper, not an infer-verb coercion).
+// `isPlainRecord` is a `(dict …)` helper, not an infer-verb coercion, so it lives here.
 export { isPlainRecord };
 
-// InferFn is the one relocated symbol consumed outside arrival-chain (host's run-traced
-// imports it from the chain barrel). Re-exported so project.ts's `export *` keeps surfacing
-// it. The rest of the toolkit stays internal — chain only imports what `sealPromptUnit` (the
-// `.prompt` seal, which stays here because it needs the handlebars render + template analysis)
-// uses from the env-infer package.
+// `InferFn` (the host inference seam) is re-surfaced through the chain barrel because host's
+// run-traced path imports it from there; project.ts's `export *` carries it on.
 export type { InferFn };

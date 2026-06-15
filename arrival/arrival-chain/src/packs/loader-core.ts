@@ -19,7 +19,7 @@ export function arrivalLoaderCorePack(opts: BuildArrivalEnvOpts): EnvPack<Arriva
         baseDir: opts.dirname ?? "",
       });
       opts.onRequireCache?.(clearRequireCache);
-      // (P4) `(require/extension :name)` — host-armed pack registry, applied onto THIS live env via a
+      // `(require/extension :name)` — host-armed pack registry, applied onto THIS live env via a
       // runtime assembler (idempotent + single-flight). Registered only when the host arms a registry;
       // absent ⇒ the verb is unbound. The assembler is handed to the lifecycle owner so its runtime
       // disposers fold into env teardown.

@@ -54,9 +54,10 @@ export function discoveryCapabilities(): readonly EnvCapability[] {
 
 export { type ArrivalEnv } from "../infer-kernel.js";
 
-// The capability vocabulary (re-exported for the barrel). The inference cluster
-// (infer / mcp / agentic) now lives in `@here.build/arrival-scheme-env-infer`; chain
-// consumes it one-way and re-exports for back-compat.
+// The capability vocabulary, re-exported for the chain barrel. The inference cluster
+// (infer / mcp / agentic) lives in `@here.build/arrival-scheme-env-infer`; chain consumes it
+// one-way (the dep edge runs chain → env-infer, never back) and surfaces it here so a consumer
+// reaches the whole palette through one barrel.
 export { arrivalAgenticCapability, arrivalInferCapability, arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
 export { arrivalBudgetCapability } from "./budget.js";
 export { arrivalDataCapability } from "./data.js";
