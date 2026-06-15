@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { exec } from "../stdlib";
 import { sandboxedEnv } from "../sandbox-env";
-import { jsToLips, lipsToJs } from "../rosetta";
+import { jsToScheme, schemeToJs } from "../rosetta";
 
 async function execOne(expr: string, env = sandboxedEnv): Promise<any> {
   const results = await exec(expr, { env });
@@ -84,9 +84,9 @@ describe("LIPS Keyword Syntax Investigation", () => {
       { id: "3", name: "Charlie" },
     ];
     // Scheme map expects pair chains, not JS arrays
-    sandboxedEnv.set("users", jsToLips(users));
+    sandboxedEnv.set("users", jsToScheme(users));
 
-    expect(lipsToJs(await execOne(`(map :name users)`))).toEqual(["Alice", "Bob", "Charlie"]);
+    expect(schemeToJs(await execOne(`(map :name users)`))).toEqual(["Alice", "Bob", "Charlie"]);
   });
 
   it("should support keywords in filter predicates", async () => {
@@ -96,10 +96,10 @@ describe("LIPS Keyword Syntax Investigation", () => {
       { active: true, name: "Item 3" },
     ];
     // Scheme filter expects pair chains, not JS arrays
-    sandboxedEnv.set("items", jsToLips(items));
+    sandboxedEnv.set("items", jsToScheme(items));
 
     // Filter using keyword extractor
-    const filtered = lipsToJs(await execOne(`(filter :active items)`));
+    const filtered = schemeToJs(await execOne(`(filter :active items)`));
 
     expect(filtered).toHaveLength(2);
     expect(filtered[0].name).toBe("Item 1");

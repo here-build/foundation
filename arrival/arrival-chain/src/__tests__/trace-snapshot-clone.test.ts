@@ -90,7 +90,7 @@ describe("A1 — snapshotTrace is a structured-clone payload for the worker boun
     for (const inv of snap.invocations) {
       const twin = byIdAfter.get(inv.id)!;
       expect(twin.state).toBe(inv.state);
-      // value/metadata are already plain (lipsToJs-peeled / POJO) → deep-equal.
+      // value/metadata are already plain (schemeToJs-peeled / POJO) → deep-equal.
       expect(twin.value).toEqual(inv.value);
       expect(twin.metadata).toEqual(inv.metadata);
       // provenance is a Set<number> — structured-clone keeps it a real Set with the

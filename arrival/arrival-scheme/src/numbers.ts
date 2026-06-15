@@ -381,7 +381,7 @@ export class SchemeInexact extends AValue {
 
   /**
    * Can't reuse `valueOf` here — it throws on complex. AValue.toJs must always
-   * serialize; mirrors `lipsToJs` rosetta path.
+   * serialize; mirrors `schemeToJs` rosetta path.
    */
   toJs(): number | { real: number; imag: number } {
     return this.imag === 0 ? this.real : { real: this.real, imag: this.imag };

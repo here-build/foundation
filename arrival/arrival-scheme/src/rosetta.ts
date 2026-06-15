@@ -43,7 +43,7 @@ interface RosettaOptions {
    * A list constructed by `(list a b c)` carries NO provenance on its spine —
    * only the elements do — so a shallow `arg.provenance` read misses per-element
    * origins entirely; the deep walk is what makes packed-into-array values keep
-   * their per-field provenance. Computed BEFORE lipsToJs strips the AValue
+   * their per-field provenance. Computed BEFORE schemeToJs strips the AValue
    * identity. Implies `withContext: true` (the array rides on `ctx`); rejected
    * loudly otherwise so the failure mode isn't a silently-absent field.
    */
@@ -57,7 +57,7 @@ export interface RosettaFunction {
   options?: RosettaOptions;
   /**
    * When true, the rosetta receives the current EvalContext as its LAST
-   * argument (after all scheme args, post-lipsToJs conversion). The
+   * argument (after all scheme args, post-schemeToJs conversion). The
    * evaluator detects this via a `__withCtx` flag on the produced wrapper
    * and appends `ctx` at call time. Off by default — back-compat.
    */
@@ -107,7 +107,7 @@ interface CtxWithInvocation {
 
 const isLipsPair = (x: any): boolean => x && typeof x === "object" && "car" in x && "cdr" in x;
 
-export function lipsToJs(value: any, options: RosettaOptions = {}): any {
+export function schemeToJs(value: any, options: RosettaOptions = {}): any {
   // Handle null/undefined
   // `instanceof Nil` not `=== nil`: after the AValue refactor, `nil.withProvenance(p)`
   // mints fresh Nil clones (types.ts:87) — reference-equality misses them and would
@@ -117,7 +117,7 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
 
   // Handle JS arrays (convert elements recursively)
   if (Array.isArray(value)) {
-    return value.map((record) => lipsToJs(record, options));
+    return value.map((record) => schemeToJs(record, options));
   }
 
   // Boxed vector → raw JS array (elements converted recursively); boxed
@@ -126,7 +126,7 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
   // (the MCP/trace serialization path). Mirrors the raw-array branch above and
   // the raw-Uint8Array fall-through.
   if (value instanceof SchemeVector) {
-    return value.__vector__.map((record) => lipsToJs(record, options));
+    return value.__vector__.map((record) => schemeToJs(record, options));
   }
   if (value instanceof SchemeBytevector) {
     return value.__bytevector__;
@@ -160,12 +160,12 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
 
   // Unwrap SchemeJSObject to source object
   if (value instanceof SchemeJSObject) {
-    return lipsToJs(value.source, options);
+    return schemeToJs(value.source, options);
   }
 
   // Unwrap SchemeJSArray to JS array
   if (value instanceof SchemeJSArray) {
-    return value.source.map((el: any) => lipsToJs(el, options));
+    return value.source.map((el: any) => schemeToJs(el, options));
   }
 
   // Unwrap SchemeBool to JS primitive
@@ -181,8 +181,8 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
     // since for lisp empty list and nil is same entity, we specifically handle this scenario as
     // "if eventually cdr is nil, and we're materializing the array, it's array tail"
     if (isLipsPair(value)) {
-      const head = lipsToJs(value.car, options);
-      const tail = lipsToJs(value.cdr, options) ?? [];
+      const head = schemeToJs(value.car, options);
+      const tail = schemeToJs(value.cdr, options) ?? [];
       if (Array.isArray(tail)) {
         return [head, ...tail];
       } else if (tail instanceof Nil) {
@@ -199,9 +199,9 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
       // slots (opaque/private backing data on objects crossing the membrane) were lost on
       // the Lips→JS round-trip. Enumerate string keys then own symbols so both survive.
       const out: Record<string | symbol, unknown> = {};
-      for (const key of Object.keys(value)) out[key] = lipsToJs((value as Record<string, unknown>)[key], options);
+      for (const key of Object.keys(value)) out[key] = schemeToJs((value as Record<string, unknown>)[key], options);
       for (const sym of Object.getOwnPropertySymbols(value)) {
-        out[sym] = lipsToJs((value as Record<symbol, unknown>)[sym], options);
+        out[sym] = schemeToJs((value as Record<symbol, unknown>)[sym], options);
       }
       return out;
     }
@@ -231,18 +231,18 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
  * extractors (`car`, `cdr`, `dict-ref`, `@`) see element-only lineage that
  * already carries the rosetta's origin id (spec §5.3 Interpretation A).
  *
- * War story: pre-deep-stamp, jsToLips constructed a Pair-chain whose outer
+ * War story: pre-deep-stamp, jsToScheme constructed a Pair-chain whose outer
  * Pair received provenance via `result.withProvenance(...)` at the wrapper,
  * but every spine cons + every leaf inside stayed empty. The Tier-1 audit's
  * car/cdr "element-only" landing (lips.ts:2162) — correct per spec — then
  * exposed this gap: `(car (infer …))` returned a SchemeString carrying nothing,
  * and the v0 chain `(string-append "h" greeting)` lost the upstream infer id.
- * Pushing the stamp INTO `jsToLips` reaches every constructed value in one
+ * Pushing the stamp INTO `jsToScheme` reaches every constructed value in one
  * pass; no per-builtin re-stamp; symmetric with the membrane discipline
  * already applied at the AValue.fromJs entry.
  *
  * Plain JS objects → `SchemeJSObject` (was raw passthrough — closes the
- * cross-package audit's "jsToLips doesn't consult boxer registry" finding).
+ * cross-package audit's "jsToScheme doesn't consult boxer registry" finding).
  * Their entries box lazily on `.get(key)` so the wrapper's cache amortises
  * the cost without paying the full traversal on construction.
  *
@@ -251,7 +251,7 @@ export function lipsToJs(value: any, options: RosettaOptions = {}): any {
  * SchemeJSObject) already carries the provenance, and the cycle re-enters
  * that wrapper rather than allocating an infinite spine.
  */
-export function jsToLips(
+export function jsToScheme(
   value: any,
   options: RosettaOptions = {},
   provenance: ReadonlySet<number> = EMPTY_PROVENANCE,
@@ -273,8 +273,8 @@ export function jsToLips(
     if (provenance === EMPTY_PROVENANCE || provenance === value.provenance) return value;
     if (value instanceof Pair) {
       return new Pair(
-        jsToLips(value.car, options, provenance, seen),
-        jsToLips(value.cdr, options, provenance, seen),
+        jsToScheme(value.car, options, provenance, seen),
+        jsToScheme(value.cdr, options, provenance, seen),
         provenance,
       );
     }
@@ -282,7 +282,7 @@ export function jsToLips(
       // Deep-stamp elements (parallel to Pair), keep it a vector. The container
       // also carries the provenance via the constructor arg.
       return new SchemeVector(
-        value.__vector__.map((el) => jsToLips(el, options, provenance, seen)),
+        value.__vector__.map((el) => jsToScheme(el, options, provenance, seen)),
         provenance,
       );
     }
@@ -293,7 +293,7 @@ export function jsToLips(
   if (Array.isArray(value)) {
     let list: AValue = provenance === EMPTY_PROVENANCE ? nil : new Nil(provenance);
     for (let i = value.length - 1; i >= 0; i--) {
-      list = new Pair(jsToLips(value[i], options, provenance, seen), list, provenance);
+      list = new Pair(jsToScheme(value[i], options, provenance, seen), list, provenance);
     }
     return list;
   }
@@ -373,7 +373,7 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
       schemeArgs = args.slice(0, -1);
     }
 
-    // Collect provenance from AValue inputs BEFORE lipsToJs runs — that pass
+    // Collect provenance from AValue inputs BEFORE schemeToJs runs — that pass
     // unwraps SchemeString/SchemeBool/SchemeJSObject down to JS primitives
     // and records, stripping the AValue identity (and the provenance field
     // along with it). The union is computed against the original schemeArgs.
@@ -381,7 +381,7 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
     const inputProvenance = unionProvenance(inputAValues);
 
     // Per-arg DEEP provenance (opt-in), aligned to schemeArgs, parked on ctx
-    // BEFORE lipsToJs strips the AValue identity. The consumer fn reads it to
+    // BEFORE schemeToJs strips the AValue identity. The consumer fn reads it to
     // attribute each named input to its concrete producer (e.g. a `.prompt`
     // building `inputsProvenance[field]`), recovering per-field origins that the
     // union — and the post-strip plain-JS args — can no longer distinguish.
@@ -389,7 +389,7 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
       (ctx as { argProvenance?: ReadonlySet<number>[] }).argProvenance = schemeArgs.map(deepProvenance);
     }
 
-    const jsArgs = schemeArgs.map((arg) => lipsToJs(arg, options));
+    const jsArgs = schemeArgs.map((arg) => schemeToJs(arg, options));
     const callArgs = effectiveWithContext ? [ctx, ...jsArgs] : jsArgs;
 
     try {
@@ -397,7 +397,7 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
 
       const inv = (ctx as CtxWithInvocation | undefined)?.currentInvocation;
 
-      // Decide the output provenance BEFORE jsToLips so the deep-stamp pass
+      // Decide the output provenance BEFORE jsToScheme so the deep-stamp pass
       // reaches every constructed AValue in one traversal (spec §5.3 — every
       // element returned by a rosetta carries its origin from the moment it
       // crosses the boundary, not after a separate `withProvenance` walk on
@@ -420,7 +420,7 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
         resultProvenance = pointProvenance(inv.id);
       }
 
-      const result = jsToLips(rawResult, options, resultProvenance);
+      const result = jsToScheme(rawResult, options, resultProvenance);
       return options.returnEither ? [result, nil] : result;
     } catch (error) {
       console.error("Rosetta function error:", error);

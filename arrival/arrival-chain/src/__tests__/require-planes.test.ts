@@ -1,5 +1,5 @@
 import { createInferStore, type ModelSpec, singletonRouter } from "@here.build/arrival-inference";
-import { exec, lipsToJs, sandboxedEnv } from "@here.build/arrival-scheme";
+import { exec, schemeToJs, sandboxedEnv } from "@here.build/arrival-scheme";
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
@@ -19,7 +19,7 @@ async function discoveryFor(files: Record<string, string>) {
   const env = (await assembleEnv<typeof base>(base, packs)).env;
   // `exec` returns one result per top-level form; our exprs are single forms, so take the last.
   return async (expr: string): Promise<unknown> => {
-    const results = lipsToJs(await exec(expr, { env }), {}) as unknown[];
+    const results = schemeToJs(await exec(expr, { env }), {}) as unknown[];
     return Array.isArray(results) ? results.at(-1) : results;
   };
 }

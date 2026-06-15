@@ -34,7 +34,7 @@ import {
   type Environment,
   type EvalTap,
   execGeneratorExpr as execExpr,
-  jsToLips,
+  jsToScheme,
   parseGenerator as parse,
 } from "@here.build/arrival-scheme";
 import { parse as parseToml } from "smol-toml";
@@ -185,7 +185,7 @@ const normalizeToJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
 // ── value → lens TS type ──────────────────────────────────────────────────────
 //
 // Synthesize the TS type string the lens gives `(require "data.json")`. Mirrors
-// the runtime wrap (`jsToLips`): a JS array becomes a scheme LIST (`List<T>`), a
+// the runtime wrap (`jsToScheme`): a JS array becomes a scheme LIST (`List<T>`), a
 // plain object an accessible record (`{ "k": T; … }`), scalars the branded base
 // types. Pure + recursive with depth/breadth guards so a pathological blob
 // degrades to `unknown` instead of emitting a megabyte of types. The output is
@@ -589,7 +589,7 @@ export function defineRequireRosetta(opts: {
           // become scheme LISTS (so `(length …)` works), plain objects become
           // SchemeJSObject (so `@`/`field` work). Pure value — `require` RETURNS
           // it for an explicit `(define x (require …))`; nothing is spilled.
-          value = jsToLips(result.value);
+          value = jsToScheme(result.value);
         } else if (result.kind === "infer-unit") {
           // A `.prompt`: the project seals it into a provenance-point native proc.
           // require RETURNS the proc — bound via `(define run-x (require …))`,
@@ -669,7 +669,7 @@ export function defineRequireRosetta(opts: {
  * needed; the `import` rosetta's return path membrane-wraps on the way out.
  */
 export function defineImport(exports: Record<string, unknown>): unknown {
-  return jsToLips(exports);
+  return jsToScheme(exports);
 }
 
 /**

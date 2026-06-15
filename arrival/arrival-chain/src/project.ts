@@ -5,7 +5,7 @@ import {
   parseGenerator as parse,
   installHeapMeter,
   sandboxedEnv,
-  lipsToJs,
+  schemeToJs,
   type Environment,
 } from "@here.build/arrival-scheme";
 import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
@@ -94,7 +94,7 @@ export async function buildArrivalEnv(opts: BuildArrivalEnvOpts): Promise<Return
  * exactly as before — value-callers need no change. Trace / live-render callers read the fields:
  *   - `userForms` — the parsed top-level forms (resolves once parsed, before `finished`), for the
  *     studio's live counter rendering and uneval (the Pair identities the trace populates).
- *   - `finished`  — the JS-peeled final value (`lipsToJs`).
+ *   - `finished`  — the JS-peeled final value (`schemeToJs`).
  *   - `result`    — the RAW final value (an AValue with provenance), for `uneval`/selector replay.
  *   - `env`       — the run environment, for post-run inspection.
  * `run` returns this SYNCHRONOUSLY (a factory) while all evaluation stays unconditionally async behind
@@ -535,7 +535,7 @@ export class Project extends PlexusModel<null> {
     })();
     result.catch(() => {}); // consumers attach handling via the handle; never an unhandled rejection
     userForms.catch(() => {});
-    const finished = result.then((last) => lipsToJs(last, {}));
+    const finished = result.then((last) => schemeToJs(last, {}));
     return new RunHandle(userForms, finished, result, envPromise);
   }
 

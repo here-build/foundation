@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { sandboxedEnv } from "../sandbox-env";
 import { exec } from "../stdlib";
-import { jsToLips, lipsToJs } from "../rosetta";
+import { jsToScheme, schemeToJs } from "../rosetta";
 
 // Helper to execute and get first result
 async function execOne(expr: string, env = sandboxedEnv): Promise<any> {
@@ -26,7 +26,7 @@ describe("Escaped Symbol Resolution", () => {
           |24|)
       `);
 
-      expect(lipsToJs(result, {})).toBe("twenty-four");
+      expect(schemeToJs(result, {})).toBe("twenty-four");
     });
 
     it("should handle symbols with spaces", async () => {
@@ -36,7 +36,7 @@ describe("Escaped Symbol Resolution", () => {
           |my variable|)
       `);
 
-      expect(lipsToJs(result, {})).toBe(42);
+      expect(schemeToJs(result, {})).toBe(42);
     });
 
     it("should handle symbols with special characters", async () => {
@@ -46,7 +46,7 @@ describe("Escaped Symbol Resolution", () => {
           |foo-bar!@#|)
       `);
 
-      expect(lipsToJs(result, {})).toBe("special");
+      expect(schemeToJs(result, {})).toBe("special");
     });
   });
 
@@ -62,7 +62,7 @@ describe("Escaped Symbol Resolution", () => {
           },
         }),
       );
-      expect(lipsToJs(result, {})).toBe("value-24");
+      expect(schemeToJs(result, {})).toBe("value-24");
     });
   });
 
@@ -73,7 +73,7 @@ describe("Escaped Symbol Resolution", () => {
       });
 
       const result = await execOne(`(|get-24|)`);
-      expect(lipsToJs(result, {})).toBe(24);
+      expect(schemeToJs(result, {})).toBe(24);
     });
 
     it("should define functions with space-containing names", async () => {
@@ -82,7 +82,7 @@ describe("Escaped Symbol Resolution", () => {
       });
 
       const result = await execOne(`(|my function| 21)`);
-      expect(lipsToJs(result, {})).toBe(42);
+      expect(schemeToJs(result, {})).toBe(42);
     });
   });
 
@@ -96,11 +96,11 @@ describe("Escaped Symbol Resolution", () => {
 
       // :24 should be treated as keyword and converted to "24" by @ function
       const result1 = await execOne(`(@ test-obj :24)`);
-      expect(lipsToJs(result1, {})).toBe("numeric key value");
+      expect(schemeToJs(result1, {})).toBe("numeric key value");
 
       // :|24| should also work (keyword with escaped symbol)
       const result2 = await execOne(`(@ test-obj :|24|)`);
-      expect(lipsToJs(result2, {})).toBe("numeric key value");
+      expect(schemeToJs(result2, {})).toBe("numeric key value");
     });
 
     it("should handle keywords with special characters", async () => {
@@ -117,7 +117,7 @@ describe("Escaped Symbol Resolution", () => {
           (@ test-obj :foo_bar))
       `);
 
-      expect(lipsToJs(result, {})).toEqual(["hyphenated", "underscored"]);
+      expect(schemeToJs(result, {})).toEqual(["hyphenated", "underscored"]);
     });
   });
 
@@ -130,7 +130,7 @@ describe("Escaped Symbol Resolution", () => {
             (define || "empty")
             ||)
         `);
-        expect(lipsToJs(result, {})).toBe("empty");
+        expect(schemeToJs(result, {})).toBe("empty");
       } catch (error) {
         // If LIPS doesn't support it, that's fine - document the limitation
         expect(error).toBeDefined();
@@ -144,7 +144,7 @@ describe("Escaped Symbol Resolution", () => {
           |hello-世界|)
       `);
 
-      expect(lipsToJs(result, {})).toBe("unicode works");
+      expect(schemeToJs(result, {})).toBe("unicode works");
     });
 
     it("should handle pipes inside escaped symbols", async () => {
@@ -156,7 +156,7 @@ describe("Escaped Symbol Resolution", () => {
             (define |foo\\|bar| "pipe inside")
             |foo\\|bar|)
         `);
-        expect(lipsToJs(result, {})).toBe("pipe inside");
+        expect(schemeToJs(result, {})).toBe("pipe inside");
       } catch (error) {
         // Document if this doesn't work
         expect(error).toBeDefined();
@@ -171,7 +171,7 @@ describe("Escaped Symbol Resolution", () => {
           (list |MyVariable| |myvariable|))
       `);
 
-      expect(lipsToJs(result, {})).toEqual(["uppercase", "lowercase"]);
+      expect(schemeToJs(result, {})).toEqual(["uppercase", "lowercase"]);
     });
   });
 
@@ -190,7 +190,7 @@ describe("Escaped Symbol Resolution", () => {
         (@ components :|794f1e9c-5726-4a0c-a8b6-c0ae5f31f4e4|)
       `);
 
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult.name).toBe("Button");
     });
 
@@ -216,7 +216,7 @@ describe("Escaped Symbol Resolution", () => {
             (@ project :|24|)))
       `);
 
-      expect(lipsToJs(result, {})).toEqual([
+      expect(schemeToJs(result, {})).toEqual([
         "794f1e9c-5726-4a0c-a8b6-c0ae5f31f4e4",
         "My Project",
         "numeric property value",
@@ -231,7 +231,7 @@ describe("Escaped Symbol Resolution", () => {
       ];
 
       // Convert to LIPS list — scheme filter expects pair chains, not JS arrays
-      sandboxedEnv.set("items", jsToLips(items));
+      sandboxedEnv.set("items", jsToScheme(items));
 
       // Use `string=?` for string comparison — `eq?` is reference identity (R7RS § 6.1)
       // and post-eq?/eqv?-split returns #f for two distinct heap string instances.
@@ -241,7 +241,7 @@ describe("Escaped Symbol Resolution", () => {
           items)
       `);
 
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult).toHaveLength(2);
       expect(jsResult[0]["item-id"]).toBe("1");
       expect(jsResult[1]["item-id"]).toBe("3");

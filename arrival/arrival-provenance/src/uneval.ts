@@ -17,7 +17,7 @@ import {
   execGeneratorExpr as execExpr,
   parseGenerator as parse,
   AValue,
-  lipsToJs,
+  schemeToJs,
   type Environment,
 } from "@here.build/arrival-scheme";
 
@@ -54,7 +54,7 @@ export interface UnevalContainer {
 }
 
 /** Build the `{result, meta, uneval}` container from a finished traced run. `result` is the run's
- *  final value as a raw AValue (provenance intact — NOT lipsToJs-peeled); `env` is the post-run
+ *  final value as a raw AValue (provenance intact — NOT schemeToJs-peeled); `env` is the post-run
  *  scope (so the selector evaluates with `result` bound); `trace` is the run's EvalTrace (so the
  *  selector's step records, and the slice can read the whole lineage). `source` is the original
  *  program text (the v1 program render). */
@@ -80,7 +80,7 @@ export function buildUneval(opts: {
   const resultExpr = outputForm === undefined ? "result" : (outputName ?? writeForm(outputForm));
 
   return {
-    result: lipsToJs(result, {}),
+    result: schemeToJs(result, {}),
     meta: { forms: forms.length },
     uneval: async (selector: string): Promise<Uneval> => {
       // Bind the run's output as `result`, then evaluate the selector as ONE more tapped step —
@@ -99,7 +99,7 @@ export function buildUneval(opts: {
       const slice = buildSlice(trace, outputForm);
       const tail = `(let ((result ${resultExpr})) ${selector.trim()})`;
       const program = slice.program ? `${slice.program}\n${tail}` : tail;
-      return { value: lipsToJs(v, {}), provenance, program, points: slice.points, scopeIds: slice.scopeIds };
+      return { value: schemeToJs(v, {}), provenance, program, points: slice.points, scopeIds: slice.scopeIds };
     },
   };
 }

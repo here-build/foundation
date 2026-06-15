@@ -26,7 +26,7 @@
  */
 
 import { LLM_PARAM_TYPES, type LlmParams, type ToolDescriptor } from "@here.build/arrival-inference";
-import { lipsToJs, Nil } from "@here.build/arrival-scheme";
+import { schemeToJs, Nil } from "@here.build/arrival-scheme";
 import invariant from "tiny-invariant";
 
 import type { RosettaHost } from "./data-effects.js";
@@ -308,7 +308,7 @@ export type McpDefinedMethod = (req: unknown) => unknown;
  * at dispatch, never at derive time (which is why {@link runMiddlewareChain} takes `honest`
  * as a parameter rather than baking it in).
  *
- * A class instance, so it round-trips through scheme untouched — jsToLips/lipsToJs pass
+ * A class instance, so it round-trips through scheme untouched — jsToScheme/schemeToJs pass
  * exotic objects through as-is (rosetta.ts:281 / :198) — opaque to the program.
  */
 export class DerivableEntity {
@@ -370,7 +370,7 @@ export function isMcpBreak(v: unknown): boolean {
  * {@link MCP_BREAK} if a middleware returned the sentinel without calling next.
  *
  * Membrane: `honest`/`next` return a JS reply that auto-wraps for the scheme λ; the λ's
- * return crosses back, so each stage `lipsToJs`-es it (MCP_BREAK passes through untouched).
+ * return crosses back, so each stage `schemeToJs`-es it (MCP_BREAK passes through untouched).
  */
 export async function runMiddlewareChain(
   middleware: readonly EntityMiddleware[],
@@ -387,7 +387,7 @@ export async function runMiddlewareChain(
     const downstream = next;
     next = async (r: unknown) => {
       const out = await handler(r, downstream, progress);
-      return out === MCP_BREAK ? MCP_BREAK : lipsToJs(out);
+      return out === MCP_BREAK ? MCP_BREAK : schemeToJs(out);
     };
   }
   return next(req);
@@ -408,12 +408,12 @@ export function dispatchThroughChain(
   progress: unknown = {},
 ): Promise<unknown> {
   // The chain's bottom: a FABRICATED impl (mcp/define) when this method has one — run it,
-  // no credentialed call — else the resolver. `lipsToJs(req)` so a defined λ's reply and
+  // no credentialed call — else the resolver. `schemeToJs(req)` so a defined λ's reply and
   // the resolver's request are both plain JS (a middleware may have rewrapped `req`).
   const honest = async (req: unknown): Promise<unknown> => {
     const fabricated = server.defined?.[method];
-    if (fabricated) return lipsToJs(await fabricated(req));
-    return resolve(ctx, { kind: "mcp", server: server.name, method, request: lipsToJs(req) });
+    if (fabricated) return schemeToJs(await fabricated(req));
+    return resolve(ctx, { kind: "mcp", server: server.name, method, request: schemeToJs(req) });
   };
   return runMiddlewareChain(server.middleware, method, honest, request, progress);
 }
@@ -422,7 +422,7 @@ export function dispatchThroughChain(
 
 /** Coerce a tool-args value crossing the rosetta membrane into the request shape.
  *  Absent / the empty scheme list (`Nil`) ⇒ `{}` (no arguments); a real dict arrives
- *  already `lipsToJs`'d to a plain object. Mirrors the `Nil` discipline `data-effects`
+ *  already `schemeToJs`'d to a plain object. Mirrors the `Nil` discipline `data-effects`
  *  uses for its option dicts. */
 function mcpArgs(raw: unknown): unknown {
   return raw === undefined || raw === null || raw instanceof Nil ? {} : raw;

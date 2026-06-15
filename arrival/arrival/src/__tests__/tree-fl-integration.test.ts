@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { Tree, tree } from "./tree";
-import { exec, lipsToJs, sandboxedEnv } from "@here.build/arrival-scheme";
+import { exec, schemeToJs, sandboxedEnv } from "@here.build/arrival-scheme";
 
 describe("Tree + Fantasy Land Integration", () => {
   describe("Tree data structure", () => {
@@ -115,7 +115,7 @@ describe("Tree + Fantasy Land Integration", () => {
       console.log("Original tree:", t.toArray());
 
       // Use LIPS map via exec - full lifecycle test
-      const mapped = lipsToJs(
+      const mapped = schemeToJs(
         await exec("(map (lambda (x) (* x 10)) my-tree)", {
           env: sandboxedEnv.inherit("test", { "my-tree": t })
         }),
@@ -139,7 +139,7 @@ describe("Tree + Fantasy Land Integration", () => {
       console.log("Original tree:", t.toArray());
 
       // Use LIPS filter via exec - full lifecycle test
-      const filtered = lipsToJs(
+      const filtered = schemeToJs(
         await exec("(filter (lambda (x) (>= x 10)) my-tree)", {
           env: sandboxedEnv.inherit("test", { "my-tree": t })
         }),
@@ -158,7 +158,7 @@ describe("Tree + Fantasy Land Integration", () => {
       console.log("Tree values:", t.toArray());
 
       // Use LIPS reduce via exec - full lifecycle test
-      const sum = lipsToJs(
+      const sum = schemeToJs(
         await exec("(reduce add 0 my-tree)", {
           env: sandboxedEnv.inherit("test", { "my-tree": t })
         }),
@@ -167,7 +167,7 @@ describe("Tree + Fantasy Land Integration", () => {
 
       console.log("Sum:", sum);
 
-      // Result should be native BigInt (unwrapped by lipsToJs)
+      // Result should be native BigInt (unwrapped by schemeToJs)
       expect(sum).toBe(21n);
     });
 
@@ -189,7 +189,7 @@ describe("Tree + Fantasy Land Integration", () => {
       );
 
       // Map: extract just the names via LIPS
-      const names = lipsToJs(
+      const names = schemeToJs(
         await exec('(map (lambda (f) (prop "name" f)) fs-tree)', {
           env: sandboxedEnv.inherit("test", { "fs-tree": fs })
         }),
@@ -207,7 +207,7 @@ describe("Tree + Fantasy Land Integration", () => {
       ]);
 
       // Filter: keep only actual files (size > 0) via LIPS
-      const files = lipsToJs(
+      const files = schemeToJs(
         await exec('(filter (lambda (f) (> (prop "size" f) 0)) fs-tree)', {
           env: sandboxedEnv.inherit("test", { "fs-tree": fs })
         }),
@@ -221,14 +221,14 @@ describe("Tree + Fantasy Land Integration", () => {
       expect(files).toBe(null);
 
       // Reduce: calculate total size of all files via LIPS
-      const totalSize = lipsToJs(
+      const totalSize = schemeToJs(
         await exec('(reduce (lambda (acc f) (add acc (prop "size" f))) 0 fs-tree)', {
           env: sandboxedEnv.inherit("test", { "fs-tree": fs })
         }),
         { forceBigInt: true }
       )[0];
       console.log("Total size:", totalSize);
-      // Result should be native BigInt (unwrapped by lipsToJs)
+      // Result should be native BigInt (unwrapped by schemeToJs)
       expect(totalSize).toBe(500n);
     });
 
@@ -242,7 +242,7 @@ describe("Tree + Fantasy Land Integration", () => {
       console.log(ast.toString());
 
       // LIPS map via enhanced wrapper automatically uses FL method
-      const uppercased = lipsToJs(
+      const uppercased = schemeToJs(
         await exec("(map to-upper ast-tree)", {
           env: sandboxedEnv.inherit("test", { "ast-tree": ast })
         }),
@@ -255,13 +255,13 @@ describe("Tree + Fantasy Land Integration", () => {
       expect(uppercased.toArray()).toEqual(["PROGRAM", "FUNCTION", "PARAM", "BODY", "RETURN", "VALUE"]);
 
       // Count nodes via LIPS reduce
-      const nodeCount = lipsToJs(
+      const nodeCount = schemeToJs(
         await exec("(reduce (lambda (acc _) (add acc 1)) 0 ast-tree)", {
           env: sandboxedEnv.inherit("test", { "ast-tree": ast })
         }),
         { forceBigInt: true }
       )[0];
-      // Result should be native BigInt (unwrapped by lipsToJs)
+      // Result should be native BigInt (unwrapped by schemeToJs)
       expect(nodeCount).toBe(6n);
     });
   });
@@ -269,7 +269,7 @@ describe("Tree + Fantasy Land Integration", () => {
   describe("Mixed LIPS + Tree operations", () => {
     it("should work with trees in LIPS environment", async () => {
       // Use LIPS to map over it
-      const result = lipsToJs(
+      const result = schemeToJs(
         await exec(`(map (lambda (x) (add x 1)) my-tree)`, {
           env: sandboxedEnv.inherit("test", {
             "my-tree": tree(1, tree(2), tree(3))
@@ -287,7 +287,7 @@ describe("Tree + Fantasy Land Integration", () => {
 
     it("should compose LIPS and Tree operations", async () => {
       const env = sandboxedEnv.inherit("test", { "my-tree": tree(1, tree(2), tree(3)) });
-      const value = lipsToJs(
+      const value = schemeToJs(
         await exec(`(reduce add 0 my-tree)`, {
           env
         }),

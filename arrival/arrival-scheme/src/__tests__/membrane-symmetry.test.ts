@@ -3,16 +3,16 @@
  *
  * The codebase has two parallel JS↔Scheme conversion surfaces:
  *
- *   - rosetta.ts:  lipsToJs / jsToLips — used by rosetta wrappers + sandbox env.
+ *   - rosetta.ts:  schemeToJs / jsToScheme — used by rosetta wrappers + sandbox env.
  *   - membrane.ts: AValue.fromJs + boxer dispatch / membrane.toJS — used by
  *                  FFI codecs (Operator/Codec) and the AValue subtype boxers.
  *
- * They should compose: jsToLips → lipsToJs round-trips, fromJs → toJs round-trips,
+ * They should compose: jsToScheme → schemeToJs round-trips, fromJs → toJs round-trips,
  * and the two APIs agree on the SHAPE of converted values.
  *
  * They don't, today, in several places. These tests document the divergence:
- *  - rosetta `jsToLips` does NOT box `string`/`number`/`boolean`/`bigint`
- *    primitives (returns them raw). lipsToJs unwraps the same primitives by
+ *  - rosetta `jsToScheme` does NOT box `string`/`number`/`boolean`/`bigint`
+ *    primitives (returns them raw). schemeToJs unwraps the same primitives by
  *    type-checking specific AValue subtypes — so a primitive in/primitive out
  *    looks "round-trip correct" by accident even though the cross-membrane
  *    SHAPE is different from what `AValue.fromJs` would produce.
@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest";
 import { AValue } from "../AValue";
 import { is_nil } from "../guards";
 import { fromJS, isSchemeValue, SchemeJSFunction, SchemeJSObject, toJS } from "../membrane";
-import { jsToLips, lipsToJs } from "../rosetta";
+import { jsToScheme, schemeToJs } from "../rosetta";
 import { SchemeBool, schemeFalse, schemeTrue } from "../SchemeBool";
 import { SchemeString } from "../SchemeString";
 import { SchemeSymbol } from "../SchemeSymbol";
@@ -142,16 +142,16 @@ describe("AValue.fromJs — boxer dispatch produces the expected subtype per typ
 });
 
 // =========================================================================
-// jsToLips → lipsToJs round-trip
+// jsToScheme → schemeToJs round-trip
 // =========================================================================
 
-describe("jsToLips → lipsToJs round-trip", () => {
-  // Option C (2026-05-28): jsToLips deep-stamps every constructed AValue —
+describe("jsToScheme → schemeToJs round-trip", () => {
+  // Option C (2026-05-28): jsToScheme deep-stamps every constructed AValue —
   // primitives now route through `AValue.fromJs` (boxer registry) so a JS
   // string in produces a `SchemeString` carrying the supplied provenance.
   // Closes the shape divergence the membrane symmetry audit flagged.
-  it("string is wrapped through jsToLips into SchemeString", () => {
-    const lipsified = jsToLips("hello");
+  it("string is wrapped through jsToScheme into SchemeString", () => {
+    const lipsified = jsToScheme("hello");
     expect(lipsified).toBeInstanceOf(SchemeString);
   });
 
@@ -159,49 +159,49 @@ describe("jsToLips → lipsToJs round-trip", () => {
   // This IS expected behavior today and is the green guard for the
   // primitive-passthrough contract.
   it("string round-trips by passthrough (raw → raw)", () => {
-    expect(lipsToJs(jsToLips("hello"))).toBe("hello");
+    expect(schemeToJs(jsToScheme("hello"))).toBe("hello");
   });
 
   it("number round-trips by passthrough", () => {
-    expect(lipsToJs(jsToLips(42))).toBe(42);
+    expect(schemeToJs(jsToScheme(42))).toBe(42);
   });
 
   it("boolean round-trips by passthrough", () => {
-    expect(lipsToJs(jsToLips(true))).toBe(true);
+    expect(schemeToJs(jsToScheme(true))).toBe(true);
   });
 
-  // Arrays are properly cons'd to Pair, then lipsToJs walks the spine
+  // Arrays are properly cons'd to Pair, then schemeToJs walks the spine
   // back into an array. The element-level cons'ing also wraps the leaves
-  // through jsToLips (so primitives stay primitives), and lipsToJs
+  // through jsToScheme (so primitives stay primitives), and schemeToJs
   // recurses through the Pair spine.
   it("array round-trips through a Pair chain", () => {
-    const result = lipsToJs(jsToLips([1, 2, 3]));
+    const result = schemeToJs(jsToScheme([1, 2, 3]));
     expect(result).toEqual([1, 2, 3]);
   });
 
   it("nested array round-trips", () => {
-    const result = lipsToJs(jsToLips([[1, 2], [3, 4]]));
+    const result = schemeToJs(jsToScheme([[1, 2], [3, 4]]));
     expect(result).toEqual([[1, 2], [3, 4]]);
   });
 
-  // Plain objects are recursed: jsToLips builds { k: jsToLips(v) }, lipsToJs
-  // mirrors via Object.entries → lipsToJs(value). Round-trip is correct.
+  // Plain objects are recursed: jsToScheme builds { k: jsToScheme(v) }, schemeToJs
+  // mirrors via Object.entries → schemeToJs(value). Round-trip is correct.
   it("plain object round-trips", () => {
-    const result = lipsToJs(jsToLips({ a: 1, b: "two" }));
+    const result = schemeToJs(jsToScheme({ a: 1, b: "two" }));
     expect(result).toEqual({ a: 1, b: "two" });
   });
 
   it("nested object round-trips", () => {
-    const result = lipsToJs(jsToLips({ outer: { inner: 42 } }));
+    const result = schemeToJs(jsToScheme({ outer: { inner: 42 } }));
     expect(result).toEqual({ outer: { inner: 42 } });
   });
 
-  // null → nil (rosetta.ts:160). The reverse direction is lipsToJs(nil) which
+  // null → nil (rosetta.ts:160). The reverse direction is schemeToJs(nil) which
   // is the `value === nil` early return (rosetta.ts:70) — returns the nil
   // SINGLETON, not `null`. Documented divergence: rosetta does not invert
   // the null⇄nil contract symmetrically.
-  it.fails("null round-trips to null (currently jsToLips(null) → nil, lipsToJs(nil) → nil singleton)", () => {
-    expect(lipsToJs(jsToLips(null))).toBeNull();
+  it.fails("null round-trips to null (currently jsToScheme(null) → nil, schemeToJs(nil) → nil singleton)", () => {
+    expect(schemeToJs(jsToScheme(null))).toBeNull();
   });
 });
 

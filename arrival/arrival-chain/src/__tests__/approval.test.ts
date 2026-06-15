@@ -11,7 +11,7 @@
  *   - The thunk does NOT run before approval (proven with a side-effect counter).
  *   - Fan-out: an auto-approving branch completes while another is parked.
  */
-import { execGeneratorFromString as exec, lipsToJs } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, schemeToJs } from "@here.build/arrival-scheme";
 import { describe, expect, it, vi } from "vitest";
 
 import { type FunctionRunApprovalRequest, type OnApprovalRequest } from "../approval.js";
@@ -20,7 +20,7 @@ import { BUILTIN_PREAMBLE, buildArrivalEnv } from "../project.js";
 
 /** Evaluate a program and bridge the LAST top-level form's value to plain JS. */
 const run = async (src: string, env: Awaited<ReturnType<typeof buildArrivalEnv>>): Promise<unknown> => {
-  const results = lipsToJs(await exec(src, { env }), {});
+  const results = schemeToJs(await exec(src, { env }), {});
   return Array.isArray(results) ? results.at(-1) : results;
 };
 
@@ -64,7 +64,7 @@ describe("run/continue-after-approval (wired approver)", () => {
     const out = await run(`(run/continue-after-approval (list "deploy" "prod") 42)`, env);
     expect(out).toBe(42);
     expect(captured).toBeDefined();
-    expect(lipsToJs(captured!.spec, {})).toEqual(["deploy", "prod"]);
+    expect(schemeToJs(captured!.spec, {})).toEqual(["deploy", "prod"]);
   });
 
   it("an approve-time value override wins over the thunk's value", async () => {

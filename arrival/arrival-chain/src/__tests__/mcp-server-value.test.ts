@@ -54,7 +54,7 @@ describe("(mcp :name) getter — server-as-value", () => {
     const env = sandboxedEnv.inherit("mcp-roundtrip-test");
     defineMcpRosettas(env, inertMcpResolver);
     // A probe rosetta that reads the handle's name — proves the DerivableEntity survived
-    // the scheme round-trip (lipsToJs/jsToLips pass it through untouched).
+    // the scheme round-trip (schemeToJs/jsToScheme pass it through untouched).
     env.defineRosetta("server-name", { fn: (s: unknown) => (s instanceof DerivableEntity ? s.name : "NOT-A-SERVER") });
     const out = await exec(`(server-name (let ((s (mcp :github))) s))`, { env });
     // server-name returns a JS string → wrapped as a SchemeString on the way out; unwrap.

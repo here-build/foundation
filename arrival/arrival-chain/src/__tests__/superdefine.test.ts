@@ -13,14 +13,14 @@
  *   2. STATIC: `extractReachableOverridables` derives, per exposed function, the
  *      transitively-referenced overridables — its argument surface.
  */
-import { execGeneratorFromString as exec, lipsToJs } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, schemeToJs } from "@here.build/arrival-scheme";
 import { describe, expect, it } from "vitest";
 
 /** Evaluate a program and bridge the LAST top-level form's value to plain JS.
  *  `exec` returns the list of every top-level form's value; the trailing
  *  expression is the one under test (a leading `define` yields `undefined`). */
 const run = async (src: string, env: Awaited<ReturnType<typeof buildArrivalEnv>>): Promise<unknown> => {
-  const results = lipsToJs(await exec(src, { env }), {});
+  const results = schemeToJs(await exec(src, { env }), {});
   return Array.isArray(results) ? results[results.length - 1] : results;
 };
 

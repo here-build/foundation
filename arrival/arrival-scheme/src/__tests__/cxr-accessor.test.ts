@@ -15,10 +15,10 @@ import { describe, expect, it } from "vitest";
 
 import { cxrAccessor, exec, global_env } from "../stdlib";
 import { sandboxedEnv } from "../sandbox-env";
-import { lipsToJs } from "../rosetta";
+import { schemeToJs } from "../rosetta";
 
 const evalIn = (env: typeof global_env) => async (expr: string): Promise<unknown> =>
-  lipsToJs((await exec(expr, { env }))[0], {});
+  schemeToJs((await exec(expr, { env }))[0], {});
 
 // element index k ≡ (car (cdr^k x)) ≡ "ca" + "d"×k + "r"
 const cxrForIndex = (k: number): string => `ca${"d".repeat(k)}r`;

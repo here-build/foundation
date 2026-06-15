@@ -16,7 +16,7 @@
 import { createInferStore, InferBinding } from "@here.build/arrival-inference";
 import type { ModelRouter } from "@here.build/arrival-inference";
 import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
-import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
+import { schemeToJs, type Pair } from "@here.build/arrival-scheme";
 import { reaction } from "mobx";
 
 import { ArrivalChain } from "./arrival-chain.js";
@@ -165,14 +165,14 @@ export async function traceForOutput(session: TraceSession, site: InferenceCallS
  */
 /**
  * Unwrap Scheme wrapper objects to JS primitives. Defers to arrival-scheme's
- * canonical `lipsToJs` so SchemeString, SchemeNumeric, Pair-as-list,
+ * canonical `schemeToJs` so SchemeString, SchemeNumeric, Pair-as-list,
  * SchemeJSObject all round-trip correctly — a hand-rolled unwrapper would
  * leak wrapper types through to consumers comparing values structurally.
  */
 function jsValueOf(v: unknown): unknown {
   if (v === undefined || v === null) return v;
   if (typeof v !== "object" && typeof v !== "function") return v;
-  return lipsToJs(v, {});
+  return schemeToJs(v, {});
 }
 
 function buildTraceNode(
@@ -1127,7 +1127,7 @@ export function debugChainOf(inv: Invocation): Array<{ head: string | null; line
 //   #3 (P1) inline lambdas — resolveLambdaArg now finds the child
 //     invocation under the HOF whose node is the (lambda …) Pair and
 //     reads its .value for __params__.
-//   #6 (P2) jsValueOf via lipsToJs — defers to arrival-scheme's
+//   #6 (P2) jsValueOf via schemeToJs — defers to arrival-scheme's
 //     canonical unwrap so SchemeNumeric / Pair-lists / SchemeJSObject
 //     round-trip correctly.
 //   #15 (P3) named-let loopFn __params__ — mirrored from evalLambda.

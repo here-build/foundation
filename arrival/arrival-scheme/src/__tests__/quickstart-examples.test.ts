@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { exec, jsToLips, lipsToJs, sandboxedEnv } from "../index";
+import { exec, jsToScheme, schemeToJs, sandboxedEnv } from "../index";
 
 describe("Quick Start Examples", () => {
   it("Basic execution example", async () => {
@@ -15,7 +15,7 @@ describe("Quick Start Examples", () => {
       { env: sandboxedEnv },
     );
 
-    expect(lipsToJs(results[0], {})).toEqual([7, 9]);
+    expect(schemeToJs(results[0], {})).toEqual([7, 9]);
   });
 
   it("Register custom functions with Rosetta", async () => {
@@ -31,7 +31,7 @@ describe("Quick Start Examples", () => {
       { env: sandboxedEnv },
     );
 
-    expect(lipsToJs(results[0], {})).toEqual([2, 4, 6, 8, 10]);
+    expect(schemeToJs(results[0], {})).toEqual([2, 4, 6, 8, 10]);
   });
 
   it("Working with complex data", async () => {
@@ -47,7 +47,7 @@ describe("Quick Start Examples", () => {
       { id: "charlie", priority: 20 },
     ];
 
-    sandboxedEnv.set("users", jsToLips(users, {}));
+    sandboxedEnv.set("users", jsToScheme(users, {}));
 
     const results = await exec(
       `
@@ -56,7 +56,7 @@ describe("Quick Start Examples", () => {
       { env: sandboxedEnv },
     );
 
-    const result = lipsToJs(results[0], {});
+    const result = schemeToJs(results[0], {});
     expect(result).toEqual([
       { id: "alice", priority: 15 },
       { id: "charlie", priority: 20 },

@@ -184,7 +184,7 @@ describe("infer/agentic/end-to-end — honest-tools flow (end to end)", () => {
 describe("D3 incr 2b — an (llm …) entity as the agentic model (observe-only per turn)", () => {
   it("a pass-through (llm …) middleware PRESERVES the loop's toolCalls (InferString not demoted)", async () => {
     // THE correctness test: if a scheme middleware's return drove the loop, turn 1's
-    // InferString would round-trip through lipsToJs, demote to a bare string, and lose its
+    // InferString would round-trip through schemeToJs, demote to a bare string, and lose its
     // toolCalls — the loop would finalize on turn 1. Driving on the captured raw InferString
     // keeps the calls, so the tool turn still dispatches.
     let turn = 0;

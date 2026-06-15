@@ -353,7 +353,7 @@ function coerceHttpBody(raw: unknown): HttpEffect["body"] {
 }
 
 /** Shape an HTTP options dict (`(dict :query … :headers … :body …)`) — already
- *  lipsToJs'd to a plain record by the rosetta wrapper — into the `HttpEffect`
+ *  schemeToJs'd to a plain record by the rosetta wrapper — into the `HttpEffect`
  *  request fields, per method. `query`/`headers` coercion is shared (both verbs
  *  want faithfully-scalar values); the body is the per-method axis: a read verb
  *  (GET/HEAD) carries NO body — a request body on a read is spec-discouraged,
@@ -440,7 +440,7 @@ export function defineDataEffectRosettas(env: RosettaHost, resolve: DataEffectRe
  *   - a bare scalar `42` (sugar for `(list 42)`) → wrapped as one element.
  *
  * The `Nil`/`undefined` ⇒ `[]` arm is the correctness fix the scaffold lacked:
- * an empty scheme list does NOT auto-become a JS array (`lipsToJs` returns the
+ * an empty scheme list does NOT auto-become a JS array (`schemeToJs` returns the
  * `Nil` as-is, the same membrane gap `project.ts`'s template `coerceShape`
  * handles), so the naive `[params]` fallback would have bound a spurious `Nil`
  * sentinel to a placeholder-free query.

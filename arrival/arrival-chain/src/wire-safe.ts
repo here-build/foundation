@@ -8,7 +8,7 @@
 //
 // It is the SAME law a deployed `/fn` function needs (its I/O must cross an HTTP/JSON boundary) —
 // one classifier, two enforcers. We classify the PEELED JS value (the rosetta membrane already
-// `lipsToJs`-peels args/returns), so scheme boxes are gone and only JS shapes remain: a scheme
+// `schemeToJs`-peels args/returns), so scheme boxes are gone and only JS shapes remain: a scheme
 // closure peels to a `function`, a symbol to `symbol`, a Pair to an array, a dict to a plain object.
 
 import { is_result_handle } from "./result-handle.js";

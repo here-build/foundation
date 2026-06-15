@@ -30,12 +30,12 @@ import { type SchemeNumeric, SchemeExact, SchemeInexact } from "./numbers.js";
 import { Pair } from "./Pair.js";
 import { __lambda__ } from "./primitives.js";
 import { QuotedPromise } from "./QuotedPromise.js";
-// `jsToLips` import is intentionally a runtime cycle with rosetta.ts —
+// `jsToScheme` import is intentionally a runtime cycle with rosetta.ts —
 // rosetta.ts statically imports `SchemeJSObject` from this file. ES module
 // resolution lets the cycle close at definition time (both functions are
 // declared before any call site fires); the lazy `.get` body below only
-// reads `jsToLips` when actually invoked.
-import { jsToLips } from "./rosetta.js";
+// reads `jsToScheme` when actually invoked.
+import { jsToScheme } from "./rosetta.js";
 import {
   markAsSandboxBoundary,
   NOT_FOUND,
@@ -175,14 +175,14 @@ const entryCaches = new WeakMap<SchemeJSObject, Map<string, AValue>>();
 
 /**
  * Thin wrapper for JS objects. Lazy property access — entries box on
- * demand through `jsToLips` (rosetta.ts), carrying the wrapper's provenance.
+ * demand through `jsToScheme` (rosetta.ts), carrying the wrapper's provenance.
  *
  * All property access is sandboxed - see sandbox-boundary.ts for security model.
  *
  * War story (Option C — 2026-05-28): `get(key)` used to call `fromJS(result)`,
  * which passed JS primitives through unboxed and threw away any chance of
  * the entry carrying the container's provenance. With the rosetta deep-stamp
- * (jsToLips passes provenance into every constructed AValue), the wrapper's
+ * (jsToScheme passes provenance into every constructed AValue), the wrapper's
  * own surface needs the same discipline: entries must box through the boxer
  * registry stamped with `this.provenance`, so `(@ obj :x)` on a wrapper that
  * came from an `(infer …)` result carries infer's id at the access point,
@@ -228,7 +228,7 @@ export class SchemeJSObject extends AValue {
    * `sandboxedAccess` filters the boundary; `NOT_FOUND` → either blocked
    * or absent — same `nil` from this surface either way.
    *
-   * Cycle protection lives in `jsToLips`'s WeakSet: if `source` participates
+   * Cycle protection lives in `jsToScheme`'s WeakSet: if `source` participates
    * in a JS-side cycle that surfaces through a property access, the inner
    * traversal terminates before re-entering this wrapper.
    */
@@ -266,12 +266,12 @@ export class SchemeJSObject extends AValue {
     // is blocked.
     if (typeof raw === "function") return nil;
 
-    // Box through jsToLips so primitives become AValue subtypes stamped with
+    // Box through jsToScheme so primitives become AValue subtypes stamped with
     // this wrapper's provenance. SchemeJSObject's instance was constructed
-    // through rosetta deep-stamping for the common case (jsToLips reached
+    // through rosetta deep-stamping for the common case (jsToScheme reached
     // here on the way down); direct construction with empty provenance keeps
     // the empty-provenance fast-path everywhere.
-    const boxed = jsToLips(raw, {}, this.provenance);
+    const boxed = jsToScheme(raw, {}, this.provenance);
     if (cacheKey !== undefined && boxed instanceof AValue) {
       if (cache === undefined) {
         cache = new Map();

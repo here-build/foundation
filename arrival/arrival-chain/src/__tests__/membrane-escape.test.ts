@@ -52,7 +52,7 @@ function expectBlockedToNil(result: unknown): void {
 
 describe("prototype-chain escapes collapse to nil — no path to Function/constructor", () => {
   it("(@ obj :constructor) on a crossed object is nil, not the Function constructor", async () => {
-    // The infer result is an object that crosses the membrane (jsToLips →
+    // The infer result is an object that crosses the membrane (jsToScheme →
     // SchemeJSObject). Reading `constructor` must be blocked (→ nil), so the classic
     // `obj.constructor.constructor("…")` Function escape has no first rung.
     expectBlockedToNil(await run(`(define o (car (infer "m" "p"))) (@ o :constructor)`, { real: "field" }));

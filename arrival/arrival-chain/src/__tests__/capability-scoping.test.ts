@@ -3,7 +3,7 @@
 // didn't assemble are simply not bound (the membrane is the pack list).
 
 import { EvalTrace } from "@here.build/arrival-provenance";
-import { execGeneratorFromString, lipsToJs, sandboxedEnv } from "@here.build/arrival-scheme";
+import { execGeneratorFromString, schemeToJs, sandboxedEnv } from "@here.build/arrival-scheme";
 import { type EnvCapability } from "@here.build/arrival-scheme/capability";
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { describe, expect, it } from "vitest";
@@ -28,13 +28,13 @@ async function runScoped(
   const results = await execGeneratorFromString(source, { env, tap: new EvalTrace() });
   let last: unknown = results.at(-1);
   if (last && typeof (last as { then?: unknown }).then === "function") last = await last;
-  return lipsToJs(last, {});
+  return schemeToJs(last, {});
 }
 
 describe("capability scoping — assemble from a reduced root-set", () => {
   it("a utils-only env binds json/parse", async () => {
     const value = await runScoped([arrivalUtilsCapability], `(json/parse "[1,2,3]")`);
-    expect(lipsToJs(value, {})).toEqual([1, 2, 3]);
+    expect(schemeToJs(value, {})).toEqual([1, 2, 3]);
   });
 
   it("a utils-only env does NOT bind infer — the capability you didn't assemble is absent", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toSExprString } from "../serializer";
 // Import what we can from lips
-import { exec, SchemeExact, lipsToJs, SchemeString, SchemeSymbol, Nil, Pair, sandboxedEnv } from "@here.build/arrival-scheme";
+import { exec, SchemeExact, schemeToJs, SchemeString, SchemeSymbol, Nil, Pair, sandboxedEnv } from "@here.build/arrival-scheme";
 // Import custom matchers
 import "@here.build/arrival-scheme";
 
@@ -151,13 +151,13 @@ describe("LIPS Integration", () => {
 
 describe("exec with proper environment", () => {
   it("should execute single expressions and return unwrapped values", async () => {
-    const result = lipsToJs(await exec("(+ 1 2)"), { forceBigInt: true })[0];
+    const result = schemeToJs(await exec("(+ 1 2)"), { forceBigInt: true })[0];
     expect(result).toBe(3n); // Native BigInt
   });
 
   it("should handle multiple expressions (returns first)", async () => {
     const rawResults = await exec("(+ 1 2) (* 3 4) (quote hello)");
-    const results = lipsToJs(rawResults, { forceBigInt: true });
+    const results = schemeToJs(rawResults, { forceBigInt: true });
     expect(results[0]).toBe(3n); // First result
     expect(results[1]).toBe(12n); // Second result
     // Symbol needs special handling
@@ -184,7 +184,7 @@ describe("exec with proper environment", () => {
   });
 
   it("should handle booleans", async () => {
-    const result = lipsToJs(await exec("#t"))[0];
+    const result = schemeToJs(await exec("#t"))[0];
     expect(result).toBe(true);
   });
 
@@ -211,12 +211,12 @@ describe("exec with proper environment", () => {
     expect(result).toBeInstanceOf(Pair);
 
     // Convert to JS values for easier testing
-    const values = lipsToJs(result, { forceBigInt: true });
+    const values = schemeToJs(result, { forceBigInt: true });
     expect(values).toEqual([2n, 3n, 4n]);
   });
 
   it("should have access to functional composition", async () => {
-    const result = lipsToJs(
+    const result = schemeToJs(
       await exec("((compose (lambda (x) (+ x 1)) (lambda (x) (+ x 1))) 5)", {
         env: sandboxedEnv
       }),
@@ -226,7 +226,7 @@ describe("exec with proper environment", () => {
   });
 
   it("should support environment variables", async () => {
-    const result = lipsToJs(
+    const result = schemeToJs(
       await exec("(+ x y)", {
         env: sandboxedEnv.inherit("test", { x: 10, y: 20 })
       }),

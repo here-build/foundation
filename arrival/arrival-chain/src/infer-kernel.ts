@@ -4,7 +4,7 @@ import {
   execGeneratorExpr as execExpr,
   parseGenerator as parse,
   sandboxedEnv,
-  lipsToJs,
+  schemeToJs,
   Nil,
 } from "@here.build/arrival-scheme";
 import Handlebars from "handlebars";
@@ -485,7 +485,7 @@ export async function runAgenticInfer(
   // The model may be a bare string or an (llm …) entity. Its observe-only middleware runs
   // around EACH turn's inference; the chain's return decides break-vs-proceed ONLY — the
   // loop is always driven by the RAW InferString (a scheme middleware's return round-trips
-  // through lipsToJs, which would demote the InferString and drop its toolCalls; a turn's
+  // through schemeToJs, which would demote the InferString and drop its toolCalls; a turn's
   // response is loop-control, not a value to reshape). So response-transform is ignored in
   // the agentic context by design; observe + budget/break are the meaningful powers.
   const { name, middleware, params } = asLlmModel(model);
@@ -493,7 +493,7 @@ export async function runAgenticInfer(
   const result = await runAgenticLoop(messages, {
     infer: async (msgs, progress) => {
       // Capture the RAW infer result in a box: a scheme middleware's return round-trips
-      // through lipsToJs (demoting an InferString → bare string, dropping toolCalls), so the
+      // through schemeToJs (demoting an InferString → bare string, dropping toolCalls), so the
       // chain return drives break-vs-proceed only — the loop runs on the captured raw value.
       // (A box, not a flag, so it survives the closure without tripping flow analysis.)
       const captured: unknown[] = [];
@@ -666,7 +666,7 @@ export function makeCompileInferUnit(
     let schemaSlotStr: string | null = null;
     if (unit.schemaSrc !== null) {
       const [form] = await parse(unit.schemaSrc);
-      schemaSlotStr = schemaSlot(lipsToJs(await execExpr(form, { env })));
+      schemaSlotStr = schemaSlot(schemeToJs(await execExpr(form, { env })));
     }
     return createRosettaWrapper({
       withContext: true,

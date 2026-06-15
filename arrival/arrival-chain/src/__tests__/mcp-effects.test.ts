@@ -157,7 +157,7 @@ describe("mcp-effects — dispatch verbs cross the membrane", () => {
       return { ok: true };
     });
     // keyword-dict args go through the REAL `dict` (keyword-accessor aware), exercised by
-    // the Project.run e2e below (which also proves the reply crosses back via lipsToJs);
+    // the Project.run e2e below (which also proves the reply crosses back via schemeToJs);
     // here we pin the verb's shape mapping with the no-args path (undefined ⇒ {}).
     await runScm(env, `(mcp/call "linear" "ping")`);
     expect(captured).toEqual({

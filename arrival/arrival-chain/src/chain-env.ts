@@ -18,7 +18,7 @@
 import { InferString, createInferStore } from "@here.build/arrival-inference";
 import type { ModelRouter, ModelBackend } from "@here.build/arrival-inference";
 import { EvalTrace } from "@here.build/arrival-provenance";
-import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
+import { execGeneratorFromString, schemeToJs } from "@here.build/arrival-scheme";
 import invariant from "tiny-invariant";
 
 import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "@here.build/arrival-scheme/env";
@@ -302,7 +302,7 @@ export class ChainEnvironment {
       const results = await execGeneratorFromString(BUILTIN_PREAMBLE + source, { env: this.env, tap: this.tap });
       let last: unknown = results.at(-1);
       if (last && typeof (last as { then?: unknown }).then === "function") last = await last;
-      return { result: lipsToJs(last, {}), trace: this.tap };
+      return { result: schemeToJs(last, {}), trace: this.tap };
     } catch (error) {
       return { result: ["error", error instanceof Error ? error.message : String(error)], trace: this.tap };
     }

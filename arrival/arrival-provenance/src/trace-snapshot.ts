@@ -29,7 +29,7 @@
  *     clone-safe twin of `node`: it captures the symbol-keyed `__location__` (which
  *     a clone strips) into a plain string while the live Pair is in hand.
  *   - `provenance` — a plain `Set<number>` (Sets are clone-safe).
- *   - `value` / `metadata` — already peeled to plain JS by `lipsToJs` (`value`) or
+ *   - `value` / `metadata` — already peeled to plain JS by `schemeToJs` (`value`) or
  *     built as a POJO `{ kind, path, model, inputs, … }` (`metadata`); the values a
  *     `.prompt` card reads are strings / numbers / plain objects / Sets.
  *   - `parent` / `children` — object references; the DAG/back-edges are rebuilt
@@ -67,7 +67,7 @@
  * handled, `node` itself can be dropped from the posted payload. The read-site
  * rewrite co-designs with `trace-to-regions.ts`, so it is A2's edit, not A1's.
  */
-import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
+import { schemeToJs, type Pair } from "@here.build/arrival-scheme";
 
 import { scopeId } from "./scope-id.js";
 import type { EvalTrace, InvocationState } from "./trace.js";
@@ -168,10 +168,10 @@ export function snapshotTrace(trace: EvalTrace): PlainTrace {
         // resolution.
         //
         // `inv.value` is the rosetta result AS SCHEME SEES IT — a provenance-stamped
-        // AValue (the wrapper `jsToLips`'d it on the way back). `lipsToJs` peels that
+        // AValue (the wrapper `jsToScheme`'d it on the way back). `schemeToJs` peels that
         // envelope to plain JS so the render shows the string, not
         // `{ provenance, kind, __string__ }`.
-        value: isPoint || isRoot || isBranchChild ? lipsToJs(inv.value) : undefined,
+        value: isPoint || isRoot || isBranchChild ? schemeToJs(inv.value) : undefined,
         metadata: isPoint ? inv.metadata : undefined,
         state: inv.state,
       };

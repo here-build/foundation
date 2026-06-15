@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { execGeneratorFromString, lipsToJs } from "@here.build/arrival-scheme";
+import { execGeneratorFromString, schemeToJs } from "@here.build/arrival-scheme";
 
 import { EvalTrace } from "@here.build/arrival-provenance";
 import { buildArrivalEnv } from "../project.js";
@@ -28,7 +28,7 @@ async function runWith(registry: Map<string, EnvPack<EnvHandle>>, source: string
   const results = await execGeneratorFromString(source, { env, tap: new EvalTrace() });
   let last: unknown = results.at(-1);
   if (last && typeof (last as { then?: unknown }).then === "function") last = await last;
-  return lipsToJs(last, {});
+  return schemeToJs(last, {});
 }
 
 describe("(require/extension :name)", () => {

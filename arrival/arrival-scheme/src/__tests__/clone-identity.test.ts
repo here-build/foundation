@@ -33,7 +33,7 @@
 import { describe, expect, it } from "vitest";
 import { is_nil } from "../guards";
 import { isSchemeValue, toJS } from "../membrane";
-import { lipsToJs } from "../rosetta";
+import { schemeToJs } from "../rosetta";
 import { RAMDA_FUNCTIONS } from "../ramda-functions";
 import { sandboxedEnv } from "../sandbox-env";
 import { wrappedOps } from "../bridge";
@@ -101,7 +101,7 @@ describe("membrane.ts — `=== nil` identity-equality sites", () => {
 // =========================================================================
 
 describe("rosetta.ts — `=== nil` identity-equality sites", () => {
-  // rosetta.ts:70 — `lipsToJs(value)` short-circuits `value == null || value === nil`
+  // rosetta.ts:70 — `schemeToJs(value)` short-circuits `value == null || value === nil`
   // by returning the value as-is. A Nil clone fails BOTH checks (it is not
   // nullish, and not === nil), so control falls through the function body.
   // It is not a SchemeExact/SchemeInexact/SchemeJSObject/SchemeJSArray/
@@ -109,27 +109,27 @@ describe("rosetta.ts — `=== nil` identity-equality sites", () => {
   // (line 156) hands back the Nil instance. JS-side consumers expecting
   // `null` (the contract that `value === nil` is supposed to give them) see
   // a Nil object instead.
-  it.fails("lipsToJs(nil-clone) — should return null/undefined (rosetta.ts:70)", () => {
-    // The current `lipsToJs(nil)` returns `nil` itself (note: this branch
+  it.fails("schemeToJs(nil-clone) — should return null/undefined (rosetta.ts:70)", () => {
+    // The current `schemeToJs(nil)` returns `nil` itself (note: this branch
     // actually returns `value` not `null` — it is the `== null` branch's
     // shared exit). Whatever the singleton returns, the clone must match.
-    const singletonResult = lipsToJs(nil);
-    expect(lipsToJs(cloneNil())).toEqual(singletonResult);
+    const singletonResult = schemeToJs(nil);
+    expect(schemeToJs(cloneNil())).toEqual(singletonResult);
   });
 
   // rosetta.ts:130 — Inside the Pair-spine recursion, the tail is converted
-  // via `lipsToJs(value.cdr)`; the branch `else if (tail === nil)` decides
+  // via `schemeToJs(value.cdr)`; the branch `else if (tail === nil)` decides
   // whether to return `[head]` (proper-list terminator) vs `[head, tail]`
   // (dotted-pair). A Pair whose cdr is a Nil clone takes the dotted-pair
   // branch and returns `[head, Nil{}]` instead of `[head]`. Reproducible
-  // by handing a Pair-with-nil-clone-cdr to lipsToJs.
-  it("lipsToJs(Pair(1, nil-clone)) — proper list, not dotted (rosetta.ts:130)", () => {
-    // Note: lipsToJs first recurses into `cdr`, so the inner `=== nil` at
+  // by handing a Pair-with-nil-clone-cdr to schemeToJs.
+  it("schemeToJs(Pair(1, nil-clone)) — proper list, not dotted (rosetta.ts:130)", () => {
+    // Note: schemeToJs first recurses into `cdr`, so the inner `=== nil` at
     // line 70 also fires false for the clone. The `tail === nil` check at
     // line 130 then sees the Nil clone again (not coerced) and dispatches
     // to the dotted-pair branch. Expected: a proper list [1].
     const p = new Pair(1, cloneNil());
-    expect(lipsToJs(p)).toEqual([1]);
+    expect(schemeToJs(p)).toEqual([1]);
   });
 });
 
@@ -426,8 +426,8 @@ describe("META — provenance clones break identity-equality systematically", ()
     const sites = [
       "membrane.ts:71  — isSchemeValue",
       "membrane.ts:326 — toJS",
-      "rosetta.ts:70   — lipsToJs entry",
-      "rosetta.ts:130  — lipsToJs Pair-spine tail",
+      "rosetta.ts:70   — schemeToJs entry",
+      "rosetta.ts:130  — schemeToJs Pair-spine tail",
       "bridge.ts:985   — list-copy entry",
       "bridge.ts:989   — list-copy recursion base",
       "bridge.ts:1351  — single",

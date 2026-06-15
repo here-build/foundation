@@ -51,8 +51,8 @@ export {
 // Re-export the LIPS→JS membrane so studio consumers can convert raw scheme
 // values (Pair / cons cells captured in trace.Invocation.value) into plain JS
 // without taking a direct dep on arrival-scheme.
-export { lipsToJs } from "@here.build/arrival-scheme";
-// NOTE: lipsToJs above is from arrival-scheme (stays). The inference-runtime and
+export { schemeToJs } from "@here.build/arrival-scheme";
+// NOTE: schemeToJs above is from arrival-scheme (stays). The inference-runtime and
 // provenance-analysis clusters are NOT re-exported here — import them directly from
 // `@here.build/arrival-inference` and `@here.build/arrival-provenance`.
 // `@arrival.private` — seal a host class opaque to Scheme (re-exported so `@here.build/arrival`

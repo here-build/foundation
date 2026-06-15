@@ -1,7 +1,7 @@
 import {
   execGeneratorExpr,
   execGeneratorFromString,
-  lipsToJs,
+  schemeToJs,
   parseGenerator,
   sandboxedEnv,
 } from "@here.build/arrival-scheme";
@@ -24,7 +24,7 @@ import { BUILTIN_PREAMBLE } from "./project.js";
 // This is the bridge between the two: it evaluates ONLY the pure `(s/object …)`
 // schema sub-expressions of an `ExposeInfo`, exactly as the `.prompt` loader's
 // `compileInferUnit` evaluates a Picoschema-compiled `schemaSrc`
-// (`schemaSlot(lipsToJs(execExpr(parse(src), { env })))`). The handler is NEVER
+// (`schemaSlot(schemeToJs(execExpr(parse(src), { env })))`). The handler is NEVER
 // touched here — `ExposeInfo` carries only the schema slices + the boolean
 // `hasHandler`, so there is no handler to run. Evaluating a `(s/object …)` form
 // is side-effect-free (the `s/…` preamble procs are pure list constructors:
@@ -77,7 +77,7 @@ async function evalPureSlice(src: string | null): Promise<unknown | null> {
     const env = await schemaEnv();
     const [form] = await parseGenerator(src);
     if (form === undefined) return null;
-    return lipsToJs(await execGeneratorExpr(form, { env }), {});
+    return schemeToJs(await execGeneratorExpr(form, { env }), {});
   } catch {
     return null;
   }

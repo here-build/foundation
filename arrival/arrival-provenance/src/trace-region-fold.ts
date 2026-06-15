@@ -30,7 +30,7 @@
  * `traceToRegions` does. Absorbing those live reads into the snapshot mirror is a
  * deferred Phase-2 concern (the worker boundary); see `trace-snapshot.ts`'s header.
  */
-import { lipsToJs, type Pair } from "@here.build/arrival-scheme";
+import { schemeToJs, type Pair } from "@here.build/arrival-scheme";
 
 import type { PlainInv } from "./trace-snapshot.js";
 import { scopeId, staticLoopBodyScopes, staticRecursiveHeads, STRUCTURAL_FORMS } from "./trace-to-forest.js";
@@ -335,12 +335,12 @@ export class TraceRegionFold {
       this.#cacheGen = gen;
     }
 
-    // Fresh value memo per build (mirrors from-scratch `valCache`; lipsToJs is pure but
+    // Fresh value memo per build (mirrors from-scratch `valCache`; schemeToJs is pure but
     // we keep parity with the one-shot which allocates a fresh cache each call).
     this.#valCache = new Map<number, unknown>();
     const valueById = (id: number): unknown => {
       if (this.#valCache.has(id)) return this.#valCache.get(id);
-      const v = lipsToJs(this.#liveById.get(id)?.value);
+      const v = schemeToJs(this.#liveById.get(id)?.value);
       this.#valCache.set(id, v);
       return v;
     };
@@ -454,7 +454,7 @@ export class TraceRegionFold {
       const isRoot = plain.parent === null;
       const isBranchChild = BRANCH_FORMS.has(this.#headName(plain.parent?.node) ?? "");
       plain.state = live.state;
-      plain.value = isPoint || isRoot || isBranchChild ? lipsToJs(live.value) : undefined;
+      plain.value = isPoint || isRoot || isBranchChild ? schemeToJs(live.value) : undefined;
       plain.metadata = isPoint ? live.metadata : undefined;
       // Provenance is materialized for children-of-points + roots (snapshot predicate);
       // it is computed at the live invocation's exit, so re-copy it now it has settled.
@@ -478,7 +478,7 @@ export class TraceRegionFold {
       children: [],
       provenance: inv.parent?.isProvenancePoint || isRoot ? new Set(inv.provenance) : EMPTY_NUM,
       isProvenancePoint: isPoint,
-      value: isPoint || isRoot || isBranchChild ? lipsToJs(inv.value) : undefined,
+      value: isPoint || isRoot || isBranchChild ? schemeToJs(inv.value) : undefined,
       metadata: isPoint ? inv.metadata : undefined,
       state: inv.state,
     };
@@ -540,11 +540,11 @@ export class TraceRegionFold {
       const par = plain.parent;
       if (par && BRANCH_FORMS.has(headOf(par))) branchTouched.add(par.id);
     }
-    // A transient lipsToJs memo for the operand-value reads decisionInputProducers needs.
+    // A transient schemeToJs memo for the operand-value reads decisionInputProducers needs.
     const valCache = new Map<number, unknown>();
     const valueById = (vid: number): unknown => {
       if (valCache.has(vid)) return valCache.get(vid);
-      const v = lipsToJs(this.#liveById.get(vid)?.value);
+      const v = schemeToJs(this.#liveById.get(vid)?.value);
       valCache.set(vid, v);
       return v;
     };
@@ -620,7 +620,7 @@ export class TraceRegionFold {
    *  so a "not wired" verdict is final (the operand's provenance won't grow later). Used to
    *  decide whether to lock in the dynamic-capability check or defer it. */
   #operandsResolved(inv: PlainInv): boolean {
-    const valueById = (vid: number): unknown => lipsToJs(this.#liveById.get(vid)?.value);
+    const valueById = (vid: number): unknown => schemeToJs(this.#liveById.get(vid)?.value);
     for (const { producerId } of decisionInputProducers(inv, valueById)) {
       if (this.#liveById.get(producerId)?.state === "running") return false;
     }

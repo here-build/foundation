@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { sandboxedEnv } from "../sandbox-env";
-import { createRosettaWrapper, jsToLips, lipsToJs } from "../rosetta";
+import { createRosettaWrapper, jsToScheme, schemeToJs } from "../rosetta";
 import { exec } from "../stdlib";
 
 // Helper to unwrap exec results
@@ -17,7 +17,7 @@ describe("Rosetta Environment", () => {
   describe("LIPS → JS Conversion", () => {
     it("should convert LIPS numbers to JS numbers", async () => {
       const lipsNumber = await execOne("42");
-      const jsNumber = lipsToJs(lipsNumber, {});
+      const jsNumber = schemeToJs(lipsNumber, {});
 
       console.log("LIPS number:", lipsNumber);
       console.log("JS number:", jsNumber);
@@ -28,7 +28,7 @@ describe("Rosetta Environment", () => {
 
     it("should convert LIPS lists to JS arrays", async () => {
       const lipsList = await execOne("(list 1 2 3 4)");
-      const jsArray = lipsToJs(lipsList, {});
+      const jsArray = schemeToJs(lipsList, {});
 
       console.log("LIPS list:", lipsList);
       console.log("JS array:", jsArray);
@@ -38,14 +38,14 @@ describe("Rosetta Environment", () => {
     });
 
     it("should preserve symbol-keyed properties across the JS→LIPS→JS round-trip", () => {
-      // Regression: `Object.entries` in lipsToJs dropped symbol keys, so opaque/private
+      // Regression: `Object.entries` in schemeToJs dropped symbol keys, so opaque/private
       // backing data on objects crossing the membrane was silently lost. String keys must
       // be unchanged; symbol-keyed slots must survive.
       const SECRET = Symbol("secret");
       const original: Record<string | symbol, unknown> = { visible: 1 };
       original[SECRET] = [4, 5, 6];
 
-      const roundTripped = lipsToJs(jsToLips(original, {}), {}) as Record<string | symbol, unknown>;
+      const roundTripped = schemeToJs(jsToScheme(original, {}), {}) as Record<string | symbol, unknown>;
 
       expect(roundTripped.visible).toBe(1); // string key unchanged
       expect(roundTripped[SECRET]).toEqual([4, 5, 6]); // symbol key survives
@@ -56,7 +56,7 @@ describe("Rosetta Environment", () => {
     // to preserve metadata on reverse conversion
     it.skip("should convert empty LIPS list to empty JS array", async () => {
       const emptyList = await execOne("(list)");
-      const jsArray = lipsToJs(emptyList, {});
+      const jsArray = schemeToJs(emptyList, {});
 
       console.log("Empty LIPS list:", emptyList);
       console.log("Empty JS array:", jsArray);
@@ -66,7 +66,7 @@ describe("Rosetta Environment", () => {
 
     it("should convert nested LIPS lists", async () => {
       const nestedList = await execOne("(list (list 1 2) (list 3 4))");
-      const jsArray = lipsToJs(nestedList, {});
+      const jsArray = schemeToJs(nestedList, {});
 
       console.log("Nested LIPS list:", nestedList);
       console.log("Nested JS array:", jsArray);
@@ -80,7 +80,7 @@ describe("Rosetta Environment", () => {
     it("should handle mixed data types", async () => {
       // Note: Using quote to prevent evaluation of symbols
       const mixedList = await execOne(`(list 42 "hello" #t)`);
-      const jsArray = lipsToJs(mixedList, {});
+      const jsArray = schemeToJs(mixedList, {});
 
       console.log("Mixed LIPS list:", mixedList);
       console.log("Mixed JS array:", jsArray);
@@ -94,7 +94,7 @@ describe("Rosetta Environment", () => {
   describe("JS → LIPS Conversion", () => {
     it("should convert JS arrays to LIPS lists", () => {
       const jsArray = [1, 2, 3, 4];
-      const lipsList = jsToLips(jsArray, {});
+      const lipsList = jsToScheme(jsArray, {});
 
       console.log("JS array:", jsArray);
       console.log("LIPS list:", lipsList);
@@ -102,13 +102,13 @@ describe("Rosetta Environment", () => {
       expect(lipsList.constructor.name).toBe("Pair");
 
       // Convert back to verify
-      const backToJs = lipsToJs(lipsList, {});
+      const backToJs = schemeToJs(lipsList, {});
       expect(backToJs).toEqual(jsArray);
     });
 
     it("should convert empty JS array to LIPS nil", () => {
       const emptyArray: any[] = [];
-      const lipsList = jsToLips(emptyArray, {});
+      const lipsList = jsToScheme(emptyArray, {});
 
       console.log("Empty JS array:", emptyArray);
       console.log("LIPS nil:", lipsList);
@@ -121,33 +121,33 @@ describe("Rosetta Environment", () => {
         [1, 2],
         [3, 4],
       ];
-      const lipsList = jsToLips(nestedArray, {});
+      const lipsList = jsToScheme(nestedArray, {});
 
       console.log("Nested JS array:", nestedArray);
       console.log("Nested LIPS list:", lipsList);
 
       // Convert back to verify
-      const backToJs = lipsToJs(lipsList, {});
+      const backToJs = schemeToJs(lipsList, {});
       expect(backToJs).toEqual(nestedArray);
     });
 
     it("should handle JS objects", () => {
       const jsObject = { name: "test", value: 42, items: [1, 2, 3] };
-      const lipsObject = jsToLips(jsObject, {});
+      const lipsObject = jsToScheme(jsObject, {});
 
       console.log("JS object:", jsObject);
       console.log("LIPS object:", lipsObject);
 
       // Option C (2026-05-28): plain JS objects now wrap as SchemeJSObject —
       // entries box lazily through `.get(key)` carrying the wrapper's
-      // provenance. Round-trip via `lipsToJs` reads `.source` and unwraps.
+      // provenance. Round-trip via `schemeToJs` reads `.source` and unwraps.
       expect(lipsObject.constructor.name).toBe("SchemeJSObject");
       expect(lipsObject.get("name").valueOf()).toBe("test");
       expect(lipsObject.get("value").valueOf()).toBe(42);
       expect(lipsObject.get("items").constructor.name).toBe("Pair"); // Array became LIPS list
 
       // Convert back to verify
-      const backToJs = lipsToJs(lipsObject, {});
+      const backToJs = schemeToJs(lipsObject, {});
       expect(backToJs).toEqual(jsObject);
     });
   });
@@ -169,7 +169,7 @@ describe("Rosetta Environment", () => {
 
       // Result should be LIPS list with doubled values
       expect(result.constructor.name).toBe("Pair");
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult).toEqual([2, 4, 6, 8]);
     });
 
@@ -191,7 +191,7 @@ describe("Rosetta Environment", () => {
       console.log("Analysis result:", result);
 
       // Convert back to JS to verify
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult.total).toBe(6);
       expect(jsResult.sum).toBe(21);
       expect(jsResult.evens).toEqual([2, 4, 6]);
@@ -214,7 +214,7 @@ describe("Rosetta Environment", () => {
       console.log("Environment Rosetta result:", result);
 
       // Should return LIPS list with doubled values
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult).toEqual([2, 4, 6, 8, 10]);
     });
 
@@ -236,7 +236,7 @@ describe("Rosetta Environment", () => {
       console.log("Chained Rosetta result:", result);
 
       // Should sum the even numbers: 2 + 4 + 6 + 8 = 20
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult).toBe(20);
     });
 
@@ -254,13 +254,13 @@ describe("Rosetta Environment", () => {
       ];
 
       // Convert to LIPS and call function
-      const lipsData = jsToLips(testData, {});
+      const lipsData = jsToScheme(testData, {});
       const rosettaFn = sandboxedEnv.get("extract-values");
       const result = await rosettaFn(lipsData);
 
       console.log("Complex data result:", result);
 
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult).toEqual([10, 20, 30]);
     });
   });
@@ -283,13 +283,13 @@ describe("Rosetta Environment", () => {
       ];
 
       // Convert to LIPS and filter
-      const lipsNodes = jsToLips(testNodes, {});
+      const lipsNodes = jsToScheme(testNodes, {});
       const filterFn = sandboxedEnv.get("filter-by-css-property");
       const result = await filterFn(lipsNodes, "overflow", "hidden");
 
       console.log("CSS filtering result:", result);
 
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult).toHaveLength(2);
       expect(jsResult[0].name).toBe("div1");
       expect(jsResult[1].name).toBe("div3");
@@ -317,13 +317,13 @@ describe("Rosetta Environment", () => {
         { style: { overflow: "hidden", display: "flex" } },
       ];
 
-      const lipsNodes = jsToLips(testNodes, {});
+      const lipsNodes = jsToScheme(testNodes, {});
       const statsFn = sandboxedEnv.get("css-property-stats");
       const result = await statsFn(lipsNodes);
 
       console.log("CSS stats result:", result);
 
-      const jsResult = lipsToJs(result, {});
+      const jsResult = schemeToJs(result, {});
       expect(jsResult["overflow:hidden"]).toBe(2);
       expect(jsResult["overflow:visible"]).toBe(1);
       expect(jsResult["display:block"]).toBe(2);

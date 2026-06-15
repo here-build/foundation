@@ -9,8 +9,8 @@ export { sandboxedEnv as sandboxedEnv } from "./sandbox-env.js";
 // consumers to forge the wrong (registry-global, forgeable) boundary symbol — see the decorator doc.
 export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "./sandbox-boundary.js";
 export {
-  lipsToJs as lipsToJs,
-  jsToLips as jsToLips,
+  schemeToJs,
+  jsToScheme,
   createRosettaWrapper,
   type RosettaFunction,
 } from "./rosetta.js";

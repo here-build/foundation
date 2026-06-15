@@ -43,7 +43,7 @@
  * `addPointToHasse`, `regionsAt`, `attributeFieldEdges`, `derivePorts`, …) rather than
  * re-deriving them, so the two paths cannot drift.
  */
-import { lipsToJs } from "@here.build/arrival-scheme";
+import { schemeToJs } from "@here.build/arrival-scheme";
 import { schemeToSweet } from "@here.build/arrival-sweet";
 
 import { snapshotTrace, type PlainInv, type PlainTrace } from "./trace-snapshot.js";
@@ -1075,13 +1075,13 @@ export function buildRegions(snap: PlainTrace, trace: EvalTrace): RegionGraph {
   const pointIds = new Set(points.map((p) => p.id));
 
   // Live-value accessor for decision-operand substitution (memoized; pays the
-  // MobX/`lipsToJs` cost only for operands a decision actually references).
+  // MobX/`schemeToJs` cost only for operands a decision actually references).
   const liveById = new Map<number, { value: unknown }>();
   for (const rec of trace.records.values()) for (const inv of rec.bindings) liveById.set(inv.id, inv);
   const valCache = new Map<number, unknown>();
   const valueById = (id: number): unknown => {
     if (valCache.has(id)) return valCache.get(id);
-    const v = lipsToJs(liveById.get(id)?.value);
+    const v = schemeToJs(liveById.get(id)?.value);
     valCache.set(id, v);
     return v;
   };

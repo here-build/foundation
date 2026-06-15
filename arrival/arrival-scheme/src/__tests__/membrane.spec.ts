@@ -515,7 +515,7 @@ describe("Wrapper Layer", () => {
       const obj = new SchemeJSObject({ a: 1, inner });
 
       // Option C (2026-05-28): `.get(key)` now boxes entries through
-      // jsToLips so they inherit the wrapper's provenance — a primitive
+      // jsToScheme so they inherit the wrapper's provenance — a primitive
       // surfaces as the corresponding AValue subtype, not raw JS. `valueOf`
       // unwraps to the underlying JS value for callers that need it.
       const a = obj.get("a");

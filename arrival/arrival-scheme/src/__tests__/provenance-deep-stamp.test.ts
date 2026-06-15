@@ -1,13 +1,13 @@
 /**
  * Provenance deep-stamping at the rosetta boundary (Option C).
  *
- * Pre-change: `jsToLips` constructed a Pair-chain whose top-level container
+ * Pre-change: `jsToScheme` constructed a Pair-chain whose top-level container
  * received provenance via a separate `withProvenance` walk; the spine cons
  * cells + leaf primitives stayed empty. Spec §5.3 says car/cdr are
  * projections (element-only) — so `(car (infer …))` returned a SchemeString
  * carrying nothing, breaking the v0-gap provenance chain.
  *
- * Post-change: `jsToLips(raw, opts, provenance)` deep-stamps every
+ * Post-change: `jsToScheme(raw, opts, provenance)` deep-stamps every
  * constructed AValue in a single pass. Plain JS objects wrap as
  * `SchemeJSObject`; their entries box lazily via `.get(key)` carrying the
  * wrapper's provenance, with a per-wrapper cache for identity stability.
@@ -22,16 +22,16 @@ import { SchemeString } from "../SchemeString";
 import { SchemeJSObject } from "../membrane";
 import { SchemeExact, SchemeInexact } from "../numbers";
 import { Pair } from "../Pair";
-import { jsToLips } from "../rosetta";
+import { jsToScheme } from "../rosetta";
 import { sandboxedEnv } from "../sandbox-env";
 import { exec } from "../stdlib";
 import { Nil, nil } from "../types";
 
 const PROV = new Set<number>([42]);
 
-describe("jsToLips deep-stamps every constructed AValue", () => {
+describe("jsToScheme deep-stamps every constructed AValue", () => {
   it("array → Pair-chain — each cons has provenance, each leaf SchemeString has provenance", () => {
-    const result = jsToLips(["a", "b"], {}, PROV);
+    const result = jsToScheme(["a", "b"], {}, PROV);
     expect(result).toBeInstanceOf(Pair);
     const pair = result as Pair;
     expect([...pair.provenance]).toEqual([42]);
@@ -49,7 +49,7 @@ describe("jsToLips deep-stamps every constructed AValue", () => {
   });
 
   it("nested array deep-stamps recursively", () => {
-    const result = jsToLips([[1], [2, 3]], {}, PROV) as Pair;
+    const result = jsToScheme([[1], [2, 3]], {}, PROV) as Pair;
     expect([...result.provenance]).toEqual([42]);
     const inner = result.car as Pair;
     expect(inner).toBeInstanceOf(Pair);
@@ -59,7 +59,7 @@ describe("jsToLips deep-stamps every constructed AValue", () => {
   });
 
   it("plain object → SchemeJSObject with provenance; entries lazy-boxed", () => {
-    const result = jsToLips({ name: "claude" }, {}, PROV);
+    const result = jsToScheme({ name: "claude" }, {}, PROV);
     expect(result).toBeInstanceOf(SchemeJSObject);
     expect([...(result as SchemeJSObject).provenance]).toEqual([42]);
     // Entry surfaces through `.get` — boxed lazily with the wrapper's provenance.
@@ -69,17 +69,17 @@ describe("jsToLips deep-stamps every constructed AValue", () => {
   });
 
   it("primitive string → SchemeString boxed via AValue.fromJs with provenance", () => {
-    const result = jsToLips("hello", {}, PROV);
+    const result = jsToScheme("hello", {}, PROV);
     expect(result).toBeInstanceOf(SchemeString);
     expect([...(result as SchemeString).provenance]).toEqual([42]);
   });
 
   it("primitive number → SchemeExact (safe int) or SchemeInexact with provenance", () => {
-    const intResult = jsToLips(42, {}, PROV);
+    const intResult = jsToScheme(42, {}, PROV);
     expect(intResult).toBeInstanceOf(SchemeExact);
     expect([...(intResult as SchemeExact).provenance]).toEqual([42]);
 
-    const floatResult = jsToLips(3.14, {}, PROV);
+    const floatResult = jsToScheme(3.14, {}, PROV);
     expect(floatResult).toBeInstanceOf(SchemeInexact);
     expect([...(floatResult as SchemeInexact).provenance]).toEqual([42]);
   });
@@ -88,29 +88,29 @@ describe("jsToLips deep-stamps every constructed AValue", () => {
     // Empty-provenance fast path reuses singletons / skips withProvenance —
     // boxer registry decides whether to allocate. SchemeString always
     // allocates (no singleton); SchemeBool reuses schemeTrue/schemeFalse.
-    expect(jsToLips(true, {}, EMPTY_PROVENANCE)).toBe(schemeTrue);
-    expect(jsToLips(false, {}, EMPTY_PROVENANCE)).toBe(schemeFalse);
-    const str = jsToLips("x", {}, EMPTY_PROVENANCE) as SchemeString;
+    expect(jsToScheme(true, {}, EMPTY_PROVENANCE)).toBe(schemeTrue);
+    expect(jsToScheme(false, {}, EMPTY_PROVENANCE)).toBe(schemeFalse);
+    const str = jsToScheme("x", {}, EMPTY_PROVENANCE) as SchemeString;
     expect(str).toBeInstanceOf(SchemeString);
     expect(str.provenance.size).toBe(0);
   });
 
   it("with already-AValue same provenance returns input unchanged (identity fast path)", () => {
     const orig = new SchemeString("x", PROV);
-    expect(jsToLips(orig, {}, PROV)).toBe(orig);
+    expect(jsToScheme(orig, {}, PROV)).toBe(orig);
     // Empty-provenance argument also short-circuits — input is preserved.
-    expect(jsToLips(orig, {}, EMPTY_PROVENANCE)).toBe(orig);
+    expect(jsToScheme(orig, {}, EMPTY_PROVENANCE)).toBe(orig);
   });
 });
 
-describe("jsToLips WeakSet cycle protection", () => {
+describe("jsToScheme WeakSet cycle protection", () => {
   it("self-cyclic JS array does not stack-overflow", () => {
     const arr: unknown[] = [1, 2];
     arr.push(arr);
     // No assertion on the inner reference shape — only that the call returns
     // without blowing the stack. The Pair-chain for the outer reference is
     // built; the cyclic slot bottoms out at the WeakSet guard.
-    expect(() => jsToLips(arr, {}, PROV)).not.toThrow();
+    expect(() => jsToScheme(arr, {}, PROV)).not.toThrow();
   });
 
   it("mutual-cycle plain objects terminate", () => {
@@ -118,7 +118,7 @@ describe("jsToLips WeakSet cycle protection", () => {
     const b: Record<string, unknown> = { name: "b" };
     a.peer = b;
     b.peer = a;
-    expect(() => jsToLips(a, {}, PROV)).not.toThrow();
+    expect(() => jsToScheme(a, {}, PROV)).not.toThrow();
   });
 });
 

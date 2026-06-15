@@ -28,7 +28,7 @@
  * the handler (usable in-program) — it just isn't registered anywhere. Same
  * "capability is optional, the verb always exists" posture as `import`/`require`.
  */
-import { lipsToJs } from "@here.build/arrival-scheme";
+import { schemeToJs } from "@here.build/arrival-scheme";
 import type { Environment } from "@here.build/arrival-scheme";
 import invariant from "tiny-invariant";
 
@@ -121,7 +121,7 @@ export function defineExposeRosetta(opts: {
       // plain JS and receives plain JS — the scheme proc's result is run through
       // the LIPS→JS membrane. (The proc is async-capable; await it.)
       const proc = handlerProc as SchemeProc;
-      const handler = async (input: unknown): Promise<unknown> => lipsToJs(await proc(input), {});
+      const handler = async (input: unknown): Promise<unknown> => schemeToJs(await proc(input), {});
 
       if (onExpose) {
         await onExpose({

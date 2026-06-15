@@ -14,7 +14,7 @@
  * (a `Pair`/cons list, a boxed exact/inexact number — `trace-to-regions.ts`
  * stores `value: inv.value` verbatim). `JSON.stringify` would mangle those. The
  * artifact is the same graph with every scheme value lowered to plain JS via the
- * `lipsToJs` membrane, so a trace JSON on disk renders with NO server and NO
+ * `schemeToJs` membrane, so a trace JSON on disk renders with NO server and NO
  * re-eval (ADR-019 D2/D3).
  *
  * `serializeTrace` / `loadTraceArtifact` are the ONLY format-aware functions —
@@ -22,7 +22,7 @@
  * version-gating here; downstream consumers take `{ graph }` and never branch on
  * the wire shape.
  */
-import { lipsToJs } from "@here.build/arrival-scheme";
+import { schemeToJs } from "@here.build/arrival-scheme";
 import invariant from "tiny-invariant";
 
 import { traceToRegions, type Region, type RegionGraph } from "./trace-to-regions.js";
@@ -51,15 +51,15 @@ export interface TraceArtifact {
 }
 
 /** Deep-lower one region's scheme-bearing fields (`value`, `meta`) to plain JS,
- *  recursing through a fanout's nested iterations. `lipsToJs` is idempotent on
+ *  recursing through a fanout's nested iterations. `schemeToJs` is idempotent on
  *  already-plain JS, so applying it uniformly is safe; everything else on a
  *  region (ids, labels, scopes, `condition`, port strings) is already plain. */
 function lowerRegion(region: Region): Region {
   switch (region.kind) {
     case "leaf":
-      return { ...region, meta: lipsToJs(region.meta), value: lipsToJs(region.value) };
+      return { ...region, meta: schemeToJs(region.meta), value: schemeToJs(region.value) };
     case "output":
-      return { ...region, value: lipsToJs(region.value) };
+      return { ...region, value: schemeToJs(region.value) };
     case "fanout":
       return { ...region, iterations: region.iterations.map((body) => body.map(lowerRegion)) };
     case "decision":
@@ -69,7 +69,7 @@ function lowerRegion(region: Region): Region {
 
 /**
  * Emit a `TraceArtifact` from a finished `EvalTrace` — `traceToRegions` for the
- * structure, then `lipsToJs` over every scheme-bearing field so the result is
+ * structure, then `schemeToJs` over every scheme-bearing field so the result is
  * JSON-safe. The only emitter-side format-aware function.
  */
 export function serializeTrace(trace: EvalTrace): TraceArtifact {
