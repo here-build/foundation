@@ -17,6 +17,9 @@ export * from "./DiscoveryTool.js";
 export * from "./ActionTool.js";
 // Wire DiscoveryTools onto the official @modelcontextprotocol/sdk Server (describe→list, call→call).
 export * from "./sdk-adapter.js";
+// Transition seam: register value-shaped kernel.* tools on the official server via the McpTool seam,
+// so ArrivalServer can retire before the kernel tools are rewritten to DiscoveryTool/ActionTool.
+export * from "./kernel-bridge.js";
 export * from "./dispatch.js";
 export * from "./ArrivalServer.js";
 export * from "./resources/index.js";
