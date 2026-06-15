@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------
 // :: Parameters for make-parameter and parametrize
 // -------------------------------------------------------------------------
-import { is_function } from "../guards.js";
+import { is_function } from "../eval/guards.js";
 import { type } from "../utils/typecheck.js";
 import invariant from "tiny-invariant";
 

@@ -60,7 +60,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { exec as execSource } from "../generator-exec";
+import { exec as execSource } from "../eval/generator-exec";
 
 /**
  * Execute Scheme source through the full default-env trampoline and return the

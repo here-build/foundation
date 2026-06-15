@@ -2,7 +2,7 @@
 // :: Promise utilities for handling async values in the interpreter
 // -------------------------------------------------------------------------
 import { EnvLookup } from "../EnvLookup.js";
-import { is_plain_object, is_promise } from "../guards.js";
+import { is_plain_object, is_promise } from "../eval/guards.js";
 import { QuotedPromise } from "../values/QuotedPromise.js";
 
 // ----------------------------------------------------------------------

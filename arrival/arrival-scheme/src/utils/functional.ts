@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------
 // :: Functional programming utilities
 // -------------------------------------------------------------------------
-import { is_null } from "../guards.js";
+import { is_null } from "../eval/guards.js";
 import { SchemeExact, SchemeInexact } from "../values/numbers.js";
 import { typecheck } from "./typecheck.js";
 

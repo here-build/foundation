@@ -9,7 +9,7 @@ import { nil } from "../values/types.js";
 import { Pair } from "../values/Pair.js";
 import { SchemeSymbol } from "../values/SchemeSymbol.js";
 import { initBridge } from "../bridge";
-import { exec as genExec } from "../evaluator";
+import { exec as genExec } from "../eval/evaluator";
 import type { SchemeValue } from "../values/types";
 
 // Wait for bridge initialization

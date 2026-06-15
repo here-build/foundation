@@ -14,7 +14,7 @@ import { SchemeString } from "../values/SchemeString.js";
 import { SchemeCharacter, type SchemeValue } from "../values/types.js";
 import type { SchemeExact } from "../values/numbers.js";
 import { Pair } from "../values/Pair.js";
-import { is_promise } from "../guards.js";
+import { is_promise } from "../eval/guards.js";
 import { promise_all } from "../utils/promises.js";
 import invariant from "tiny-invariant";
 import {

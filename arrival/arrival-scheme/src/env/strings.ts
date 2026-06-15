@@ -29,7 +29,7 @@ import { SchemeString } from "../values/SchemeString.js";
 import { SchemeExact } from "../values/numbers.js";
 import { Pair } from "../values/Pair.js";
 import { SchemeCharacter, nil } from "../values/types.js";
-import { is_promise } from "../guards.js";
+import { is_promise } from "../eval/guards.js";
 import { promise_all } from "../utils/promises.js";
 import { EnvCapability } from "./capability.js";
 

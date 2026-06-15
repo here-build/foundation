@@ -13,7 +13,7 @@
  * sub-evaluations receive their parent as the second arg to enter().
  */
 import { describe, expect, it } from "vitest";
-import { exec } from "../generator-exec";
+import { exec } from "../eval/generator-exec";
 import { env as userEnv } from "../stdlib";
 import type { Pair } from "../values/Pair";
 

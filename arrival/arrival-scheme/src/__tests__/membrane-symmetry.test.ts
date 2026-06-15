@@ -26,7 +26,7 @@
 
 import { describe, expect, it } from "vitest";
 import { AValue } from "../values/AValue";
-import { is_nil } from "../guards";
+import { is_nil } from "../eval/guards";
 import { fromJS, isSchemeValue, SchemeJSFunction, SchemeJSObject, toJS } from "../membrane";
 import { jsToScheme, schemeToJs } from "../rosetta";
 import { SchemeBool, schemeFalse, schemeTrue } from "../values/SchemeBool";

@@ -11,7 +11,7 @@ import type {
 } from "./stdlib.js";
 import { SchemeString } from "./values/SchemeString.js";
 import { SchemeSymbol } from "./values/SchemeSymbol.js";
-import type { Macro } from "./Macro.js";
+import type { Macro } from "./eval/Macro.js";
 import { SchemeExact, SchemeInexact } from "./values/numbers.js";
 import type { SchemeValue } from "./values/types.js";
 import { nil } from "./values/types.js";
@@ -19,7 +19,7 @@ import type { RosettaFunction } from "./rosetta.js";
 import { createRosettaWrapper } from "./rosetta.js";
 import { trim_lines } from "./utils/trim-lines.js";
 import { typecheck } from "./utils/typecheck.js";
-import type { Syntax } from "./Syntax.js";
+import type { Syntax } from "./eval/Syntax.js";
 import type { QuotedPromise } from "./values/QuotedPromise.js";
 import invariant from "tiny-invariant";
 import { fromJS, isSchemeValue } from "./membrane.js";
@@ -537,7 +537,7 @@ export class Environment {
     // Lazy import keeps the evaluator off Environment's module-init chain — the
     // edge is call-time only, so no init-order cycle. exec throws on error by
     // default, matching the old re-throwing handler.
-    const { exec } = await import("./generator-exec.js");
+    const { exec } = await import("./eval/generator-exec.js");
     const results = await exec(code, { env: this });
     return results.length > 0 ? results[results.length - 1] : nil;
   }
@@ -552,7 +552,7 @@ export class Environment {
    */
   async evalExpr(expr: SchemeValue): Promise<SchemeValue> {
     // Generator path, lazy-imported (see eval() above for the rationale).
-    const { execExpr } = await import("./generator-exec.js");
+    const { execExpr } = await import("./eval/generator-exec.js");
     return execExpr(expr, { env: this });
   }
 }

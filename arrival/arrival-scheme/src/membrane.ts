@@ -22,11 +22,11 @@ import { SchemeBytevector } from "./values/SchemeBytevector.js";
 import { SchemeVector } from "./values/SchemeVector.js";
 import { Environment as SchemeEnvironment, KEYWORD_ACCESSOR_FIELD } from "./Environment.js";
 import type { ResolverSpec } from "./env/scheme-env.js";
-import { SchemePromise } from "./evaluator.js";
-import { LambdaContext } from "./LambdaContext.js";
+import { SchemePromise } from "./eval/evaluator.js";
+import { LambdaContext } from "./eval/LambdaContext.js";
 import { SchemeString } from "./values/SchemeString.js";
 import { SchemeSymbol } from "./values/SchemeSymbol.js";
-import { Macro } from "./Macro.js";
+import { Macro } from "./eval/Macro.js";
 import { type SchemeNumeric, SchemeExact, SchemeInexact } from "./values/numbers.js";
 import { Pair } from "./values/Pair.js";
 import { __lambda__ } from "./values/primitives.js";
@@ -45,7 +45,7 @@ import {
   accessHas,
   accessKeys,
 } from "./interop-access.js";
-import { Syntax } from "./Syntax.js";
+import { Syntax } from "./eval/Syntax.js";
 import { type SchemeValue, Nil, nil, SchemeCharacter } from "./values/types.js";
 
 // Re-export the interop-access primitives for consumers.

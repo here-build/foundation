@@ -2,7 +2,7 @@
 // prefixes), string literals, characters, and symbols. No I/O, no lexer state — given a token string,
 // returns the boxed value. Numeric-grammar helpers originate from the LIPS reader.
 import invariant from "tiny-invariant";
-import { is_exact, is_inexact, is_int } from "../guards.js";
+import { is_exact, is_inexact, is_int } from "../eval/guards.js";
 import { schemeFalse, schemeTrue } from "../values/SchemeBool.js";
 import { SchemeString } from "../values/SchemeString.js";
 import { SchemeSymbol } from "../values/SchemeSymbol.js";

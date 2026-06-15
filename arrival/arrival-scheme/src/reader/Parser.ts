@@ -21,7 +21,7 @@ import {
   is_special,
   is_symbol_extension,
   is_vector_literal,
-} from "../guards.js";
+} from "../eval/guards.js";
 import { Environment } from "../Environment.js";
 import type { EOF } from "../values/EOF.js";
 import { eof } from "../values/EOF.js";
@@ -29,15 +29,15 @@ import { ParseError, type SourceLocation, Unterminated } from "../errors.js";
 import { Lexer } from "./Lexer.js";
 // These deps form an import cycle with the value/eval modules; ES6 live bindings
 // resolve it, since they're referenced only inside methods, not at module-eval time.
-import { call_function } from "../call-function.js";
+import { call_function } from "../eval/call-function.js";
 import { SchemeBytevector } from "../values/SchemeBytevector.js";
 import { SchemeVector } from "../values/SchemeVector.js";
 import { unpromise } from "../stdlib.js";
-import { exec as generatorExec } from "../evaluator.js";
+import { exec as generatorExec } from "../eval/evaluator.js";
 import { parse_argument } from "../utils/parsing.js";
 import { SchemeString } from "../values/SchemeString.js";
 import { SchemeSymbol } from "../values/SchemeSymbol.js";
-import { Macro } from "../Macro.js";
+import { Macro } from "../eval/Macro.js";
 import { Pair } from "../values/Pair.js";
 import { canonicalizeCurly } from "./curly-infix.js";
 import type { Nil, SchemeValue } from "../values/types.js";

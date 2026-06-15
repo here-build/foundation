@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { exec, execExpr, parse } from "../generator-exec";
+import { exec, execExpr, parse } from "../eval/generator-exec";
 import { SchemeBool } from "../values/SchemeBool";
 import { SchemeSymbol } from "../values/SchemeSymbol";
 import { SchemeExact } from "../values/numbers";

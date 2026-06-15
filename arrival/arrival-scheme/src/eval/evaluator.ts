@@ -16,9 +16,9 @@
  */
 
 import invariant from "tiny-invariant";
-import { AValue, unionProvenance } from "./values/AValue.js";
-import { Environment } from "./Environment.js";
-import { formatLocation, type SourceLocation } from "./errors.js";
+import { AValue, unionProvenance } from "../values/AValue.js";
+import { Environment } from "../Environment.js";
+import { formatLocation, type SourceLocation } from "../errors.js";
 import {
   is_callable,
   is_continuation,
@@ -31,15 +31,15 @@ import {
   is_promise,
   is_syntax,
 } from "./guards.js";
-import { HalfBaked, is_half_baked } from "./values/HalfBaked.js";
-import { SchemeJSFunction } from "./membrane.js";
-import { ArrivalError } from "./ArrivalError.js";
-import { SchemeSymbol } from "./values/SchemeSymbol.js";
-import { SchemeVector } from "./values/SchemeVector.js";
+import { HalfBaked, is_half_baked } from "../values/HalfBaked.js";
+import { SchemeJSFunction } from "../membrane.js";
+import { ArrivalError } from "../ArrivalError.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
+import { SchemeVector } from "../values/SchemeVector.js";
 import { Macro } from "./Macro.js";
-import { Pair } from "./values/Pair.js";
-import { __data__, __location__ } from "./values/primitives.js";
-import { nil, type SchemeValue } from "./values/types.js";
+import { Pair } from "../values/Pair.js";
+import { __data__, __location__ } from "../values/primitives.js";
+import { nil, type SchemeValue } from "../values/types.js";
 
 // ============================================================================
 // Error Handling with Stack Traces
@@ -2317,14 +2317,14 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       // allows `(raise <any>)`) — pass through untouched.
       //
       // `R7RSError` is loaded LAZILY (dynamic import) rather than at the top of
-      // this module: a static `import ... from "./bridge.js"` pulls bridge's
+      // this module: a static `import ... from "../bridge.js"` pulls bridge's
       // eager `set_interaction_env` into evaluator init and breaks the
       // SchemePromise circular-init ordering (bridge.ts documents that it must
       // not be imported during stdlib bootstrap init). By the time a `try` body has
       // actually thrown, every module is fully initialized, so the dynamic
       // import resolves synchronously from the registry.
       if (errorValue instanceof Error) {
-        const { R7RSError } = await import("./bridge.js");
+        const { R7RSError } = await import("../bridge.js");
         if (!(errorValue instanceof R7RSError)) {
           errorValue = new R7RSError(errorValue.message);
         }

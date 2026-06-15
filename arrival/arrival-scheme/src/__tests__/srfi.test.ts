@@ -4,7 +4,7 @@
 // matcher dependency). These assert the surface behaves; the drafting horde
 // exec-verified each proc, this is the committed floor.
 import { describe, expect, it } from "vitest";
-import { exec } from "../generator-exec.js";
+import { exec } from "../eval/generator-exec.js";
 
 async function run(src: string): Promise<string> {
   const r = await exec(src, {});

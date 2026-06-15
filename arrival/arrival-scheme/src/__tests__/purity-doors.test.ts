@@ -5,7 +5,7 @@
 // must NOT silently work, and the error must name the feature + route to an
 // alternative.
 import { describe, expect, it } from "vitest";
-import { exec } from "../generator-exec";
+import { exec } from "../eval/generator-exec";
 import { PurityError } from "../purity.js";
 
 // The evaluator wraps a thrown error in SchemeError (stack trace) but preserves

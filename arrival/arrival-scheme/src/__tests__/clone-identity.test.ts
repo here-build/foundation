@@ -31,7 +31,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { is_nil } from "../guards";
+import { is_nil } from "../eval/guards";
 import { hasMember, isSchemeValue, readMember, toJS } from "../membrane";
 import { schemeToJs } from "../rosetta";
 import { COMBINATOR_OPS } from "../env/combinators";

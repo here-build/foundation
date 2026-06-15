@@ -113,7 +113,7 @@ export {
   type EvalTap,
   type Invocation,
   type StackFrame,
-} from "./evaluator.js";
+} from "./eval/evaluator.js";
 
 // Generator Exec Entry Point (LIPS parser + generator evaluator)
 // Use this for string-to-value evaluation with the generator evaluator
@@ -122,7 +122,7 @@ export {
   parse as parseGenerator,
   execExpr as execGeneratorExpr,
   type ExecOptions,
-} from "./generator-exec.js";
+} from "./eval/generator-exec.js";
 
 // The ONE way to make an env allocation-bounded — every eval loop that owns an env (Project.run, the
 // studio kernel) installs the meter through this, so "bounded" is a single named act, not ad-hoc.
@@ -136,4 +136,4 @@ export { installHeapMeter, findHeapMeter, type HeapMeter } from "./heap-budget.j
 // shared, + signal/budgetMs/tap), so bare-`exec` callers gain a killable, bounded
 // evaluator. The legacy `evaluate` is DELETED — stdlib.ts's own `exec` now also
 // delegates to the generator, so the two paths agree.
-export { exec, parse } from "./generator-exec.js";
+export { exec, parse } from "./eval/generator-exec.js";

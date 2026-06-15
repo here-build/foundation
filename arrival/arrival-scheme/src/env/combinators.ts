@@ -16,7 +16,7 @@ import { SchemeExact } from "../values/numbers.js";
 import { toIndex } from "../values/op-helpers.js";
 import { Pair } from "../values/Pair.js";
 import { Nil, nil } from "../values/types.js";
-import { is_false } from "../guards.js";
+import { is_false } from "../eval/guards.js";
 import { unpromise } from "../utils/promises.js";
 
 import { EnvCapability } from "./capability.js";

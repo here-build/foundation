@@ -13,7 +13,7 @@
 // a separate task — it would drag QuotedPromise → guards into the leaf until
 // QuotedPromise is itself repointed.
 // ----------------------------------------------------------------------
-import { is_promise } from "../guards.js";
+import { is_promise } from "../eval/guards.js";
 import { SchemeString } from "../values/SchemeString.js";
 import { SchemeSymbol } from "../values/SchemeSymbol.js";
 import { SchemeExact, SchemeInexact } from "../values/numbers.js";

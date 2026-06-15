@@ -26,7 +26,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { exec, execExpr, parse } from "../generator-exec";
+import { exec, execExpr, parse } from "../eval/generator-exec";
 
 describe("AbortSignal execution budget", () => {
   it("aborts an infinite loop when AbortSignal fires", async () => {

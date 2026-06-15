@@ -1,4 +1,4 @@
-import type { BindingName, Environment, EnvironmentValue } from "./Environment.js";
+import type { BindingName, Environment, EnvironmentValue } from "../Environment.js";
 
 interface LambdaContextPayload {
   env: Environment;

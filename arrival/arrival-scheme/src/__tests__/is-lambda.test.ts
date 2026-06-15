@@ -5,7 +5,7 @@
 // bug. The correct sibling is membrane.ts:115. Always-false self-masks (happy-path
 // dispatch works), but anonymous membrane-crossing callbacks skip arg-unboxing.
 import { describe, expect, it } from "vitest";
-import { is_lambda } from "../guards.js";
+import { is_lambda } from "../eval/guards.js";
 
 describe("is_lambda recognizes a real lambda (was dead)", () => {
   it("a function with a string __lambda__ marker → true", () => {

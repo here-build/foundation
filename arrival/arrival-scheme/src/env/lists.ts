@@ -23,7 +23,7 @@ import { eqv, withInputProvenance } from "../values/op-helpers.js";
 import { isCircularList, Pair } from "../values/Pair.js";
 import { structuralEqual } from "../values/structural-equal.js";
 import { Nil, nil } from "../values/types.js";
-import { is_false } from "../guards.js";
+import { is_false } from "../eval/guards.js";
 import { EnvCapability } from "./capability.js";
 
 export const LIST_OPS = {

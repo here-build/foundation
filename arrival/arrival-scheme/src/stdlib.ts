@@ -29,10 +29,10 @@ import {
   is_promise,
   is_prototype,
   is_raw_lambda,
-} from "./guards.js";
+} from "./eval/guards.js";
 import { SchemeSymbol } from "./values/SchemeSymbol.js";
 import { eq, eqv } from "./values/structural-equal.js";
-import { clear_gensyms, extract_patterns, transform_syntax } from "./syntax-rules.js";
+import { clear_gensyms, extract_patterns, transform_syntax } from "./eval/syntax-rules.js";
 import { gensym, hidden_prop, quote } from "./reader/values-repr.js";
 import {
   __context__,
@@ -48,14 +48,14 @@ import {
 } from "./values/primitives.js";
 import { nil, SchemeCharacter } from "./values/types.js";
 import * as specials from "./reader/specials.js";
-import { call_function } from "./call-function.js";
+import { call_function } from "./eval/call-function.js";
 import { SchemeExact, SchemeInexact } from "./values/numbers.js";
 import { type, typecheck, typeErrorMessage } from "./utils/typecheck.js";
 import { parse_complex, parse_float, parse_integer, parse_rational } from "./utils/parsing.js";
 import { Values } from "./values/Values.js";
 import { available_class, class_map } from "./reader/serialize.js";
-import { Macro } from "./Macro.js";
-import { Syntax } from "./Syntax.js";
+import { Macro } from "./eval/Macro.js";
+import { Syntax } from "./eval/Syntax.js";
 import { isCircularList, Pair } from "./values/Pair.js";
 import { promise_all, unpromise } from "./utils/promises.js";
 import { compose, curry, fold, pipe } from "./utils/functional.js";
@@ -72,7 +72,7 @@ import {
   SchemeJSObject,
 } from "./membrane.js";
 import { collapseProvenance, taintString } from "./provenance-collapse.js";
-import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./evaluator.js";
+import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./eval/evaluator.js";
 
 // Declare jQuery for browser environments
 declare const jQuery: { fn: { init: new (...args: unknown[]) => object } } | undefined;

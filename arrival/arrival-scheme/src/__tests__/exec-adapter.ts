@@ -17,7 +17,7 @@ import type { SchemeValue } from "../values/types";
 
 // Import both evaluator implementations
 import { env as lipsEnv, exec as lipsExec } from "../stdlib";
-import { exec as generatorExec } from "../generator-exec";
+import { exec as generatorExec } from "../eval/generator-exec";
 
 // Check environment variable at module load time
 const USE_GENERATOR = process.env.USE_GENERATOR === "1";

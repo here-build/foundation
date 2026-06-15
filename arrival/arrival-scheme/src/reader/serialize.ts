@@ -1,4 +1,4 @@
-import { is_undef } from "../guards.js";
+import { is_undef } from "../eval/guards.js";
 import { SchemeString } from "../values/SchemeString.js";
 import { SchemeSymbol } from "../values/SchemeSymbol.js";
 import { SchemeExact, SchemeInexact } from "../values/numbers.js";

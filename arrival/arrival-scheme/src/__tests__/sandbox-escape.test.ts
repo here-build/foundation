@@ -278,7 +278,7 @@ describe("CRITICAL: resource exhaustion (DoS vectors)", () => {
     // `budgetMs` throws a SchemeError(/budget/) at the existing 1000-iter / 5ms
     // event-loop yield once the deadline passes; it composes with `signal`
     // (whichever fires first wins). See evaluator.ts RunOptions.budgetMs.
-    const { exec: gexec } = await import("../generator-exec");
+    const { exec: gexec } = await import("../eval/generator-exec");
     const start = Date.now();
     // `(let loop () (loop))` is now flat under TCO (task #46), so the budget
     // fires cleanly instead of the loop blowing the JS stack first.

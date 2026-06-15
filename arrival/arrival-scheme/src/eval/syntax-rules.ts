@@ -10,21 +10,21 @@
 // Attribution: derived from LIPS Scheme (Jakub T. Jankiewicz) — see LICENSE.
 // ----------------------------------------------------------------------
 import invariant from "tiny-invariant";
-import { EnvLookup } from "./EnvLookup.js";
-import { Environment } from "./Environment.js";
-import { SchemeString } from "./values/SchemeString.js";
-import { SchemeSymbol } from "./values/SchemeSymbol.js";
+import { EnvLookup } from "../EnvLookup.js";
+import { Environment } from "../Environment.js";
+import { SchemeString } from "../values/SchemeString.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
 import { Macro } from "./Macro.js";
-import { Pair } from "./values/Pair.js";
-import { QuotedPromise } from "./values/QuotedPromise.js";
+import { Pair } from "../values/Pair.js";
+import { QuotedPromise } from "../values/QuotedPromise.js";
 import { Syntax } from "./Syntax.js";
 import { is_nil, is_pair } from "./guards.js";
-import { isNumeric, SchemeExact, SchemeInexact } from "./values/numbers.js";
-import { __data__ } from "./values/primitives.js";
-import { eqv } from "./values/structural-equal.js";
-import { nil, type SchemeValue } from "./values/types.js";
-import { type } from "./utils/typecheck.js";
-import { gensym, hidden_prop, is_atom, is_gensym, quote } from "./reader/values-repr.js";
+import { isNumeric, SchemeExact, SchemeInexact } from "../values/numbers.js";
+import { __data__ } from "../values/primitives.js";
+import { eqv } from "../values/structural-equal.js";
+import { nil, type SchemeValue } from "../values/types.js";
+import { type } from "../utils/typecheck.js";
+import { gensym, hidden_prop, is_atom, is_gensym, quote } from "../reader/values-repr.js";
 
 type SchemeFunction = (...args: any[]) => any;
 

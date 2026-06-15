@@ -10,7 +10,7 @@
 import invariant from "tiny-invariant";
 import { eof } from "../values/EOF.js";
 import { Unterminated } from "../errors.js";
-import { is_string } from "../guards.js";
+import { is_string } from "../eval/guards.js";
 import { directives, hash_literals, parsable_contants } from "../values/primitives.js";
 import * as specials from "./specials.js";
 

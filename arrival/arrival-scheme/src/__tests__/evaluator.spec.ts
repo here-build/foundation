@@ -4,12 +4,12 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { Environment } from "../Environment";
-import run, { exec } from "../evaluator";
+import run, { exec } from "../eval/evaluator";
 // String-based exec with the full default env (provides `=`, `-`, etc.) — used
 // only by the tail-call optimization test, which exercises the trampoline's
 // cross-`run()` recursion shape and needs real `if`/`=`/`-` rather than the
 // minimal hand-rolled `env` above.
-import { exec as execSource } from "../generator-exec";
+import { exec as execSource } from "../eval/generator-exec";
 import { SchemeSymbol } from "../values/SchemeSymbol";
 import { SchemeExact, SchemeInexact } from "../values/numbers";
 import { Pair } from "../values/Pair";
