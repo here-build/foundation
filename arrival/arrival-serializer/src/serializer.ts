@@ -103,14 +103,17 @@ const serializationContext = {
 /**
  * Convert any value to an s-expression representation
  */
-export function toSExpr(obj: any, visited_ = new Set()): SExpr {
+export function toSExpr(obj: any, visited: Set<any> = new Set()): SExpr {
   // null/undefined
   if (obj === null || isNil(obj)) return "nil";
   if (obj === undefined) return "undefined";
 
-  const visited = new Set(visited_);
-  // Check for circular references
-  if (typeof obj === "object" && obj !== null && !isNil(obj)) {
+  // Cycle detection is a DFS path-set: add on enter, delete on exit (the `finally`),
+  // so a value legitimately reused across SIBLING branches isn't a false cycle, while a
+  // genuine back-edge (an ancestor still on the stack) is. This walks the tree in O(n) —
+  // the previous `new Set(visited_)` clone-per-node was O(n²) on deep/wide structures.
+  const track = typeof obj === "object" && obj !== null && !isNil(obj);
+  if (track) {
     if (visited.has(obj)) {
       if (typeof obj[Symbol.SExpr] === "function" && "uuid" in obj) {
         return ["circular-reference-to", [obj[Symbol.SExpr], toSExpr(obj.uuid)]];
@@ -122,6 +125,19 @@ export function toSExpr(obj: any, visited_ = new Set()): SExpr {
     visited.add(obj);
   }
 
+  try {
+    return toSExprDispatch(obj, visited);
+  } finally {
+    if (track) visited.delete(obj);
+  }
+}
+
+/**
+ * Dispatch a value to its s-expression form. Always called by toSExpr with `obj`
+ * already registered in `visited` (the cycle path-set), so recursive calls share
+ * one set rather than cloning it at every node.
+ */
+function toSExprDispatch(obj: any, visited: Set<any>): SExpr {
   // Handle special marker objects from context helpers
   if (obj && typeof obj === "object") {
     if (EXPR_MARKER in obj) {

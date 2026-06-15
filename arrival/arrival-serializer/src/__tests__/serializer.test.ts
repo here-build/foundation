@@ -271,6 +271,25 @@ describe("S-Expression Serializer", () => {
       expect(() => toSExpr(obj)).toThrow();
     });
 
+    it("a value reused across sibling branches is NOT a false cycle (DAG, not a loop)", () => {
+      // shared appears twice as siblings — it's on the path only while its own
+      // subtree serializes, so the second occurrence must serialize normally.
+      // (Regression guard for the shared add-on-enter/delete-on-exit path-set:
+      // a naive shared Set without delete-on-exit would throw here.)
+      const shared = { tag: "shared" };
+      const out = toSExprString({ a: shared, b: shared });
+      expect(out).not.toContain("circular");
+      // both branches render the shared value's contents
+      expect(out.match(/shared/g)?.length).toBe(2);
+    });
+
+    it("a value reused at depth across siblings still round-trips both times", () => {
+      const leaf = { v: 1 };
+      const out = toSExprString([{ left: leaf }, { right: leaf }]);
+      expect(out).not.toContain("circular");
+      expect(out.match(/:v 1/g)?.length).toBe(2);
+    });
+
     it("handles functions in objects", () => {
       const obj = {
         name: "test",
