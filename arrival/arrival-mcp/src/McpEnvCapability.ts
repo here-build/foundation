@@ -1,15 +1,23 @@
 /**
  * The base `EnvCapability` is MCP-agnostic (verbs, config, resources, deps, prelude). A tool
- * transport needs two more things per verb to expose it to an actor: a `description` for the
- * catalog and an `inputSchema` to derive the input JSON-schema + validate calls.
+ * transport needs more per verb to expose it to an actor: a `description` for the catalog and
+ * an `inputSchema` to derive the input JSON-schema + validate calls.
  *
  * Those could ride on the generic rosetta config, but that would couple the marshalling layer to
- * MCP + zod — so they live HERE instead, on a thin subclass whose ONLY addition is `annotations`.
- * Everything else is inherited; annotations are inert to the runtime wiring, reflected off the
- * capability root-set by a transport to build its surface.
+ * MCP + zod — so they live HERE instead, on a thin subclass. The MCP fields are written INLINE
+ * on each symbol def (the name appears once, the runtime fn and its catalog text co-located); the
+ * constructor LIFTS them off into a separate `annotations` record before handing clean rosetta
+ * symbols to the base — `annotations` are inert to the runtime wiring, reflected off the
+ * capability root-set by a transport to build its surface. A domain subclass widens the lifted
+ * key-set (the third constructor arg) to carry extra catalog fields.
  */
 
-import { type Activation, type CapabilitySpec, EnvCapability } from "@here.build/arrival-scheme/capability";
+import {
+  type Activation,
+  type CapabilitySpec,
+  EnvCapability,
+  type SymbolDef,
+} from "@here.build/arrival-scheme/capability";
 import type { Resource } from "@here.build/arrival-scheme/resources";
 import * as z from "zod";
 
@@ -48,12 +56,32 @@ export interface McpAnnotation {
   aliases?: readonly string[];
 }
 
-/** A `CapabilitySpec` plus per-symbol MCP annotations (keyed by symbol name). */
+/** The annotation property names the BASE lifts off an inline symbol def. A subclass widens
+ *  this (via the constructor's third arg) to lift extra, domain-specific catalog fields. */
+export const MCP_ANNOTATION_KEYS: readonly string[] = ["description", "dynamicDescription", "inputSchema", "aliases"];
+
+/** The object form of a `SymbolDef` (the rosetta-config member with an `fn`). */
+type ObjectSymbolDef = Extract<SymbolDef, { fn: unknown }>;
+
+/** A symbol def that MAY carry inline MCP annotation fields. The constructor lifts the
+ *  annotation keys off into the `annotations` record, leaving a clean rosetta `SymbolDef`.
+ *  Bare-fn and `{ value }` defs carry no inline fields. */
+export type AnnotatedSymbolDef = SymbolDef | (ObjectSymbolDef & Partial<McpAnnotation>);
+
+/** A `symbols` record (which may carry inline annotation fields), or a builder computing it. */
+export type McpSymbolsSpec<C extends Record<string, z.ZodType>, R extends Record<string, Resource<unknown>>> =
+  | (Record<string, AnnotatedSymbolDef> & ThisType<Activation<C, R>>)
+  | ((activation: Activation<C, R>) => Record<string, AnnotatedSymbolDef>);
+
+/** A `CapabilitySpec` whose `symbols` may carry inline MCP annotations, plus an optional
+ *  explicit `annotations` record (the legacy form: annotation keyed by symbol name). When a
+ *  symbol declares inline fields they win; otherwise the explicit entry is used verbatim. */
 export interface McpCapabilitySpec<
   C extends Record<string, z.ZodType>,
   R extends Record<string, Resource<unknown>>,
-> extends CapabilitySpec<C, R> {
-  /** Keyed by symbol name. Drives the catalog + arg parsing; inert to plain `lower()`. An
+> extends Omit<CapabilitySpec<C, R>, "symbols"> {
+  symbols?: McpSymbolsSpec<C, R>;
+  /** Keyed by symbol name. The legacy form — prefer inline fields on the symbol def. An
    *  `inputSchema` getter's `this` is the `Activation` at call time (bound via `Reflect.get`),
    *  but TS can't type accessor `this` — so getter bodies assert the activation shape. */
   annotations?: Record<string, McpAnnotation>;
@@ -71,7 +99,6 @@ function parseArgs(annotation: McpAnnotation, activation: AnyActivation, raw: un
 
 /** Wrap one symbol's fn with its `inputSchema` parse. `this` is the Activation (bound by
  *  `lower()`), so the getter + its transform closures reach resources. `{ value }` is untouched. */
-
 function wrapSymbol(def: any, annotation: McpAnnotation | undefined): any {
   // getOwnPropertyDescriptor checks presence WITHOUT invoking a (resource-using) getter.
   if (!annotation || !Object.getOwnPropertyDescriptor(annotation, "inputSchema")) return def;
@@ -88,7 +115,6 @@ function wrapSymbol(def: any, annotation: McpAnnotation | undefined): any {
 
 /** Wrap every symbol that has an `inputSchema` annotation with arg-parsing. Handles both the
  *  record and the builder (`(activation) => record`) `symbols` forms. */
-
 function withArgParsing(symbols: any, annotations: Record<string, McpAnnotation>): any {
   const wrapRecord = (rec: Record<string, any>): Record<string, any> => {
     const out: Record<string, any> = {};
@@ -105,29 +131,71 @@ function withArgParsing(symbols: any, annotations: Record<string, McpAnnotation>
   return typeof symbols === "function" ? (activation: any) => wrapRecord(symbols(activation)) : wrapRecord(symbols);
 }
 
-/** An `EnvCapability` carrying MCP annotations. The only addition over the base is
- *  `annotations`; everything else (lowering, resources, deps, prelude) is inherited. */
+/** Split inline annotation fields off each (object-form) symbol def into a separate annotations
+ *  record, leaving a clean rosetta symbol. Property DESCRIPTORS are moved (never read), so an
+ *  `inputSchema` getter survives un-invoked. A bare-fn / `{ value }` def carries no inline fields
+ *  and passes through; a symbol that declares no inline fields falls back to the explicit
+ *  `annotations[name]` (legacy form). Inline fields win over an explicit entry of the same name. */
+function liftInlineAnnotations(
+  symbols: Record<string, any>,
+  explicit: Record<string, McpAnnotation>,
+  annotationKeys: readonly string[],
+): { symbols: Record<string, any>; annotations: Record<string, McpAnnotation> } {
+  const keySet = new Set(annotationKeys);
+  const cleanSymbols: Record<string, any> = {};
+  const annotations: Record<string, McpAnnotation> = { ...explicit };
+  for (const [name, def] of Object.entries(symbols)) {
+    if (typeof def !== "object" || def === null) {
+      cleanSymbols[name] = def; // bare fn — no inline fields to lift
+      continue;
+    }
+    const clean: any = {};
+    const ann: any = {};
+    let hasInline = false;
+    for (const key of Object.keys(def)) {
+      const desc = Object.getOwnPropertyDescriptor(def, key)!;
+      if (keySet.has(key)) {
+        Object.defineProperty(ann, key, desc); // descriptor copy preserves an inputSchema getter
+        hasInline = true;
+      } else {
+        Object.defineProperty(clean, key, desc);
+      }
+    }
+    cleanSymbols[name] = clean;
+    if (hasInline) annotations[name] = ann; // inline wins over an explicit entry
+  }
+  return { symbols: cleanSymbols, annotations };
+}
 
+/** An `EnvCapability` carrying MCP annotations. Annotation fields live inline on each symbol
+ *  def; the constructor lifts them off (descriptor-preserving) and arms `inputSchema` parsing.
+ *  Everything else (lowering, resources, deps, prelude) is inherited. */
 export class McpEnvCapability<
   C extends Record<string, z.ZodType> = any,
   R extends Record<string, Resource<unknown>> = any,
 > extends EnvCapability<C, R> {
-  constructor(name: string, spec: McpCapabilitySpec<C, R>) {
-    // Wrap each annotated symbol's fn with its `inputSchema` parse (post-membrane, pre-call),
-    // so zod transforms run with resource access (the wrapped fn's `this` is the Activation,
-    // bound by `lower()`). Symbols without an `inputSchema` annotation pass through untouched.
-    super(
-      name,
-      spec.symbols === undefined
-        ? spec
-        : {
-            ...spec,
-            symbols: withArgParsing(spec.symbols, spec.annotations ?? {}) as McpCapabilitySpec<C, R>["symbols"],
-          },
-    );
+  /**
+   * @param annotationKeys which property names to lift off the inline symbol defs. Defaults to
+   *   the base MCP fields; a domain subclass passes a WIDER set to also lift its catalog fields.
+   *   Must be a constructor arg (not a virtual method) — `this` is unavailable before `super()`.
+   */
+  constructor(name: string, spec: McpCapabilitySpec<C, R>, annotationKeys: readonly string[] = MCP_ANNOTATION_KEYS) {
+    const explicit = spec.annotations ?? {};
+    // Only the record form can be inspected statically; a builder passes through (its annotations
+    // come from the explicit record). Lift inline fields, then arm inputSchema parsing.
+    const lifted =
+      typeof spec.symbols === "function" || spec.symbols === undefined
+        ? { symbols: spec.symbols, annotations: explicit }
+        : liftInlineAnnotations(spec.symbols, explicit, annotationKeys);
+    super(name, {
+      ...spec,
+      symbols: lifted.symbols === undefined ? undefined : withArgParsing(lifted.symbols, lifted.annotations),
+      annotations: lifted.annotations,
+    } as McpCapabilitySpec<C, R> as CapabilitySpec<C, R>);
   }
 
-  /** The MCP annotations for THIS capability's own verbs (not its deps). */
+  /** The MCP annotations for THIS capability's own verbs (not its deps) — inline-lifted and
+   *  explicit, merged at construction. */
   get annotations(): Record<string, McpAnnotation> {
     return (this.spec as McpCapabilitySpec<C, R>).annotations ?? {};
   }
