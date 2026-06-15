@@ -1,9 +1,9 @@
 import { createRuntimeAssembler, type EnvPack } from "@here.build/arrival-scheme/env";
 import { type ArrivalEnv, type BuildArrivalEnvOpts, makeCompileInferUnit } from "../infer-kernel.js";
-import { defineImportRosetta, defineRequireRosetta } from "../loader.js";
+import { defineRequireRosetta } from "../loader.js";
 import { defineRequireExtensionRosetta } from "../require-extension.js";
 
-/** The irreducible loader/prompt core — `.prompt` sealer + `import`/`require` + (when armed)
+/** The irreducible loader/prompt core — `.prompt` sealer + `require` + (when armed)
  *  `require/extension`. NOT a capability the way the others are; the env's plumbing floor. Applies
  *  LAST (lowest precedence), so anything an extracted pack registers shadows it (in practice their
  *  symbols are disjoint, so there is no clash). */
@@ -12,7 +12,6 @@ export function arrivalLoaderCorePack(opts: BuildArrivalEnvOpts): EnvPack<Arriva
     name: "arrival/loader-core",
     apply: (env) => {
       const compileInferUnit = makeCompileInferUnit(env, opts);
-      defineImportRosetta({ env, loader: opts.loader });
       const clearRequireCache = defineRequireRosetta({
         env,
         loader: opts.loader,

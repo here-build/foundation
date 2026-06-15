@@ -176,8 +176,6 @@ export { ArrivalChain } from "./arrival-chain.js";
 // Tests import it via the relative `./runner.js`.
 export {
   defaultResolvers,
-  defineImport,
-  defineImportRosetta,
   defineRequireRosetta,
   loaderFromResolver,
   makeProjectLoader,

@@ -12,6 +12,7 @@
 
 import { type InferStoreLike } from "@here.build/arrival-inference";
 import { EvalTrace } from "@here.build/arrival-provenance";
+import type { Environment } from "@here.build/arrival-scheme";
 
 import { effectLogCollector, type EffectLog } from "./effect-log.js";
 import { makeProjectLoader } from "./loader.js";
@@ -24,7 +25,10 @@ import { assertWireSafe } from "./wire-safe.js";
  *  whole derivation eagerly. Invisible in normal use. */
 export type Parser = "causal" | "teleological";
 
-const CALL_ARG_KEY = "__require_call_arg__";
+/** The reserved identifier `require/call` binds its wire-safe argument to in the isolated run env.
+ *  `runNamedCall` appends `(fn <this>)` to the source and binds the arg via `extendEnv` — a direct
+ *  env binding, NOT the host `import` registry (the run plane has no host-capability injection). */
+const CALL_ARG_SYM = "__require_call_arg__";
 
 function runBudgetMs(): number {
   const raw = typeof process !== "undefined" ? Number(process.env?.ARRIVAL_RUN_BUDGET_MS) : NaN;
@@ -86,7 +90,7 @@ function isContainment(err: unknown): boolean {
 async function runCausal(
   project: Project,
   source: string,
-  extra: { dirname: string; imports?: Map<string, unknown>; signal?: AbortSignal; infer?: InferStoreLike },
+  extra: { dirname: string; extendEnv?: (env: Environment) => void; signal?: AbortSignal; infer?: InferStoreLike },
 ): Promise<{ value: unknown; effectLog: EffectLog; finished: boolean }> {
   const { log, record } = effectLogCollector();
   const ac = new AbortController();
@@ -99,7 +103,7 @@ async function runCausal(
   try {
     const done = project.run(source, {
       dirname: extra.dirname,
-      imports: extra.imports,
+      ...(extra.extendEnv ? { extendEnv: extra.extendEnv } : {}),
       signal: fanOut(ac.signal, extra.signal),
       budgetMs,
       heapBudget: heapMax(),
@@ -127,7 +131,7 @@ async function runCausal(
 async function runTeleological(
   project: Project,
   source: string,
-  extra: { dirname: string; imports?: Map<string, unknown>; effectLog: EffectLog; signal?: AbortSignal },
+  extra: { dirname: string; extendEnv?: (env: Environment) => void; effectLog: EffectLog; signal?: AbortSignal },
 ): Promise<{ trace: EvalTrace; outputNode: unknown }> {
   const trace = new EvalTrace(traceMax());
   const ac = new AbortController();
@@ -137,7 +141,7 @@ async function runTeleological(
     const { userForms, finished, result } = await project.runTraced(source, {
       trace,
       dirname: extra.dirname,
-      imports: extra.imports,
+      ...(extra.extendEnv ? { extendEnv: extra.extendEnv } : {}),
       effectLog: extra.effectLog,
       signal: fanOut(ac.signal, extra.signal),
       budgetMs,
@@ -184,12 +188,14 @@ export async function runNamedCall(
   assertWireSafe(args, `argument to (require/call "${file}" :${fnName} …)`);
   const { path, source } = await readSource(project, file);
   const dirname = dirOf(path);
-  const callSource = `${source}\n(${fnName} (import "${CALL_ARG_KEY}"))\n`;
-  const imports = new Map([[CALL_ARG_KEY, args]]);
-  const { value, effectLog, finished } = await runCausal(project, callSource, { dirname, imports, signal, infer });
+  // Append `(fn <arg>)` and bind the (already-wire-safe) arg directly in the run env — the isolated
+  // run plane has no host-capability registry, so the argument crosses as a plain env binding.
+  const callSource = `${source}\n(${fnName} ${CALL_ARG_SYM})\n`;
+  const extendEnv = (env: Environment): void => void env.set(CALL_ARG_SYM, args);
+  const { value, effectLog, finished } = await runCausal(project, callSource, { dirname, extendEnv, signal, infer });
   assertWireSafe(value, `result of (require/call "${file}" :${fnName} …)`);
   const build = finished
-    ? (sig?: AbortSignal) => runTeleological(project, callSource, { dirname, imports, effectLog, signal: sig })
+    ? (sig?: AbortSignal) => runTeleological(project, callSource, { dirname, extendEnv, effectLog, signal: sig })
     : undefined;
   return finalize(new ResultHandle(value, build), parser);
 }

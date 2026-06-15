@@ -292,9 +292,6 @@ export class Project extends PlexusModel<null> {
       loader?: Loader;
       /** Directory of the entry module, for resolving relative `(require …)`. */
       dirname?: string;
-      /** Per-run curated `import` registry — `(import "name")` resolves here.
-       *  Merged onto the loader's defaults (per-run entries win). */
-      imports?: Map<string, unknown>;
       /** Called with the kind-tagged effect key for every EXTERNAL effect (infer,
        *  http, sql) as it fires, in evaluation order. The Run/Hypothesis recorders
        *  push these into `.effects` — the per-run effect-log's key sequence. */
@@ -457,9 +454,6 @@ export class Project extends PlexusModel<null> {
     };
 
     const loader = opts.loader ?? (opts.resolver ? loaderFromResolver(opts.resolver) : makeProjectLoader(this));
-    // `import` is the curated host-capability registry (FS-free). Merge the
-    // per-run set onto the loader's defaults; the require rosetta taps this run.
-    if (opts.imports) for (const [name, value] of opts.imports) loader.imports.set(name, value);
     // Data effects cross the same record+replay seam as infer: wrap the host
     // resolver so each (http/*)/(sql/query) consults `effectLog` (replay) and
     // records its tagged key into `.effects`. Absent a host resolver the verbs
@@ -983,9 +977,8 @@ export class Project extends PlexusModel<null> {
       loader?: Loader;
       /** Directory of the entry module, for resolving relative `(require …)`. */
       dirname?: string;
-      /** Per-run curated `import` registry — `(import "name")` resolves here.
-       *  Merged onto the loader's defaults (per-run entries win). */
-      imports?: Map<string, unknown>;
+      /** Extend the run env after build (e.g. `require/call` binds its argument). Forwarded to `run`. */
+      extendEnv?: (env: Awaited<ReturnType<typeof buildArrivalEnv>>) => void;
       /** Called with the kind-tagged effect key for every external effect (infer/
        *  http/sql) as it fires — the `.effects` recorder, same as `run`. */
       onEffect?: (effectKey: string) => void;
