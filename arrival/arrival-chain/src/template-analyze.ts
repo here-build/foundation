@@ -52,7 +52,7 @@ function anyShape(optional = false): Shape {
 }
 
 function ensureObject(s: Shape): Map<string, Shape> {
-  // Caller error — we should have created an object shape before descending.
+  // Caller error — an object shape MUST exist before descending.
   invariant(s.kind === "object", () => `template analyze: expected object shape, got ${s.kind}`);
   return s.fields;
 }

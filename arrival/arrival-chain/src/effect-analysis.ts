@@ -44,7 +44,7 @@
  * one — the safe direction.
  *
  * Pair / Symbol are duck-typed (same vendoring rationale as `ast-shapes.ts` / `slice.ts`): the
- * concrete classes live deep in arrival-scheme and we don't want a dep on internals. This module
+ * concrete classes live deep in arrival-scheme — NO dep on internals. This module
  * is pure + synchronous + dependency-free, so it lifts cleanly to an arrival builtin later
  * (`(effects-of (quote …))`) if the compiler / runner / server want the same reading server-side.
  */

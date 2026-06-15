@@ -567,11 +567,11 @@ export class Project extends PlexusModel<null> {
    *   - PROVENANCE: the effect's invocation is marked a provenance point and bound
    *     to a {@link DataBinding}, so it becomes a node in the causal graph and the
    *     forward-cone reaches it (A3 registers the verbs without provenance marking;
-   *     we add it HERE, where the effect-log lives, so data effects are first-class
+   *     marking lands HERE, where the effect-log lives, so data effects are first-class
    *     cone members exactly like infers).
    *
-   * Inert when no `effectLog` and no recording sinks AND no trace — but we still
-   * mark provenance so the graph is correct; the wrap is cheap.
+   * Inert when no `effectLog` and no recording sinks AND no trace — provenance is still
+   * marked so the graph is correct; the wrap is cheap.
    */
   #wrapDataResolver(
     inner: DataEffectResolver,
@@ -862,8 +862,8 @@ export class Project extends PlexusModel<null> {
   }): { hypothesis: Hypothesis; finished: Promise<unknown> } {
     const run = opts.run;
     invariant(!run.hypotheses.has(opts.id), `Project.runHypothesis: id "${opts.id}" already exists`);
-    // Run.parent is Program (apiCall) or Draft (sandbox). For hypothesis
-    // replay we always want the Program so we can address its versions[].
+    // Run.parent is Program (apiCall) or Draft (sandbox). Hypothesis replay needs
+    // the Program — its versions[] is what the pinned versionIndex addresses.
     const parentNode = run.parent;
     invariant(parentNode, "Project.runHypothesis: Run is detached");
     const program: Program = parentNode instanceof Program ? parentNode : parentNode.parent!;

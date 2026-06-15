@@ -1,8 +1,8 @@
 /**
  * AST shape detection — classify a parsed scheme Pair into a semantic
  * shape so the trace UI can collapse syntactically-flat invocations into
- * meaningful containers. The cohort can't do this because they don't
- * own the AST; we do, and the homoiconic substrate makes it cheap.
+ * meaningful containers. The cohort can't do this — they don't own the
+ * AST; arrival does, and the homoiconic substrate makes it cheap.
  *
  * Detection is shallow + pattern-match — `(map f xs)` is recognised by
  * the head symbol being `map` and arity matching. No type analysis, no
@@ -11,8 +11,8 @@
  * branches) that explode into 200+ invocation nodes today.
  *
  * Pair / Symbol are duck-typed for the same reason as extract-defines:
- * concrete classes are vendored deep in arrival-scheme; we don't want
- * a direct dep on internals.
+ * the concrete classes are vendored deep in arrival-scheme — NO direct
+ * dep on internals.
  */
 
 const isPair = (v: unknown): v is { car: unknown; cdr: unknown } =>
@@ -88,7 +88,7 @@ export function detectShape(form: unknown): Shape {
   }
   if (FOLD_HOFS.has(head)) {
     // reduce/fold-left: (reduce f init xs). fold-right: same shape. Some
-    // dialects flip init/list order; we always take the last arg as the
+    // dialects flip init/list order; the last arg is ALWAYS taken as the
     // list and the middle as init, which fits the bulk of the cohort.
     const last = args.at(-1);
     const init = args.length >= 3 ? args.at(-2) : undefined;

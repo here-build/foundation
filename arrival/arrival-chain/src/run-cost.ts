@@ -9,9 +9,9 @@ import type { EvalTrace } from "@here.build/arrival-provenance";
  */
 export interface TaskCost {
   /** Tier the task was minted under (tuple[0]). NB: not the resolved model —
-   *  the router picks the concrete model at completion time and we don't yet
-   *  persist it, so pricing falls back to DEFAULT for unknown keys. Correct
-   *  while a single model is wired; revisit when multi-model lands. */
+   *  the router picks the concrete model at completion time, not yet persisted,
+   *  so pricing falls back to DEFAULT for unknown keys. Correct while a single
+   *  model is wired; revisit when multi-model lands. */
   model: string;
   usage: TokenUsage;
   /** This task fired ≥1 fresh (uncached) call this run — i.e. it was paid for,

@@ -18,8 +18,8 @@
  * static and runtime views can never describe different contracts.
  *
  * The handler crosses the rosetta membrane as a plain async callable (a scheme
- * `(lambda …)` is a JS function on the far side). We wrap it so the host calls
- * `decl.handler(jsInput)` and gets a plain JS value back (the wrapper applies
+ * `(lambda …)` is a JS function on the far side). The wrapper lets the host call
+ * `decl.handler(jsInput)` and get a plain JS value back (it applies
  * the LIPS→JS membrane on the result) — the host layers zod validation on top;
  * keys/credentials are never in scope here (this module touches neither).
  *
@@ -70,8 +70,8 @@ export interface ExposeDeclaration {
 // form evaluates, the handler is a plain JS closure and the `(lambda …)` form's
 // `__location__` is gone. Location truth lives on the STATIC `extractExpose`
 // entry (the config-plane sync path); the host correlates the two views by
-// `name`, which is the registry key anyway. We don't keep a best-effort field
-// that's almost always undefined (model-design: no speculative dead state).
+// `name`, which is the registry key anyway. No best-effort field that's almost
+// always undefined (model-design: no speculative dead state).
 
 /** Host sink for evaluated declarations. Sync or async; its return is ignored —
  *  the form's value is always the handler. */

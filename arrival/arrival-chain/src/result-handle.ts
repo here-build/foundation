@@ -3,9 +3,8 @@
 // A run is CAUSAL by default (the cheap, sequential reduction — `Project.run`, no trace): the VALUE
 // comes back fast and almost always succeeds. Provenance is the TELEOLOGICAL view — the whole
 // derivation grasped at once (`why`/`where`/`how`/`dag`) — and it is built LAZILY, by a replay-bound
-// traced re-run, only when first asked. (The naming is Chiang's causal⟷teleological pairing from
-// "Story of Your Life": a causal run reads the program forward one step at a time; a teleological run
-// holds the entire computation as a single object.)
+// traced re-run, only when first asked. A causal run reads the program forward one step at a time;
+// a teleological run holds the entire computation as a single object.
 //
 // The payoff: value-delivery and provenance are independent failure domains. The data path can't be
 // taken down by tracing overhead — only the lazy provenance re-run can hit the trace cap, and when it

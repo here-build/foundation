@@ -1,6 +1,6 @@
 // run-isolated.ts — launch a NAMED program in an isolated run plane.
 //
-// CAUSAL by default (Chiang's word): `Project.run` with NO trace — the cheap sequential reduction that
+// CAUSAL by default: `Project.run` with NO trace — the cheap sequential reduction that
 // returns the VALUE and captures only the effect-log (O(external effects), off the per-reduction tap).
 // The TELEOLOGICAL view (the full provenance graph) is built LAZILY on the returned handle, by a
 // replay-bound traced re-run, only when `why/where/how/dag` is first asked.
@@ -24,9 +24,8 @@ import { ResultHandle } from "./result-handle.js";
 import { schemaToZod } from "./schema-to-zod.js";
 import { assertWireSafe } from "./wire-safe.js";
 
-/** How a program is read (Chiang's causal⟷teleological pairing — see ResultHandle). `"causal"` (the
- *  default) returns the value with provenance built lazily-on-ask; `"teleological"` pre-warms the
- *  whole derivation eagerly. Invisible in normal use. */
+/** How a program is read. `"causal"` (the default) returns the value with provenance built lazily-on-ask;
+ * `"teleological"` pre-warms the whole derivation eagerly. Invisible in normal use. */
 export type Parser = "causal" | "teleological";
 
 /** The reserved identifier `require/call` binds its wire-safe argument to in the isolated run env.

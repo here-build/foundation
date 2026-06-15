@@ -274,8 +274,8 @@ function effectKeysByCell(trace: EvalTrace): Map<number, Set<string>> {
  *
  * `changedNodeIds` are statechart node ids (representative invocation ids — the ids
  * `forwardCone` and the flow-graph speak). A changed node need not itself be an
- * effect cell (it may be a pure node the human edited); we still walk its
- * forward-cone, and only cone cells that HAVE effect keys contribute. Loop/fan-out
+ * effect cell (it may be a pure node the human edited); its forward-cone is still
+ * walked, and only cone cells that HAVE effect keys contribute. Loop/fan-out
  * cells contribute ALL their per-fire keys (see `effectKeysByCell`), so re-running a
  * cell re-runs every iteration of it, not just one.
  */

@@ -1,29 +1,23 @@
 import type { ModelBackend } from "./model.js";
 
 /**
- * Model-name → `ModelBackend` lookup. The runner owns this map; programs
- * just call `(infer "model-name" "prompt" …)` with concrete model names
- * and the runner decides which backend serves which model. Async so
- * implementations can defer expensive work to first use.
+ * The runner owns this map; programs call `(infer "model-name" …)` with concrete model
+ * names and the runner decides which backend serves which. Async so implementations can
+ * defer expensive work (SDK import, endpoint probe) to first use.
  *
- * Returns `null` when no backend is configured for `modelId` — the
- * `InferStore` turns that into a rejected cell rather than crashing the run.
+ * `null` ⇒ no backend configured for `modelId` — the {@link InferStore} turns that into a
+ * rejected cell rather than crashing the run.
  *
- * Decoupled from `Project` so the same router runs unchanged in:
- *   - the local Node daemon (LayeredRouter composed from env + keychain
- *     + auto-detected local servers)
- *   - a Cloudflare Worker / DO (StaticRouter populated from `env`)
- *   - tests (singletonRouter returning a stub for everything)
+ * Decoupled from `Project` so ONE router runs unchanged across hosts:
+ *   - local Node daemon — {@link LayeredRouter} over env + keychain + auto-detected local servers
+ *   - Cloudflare Worker / DO — {@link StaticRouter} populated from `env`
+ *   - tests — {@link singletonRouter} returning a stub for everything
  */
 export interface ModelRouter {
   backendFor(modelId: string): Promise<ModelBackend | null>;
 }
 
-/**
- * In-memory model→backend map. Pass entries at construction; mutating
- * the router after construction is a separate concern (rebuild the
- * router, don't reach in).
- */
+/** Immutable by construction — mutation means rebuild the router, never reach in. */
 export class StaticRouter implements ModelRouter {
   private readonly entries: ReadonlyMap<string, ModelBackend>;
 
@@ -42,9 +36,8 @@ export class StaticRouter implements ModelRouter {
 }
 
 /**
- * Composition: try each layer in order; first non-null wins. Use when
- * the daemon has multiple sources of backends (env vars override
- * keychain entries override auto-detected local servers, for example).
+ * First non-null layer wins — layer ORDER is precedence (env over keychain over
+ * auto-detected local servers, say). For a daemon with several backend sources.
  */
 export class LayeredRouter implements ModelRouter {
   constructor(private readonly layers: readonly ModelRouter[]) {}
@@ -58,9 +51,7 @@ export class LayeredRouter implements ModelRouter {
   }
 }
 
-/**
- * Convenience for tests: returns `backend` for every model id.
- */
+/** Every model id resolves to `backend` — the test stub. */
 export function singletonRouter(backend: ModelBackend): ModelRouter {
   return {
     async backendFor() {
@@ -69,11 +60,8 @@ export function singletonRouter(backend: ModelBackend): ModelRouter {
   };
 }
 
-/**
- * The empty router — every lookup returns null. Useful as the default
- * layer when no backend is configured (the `InferStore` rejects every
- * cell with "no backend for model X").
- */
+/** The default layer when nothing is configured — every lookup is null, so the
+ *  {@link InferStore} rejects each cell with "no backend for model X". */
 export const emptyRouter: ModelRouter = {
   async backendFor() {
     return null;

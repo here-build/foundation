@@ -55,8 +55,8 @@ export interface ExposeInfo {
   location?: SourceLocation;
 }
 
-/** The form head we recognise. Exported so the runtime rosetta and any
- *  tooling name it from one place rather than restating the string. */
+/** The recognised form head. Exported so the runtime rosetta and any tooling
+ *  name it from one place rather than restating the string. */
 export const EXPOSE_FORM = "declare/expose";
 
 /** The superpowered-define authoring heads (preamble macros — see project.ts
@@ -124,11 +124,11 @@ function sliceForm(source: string, offset: number): string | null {
  * Fold a `(declare/expose …)` argument tail into its keyword clauses.
  *
  * The keyword tokens (`:input`, `:output`, `:handler`) parse as bare symbols
- * whose name carries the leading colon (`":input"`). We normalise to the
- * bare key (`"input"`) — symmetric with how `dictKey` recovers the field name
- * from a keyword at runtime — and pair each with the FOLLOWING form. We only
- * need the value forms' source locations (to slice schema text) and whether a
- * `:handler` clause exists, so we walk the cdr chain pairing key→value.
+ * whose name carries the leading colon (`":input"`). Normalised to the bare key
+ * (`"input"`) — symmetric with how `dictKey` recovers the field name from a
+ * keyword at runtime — and paired with the FOLLOWING form. Only the value forms'
+ * source locations (to slice schema text) and the presence of a `:handler` clause
+ * matter, so the walk is a plain cdr-chain pairing of key→value.
  */
 function foldClauses(
   tail: unknown,
@@ -273,8 +273,8 @@ export interface ReachableExposed {
 /**
  * Render a parsed atom back to its source-literal text. Strings re-quote (with
  * `"`/`\` escaping); symbols render as their name; numbers/booleans via their
- * scheme repr (`#t`/`#f`). Returns null for a shape we can't faithfully render —
- * the caller records the default as absent rather than emitting wrong text.
+ * scheme repr (`#t`/`#f`). Returns null for a shape that can't be faithfully
+ * rendered — the caller records the default as absent rather than emitting wrong text.
  */
 function renderAtom(v: unknown): string | null {
   if (isString(v)) return `"${v.__string__.replaceAll("\\", "\\\\").replaceAll('"', String.raw`\"`)}"`;

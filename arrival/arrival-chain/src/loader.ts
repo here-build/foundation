@@ -47,7 +47,7 @@ import type { Project } from "./project.js";
 export type MaybePromise<T> = T | Promise<T>;
 
 /** A parsed scheme form — exactly what `parse` yields and `execExpr` consumes.
- *  Derived from `parse` so we don't depend on the (unexported) `SchemeValue`. */
+ *  Derived from `parse` to avoid depending on the (unexported) `SchemeValue`. */
 export type SchemeForm = Awaited<ReturnType<typeof parse>>[number];
 
 /** What an extension resolver produces; the require rosetta executes it.
@@ -146,7 +146,7 @@ const DATA_PARSERS: Record<string, (text: string) => unknown> = {
 
 /** Project a parsed value onto its JSON shape (Dates → ISO strings, drops undefined) so a required
  *  data file enters the program as plain JSON-shaped data. NOT a deep clone — `structuredClone`
- *  would preserve the non-JSON types we want gone. */
+ *  would preserve the very non-JSON types this is meant to drop. */
 // eslint-disable-next-line unicorn/prefer-structured-clone -- JSON projection, not a clone
 const normalizeToJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
 
@@ -357,7 +357,7 @@ export function defineRequireRosetta(opts: {
   const inflight = new Map<string, Promise<{ value: unknown }>>();
   // Paths whose MODULE FORMS are mid-evaluation (`.scm` `load` kind only). A
   // re-entrant require of an evaluating path is a genuine R7RS cycle (a→b→a):
-  // awaiting its in-flight promise would deadlock, so we throw the chain instead.
+  // awaiting its in-flight promise would deadlock, so the chain throws instead.
   // value/eval modules are leaves (can't require during load) → never here, so
   // their concurrent requires always take the safe dedup path. (A concurrent
   // require of the SAME `.scm` via `map` would also trip this, but spilling one
@@ -378,7 +378,7 @@ export function defineRequireRosetta(opts: {
 
       const pending = inflight.get(path);
       if (pending) {
-        // In-flight as our own ancestor → real cycle (awaiting would deadlock).
+        // In-flight as this chain's own ancestor → real cycle (awaiting would deadlock).
         // Otherwise a settled cache hit or a concurrent sibling — share the load.
         invariant(!evaluating.has(path), () => `require: cyclic dependency: ${[...loadingStack, path].join(" → ")}`);
         return (await pending).value;
@@ -388,11 +388,11 @@ export function defineRequireRosetta(opts: {
         const contents = await loader.read(path);
         // Registry overlay (proposal §7): a capability-registered resolver for this suffix
         // wins over the loader's built-in table. The registry stores the resolver verb's
-        // NAME (process-global); we resolve it against THIS env (late-bind), so a
+        // NAME (process-global), resolved against THIS env (late-bind), so a
         // resource-armed resolver (e.g. `.prompt` → `prompt/compile`) uses THIS env's
         // resource. If the suffix is registered but the verb is NOT bound in this env (a
-        // scope that didn't root the owning capability), we FALL THROUGH to the built-in
-        // table — so during migration a bare loader still resolves it; once a suffix is
+        // scope that didn't root the owning capability), resolution FALLS THROUGH to the
+        // built-in table — so during migration a bare loader still resolves it; once a suffix is
         // removed from `defaultResolvers`, that fallthrough naturally errors (no handler),
         // which IS the scoping guarantee (you must root the capability).
         const resolverName = lookupExtensionResolver(path);

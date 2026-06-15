@@ -7,8 +7,8 @@
 //   • require/eval|call RESULTS coming OUT (so a run can't hand back a live closure)
 //
 // It is the SAME law a deployed `/fn` function needs (its I/O must cross an HTTP/JSON boundary) —
-// one classifier, two enforcers. We classify the PEELED JS value (the rosetta membrane already
-// `schemeToJs`-peels args/returns), so scheme boxes are gone and only JS shapes remain: a scheme
+// one classifier, two enforcers. Classification is over the PEELED JS value (the rosetta membrane
+// already `schemeToJs`-peels args/returns), so scheme boxes are gone and only JS shapes remain: a scheme
 // closure peels to a `function`, a symbol to `symbol`, a Pair to an array, a dict to a plain object.
 
 import { is_result_handle } from "./result-handle.js";
@@ -24,7 +24,7 @@ export function isWireSafe(value: unknown, seen = new Set<unknown>()): boolean {
       return true;
     case "function":
     case "symbol":
-      return false; // closures / live symbols — the things we must never let cross
+      return false; // closures / live symbols — MUST never cross
     case "object":
     case "undefined":
       break; // fall through to the structural checks below
