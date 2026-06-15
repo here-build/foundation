@@ -34,7 +34,6 @@ import { describe, expect, it } from "vitest";
 import { is_nil } from "../guards";
 import { isSchemeValue, toJS } from "../membrane";
 import { schemeToJs } from "../rosetta";
-import { RAMDA_FUNCTIONS } from "../ramda-functions";
 import { sandboxedEnv } from "../sandbox-env";
 import { wrappedOps } from "../bridge";
 import { Pair } from "../Pair";
@@ -190,103 +189,6 @@ describe("bridge.ts — `=== nil` identity-equality sites", () => {
 });
 
 // =========================================================================
-// ramda-functions.ts — 5 sites
-// =========================================================================
-
-describe("ramda-functions.ts — `=== nil` identity-equality sites", () => {
-  // ramda-functions.ts:23 — `polymorphicMap`'s nil-input short-circuit:
-  // `if (collection === nil) return nil`. A Nil clone bypasses this and
-  // falls through to the `collection[Symbol.iterator] ? R.map(...) : fn(collection)`
-  // branch. Nil has no iterator, so `fn(nil-clone)` runs — invoking the
-  // user's mapping function on a Nil instance instead of skipping it.
-  // This breaks `(map +1 nil-clone)` — instead of returning the empty list,
-  // it tries to add 1 to a Nil.
-  it("polymorphicMap(fn, nil-clone) — should return nil-equivalent (ramda-functions.ts:23)", () => {
-    const mapFn = RAMDA_FUNCTIONS.map as (fn: (x: unknown) => unknown, c: unknown) => unknown;
-    let called = 0;
-    const result = mapFn(() => {
-      called++;
-      return 0;
-    }, cloneNil());
-    expect(called).toBe(0);
-    expect(is_nil(result)).toBe(true);
-  });
-
-  // ramda-functions.ts:150 — `filter` Pair branch: empty-pair sentinel check
-  // `collection.cdr === nil && collection.car === undefined`. This is the
-  // shape `new Pair()` produces (no constructor args → both undefined,
-  // except `cdr` is the singleton `nil`). A Pair whose cdr is a Nil clone
-  // (rather than the singleton) is NOT the empty-pair sentinel, so the
-  // bug here is INVERSE: the clone-aware empty check fails, but the
-  // recursion does still terminate via line 160. Test path: confirm a
-  // Pair sentinel constructed with a Nil clone in the cdr is still treated
-  // as an empty list.
-  it("filter(_, Pair(undefined, nil-clone)) — empty sentinel (ramda-functions.ts:150)", () => {
-    const filterFn = RAMDA_FUNCTIONS.filter as (p: (x: unknown) => boolean, c: unknown) => unknown;
-    const sentinel = new Pair(undefined, cloneNil());
-    // Empty-list sentinel must short-circuit; predicate should not run.
-    let predCalled = 0;
-    filterFn(() => {
-      predCalled++;
-      return true;
-    }, sentinel);
-    expect(predCalled).toBe(0);
-  });
-
-  // ramda-functions.ts:160 — `filter`'s nil-input short-circuit:
-  // `if (collection === nil) return collection`. A Nil clone bypasses this
-  // and falls to `R.filter(predicate, collection)` — Ramda treats Nil as a
-  // non-iterable and returns `undefined` instead of the empty list. The
-  // contract was "filter of empty is empty"; a Nil-clone breaks it.
-  it("filter(_, nil-clone) — should return nil-equivalent (ramda-functions.ts:160)", () => {
-    const filterFn = RAMDA_FUNCTIONS.filter as (p: (x: unknown) => boolean, c: unknown) => unknown;
-    const result = filterFn(() => true, cloneNil());
-    expect(is_nil(result)).toBe(true);
-  });
-
-  // ramda-functions.ts:197 — `reduce`'s LIPS-Pair branch empty-pair sentinel:
-  // `collection.cdr === nil && collection.car === undefined`. Same shape as
-  // line 150 — but here, when the sentinel check misses, the recursion
-  // calls `fn(initial, undefined)` (the empty-pair's `car`), so the user's
-  // reducer accidentally folds in an undefined element. Result: wrong
-  // accumulator, often a runtime error inside the reducer.
-  it("reduce(fn, init, Pair(undefined, nil-clone)) — sentinel short-circuit (ramda-functions.ts:197)", () => {
-    const reduceFn = RAMDA_FUNCTIONS.reduce as (
-      fn: (acc: unknown, v: unknown) => unknown,
-      init: unknown,
-      c: unknown,
-    ) => unknown;
-    const sentinel = new Pair(undefined, cloneNil());
-    let reducerCalled = 0;
-    const result = reduceFn(
-      (acc) => {
-        reducerCalled++;
-        return acc;
-      },
-      "INITIAL",
-      sentinel,
-    );
-    expect(reducerCalled).toBe(0);
-    expect(result).toBe("INITIAL");
-  });
-
-  // ramda-functions.ts:206 — `reduce`'s nil-input short-circuit:
-  // `if (collection === nil) return initial`. A Nil clone bypasses this and
-  // falls to `R.reduce(fn, initial, collection)` — Ramda treats the
-  // Nil clone as a non-iterable; either throws or returns undefined.
-  // Expected: the initial accumulator unchanged.
-  it("reduce(fn, init, nil-clone) — initial unchanged (ramda-functions.ts:206)", () => {
-    const reduceFn = RAMDA_FUNCTIONS.reduce as (
-      fn: (acc: unknown, v: unknown) => unknown,
-      init: unknown,
-      c: unknown,
-    ) => unknown;
-    const result = reduceFn((acc) => acc, "INITIAL", cloneNil());
-    expect(result).toBe("INITIAL");
-  });
-});
-
-// =========================================================================
 // fantasy-land-lips.ts — 5 sites
 // =========================================================================
 
@@ -422,7 +324,11 @@ describe("META — provenance clones break identity-equality systematically", ()
   // War-story documentation. Not a real assertion. Lists the count and the
   // shape of the bug so the next person to touch any of these files sees
   // immediately what is going on.
-  it("documents 20 known sites where `=== nil` would silently misroute a Nil clone", () => {
+  it("documents 15 known sites where `=== nil` would silently misroute a Nil clone", () => {
+    // ramda-functions.ts (polymorphicMap/filter/reduce, 5 sites) was deleted when
+    // Ramda was evicted from the sandbox into @here.build/arrival-scheme-env-ramda;
+    // those wrappers were already overridden by sandbox-env's hardened map/filter/
+    // reduce, so the sites left with the code. The remaining 15 stand.
     const sites = [
       "membrane.ts:71  — isSchemeValue",
       "membrane.ts:326 — toJS",
@@ -431,11 +337,6 @@ describe("META — provenance clones break identity-equality systematically", ()
       "bridge.ts:985   — list-copy entry",
       "bridge.ts:989   — list-copy recursion base",
       "bridge.ts:1351  — single",
-      "ramda-functions.ts:23  — polymorphicMap",
-      "ramda-functions.ts:150 — filter empty-pair sentinel",
-      "ramda-functions.ts:160 — filter nil short-circuit",
-      "ramda-functions.ts:197 — reduce empty-pair sentinel",
-      "ramda-functions.ts:206 — reduce nil short-circuit",
       "fantasy-land-lips.ts:89  — mapPair base",
       "fantasy-land-lips.ts:94  — filterPair base",
       "fantasy-land-lips.ts:102 — reducePair base",
@@ -445,7 +346,7 @@ describe("META — provenance clones break identity-equality systematically", ()
       "sandbox-env.ts:163 — '@?' accessor",
       "evaluator.ts:113   — formatCode debug helper (NOT covered above; cosmetic only)",
     ];
-    expect(sites.length).toBe(20);
+    expect(sites.length).toBe(15);
     // Each entry is the file:line of an `=== nil` site that should be
     // migrated to `is_nil(...)`. The single FIXED site (guards.ts:104) is
     // the model — match its instanceof check.

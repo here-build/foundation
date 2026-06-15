@@ -2,7 +2,6 @@ import { wrappedOps } from "./bridge.js";
 import { Environment } from "./Environment.js";
 import { global_env, registerCxrResolver } from "./stdlib.js";
 import { Nil, nil } from "./types.js";
-import { RAMDA_FUNCTIONS } from "./ramda-functions.js";
 import { SAFE_BUILTINS } from "./safe_builtins.js";
 import { sandboxedAccess, sandboxedHas, sandboxedKeys, NOT_FOUND, SandboxViolationError } from "./sandbox-boundary.js";
 import { fromJS, SchemeJSArray, SchemeJSObject } from "./membrane.js";
@@ -185,7 +184,6 @@ const safeWrappedOps = Object.fromEntries(
 export const sandboxedEnv = new Environment(
   "sandbox",
   {
-    ...RAMDA_FUNCTIONS,
     ...Object.fromEntries(SAFE_BUILTINS.map((name) => [name, global_env.get(name, { throwError: false })])),
     ...safeWrappedOps,
     nil,

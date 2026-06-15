@@ -86,11 +86,13 @@ describe("host globals are unbound in the sandbox", () => {
   // The dangerous host capabilities are simply not in the sandbox env — reaching
   // for them is an UNBOUND VARIABLE, the strongest possible "no escape" (there is
   // no symbol to even start from). Verified empirically: each throws.
-  // NOTE: `fetch` and `require` ARE bound, but to SCHEME builtins (a curried
-  // Fantasy-Land applicative / the module-loader verb) — NOT the host `fetch` /
-  // Node `require`; they perform no network/FS I/O (see the dedicated checks below),
-  // so they are not escape vectors and are deliberately NOT in this unbound list.
-  for (const g of ["process", "globalThis", "global", "Function", "eval"]) {
+  // NOTE: `require` IS bound, but to a SCHEME builtin (the module-loader verb) —
+  // NOT Node `require`; it performs no host FS I/O (see the dedicated check below),
+  // so it is not an escape vector and is deliberately NOT in this unbound list.
+  // `fetch` used to be bound (to Ramda `prop`, a harmless curried accessor aliased
+  // under that name); since Ramda was evicted from the sandbox it is now genuinely
+  // unbound — the strongest guarantee that no future change binds the HOST fetch.
+  for (const g of ["process", "globalThis", "global", "Function", "eval", "fetch"]) {
     it(`\`${g}\` is an unbound variable (no host capability to start from)`, async () => {
       await expect(run(`${g}`)).rejects.toThrow(/[Uu]nbound variable/);
     });
@@ -105,19 +107,6 @@ describe("host globals are unbound in the sandbox", () => {
     await expect(run(`((Function "return this"))`)).rejects.toThrow(/[Uu]nbound variable/);
   });
 
-  it("the scheme `fetch` builtin is NOT the host fetch — it performs no network I/O", async () => {
-    // `fetch` resolves (to a scheme bridge fn), but it is harmless: applied to a
-    // URL string it does not reach the network (it returns a curried function / a
-    // list-shaped value), so a hostile program cannot exfiltrate via it. This guards
-    // that a future change doesn't accidentally bind the HOST fetch to this name.
-    const onList = await run(`(fetch (list 1 2 3))`);
-    // `fetch` is Ramda `prop` (a pure, curried property accessor), so applying it
-    // yields a curried fn — never `undefined`, and definitely never an HTTP response.
-    expect(typeof onList).toBe("function");
-    // A URL string yields a function (curried bridge), never a Response/promise-of-body.
-    const onUrl = await run(`(fetch "http://169.254.169.254/latest/meta-data")`);
-    expect(typeof onUrl).toBe("function");
-  });
 });
 
 describe("closure exfiltration — the host secret never crosses", () => {

@@ -19,4 +19,3 @@ export {
   createLipsExtensionsPack as createLipsExtensionsPack,
   LIPS_EXTENSION_BINDINGS as LIPS_EXTENSION_BINDINGS,
 } from "./lips-extensions.js";
-export { createRamdaPack as createRamdaPack, RAMDA_BINDINGS as RAMDA_BINDINGS } from "./ramda.js";

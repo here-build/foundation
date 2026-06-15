@@ -1818,17 +1818,15 @@ export function initBridge(): Promise<void> {
   // user macros in the sandbox today.
   //   • SRFI-1 (the missing third) + safe head accessor first?/first-or — pure list
   //     procedures. first?/first-or make (car (filter …)) on an empty match — the
-  //     dominant avoidable crash in generated Scheme — unnecessary. `remove` also
-  //     OVERRIDES the broken Ramda `remove` spread into the sandbox env (curated copy
-  //     runs after construction, so it wins).
+  //     dominant avoidable crash in generated Scheme — unnecessary. `remove` is now
+  //     the SOLE source of `remove` in the sandbox (it used to shadow a broken Ramda
+  //     `remove`; Ramda has since been evicted, so this copy is what supplies it).
   //   • Composition + quantifiers compose/comp/pipe/flow (polyglot) and some/every
-  //     (SRFI-1) — the SCHEME-NATIVE replacements for the same-named Ramda spreads.
-  //     The inference plane (sandboxedEnv) is the totalic env where models author
-  //     Scheme; these were the only composition/quantifier vocabulary it had, and
-  //     it had them via Ramda. Copying the bootstrap definitions over makes the plane
-  //     source them from pure Scheme so Ramda can be evicted from the sandbox without
-  //     the plane losing compose/pipe/some/every. Pure, capability-free; the copy runs
-  //     after construction, so the Scheme defs win over the (soon-removed) Ramda spread.
+  //     (SRFI-1). The inference plane (sandboxedEnv) is the totalic env where models
+  //     author Scheme; this composition/quantifier vocabulary used to reach it via the
+  //     Ramda spread. Ramda is now evicted into @here.build/arrival-scheme-env-ramda
+  //     (opt-in), so copying the bootstrap definitions over is what keeps the plane's
+  //     compose/pipe/some/every — sourced from pure Scheme. Pure, capability-free.
   bootstrapPromise = exec(BOOTSTRAP_SCHEME).then(async () => {
     const { sandboxedEnv } = await import("./sandbox-env.js");
     for (const name of [
