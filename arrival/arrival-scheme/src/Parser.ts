@@ -22,10 +22,10 @@ import {
   is_symbol_extension,
   is_vector_literal,
 } from "./guards.js";
-import { Environment, EnvironmentValue } from "./Environment.js";
+import { Environment } from "./Environment.js";
 import type { EOF } from "./EOF.js";
 import { eof } from "./EOF.js";
-import { type SourceLocation, ParseError, Unterminated } from "./errors.js";
+import { ParseError, type SourceLocation, Unterminated } from "./errors.js";
 import { Lexer } from "./Lexer.js";
 // These deps form an import cycle with the value/eval modules; ES6 live bindings
 // resolve it, since they're referenced only inside methods, not at module-eval time.
@@ -238,10 +238,7 @@ export class Parser {
    */
   private _enterNesting() {
     if (++this._state.parentheses > maxNestingDepth) {
-      throw new ParseError(
-        `input nesting depth exceeded ${maxNestingDepth}`,
-        this._getLocation(),
-      );
+      throw new ParseError(`input nesting depth exceeded ${maxNestingDepth}`, this._getLocation());
     }
   }
 
@@ -432,9 +429,7 @@ export class Parser {
         // Convert list to a boxed vector (#(...) literal producer). R7RS literals
         // are immutable → freeze, so a later vector-set!/fill! on the literal is
         // an error (else it would corrupt the shared parsed AST node persistently).
-        const litVec = is_nil(list)
-          ? new SchemeVector([])
-          : new SchemeVector(list.to_array(false));
+        const litVec = is_nil(list) ? new SchemeVector([]) : new SchemeVector(list.to_array(false));
         litVec.freeze();
         return litVec;
       }
@@ -450,9 +445,7 @@ export class Parser {
           litBv = new SchemeBytevector(new Uint8Array(0));
         } else {
           const arr = list.to_array(false) as number[];
-          litBv = new SchemeBytevector(
-            new Uint8Array(arr.map((v) => (typeof v === "number" ? v : Number(v)))),
-          );
+          litBv = new SchemeBytevector(new Uint8Array(arr.map((v) => (typeof v === "number" ? v : Number(v)))));
         }
         litBv.freeze();
         return litBv;
@@ -515,7 +508,7 @@ export class Parser {
     const ref = this.match_datum_ref(token);
     if (ref !== null) {
       this.skip();
-      invariant(+ref in this._refs, `Parse Error: invalid datum label #${ref}#`);
+      invariant((+ref) in this._refs, `Parse Error: invalid datum label #${ref}#`);
       return new DatumReference(ref, this._refs[+ref] as SchemeValue);
     }
     const ref_label = this.match_datum_label(token);

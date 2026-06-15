@@ -15,15 +15,12 @@ import { Lexer } from "./Lexer.js";
 import { purityDoor } from "./purity.js";
 import { Parser } from "./Parser.js";
 import { QuotedPromise } from "./QuotedPromise.js";
-import { Formatter } from "./Formatter.js";
 import {
-  is_directive,
   is_env,
   is_false,
   is_function,
   is_iterator,
   is_lambda,
-  is_native,
   is_native_function,
   is_nil,
   is_null,
@@ -40,7 +37,6 @@ import { gensym, hidden_prop, quote } from "./values-repr.js";
 import {
   __context__,
   __fn__,
-  __prototype__,
   complex_bare_re,
   complex_re,
   float_re,
@@ -57,7 +53,7 @@ import { SchemeExact, SchemeInexact } from "./numbers.js";
 import { type, typecheck, typeErrorMessage } from "./utils/typecheck.js";
 import { parse_complex, parse_float, parse_integer, parse_rational } from "./utils/parsing.js";
 import { Values } from "./Values.js";
-import { available_class, class_map, unserialize } from "./serialize.js";
+import { available_class, class_map } from "./serialize.js";
 import { Macro } from "./Macro.js";
 import { Syntax } from "./Syntax.js";
 import { isCircularList, Pair } from "./Pair.js";
@@ -68,7 +64,13 @@ import { SchemeBool } from "./SchemeBool.js";
 import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeString } from "./SchemeString.js";
 import { SchemeVector } from "./SchemeVector.js";
-import { keywordAccessorResolver, NOT_FOUND, sandboxedAccess, SandboxViolationError, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
+import {
+  keywordAccessorResolver,
+  NOT_FOUND,
+  sandboxedAccess,
+  SandboxViolationError,
+  SchemeJSObject,
+} from "./membrane.js";
 import { collapseProvenance, taintString } from "./provenance-collapse.js";
 import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./evaluator.js";
 
@@ -1011,9 +1013,7 @@ export const global_env = new Environment(
       for (let i = 0; i + 1 < args.length; i += 2) {
         const k = args[i] as { [KEYWORD_ACCESSOR_FIELD]?: string } | null;
         const key =
-          (k != null &&
-            (typeof k === "function" || typeof k === "object") &&
-            k[KEYWORD_ACCESSOR_FIELD]) ||
+          (k != null && (typeof k === "function" || typeof k === "object") && k[KEYWORD_ACCESSOR_FIELD]) ||
           String(args[i]).replace(/^:/, "");
         obj[key] = args[i + 1];
       }
@@ -1576,25 +1576,27 @@ export const global_env = new Environment(
       return fn.apply(this, prepare_fn_args(fn, args));
     }),
     // ------------------------------------------------------------------
-    length: speculative(doc("length", function length(obj) {
-      if (!obj || is_nil(obj)) {
-        return 0;
-      }
-      // Tier 2 speculation: length of a still-filling collection is its narrowing
-      // cardinality INTERVAL, surfaced as a number-domain HalfBaked that the
-      // comparison ops read for early collapse. Reached only when speculation is
-      // on (the choke leaves a HalfBaked unforced solely for this marked op).
-      if (is_half_baked(obj)) {
-        return obj.toCardinalityNumber();
-      }
-      if (is_pair(obj)) {
-        if (isCircularList(obj)) TypeError.invariant(false, "length: circular list");
-        return withInputProvenance([obj], obj.length());
-      }
-      if ("length" in obj) {
-        return withInputProvenance([obj], obj.length);
-      }
-    })),
+    length: speculative(
+      doc("length", function length(obj) {
+        if (!obj || is_nil(obj)) {
+          return 0;
+        }
+        // Tier 2 speculation: length of a still-filling collection is its narrowing
+        // cardinality INTERVAL, surfaced as a number-domain HalfBaked that the
+        // comparison ops read for early collapse. Reached only when speculation is
+        // on (the choke leaves a HalfBaked unforced solely for this marked op).
+        if (is_half_baked(obj)) {
+          return obj.toCardinalityNumber();
+        }
+        if (is_pair(obj)) {
+          if (isCircularList(obj)) TypeError.invariant(false, "length: circular list");
+          return withInputProvenance([obj], obj.length());
+        }
+        if ("length" in obj) {
+          return withInputProvenance([obj], obj.length);
+        }
+      }),
+    ),
     // ------------------------------------------------------------------
     "string->number": doc("string->number", function (arg, radix = 10) {
       typecheck("string->number", arg, "string", 1);
@@ -1807,8 +1809,7 @@ export const global_env = new Environment(
       // filter doesn't union container provenance on the eager path either.
       if (hasPromises && isSpeculating()) {
         const slots = predicateResults.map((r, i) => {
-          const keep = (verdict: unknown): SchemeValue[] =>
-            !is_false(verdict) && !is_nil(verdict) ? [array[i]] : [];
+          const keep = (verdict: unknown): SchemeValue[] => (!is_false(verdict) && !is_nil(verdict) ? [array[i]] : []);
           return is_promise(r) ? (r as Promise<unknown>).then(keep) : Promise.resolve(keep(r));
         });
         return HalfBaked.collection(slots, () => [0, 1]);
@@ -1844,18 +1845,12 @@ export const global_env = new Environment(
     // arrow forms are R5RS-compat aliases (kept by every Scheme that takes
     // legacy code seriously). Cost is one extra lookup per call, paid only
     // when downstream code uses the legacy spelling.
-    "exact->inexact": doc(
-      "exact->inexact",
-      function exactToInexact(z: SchemeValue): SchemeValue {
-        return (global_env.get("inexact") as SchemeFunction)(z);
-      },
-    ),
-    "inexact->exact": doc(
-      "inexact->exact",
-      function inexactToExact(z: SchemeValue): SchemeValue {
-        return (global_env.get("exact") as SchemeFunction)(z);
-      },
-    ),
+    "exact->inexact": doc("exact->inexact", function exactToInexact(z: SchemeValue): SchemeValue {
+      return (global_env.get("inexact") as SchemeFunction)(z);
+    }),
+    "inexact->exact": doc("inexact->exact", function inexactToExact(z: SchemeValue): SchemeValue {
+      return (global_env.get("exact") as SchemeFunction)(z);
+    }),
     // ------------------------------------------------------------------
     or: genMacroWrapper("or"),
     // ------------------------------------------------------------------

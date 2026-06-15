@@ -1,7 +1,6 @@
 import type { EnvironmentModule, FallbackResolver } from "./bindings.js";
 import { isBridgeInitialized } from "./boot.js";
 import type { EOF } from "./EOF.js";
-import { is_env } from "./guards.js";
 import type {
   doc as DocFn,
   get as GetFn,
@@ -343,7 +342,6 @@ export class Environment {
       return this.__parent__.doc(name) as string | undefined;
     }
   }
-
 
   /**
    * Per-module lookup with proper resolution order:
