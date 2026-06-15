@@ -31,10 +31,6 @@
       "types": "./dist/oracle/index.d.ts",
       "import": "./dist/oracle/index.js"
     },
-    "./test-env": {
-      "types": "./dist/custom-matchers.d.ts",
-      "import": "./dist/custom-matchers.js"
-    },
     "./env": {
       "types": "./dist/env/kernel.d.ts",
       "default": "./dist/env/kernel.js"
@@ -54,10 +50,6 @@
     "./srfi": {
       "types": "./dist/env/srfi/index.d.ts",
       "default": "./dist/env/srfi/index.js"
-    },
-    "./macros": {
-      "types": "./dist/env/macros.d.ts",
-      "default": "./dist/env/macros.js"
     }
   },
   "main": "./dist/index.js",
