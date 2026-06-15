@@ -12,6 +12,8 @@ export * from "./McpEnvCapability.js";
 // Value-shaped discovery tool: `new DiscoveryTool(name, capability, {description})` — the
 // subclass-free shell that derives schema + catalog + eval from the one aggregating capability.
 export * from "./DiscoveryTool.js";
+// Wire DiscoveryTools onto the official @modelcontextprotocol/sdk Server (describe→list, call→call).
+export * from "./sdk-adapter.js";
 export * from "./dispatch.js";
 export * from "./ArrivalServer.js";
 export * from "./resources/index.js";
