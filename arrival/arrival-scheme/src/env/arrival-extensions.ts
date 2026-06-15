@@ -5,9 +5,7 @@
 //   • symbol/string conversion (symbol->string / string->symbol / %as.data)
 //   • sort (Scheme quicksort) · unary/binary curry wrappers · tree-map
 //   • pair utilities (pair-map / nth-pair)
-//   • type predicates (iterator? / regex? / key? / …)
-//   • object conversion (alist->object / object->alist)
-//   • value utilities (value / native.number / …)
+//   • type predicates (regex? / key? / …)
 //   • aliases (string-join / string-split) · symbol-append
 //   • arrival safe head accessors (first? / first-or) + the Ramda-override remove
 //
@@ -103,9 +101,6 @@ export const ARRIVAL_EXTENSIONS_SCM = `
 ;; -----------------------------------------------------------------------------
 ;; Type predicates
 ;; -----------------------------------------------------------------------------
-(define (iterator? x)
-   (and (object? x) (procedure? (. x Symbol.iterator))))
-
 (define (regex? x)
   (== (--> (type x) (cmp "regex")) 0))
 
@@ -115,46 +110,6 @@ export const ARRIVAL_EXTENSIONS_SCM = `
 (define (key->string symbol)
   (if (key? symbol)
       (substring (symbol->string symbol) 1)))
-
-(define (defmacro? obj)
-  (and (macro? obj) (. obj 'defmacro)))
-
-(define (native-symbol? x)
-  (and (string=? (type x) "symbol") (not (symbol? x))))
-
-;; -----------------------------------------------------------------------------
-;; Object conversion
-;; -----------------------------------------------------------------------------
-(define (alist->object alist)
-  (if (pair? alist)
-      (alist.to_object)
-      (alist->object (new scheme.Pair #void '()))))
-
-(define (object->alist object)
-  (typecheck "object->alist" object "object")
-  (vector->list (--> (Object.entries object)
-                     (map (lambda (arr)
-                            (apply cons (vector->list arr)))))))
-
-;; alist->assign was a destructive alist merge (set-cdr! + append!). It had zero
-;; callers and was the only internal user of those mutators — removed by the
-;; purity invariant (it cannot exist without mutation; the pure equivalent is to
-;; construct a fresh alist).
-
-;; -----------------------------------------------------------------------------
-;; Value utilities
-;; -----------------------------------------------------------------------------
-(define (native.number x)
-  (if (number? x)
-      (value x)
-      x))
-
-(define (value obj)
-  (if (eq? obj '())
-      #void
-      (if (number? obj)
-          ((. obj "valueOf"))
-          obj)))
 
 ;; -----------------------------------------------------------------------------
 ;; Aliases
