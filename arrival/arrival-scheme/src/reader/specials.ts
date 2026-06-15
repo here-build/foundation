@@ -16,9 +16,8 @@ export function names() {
 export function type(name) {
   try {
     return get(name).type;
-  } catch (error) {
-    console.log({ name });
-    console.log(error);
+  } catch {
+    // Unknown prefix — not a registered reader macro.
     return null;
   }
 }
