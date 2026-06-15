@@ -6,14 +6,14 @@ import dedent from "dedent";
 import invariant from "tiny-invariant";
 import * as z from "zod";
 
-import { ToolInteraction, type MCPClientInfo } from "./ToolInteraction.js";
 import type { McpEnvCapability } from "./McpEnvCapability.js";
+import { ToolInteraction, type MCPClientInfo } from "./ToolInteraction.js";
 
 export interface DiscoveryQuery {
   expr: string;
 }
 
-/** Render one positional zod arg as a Scheme-doc type token for the verb catalog. */
+/** Doc-only catalog rendering — `?` = optional (probe-parsed), never used to validate. */
 function argTypeName(item: z.ZodType): string {
   let postfix = "";
   try {
@@ -36,7 +36,7 @@ type DiscoveryFunctionDescription = string | { dynamic: true; value: string };
 export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<string, any>> extends ToolInteraction<
   DiscoveryQuery & ExecutionContext
 > {
-  /** Wall-clock eval budget (the interpreter TICK-checks it — replaces the old cooperative timeout). */
+  /** The interpreter TICK-checks this wall-clock budget — replaces the old cooperative timeout. */
   private readonly MAX_EXECUTION_TIME = 5000;
   public readonly contextSchema: Record<string, z.ZodType> = {};
 
@@ -207,9 +207,11 @@ export abstract class DiscoveryToolInteraction<ExecutionContext extends Record<s
         // be invoked here (no live activation) — read the descriptor, don't access it.
         const d = Object.getOwnPropertyDescriptor(a, "inputSchema");
         const sig = d && !d.get && Array.isArray(d.value) ? d.value.map(argTypeName).join(" ") : "";
-        const resolved = typeof a.description === "function" ? await a.description() : a.description;
-        const dynamic = typeof resolved === "object" ? resolved.dynamic : false;
-        const text = typeof resolved === "object" ? resolved.value : resolved;
+        // Live text wins when present; a `dynamicDescription` resolving to `undefined` (incl. a
+        // failed fetch) falls back to static `description` and does NOT flag the catalog dynamic.
+        const live = await a.dynamicDescription?.();
+        const dynamic = live !== undefined;
+        const text = live ?? a.description;
         const full = `(${name}${sig ? ` ${sig}` : ""}) - ${text}`;
         return dynamic ? { dynamic: true as const, value: full } : full;
       }),

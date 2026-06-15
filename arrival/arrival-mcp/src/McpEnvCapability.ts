@@ -1,39 +1,35 @@
-// McpEnvCapability — an EnvCapability that also carries MCP tool annotations.
-//
-// The base `EnvCapability` (arrival-scheme/env) is MCP-agnostic: it knows verbs
-// (symbols), config, resources, deps, prelude — the WHAT. The MCP transport (a
-// DiscoveryToolInteraction) needs two more things per verb to expose it to an
-// actor: a human-readable `description` for the tool catalog, and `args` schemas to
-// derive the input JSON-schema + validate incoming calls — the HOW-it's-advertised.
-//
-// Rather than push those onto the generic rosetta config (which would couple the
-// marshalling layer to MCP + zod), they live HERE, on a thin subclass: the ONLY
-// addition over `EnvCapability` is `annotations`. Lowering, resources, deps, and
-// prelude are all inherited unchanged — annotations are inert to the runtime wiring;
-// a transport reflects them off the capability root-set to build its surface.
+/**
+ * The base `EnvCapability` is MCP-agnostic (verbs, config, resources, deps, prelude). A tool
+ * transport needs two more things per verb to expose it to an actor: a `description` for the
+ * catalog and an `inputSchema` to derive the input JSON-schema + validate calls.
+ *
+ * Those could ride on the generic rosetta config, but that would couple the marshalling layer to
+ * MCP + zod — so they live HERE instead, on a thin subclass whose ONLY addition is `annotations`.
+ * Everything else is inherited; annotations are inert to the runtime wiring, reflected off the
+ * capability root-set by a transport to build its surface.
+ */
 
-import { EnvCapability } from "@here.build/arrival-scheme/capability";
-import type { Activation, CapabilitySpec } from "@here.build/arrival-scheme/capability";
+import { type Activation, type CapabilitySpec, EnvCapability } from "@here.build/arrival-scheme/capability";
 import type { Resource } from "@here.build/arrival-scheme/resources";
 import * as z from "zod";
 
-/** zod-schema map, mirroring `EnvCapability`'s configuration constraint. */
-type ZodMap = Record<string, z.ZodType>;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- activation generics erased at this boundary
 type AnyActivation = Activation<any, any>;
 
-/** A catalog description: plain text, or a `{ dynamic, value }` marker (live/personalized
- *  text that flags the schema as session-generated). */
-export type McpDescription = string | { dynamic: true; value: string };
+type MaybePromise<T> = T | Promise<T>;
 
 /** Per-verb MCP metadata: everything the tool transport needs to advertise + validate
  *  a symbol, and nothing the runtime wiring reads. */
 export interface McpAnnotation {
-  /** One-line catalog summary. A (possibly async) FUNCTION — closing over captured context
-   *  — is resolved at schema-fetch time for live/personalized text; mark a live result
-   *  `{ dynamic: true, value }` so the transport notes the schema is session-generated. */
-  description: McpDescription | (() => McpDescription | Promise<McpDescription>);
+  /** Static one-line catalog summary. Always present; shown unless `dynamicDescription`
+   *  resolves to a string. */
+  description: string;
+  /** Optional LIVE/personalized text, resolved (sync or async) at schema-fetch time —
+   *  the per-session "welcome screen". Closes over context captured in `capability()`
+   *  (it runs before any env/activation exists). A thunk so it fires ONLY for the catalog,
+   *  never on tool execution. Resolves to a string ⇒ that text is shown AND the catalog is
+   *  flagged session-generated; resolves to `undefined` ⇒ fall back to `description`,
+   *  NOT flagged dynamic (so a failed live-fetch can return `undefined` honestly). */
+  dynamicDescription?: () => MaybePromise<string | undefined>;
   /**
    * Positional input schemas, PARSED post-membrane (on the marshalled args) and pre-call —
    * so zod transforms run (validate + resolve) before the verb fn. Implement as a GETTER to
@@ -49,12 +45,14 @@ export interface McpAnnotation {
 }
 
 /** A `CapabilitySpec` plus per-symbol MCP annotations (keyed by symbol name). */
-export interface McpCapabilitySpec<C extends ZodMap, R extends Record<string, Resource<unknown>>>
-  extends CapabilitySpec<C, R> {
-  /** Keyed by symbol name. Drives the catalog + arg parsing; inert to plain `lower()`. The
-   *  `ThisType` types each annotation's `inputSchema` getter `this` as the `Activation`, so
-   *  it can read `this.resources` / `this.configuration`. */
-  annotations?: Record<string, McpAnnotation & ThisType<Activation<C, R>>>;
+export interface McpCapabilitySpec<
+  C extends Record<string, z.ZodType>,
+  R extends Record<string, Resource<unknown>>,
+> extends CapabilitySpec<C, R> {
+  /** Keyed by symbol name. Drives the catalog + arg parsing; inert to plain `lower()`. An
+   *  `inputSchema` getter's `this` is the `Activation` at call time (bound via `Reflect.get`),
+   *  but TS can't type accessor `this` — so getter bodies assert the activation shape. */
+  annotations?: Record<string, McpAnnotation>;
 }
 
 /** Resolve a verb's `inputSchema` (invoking its getter with `this`=activation, so resources
@@ -69,7 +67,7 @@ function parseArgs(annotation: McpAnnotation, activation: AnyActivation, raw: un
 
 /** Wrap one symbol's fn with its `inputSchema` parse. `this` is the Activation (bound by
  *  `lower()`), so the getter + its transform closures reach resources. `{ value }` is untouched. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural wrap over SymbolDef
+
 function wrapSymbol(def: any, annotation: McpAnnotation | undefined): any {
   // getOwnPropertyDescriptor checks presence WITHOUT invoking a (resource-using) getter.
   if (!annotation || !Object.getOwnPropertyDescriptor(annotation, "inputSchema")) return def;
@@ -78,7 +76,7 @@ function wrapSymbol(def: any, annotation: McpAnnotation | undefined): any {
   const orig = norm.fn;
   return {
     ...norm,
-    fn: function (this: AnyActivation, ...raw: unknown[]) {
+    fn(this: AnyActivation, ...raw: unknown[]) {
       return orig.apply(this, parseArgs(annotation, this, raw));
     },
   };
@@ -86,24 +84,25 @@ function wrapSymbol(def: any, annotation: McpAnnotation | undefined): any {
 
 /** Wrap every symbol that has an `inputSchema` annotation with arg-parsing. Handles both the
  *  record and the builder (`(activation) => record`) `symbols` forms. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- SymbolsSpec is record | builder
+
 function withArgParsing(symbols: any, annotations: Record<string, McpAnnotation>): any {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wrapRecord = (rec: Record<string, any>): Record<string, any> =>
     Object.fromEntries(Object.entries(rec).map(([name, def]) => [name, wrapSymbol(def, annotations[name])]));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   return typeof symbols === "function" ? (activation: any) => wrapRecord(symbols(activation)) : wrapRecord(symbols);
 }
 
 /** An `EnvCapability` carrying MCP annotations. The only addition over the base is
  *  `annotations`; everything else (lowering, resources, deps, prelude) is inherited. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- variance over the two type params; consumers are precise
-export class McpEnvCapability<C extends ZodMap = any, R extends Record<string, Resource<unknown>> = any>
-  extends EnvCapability<C, R> {
+
+export class McpEnvCapability<
+  C extends Record<string, z.ZodType> = any,
+  R extends Record<string, Resource<unknown>> = any,
+> extends EnvCapability<C, R> {
   constructor(name: string, spec: McpCapabilitySpec<C, R>) {
-    // Wrap each annotated symbol's fn with its `args` parse (post-membrane, pre-call), so
-    // zod transforms run with resource access (the wrapped fn's `this` is the Activation,
-    // bound by `lower()`). Symbols without an `args` annotation pass through untouched.
+    // Wrap each annotated symbol's fn with its `inputSchema` parse (post-membrane, pre-call),
+    // so zod transforms run with resource access (the wrapped fn's `this` is the Activation,
+    // bound by `lower()`). Symbols without an `inputSchema` annotation pass through untouched.
     super(
       name,
       spec.symbols === undefined
