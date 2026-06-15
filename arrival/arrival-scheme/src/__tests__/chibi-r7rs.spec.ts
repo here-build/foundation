@@ -131,7 +131,7 @@ const EXPECTED_FAILURES: { pattern: string | RegExp; reason: string }[] = [
   // frozen; mutation falsifies provenance lineage). These chibi tests exercise
   // the in-place mutators, which now hit a teaching purity DOOR. Intentional
   // deviation, not a bug — arrival is a pure-dataflow sandbox, not generalized
-  // Scheme. See bootstrap.scm "PURITY" manifesto + docs/plan-2026-06-11-purity-pass.
+  // Scheme. See bootstrap.ts "PURITY" manifesto + docs/plan-2026-06-11-purity-pass.
   // (The matcher off-by-one fix un-masked these sections; they were always
   // destined for the door once reached.)
   // -----------------------------------------------------------------------

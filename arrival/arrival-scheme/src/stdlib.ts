@@ -1060,7 +1060,7 @@ export const global_env = new Environment(
       }),
     ),
     // set-car! / set-cdr! / append! — OMITTED by the purity invariant (every
-    // entity is frozen by design). Doored in bootstrap.scm. See plan-2026-06-11.
+    // entity is frozen by design). Doored in bootstrap.ts. See plan-2026-06-11.
     // ------------------------------------------------------------------
     "empty?": doc("empty?", function (x) {
       return x === undefined || is_nil(x);
@@ -1253,7 +1253,7 @@ export const global_env = new Environment(
     // ------------------------------------------------------------------
     // %purity-door — the ONE host primitive behind every omitted feature.
     // arrival's omission boundary (dynamics + writing methods) is declared in
-    // bootstrap.scm as a manifesto of `define-macro` doors that all call this.
+    // bootstrap.ts as a manifesto of `define-macro` doors that all call this.
     // It throws the typed PurityError (feature/owner code → follow-rate
     // telemetry, errors-as-doors Rule 3/5); the language owns the LIST, the host
     // owns the typed throw. See docs/plan-2026-06-11-purity-pass.md.
@@ -1577,7 +1577,7 @@ export const global_env = new Environment(
       // splices the CLONES together via Pair.append. Because every cell touched
       // is a clone, no caller-visible value is mutated — the result is the only
       // new thing. (The destructive `append!` builtin this used to delegate to is
-      // OMITTED by the purity invariant — doored in bootstrap.scm. Its splice
+      // OMITTED by the purity invariant — doored in bootstrap.ts. Its splice
       // logic is inlined here, operating on clones, so it stays pure.)
       const is_list = global_env.get("list?") as SchemeFunction;
       const cloned = items.map((item) => (is_pair(item) ? item.clone() : item));

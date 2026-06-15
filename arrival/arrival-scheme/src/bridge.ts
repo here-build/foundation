@@ -1005,7 +1005,7 @@ export const wrappedOps = {
   },
 
   // string-set! / string-fill! — OMITTED by the purity invariant (frozen
-  // entities); doored in bootstrap.scm. See plan-2026-06-11-purity-pass.
+  // entities); doored in bootstrap.ts. See plan-2026-06-11-purity-pass.
 
   // String comparison
   "string=?"(...strs: unknown[]): boolean {
@@ -1092,7 +1092,7 @@ export const wrappedOps = {
   },
 
   // string-copy! — OMITTED by the purity invariant (mutates its destination);
-  // doored in bootstrap.scm. The non-mutating `string-copy` stays.
+  // doored in bootstrap.ts. The non-mutating `string-copy` stays.
 
   // Case conversion for strings — case is a presentation transform, not a
   // new origin; inherit the source's lineage so downstream `define` of the
@@ -1411,7 +1411,7 @@ export const wrappedOps = {
   },
 
   // vector-set! / vector-fill! / vector-copy! — OMITTED by the purity invariant
-  // (frozen entities); doored in bootstrap.scm. Non-mutating vector-copy stays.
+  // (frozen entities); doored in bootstrap.ts. Non-mutating vector-copy stays.
 
   "vector->list"(vec: unknown, start?: unknown, end?: unknown): unknown {
     const arr = asVector(vec, "vector->list");
@@ -1462,7 +1462,7 @@ export const wrappedOps = {
   },
 
   // vector-copy! — OMITTED by the purity invariant (mutates its destination);
-  // doored in bootstrap.scm. The non-mutating `vector-copy` (above) stays.
+  // doored in bootstrap.ts. The non-mutating `vector-copy` (above) stays.
 
   "vector-map"(proc: Function, ...vectors: unknown[]): SchemeVector | Promise<SchemeVector> {
     invariant(vectors.length > 0, "vector-map: expected at least one vector argument");
@@ -1549,7 +1549,7 @@ export const wrappedOps = {
   },
 
   // bytevector-u8-set! / bytevector-copy! — OMITTED by the purity invariant
-  // (frozen entities); doored in bootstrap.scm. Non-mutating bytevector-copy stays.
+  // (frozen entities); doored in bootstrap.ts. Non-mutating bytevector-copy stays.
 
   "bytevector-copy"(bv: unknown, start?: unknown, end?: unknown): SchemeBytevector {
     const view = asBytevector(bv, "bytevector-copy");
@@ -1637,7 +1637,7 @@ export const wrappedOps = {
   },
 
   // ============================================================================
-  // List Utilities (moved from bootstrap.scm)
+  // List Utilities (moved from bootstrap.ts)
   // ============================================================================
 
   single(list: unknown): boolean {
@@ -1720,7 +1720,7 @@ export const wrappedOps = {
   },
 
   // ============================================================================
-  // Higher-Order Utilities (moved from bootstrap.scm)
+  // Higher-Order Utilities (moved from bootstrap.ts)
   // ============================================================================
 
   complement(fn: Function): Function {
