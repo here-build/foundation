@@ -8,7 +8,7 @@
 // reads), and lineage is sound only if values are immutable and evaluation is
 // pure. These are not missing features — they are what HAD to be excluded.
 //
-// The omission LIST is declared in bootstrap.ts as a manifesto of `define-macro`
+// The omission LIST is declared in core.ts as a manifesto of `define-macro`
 // doors (see the "PURITY" block there). Each door expands to a `(%purity-door
 // feature reason alternative)` call; the `%purity-door` stdlib primitive routes
 // here. This module owns only the TYPED throw — a PurityError carrying the

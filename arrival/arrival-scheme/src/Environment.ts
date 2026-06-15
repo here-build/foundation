@@ -274,6 +274,14 @@ export class Environment {
    * Resolvers are tried in order when normal lookup fails.
    */
   registerResolver(resolver: FallbackResolver): this {
+    // Fail LOUD on a malformed resolver. An `undefined`/`.resolve`-less entry would
+    // otherwise push silently (an empty `__resolvers__.some(...)` short-circuits before
+    // it could throw) and only surface much later as a "cannot read 'resolve'" crash at
+    // lookup time — the symptom of a module-eval-time TDZ capture (see polyglot.ts).
+    invariant(
+      resolver != null && typeof resolver.resolve === "function" && typeof resolver.id === "string",
+      "registerResolver: resolver must have a string id and a resolve() function",
+    );
     // Prevent duplicate registration
     if (!this.__resolvers__.some((r) => r.id === resolver.id)) {
       this.__resolvers__.push(resolver);
@@ -526,7 +534,7 @@ export class Environment {
   // -------------------------------------------------------------------------
 
   /**
-   * Whether the runtime bootstrap (bridge: TS builtins + BOOTSTRAP_SCHEME prelude
+   * Whether the runtime bootstrap (bridge: TS builtins + assembled pack preludes
    * + sandbox seeding) has run for this realm. Realm-global: the bootstrap mutates
    * global singletons once, so every Environment reads the same flag. `exec` checks
    * this and calls `init()` when it's down, so embedders never call `initBridge()`.

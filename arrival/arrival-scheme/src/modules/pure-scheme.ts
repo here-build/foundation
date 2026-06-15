@@ -31,9 +31,15 @@
  */
 
 import type { EnvironmentModule, FallbackResolver } from "../bindings.js";
-import { BOOTSTRAP_SCHEME } from "../bootstrap.js";
+import { BASE_PACKS } from "../env/base-packs.js";
 import { nil, type SchemeValue } from "../types.js";
 import { SAFE_BUILTINS } from "../safe_builtins.js";
+
+/** The scheme stdlib prelude, concatenated from the base packs' bodies in order — the
+ *  same source `initBridge` ASSEMBLES, here flattened to a string for the `fromModules`
+ *  bootstrap field. Computed lazily (per call) so the pack prelude consts are fully
+ *  initialized — never read at module-eval (avoids the import-cycle TDZ). */
+const basePacksPrelude = (): string => BASE_PACKS.map((pack) => pack.spec.prelude ?? "").filter(Boolean).join("\n\n");
 
 /**
  * Create a resolver that pulls the allowlisted Scheme bindings from a source
@@ -82,6 +88,6 @@ export function createPureSchemeModule(sourceEnv: {
   return {
     id: "pure-scheme",
     bindings,
-    bootstrap: BOOTSTRAP_SCHEME,
+    bootstrap: basePacksPrelude(),
   };
 }

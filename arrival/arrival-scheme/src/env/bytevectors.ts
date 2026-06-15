@@ -68,7 +68,7 @@ export const BYTEVECTOR_OPS = {
   },
 
   // bytevector-u8-set! / bytevector-copy! — OMITTED by the purity invariant
-  // (frozen entities); doored in bootstrap.ts. Non-mutating bytevector-copy stays.
+  // (frozen entities); doored in core.ts. Non-mutating bytevector-copy stays.
 
   "bytevector-copy"(bv: unknown, start?: unknown, end?: unknown): SchemeBytevector {
     const view = asBytevector(bv, "bytevector-copy");

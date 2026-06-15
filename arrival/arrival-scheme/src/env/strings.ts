@@ -63,7 +63,7 @@ export const STRING_OPS = {
   },
 
   // string-set! / string-fill! — OMITTED by the purity invariant (frozen
-  // entities); doored in bootstrap.ts. See plan-2026-06-11-purity-pass.
+  // entities); doored in core.ts. See plan-2026-06-11-purity-pass.
 
   // String comparison
   "string=?"(...strs: unknown[]): boolean {
@@ -151,7 +151,7 @@ export const STRING_OPS = {
   },
 
   // string-copy! — OMITTED by the purity invariant (mutates its destination);
-  // doored in bootstrap.ts. The non-mutating `string-copy` stays.
+  // doored in core.ts. The non-mutating `string-copy` stays.
 
   // Case conversion for strings — case is a presentation transform, not a
   // new origin; inherit the source's lineage so downstream `define` of the

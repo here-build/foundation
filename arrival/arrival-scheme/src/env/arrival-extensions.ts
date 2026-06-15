@@ -11,10 +11,10 @@
 //
 // The truly-irreducible core (essential constants, the purity doors, the
 // syntax-binding macros, the --> / .. interop macros and their helpers) stays
-// inline in bootstrap.ts because the later packs expand against it at load time.
+// inline in core (`core.ts`) because the later packs expand against it at load time.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `ARRIVAL_EXTENSIONS_SCM`
-// and concatenates it, so this module is the sole definition site.
+// SINGLE SOURCE: `base-packs.ts` assembles `ARRIVAL_EXTENSIONS_SCM`
+// and evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 import { EnvCapability } from "./capability.js";
 import { SchemeSymbol } from "../SchemeSymbol.js";
 import { typecheck } from "../utils/typecheck.js";

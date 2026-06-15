@@ -1,14 +1,13 @@
 // SRFI-1 — list library completion. Scheme-bootstrap capability.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `SRFI1_SCM` and
-// concatenates it, so this module is the sole definition site. It used to be
-// byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
+// SINGLE SOURCE: `base-packs.ts` assembles `SRFI1_SCM` and
+// evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 //
 // SCOPE: the whole SRFI-1 surface lives here in two blocks — the *completion*
 // set (take-while … length+) and the "missing third" + parallel-list utilities
 // (iota, delete-duplicates, filter-map, count, append-map, some/every, zip,
 // list-index, unfold). The arrival safe-accessors (first?/first-or) and the
-// Ramda-override `remove` deliberately stay in core (bootstrap.ts): the
+// Ramda-override `remove` deliberately stay in core (`core.ts`): the
 // accessors are arrival-specific crash-avoidance, and `remove` exists to
 // override the Ramda spread into the sandbox.
 import { EnvCapability } from "../capability.js";
@@ -111,7 +110,7 @@ export const SRFI1_SCM = `
               (if (eq? slow2 fast2) #f (loop slow2 fast2 (+ n 2))))))))
 
 ;; ============ SRFI-1 (the missing third + parallel-list utilities) ============
-;; Relocated here from bootstrap.ts so the whole SRFI-1 surface is observable in
+;; Relocated here from the legacy core bootstrap so the whole SRFI-1 surface is observable in
 ;; one module. These retire the hand-rolled dedupe/member?/index-map helpers that
 ;; were reinvented across the pipeline.
 

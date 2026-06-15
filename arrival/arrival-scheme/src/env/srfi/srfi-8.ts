@@ -1,7 +1,7 @@
 // SRFI-8 — receive. Scheme-bootstrap capability.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `SRFI8_SCM` and
-// concatenates it, so this module is the sole definition site.
+// SINGLE SOURCE: `base-packs.ts` assembles `SRFI8_SCM` and
+// evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 //
 // DIALECT UNIFICATION: the bootstrap historically defined `receive` with
 // `define-syntax`/`syntax-rules`, which is FULL-env-only (the sandbox's matcher

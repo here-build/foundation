@@ -4,7 +4,7 @@
  * `SchemeVector` so the container carries provenance and hosts algebra
  * instances. The mutating members of the family (`vector-set!`,
  * `vector-fill!`, `vector-copy!`) are OMITTED by the purity invariant (frozen
- * entities, doored in bootstrap.ts); only the non-mutating constructors,
+ * entities, doored in core.ts); only the non-mutating constructors,
  * accessors, and the higher-order `vector-map` / `vector-for-each` (which await
  * async membrane callbacks before settling) live here.
  */
@@ -73,7 +73,7 @@ export const VECTOR_OPS = {
   },
 
   // vector-set! / vector-fill! / vector-copy! — OMITTED by the purity invariant
-  // (frozen entities); doored in bootstrap.ts. Non-mutating vector-copy stays.
+  // (frozen entities); doored in core.ts. Non-mutating vector-copy stays.
 
   "vector->list"(vec: unknown, start?: unknown, end?: unknown): unknown {
     const arr = asVector(vec, "vector->list");
@@ -124,7 +124,7 @@ export const VECTOR_OPS = {
   },
 
   // vector-copy! — OMITTED by the purity invariant (mutates its destination);
-  // doored in bootstrap.ts. The non-mutating `vector-copy` (above) stays.
+  // doored in core.ts. The non-mutating `vector-copy` (above) stays.
 
   "vector-map"(proc: Function, ...vectors: unknown[]): SchemeVector | Promise<SchemeVector> {
     invariant(vectors.length > 0, "vector-map: expected at least one vector argument");

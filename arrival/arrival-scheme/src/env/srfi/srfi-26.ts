@@ -1,8 +1,7 @@
 // SRFI-26 — cut / cute (parameter specialization). Scheme-bootstrap capability.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `SRFI26_SCM` and
-// concatenates it, so this module is the sole definition site. It used to be
-// byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
+// SINGLE SOURCE: `base-packs.ts` assembles `SRFI26_SCM` and
+// evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 import { EnvCapability } from "../capability.js";
 
 export const SRFI26_SCM = `

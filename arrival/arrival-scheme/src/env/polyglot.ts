@@ -25,9 +25,8 @@
 // Wiring-only (no resources) → pause-trivial. NOTE: scoped to the self-contained
 // idiom family — cut/cute (which need gensym + JS interop) ship as SRFI-26 instead.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `POLYGLOT_SCM` and
-// concatenates it, so this module is the sole definition site. It used to be
-// byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
+// SINGLE SOURCE: `base-packs.ts` assembles `POLYGLOT_SCM` and
+// evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 
 import { EnvCapability } from "./capability.js";
 import { keywordAccessorResolver, readMember, hasMember, memberKeys } from "../membrane.js";
@@ -92,12 +91,21 @@ export const POLYGLOT_SCM = `
  *   • `:key` — the keyword accessor, the `@`-alias, contributed as a catchall `resolver`.
  *   • `-> / ->> / compose / pipe / …` — threading & composition (prelude).
  *  Module-singleton capability; `@`/`:key` bottom out in one `readMember` (membrane.ts). */
+// IMPORT-ORDER SAFETY: `membrane.ts` is a heavy module (it pulls the evaluator) that
+// can be MID-INITIALIZATION when this capability's spec object is evaluated — the
+// assembly path imports it via `base-packs → polyglot → membrane → evaluator → …`, a
+// cycle. Reading `readMember` / `keywordAccessorResolver` at module-eval time would
+// freeze the TDZ `undefined` into the spec; assembly would then `set("@", undefined)`
+// and push an undefined resolver. So defer every membrane read to APPLY time (when
+// `initBridge` assembles, all modules are loaded): `symbols` uses the builder form,
+// and the resolver delegates through a stable wrapper whose `resolve` reads the live
+// `keywordAccessorResolver` binding only when called.
 export default new EnvCapability("scheme/polyglot", {
   prelude: POLYGLOT_SCM,
-  resolvers: [keywordAccessorResolver],
-  symbols: {
+  resolvers: [{ id: "keyword-accessor", resolve: (name: string) => keywordAccessorResolver.resolve(name) }],
+  symbols: () => ({
     "@": { value: readMember },
     "@?": { value: hasMember },
     "@keys": { value: memberKeys },
-  },
+  }),
 });

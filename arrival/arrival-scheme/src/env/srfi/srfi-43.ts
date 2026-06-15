@@ -1,8 +1,7 @@
 // SRFI-43 — vector library (pure ops). Scheme-bootstrap capability.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `SRFI43_SCM` and
-// concatenates it, so this module is the sole definition site. It used to be
-// byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
+// SINGLE SOURCE: `base-packs.ts` assembles `SRFI43_SCM` and
+// evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 import { EnvCapability } from "../capability.js";
 
 export const SRFI43_SCM = `

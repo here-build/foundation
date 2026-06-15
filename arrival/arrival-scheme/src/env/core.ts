@@ -8,7 +8,7 @@
 // of the base stdlib, so every other base pack (polyglot / r7rs / srfi / …)
 // depends on it.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `CORE_SCM` and
+// SINGLE SOURCE: `base-packs.ts` assembles `CORE_SCM` and
 // concatenates it FIRST, so this module is the sole definition site — the same
 // pattern the SRFI / r7rs / polyglot packs already follow.
 

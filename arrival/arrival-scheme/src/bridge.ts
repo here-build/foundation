@@ -12,7 +12,9 @@ import unicodeProperties from "unicode-properties";
 
 import { AValue, unionProvenance } from "./AValue.js";
 import { isBridgeInitialized, markBridgeInitialized } from "./boot.js";
-import { BOOTSTRAP_SCHEME } from "./bootstrap.js";
+import { assembleEnv } from "./env/kernel.js";
+import { BASE_PACKS } from "./env/base-packs.js";
+import type { EvalSchemeInto, SchemeEnv } from "./env/scheme-env.js";
 import { HalfBaked, is_half_baked, type Interval } from "./HalfBaked.js";
 import type { Environment } from "./Environment.js";
 import { SchemeBool, schemeFalse, schemeTrue } from "./SchemeBool.js";
@@ -681,13 +683,23 @@ let bootstrapPromise: Promise<void> | null = null;
 
 export function initBridge(): Promise<void> {
   if (isBridgeInitialized() && bootstrapPromise) return bootstrapPromise;
-  // Set the realm-level flag at the TOP, before the bootstrap exec below — so the
-  // re-entrant inner exec(BOOTSTRAP_SCHEME) sees `initialized === true` and skips
+  // Set the realm-level flag at the TOP, before the prelude eval below — so the
+  // re-entrant inner exec (a pack prelude) sees `initialized === true` and skips
   // its own self-init (no recursion). See boot.ts.
   markBridgeInitialized();
 
   // Apply TypeScript bindings synchronously
   applyToEnvironment(global_env);
+
+  // The scheme stdlib loads by ASSEMBLING the base packs onto user_env — not by
+  // exec-ing one hand-concatenated `BOOTSTRAP_SCHEME` string. `assembleEnv` runs
+  // each pack's full contribution (prelude + symbols + resolvers) in C3 order, so
+  // the packs are the SOLE source of the scheme surface: e.g. polyglot's `@`/`:key`
+  // and arrival's `symbol->string` now land here via their owning capability rather
+  // than via separate hand-wiring. `evalScheme` injects the evaluator (exec into the
+  // assembling env). The base preludes are verified mutually order-independent (none
+  // expands another's macro), so the C3 application order is immaterial to them.
+  const evalScheme: EvalSchemeInto = (env, src) => exec(src as string, { env: env as Environment });
 
   // Evaluate bootstrap Scheme code asynchronously, then expose a curated set of
   // bootstrap-defined bindings in the sandbox. They live in user_env; copy the
@@ -719,7 +731,7 @@ export function initBridge(): Promise<void> {
   //     Ramda spread. Ramda is now evicted into @here.build/arrival-scheme-env-ramda
   //     (opt-in), so copying the bootstrap definitions over is what keeps the plane's
   //     compose/pipe/some/every — sourced from pure Scheme. Pure, capability-free.
-  bootstrapPromise = exec(BOOTSTRAP_SCHEME).then(async () => {
+  bootstrapPromise = assembleEnv(userEnv as unknown as SchemeEnv, BASE_PACKS.map((pack) => pack.lower({ evalScheme }))).then(async () => {
     const { sandboxedEnv } = await import("./sandbox-env.js");
     for (const name of [
       "->", "->>", "~>", "~>>", "cut", "cute", "gensym",

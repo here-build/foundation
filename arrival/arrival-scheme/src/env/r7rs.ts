@@ -6,13 +6,13 @@
 // with-exception-handler, error, guard). %else-literal? is the private helper
 // that lets cond/case recognise a literal `else` clause.
 //
-// These are the OPPOSITE face of the purity doors in bootstrap.ts: the doors
+// These are the OPPOSITE face of the purity doors in core (`core.ts`): the doors
 // name what R7RS arrival omits (dynamics + mutators) for provenance soundness;
 // this pack supplies what R7RS arrival keeps. It depends on the host try /
 // catch / finally + %raise primitives, on which the exception forms are built.
 //
-// SINGLE SOURCE: `BOOTSTRAP_SCHEME` (bootstrap.ts) imports `R7RS_SCM` and
-// concatenates it, so this module is the sole definition site.
+// SINGLE SOURCE: `base-packs.ts` assembles `R7RS_SCM` and
+// evals it (via initBridge's assembleEnv), so this module is the sole definition site.
 import { EnvCapability } from "./capability.js";
 import { SchemeSymbol } from "../SchemeSymbol.js";
 
