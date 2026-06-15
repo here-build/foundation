@@ -4,16 +4,14 @@
 export class Values {
   __values__: unknown[];
 
-  // Private constructor - use Values.from() factory instead
+  // Use Values.from() — it unwraps 0/1-element cases this constructor cannot.
   private constructor(values: unknown[]) {
     this.__values__ = values;
   }
 
   /**
-   * Factory method to create Values or unwrap single/empty values.
-   * - Empty array: returns undefined
-   * - Single element: returns that element (unwrapped)
-   * - Multiple elements: returns Values instance
+   * Empty → undefined; single element → that element unwrapped; ≥2 → a Values.
+   * The unwrap is what keeps a 1-value `(values x)` indistinguishable from `x`.
    */
   static from(values: unknown[]): unknown {
     if (values.length === 0) {

@@ -1,4 +1,4 @@
-// SRFI libraries added to bootstrap.ts (2026-06-11): SRFI-1 (lists), SRFI-43
+// SRFI libraries added as base packs (2026-06-11): SRFI-1 (lists), SRFI-43
 // (vectors, pure ops only — arrival is immutable), SRFI-189 (Maybe/Either),
 // SRFI-128 (comparators, no hash). All are pure procedures (no macros → no
 // matcher dependency). These assert the surface behaves; the drafting horde

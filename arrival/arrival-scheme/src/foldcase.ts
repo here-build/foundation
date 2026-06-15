@@ -1,7 +1,6 @@
-// ----------------------------------------------------------------------
-// :: the Unicode folding case mapping generated scripts/fold.scm to get
-// :: latest version of the file use `make fold`
-// ----------------------------------------------------------------------
+// Unicode simple case-fold table (codepoint → folded codepoint) backing R7RS `#!fold-case` and
+// `string-foldcase`. GENERATED — do not hand-edit; regenerate with `make fold` (runs scripts/fold.scm)
+// to track the latest Unicode CaseFolding data.
 const fold_case_mapping = {
   "65": 97,
   "66": 98,
@@ -1431,7 +1430,7 @@ const fold_case_mapping = {
   "125217": 125_251,
 };
 
-// ----------------------------------------------------------------------
+/** Case-fold a string per the table above; iterates by codepoint so astral chars fold correctly. */
 export function foldcase_string(string) {
   string = string.valueOf();
   return [...string]

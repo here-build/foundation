@@ -1,7 +1,6 @@
-// ----------------------------------------------------------------------
-// Stack used in balanced function
-// TODO: use it in parser
-// ----------------------------------------------------------------------
+// Bracket-matching predicate for partial input — the REPL uses it to decide whether an expression is
+// complete or needs a continuation line. Lexer-driven, so it agrees with the real reader's tokenizer.
+// TODO: have the Parser reuse this Stack rather than its own parentheses counter.
 import { tokenize } from "../stdlib.js";
 import { TokenMeta } from "../Formatter.js";
 import { Parser } from "../Parser.js";
@@ -40,6 +39,8 @@ export function balanced(code: string | TokenMeta[]): boolean {
     try {
       tokens = tokenize(code) as string[];
     } catch (error) {
+      // An unterminated string/comment IS unbalanced input — report it as such rather than throwing,
+      // so the REPL keeps prompting for more instead of erroring mid-entry.
       if (error instanceof Parser.Unterminated) {
         return false;
       }

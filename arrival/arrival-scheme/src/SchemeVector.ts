@@ -1,18 +1,17 @@
-// -------------------------------------------------------------------------
-// :: Vector wrapper — boxes a raw JS array into the AValue kernel so it can
-// :: carry provenance and host Fantasy Land algebra instances.
-// -------------------------------------------------------------------------
-// Modeled on SchemeString (SchemeString.ts) and SchemeBytevector (SchemeBytevector.ts).
-// Vectors are MUTABLE (vector-set!/fill!/copy!), so the payload stays writable.
-//
-// THE DISAMBIGUATION (boxing plan §1): a raw JS `Array` is heavily overloaded in
-// this runtime — the evaluateArgs args carrier, Values, HalfBaked, syntax-rules
-// ellipsis machinery, and JS-array-as-list at the membrane are ALL raw arrays
-// and are NOT vectors. Only values produced by vector literals / make-vector /
-// vector builtins are SchemeVector. SchemeVector is its own class, so the
-// type-(b) `Array.isArray` sites are unaffected — never widen them to accept it.
-//
-// Boxing track: docs/plan-2026-06-10-boxing-track.md (S5 — created, unused).
+/**
+ * Boxes a raw JS array into the AValue kernel so it carries provenance and
+ * hosts Fantasy Land algebra instances. Modeled on SchemeString / SchemeBytevector.
+ * Vectors are MUTABLE (vector-set!/fill!/copy!) — the payload stays writable.
+ *
+ * THE DISAMBIGUATION (boxing plan §1): a raw JS `Array` is heavily overloaded
+ * here — the evaluateArgs args carrier, Values, HalfBaked, syntax-rules ellipsis
+ * machinery, and JS-array-as-list at the membrane are ALL raw arrays and are NOT
+ * vectors. Only vector literals / make-vector / vector builtins mint SchemeVector.
+ * Being its own class leaves the `Array.isArray` sites unaffected — NEVER widen
+ * them to accept it.
+ *
+ * Boxing track: docs/plan-2026-06-10-boxing-track.md (S5).
+ */
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 import { structuralEqual } from "./structural-equal.js";

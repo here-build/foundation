@@ -20,9 +20,6 @@ import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 import { type PairLike } from "./types.js";
 import { Nil, nil, setPairConstructor } from "./types.js";
 
-/**
- * Internal type for pair with metadata (cycles, refs, location).
- */
 interface PairWithMetadata<Car = unknown, Cdr = unknown> extends Pair<Car, Cdr> {
   [__cycles__]?: { car?: string | Pair; cdr?: string | Pair };
   [__ref__]?: string;
@@ -300,18 +297,12 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
     return Pair.fromPairs(array);
   }
 
-  /**
-   * Set source location metadata for this pair.
-   * Returns this for chaining.
-   */
+  /** Returns this for chaining. */
   setLocation(loc: SourceLocation): this {
     this[__location__] = loc;
     return this;
   }
 
-  /**
-   * Get source location metadata for this pair.
-   */
   getLocation(): SourceLocation | undefined {
     return this[__location__];
   }
@@ -610,11 +601,10 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
 
   toJs(): unknown {
     // toJs's serialization target is cache / log / HTTP JSON — none of which
-    // can represent cycles. `toString` (this file, ~line 484) handles them by
-    // emitting `#0=` / `#0#` ref markers via __cycles__ / __ref__ metadata
-    // because s-expression text supports that notation; JSON does not.
-    // Loud-fail rather than hand back a value that explodes downstream — or,
-    // worse, hangs forever in the loop below.
+    // can represent cycles. `toString` handles them by emitting `#0=` / `#0#`
+    // ref markers via __cycles__ / __ref__ metadata because s-expression text
+    // supports that notation; JSON does not. Loud-fail rather than hand back a
+    // value that explodes downstream — or, worse, hangs forever in the loop below.
     invariant(!this.have_cycles(), "Pair.toJs: cannot serialize a list with cycles");
     // Belt-and-suspenders against cycles introduced post-have_cycles check via
     // mutation between top-level call and a deeper recursive toJs (e.g. a
@@ -675,14 +665,14 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
   }
 
   // ----------------------------------------------------------------------
-  // Fantasy Land structure-algebras (migrated from the fantasy-land-lips.ts
+  // Fantasy Land structure-algebras (migrated from the fantasy-land.ts
   // monkey-patch into the class body — plan-2026-06-10-algebras-in-entities.md
   // wave 2). A Pair is the free monoid + Functor + Foldable + Traversable +
   // Chain over a list. The recursors below TERMINATE on `instanceof Nil`, not
   // `=== nil`: after the AValue refactor `nil.withProvenance(p)` mints fresh
   // Nil clones (types.ts), so reference-equality would recurse past a
   // provenance-bearing list end and crash on `<Nil-clone>.cdr`. Mirrors
-  // guards.ts:is_nil.
+  // value-guards.ts:is_nil.
   // ----------------------------------------------------------------------
 
   // Functor — map each element, preserving the list spine.
@@ -736,10 +726,9 @@ export class Pair<Car = unknown, Cdr = unknown> extends AValue implements PairLi
 
 // The empty-list sentinel: `new Pair()` (no args) yields `Pair(undefined, nil)`,
 // the shape arrival uses for "empty list" wherever a bare Pair is constructed.
-// ramda-functions.ts's own Pair recursors honor it (lines ~159/208) — the
-// class-body recursors must too, else delegating through `fantasy-land/*` would
-// fold a phantom `undefined` element. `instanceof Nil` (not `=== nil`) catches
-// provenance clones in the cdr.
+// EVERY Pair recursor must honor it (the ramda pack's own recursors do too), else
+// delegating through `fantasy-land/*` would fold a phantom `undefined` element.
+// `instanceof Nil` (not `=== nil`) catches provenance clones in the cdr.
 function isEmptyPairSentinel(p: Pair): boolean {
   return p.car === undefined && p.cdr instanceof Nil;
 }

@@ -1,5 +1,12 @@
+/**
+ * Reader-macro registry: maps a source prefix (`'`, `` ` ``, `,`, `,@`, `#(`, …)
+ * to the SchemeSymbol it expands to and an expansion `type`. The lexer consults
+ * this table — and its `on`/`off`/`trigger` events — to recognize special syntax
+ * at read time, before the evaluator ever sees a form. Derived from upstream LIPS.
+ */
 import { SchemeSymbol } from "./SchemeSymbol.js";
 
+/** Prefix expands to a single quoted/wrapped datum (`'x` → `(quote x)`). */
 export const LITERAL = Symbol.for("literal");
 export const SPLICE = Symbol.for("splice");
 export const SYMBOL = Symbol.for("symbol");

@@ -16,18 +16,13 @@ import * as specials from "./specials.js";
 import { SchemeCharacter } from "./types.js";
 
 /**
- * Lexer rule tuple: [char_re, prev_re, next_re, from_state, to_state]
- * - char_re: regex or string to match current character
- * - prev_re: regex or string to match previous character (null = any)
- * - next_re: regex or string to match next character (null = any)
- * - from_state: required current state (null = no state)
- * - to_state: state to transition to (null = token complete)
+ * FSM transition row: `[char_re, prev_re, next_re, from_state, to_state]`. A row fires when the
+ * current char matches `char_re`, the neighbours match `prev_re`/`next_re` (null = any), AND the
+ * machine is in `from_state` (null = stateless). `to_state` null means the token is COMPLETE at this
+ * char — that null-terminator contract is what `next_token` and `literal_rule` both rely on.
  */
 type LexerRule = [RegExp | string, RegExp | string | null, RegExp | string | null, symbol | null, symbol | null];
 
-/**
- * Internal state for lexer instance.
- */
 interface LexerInternals {
   _i: number;
   _whitespace: boolean;
@@ -40,29 +35,19 @@ interface LexerInternals {
   _prev_char: string;
 }
 
-// ----------------------------------------------------------------------
+// null neighbour-constraint = wildcard; a string constraint is an exact char compare, not a regex.
 function match_or_null(re: RegExp | string | null, char: string): boolean {
   if (re === null) {
     return true;
   }
-  // If it's a string, do exact character match instead of regex
   if (typeof re === "string") {
     return char === re;
   }
   return !!char.match(re);
 }
 
-// ----------------------------------------------------------------------
-/* Lexer debugger
-   var DEBUG = false;
-   function log(...args) {
-   if (DEBUG) {
-   console.log(...args);
-   }
-   }
-*/
 export class Lexer {
-  // Static symbol constants for lexer states
+  // FSM state markers (interned via Symbol.for so user syntax-extensions can name the same states).
   static readonly string = Symbol.for("string");
   static readonly string_escape = Symbol.for("string_escape");
   static readonly symbol = Symbol.for("symbol");
@@ -80,7 +65,8 @@ export class Lexer {
   static readonly dot = Symbol.for("dot");
   static readonly boundary = /^$|[\s()[\]{}']/;
   static _brackets: LexerRule[] = [[/[()[\]{}]/, null, null, null, null]];
-  // symbols should be matched last
+  // Symbol rules MUST concatenate last — a delimiter is claimed as a bracket/special before these
+  // greedy `\S` catch-alls can swallow it (the disambiguation strategy, see the file header).
   static _symbol_rules: LexerRule[] = [
     [/\S/, Lexer.boundary, Lexer.boundary, null, null],
     [/\S/, Lexer.boundary, null, null, Lexer.symbol],
@@ -88,15 +74,17 @@ export class Lexer {
     [/\S/, null, null, null, Lexer.symbol],
     [/\S/, null, Lexer.boundary, Lexer.symbol, null],
   ];
-  // so user code can modify Lexer using syntax extensions
+  // Assembled rule list is memoized; invalidated when `specials` gains/drops a syntax extension
+  // (see the `specials.on` registration at the bottom of the file).
   static _cache: { valid: boolean; rules: LexerRule[] | null } = {
     valid: false,
     rules: null,
   };
-  // Instance properties (defined via Object.defineProperty in constructor)
+  // Instance fields are installed via Object.defineProperty in the constructor (non-enumerable, so
+  // they stay hidden from Scheme-side introspection of this object).
   __input__!: string;
 
-  // Dynamic getter for Lexer state rules, parser uses this
+  // Last token's meta, snapshotted on peek() — a parser extension reads it to recover source position.
   __token__?: { token: string; col: number; offset: number; line: number };
   private _i!: number;
   private readonly _whitespace!: boolean;
@@ -484,7 +472,7 @@ export class Lexer {
   }
 }
 
-// Register cache invalidation handler for syntax extensions
+// A syntax extension added/removed at runtime changes the special-rules layer → drop the memoized list.
 specials.on(["remove", "append"], function () {
   Lexer._cache.valid = false;
   Lexer._cache.rules = null;

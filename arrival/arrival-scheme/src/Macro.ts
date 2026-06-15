@@ -9,6 +9,11 @@ export interface MacroInvokeContext {
   [key: string]: unknown;
 }
 
+/**
+ * A define-macro fexpr: a function that receives UNEVALUATED code and returns a
+ * replacement form. `Syntax` (syntax-rules) subclasses this. `__defmacro__` marks
+ * instances that `macroexpand` is allowed to expand.
+ */
 export class Macro {
   static __class__ = "macro";
 
@@ -27,6 +32,8 @@ export class Macro {
     this.__fn__ = fn;
   }
 
+  // The fexpr body runs with `env` as `this`; `macro_expand` is threaded in so a
+  // macro can recursively expand its own output.
   invoke(code: unknown, { env, ...rest }: MacroInvokeContext, macro_expand: unknown): unknown {
     return this.__fn__.call(env, code, { ...rest, macro_expand }, this.__name__);
   }

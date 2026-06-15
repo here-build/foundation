@@ -21,25 +21,23 @@ export function parseBigInt(str: string, radix: number = 10): bigint {
   return negative ? -result : result;
 }
 
-// -------------------------------------------------------------------------
-// :: Serialization
-// -------------------------------------------------------------------------
-// Use getters to defer access to SchemeString and SchemeCharacter, avoiding circular dependency issues
+// ── Deserialization revivers, keyed by class tag ──
+// SchemeString/SchemeCharacter are reached through getters so the live binding is read lazily —
+// referencing them eagerly here would form a module-init cycle with the types modules.
 const serialization_map = {
   pair: ([car, cdr]) => new Pair(car, cdr),
   number(value) {
     if (SchemeString.isString(value)) {
-      // Parse number string
       return new SchemeExact(parseBigInt(value.valueOf(), 10));
     }
     if (typeof value === "bigint") {
       return new SchemeExact(value);
     }
     if (typeof value === "number") {
+      // Safe-integer JS numbers round-trip exactly as bigint; anything else stays inexact float.
       return Number.isSafeInteger(value) ? new SchemeExact(BigInt(value)) : new SchemeInexact(value);
     }
-    // For already-wrapped numbers, return as-is
-    return value;
+    return value; // already a wrapped number
   },
   regex([pattern, flag]) {
     return new RegExp(pattern, flag);
@@ -61,8 +59,8 @@ const serialization_map = {
     return SchemeCharacter;
   },
 };
-// -------------------------------------------------------------------------
-// class mapping to create smaller JSON
+// Serialized tags are the class's INDEX into this array, not its name — a small-integer `@` keeps the
+// JSON compact. Index assignment is therefore positional: never reorder `serialization_map`.
 export const available_class = Object.keys(serialization_map);
 export const class_map = {};
 
@@ -70,7 +68,7 @@ function resolve_name(i) {
   return available_class[i];
 }
 
-// -------------------------------------------------------------------------
+// Revives the compact form: `{"@": classIndex, "#": payload}` → the corresponding Scheme value.
 export function unserialize(string) {
   return JSON.parse(string, (_, object) => {
     if (object && typeof object === "object" && !is_undef(object["@"])) {

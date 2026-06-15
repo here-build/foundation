@@ -45,9 +45,6 @@ import { nil, type SchemeValue } from "./types.js";
 // Error Handling with Stack Traces
 // ============================================================================
 
-/**
- * Represents a frame in the Scheme evaluation stack.
- */
 export interface StackFrame {
   code: SchemeValue;
   env_name?: string;
@@ -56,9 +53,7 @@ export interface StackFrame {
   location?: SourceLocation;
 }
 
-/**
- * Enhanced error with Scheme stack trace.
- */
+/** ArrivalError carrying the Scheme-level evaluation stack (host JS frames are useless here). */
 export class SchemeError extends ArrivalError {
   readonly name = "SchemeError";
 
@@ -73,9 +68,6 @@ export class SchemeError extends ArrivalError {
     }
   }
 
-  /**
-   * Format the error with Scheme stack trace.
-   */
   toString(): string {
     let result = `${this.name}: ${this.message}`;
 
@@ -96,9 +88,6 @@ export class SchemeError extends ArrivalError {
   }
 }
 
-/**
- * Extract source location from a Scheme value if it has one.
- */
 function getLocation(code: SchemeValue): SourceLocation | undefined {
   if (code && typeof code === "object" && __location__ in code) {
     return code[__location__] as SourceLocation;
@@ -106,15 +95,13 @@ function getLocation(code: SchemeValue): SourceLocation | undefined {
   return undefined;
 }
 
-/**
- * Format Scheme code for display in stack traces.
- */
+/** Format Scheme code for display in stack traces — truncates lists at 5 elements / `maxLen` chars. */
 function formatCode(code: SchemeValue, maxLen = 60): string {
   if (code === null || code === undefined) return "null";
   // `is_nil` not `=== nil`: after the AValue refactor, `nil.withProvenance(p)` mints
-  // fresh Nil clones (types.ts:87) — reference-equality misses them and a provenance-
+  // fresh Nil clones (types.ts) — reference-equality misses them and a provenance-
   // bearing list-terminator would format as "[object Object]" in stack traces.
-  // Matches the pattern adopted at line 131 below. Tier-1 fix context: 5f7f9e46a.
+  // Tier-1 fix context: 5f7f9e46a.
   if (is_nil(code)) return "()";
   if (code instanceof SchemeSymbol) return symbol_name(code);
   if (typeof code === "string") return JSON.stringify(code);
@@ -340,8 +327,8 @@ let _canBounce = false;
 
 /**
  * Tier-2 speculation flag, read synchronously by producer builtins (filter/map
- * in lips.ts) at apply time to decide whether to emit a lazy `HalfBaked` carrier
- * instead of awaiting the whole promise fan. Module-level (not `__withCtx`) so
+ * in stdlib.ts) at apply time to decide whether to emit a lazy `HalfBaked`
+ * carrier instead of awaiting the whole promise fan. Module-level (not `__withCtx`) so
  * variadic / HOF / value uses of the producers see it without a wrapper that
  * would break their arity. Saved/restored around each apply, mirroring
  * `_canBounce`. Off by default → eager, byte-identical path. See
@@ -355,8 +342,8 @@ export const isSpeculating = (): boolean => _speculate;
 /**
  * Re-install `_dynamicCallSite` on every invocation of a lambda passed as
  * an arg. Native HOFs like reduce/fold/find recurse via promise chains
- * (lips.ts:3593 `unpromise(fn(acc, x)).then(recurse)`), so iteration N+1
- * fires from a microtask AFTER the outer evaluatePair's finally has
+ * (`unpromise(fn(acc, x)).then(recurse)` in the stdlib HOFs), so iteration
+ * N+1 fires from a microtask AFTER the outer evaluatePair's finally has
  * restored the holder. Without per-call re-install, the lambda body for
  * iteration ≥1 would inherit the WRONG dynamic parent.
  *
@@ -1104,9 +1091,7 @@ function* evalBegin(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   return result;
 }
 
-/**
- * Handle 'quote' special form: (quote datum)
- */
+/** `(quote datum)` — return the datum unevaluated. */
 function* evalQuote(rest: SchemeValue, _ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "quote: missing argument");
   return rest.car;
@@ -1125,7 +1110,8 @@ function* evalQuasiquote(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
 }
 
 /**
- * Process quasiquoted expression with nesting level tracking
+ * `level` tracks quasiquote nesting (R7RS §4.2.8): unquote fires only at level 1,
+ * nested `` ` ``/`,` raise/lower it so inner unquotes stay quoted until their depth.
  */
 function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number): EvalGenerator {
   // Vectors are processed element-wise: `#(1 ,x ,@xs) builds a fresh vector with
@@ -1284,9 +1270,7 @@ function* processQuasiquote(expr: SchemeValue, ctx: EvalContext, level: number):
   return result;
 }
 
-/**
- * Handle 'define' special form: (define name value) or (define (name . args) body)
- */
+/** `(define name value)` or `(define (name . args) body)` — the procedure shorthand desugars to a lambda. */
 function* evalDefine(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "define: missing name");
 
@@ -1334,9 +1318,7 @@ function* evalDefine(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   return undefined;
 }
 
-/**
- * Handle 'set!' special form: (set! name value)
- */
+/** `(set! name value)` — assign an EXISTING binding; unbound is an error (R7RS §5.3.1), not a fresh define. */
 function* evalSet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "set!: missing name");
 
@@ -1367,9 +1349,7 @@ function* evalSet(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   return value;
 }
 
-/**
- * Handle 'lambda' special form: (lambda args body)
- */
+/** `(lambda args body)` — closes over the definition-time env; body starts in tail position (R7RS §3.5). */
 function* evalLambda(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "lambda: missing arguments");
 
@@ -1461,9 +1441,7 @@ function* evalLambda(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   return lambda;
 }
 
-/**
- * Handle 'define-macro' special form: (define-macro (name . args) body)
- */
+/** `(define-macro (name . args) body)` — fexpr-style macro; params bind to UNEVALUATED argument forms. */
 function* evalDefineMacro(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "define-macro: missing definition");
 
@@ -2067,10 +2045,7 @@ function* evalCaseArrowProc(exprs: SchemeValue, nonTailCtx: EvalContext): EvalGe
   return proc;
 }
 
-/**
- * Handle 'when' special form: (when test expr...)
- * Execute expressions only if test is true
- */
+/** `(when test expr...)` — body in tail position inherits when's tail flag (R7RS §3.5). */
 function* evalWhen(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "when: missing test");
 
@@ -2092,10 +2067,7 @@ function* evalWhen(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   return undefined;
 }
 
-/**
- * Handle 'unless' special form: (unless test expr...)
- * Execute expressions only if test is false
- */
+/** `(unless test expr...)` — the `#f`-guarded mirror of `when`; body in tail position. */
 function* evalUnless(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
   invariant(is_pair(rest), "unless: missing test");
 
@@ -2348,7 +2320,7 @@ function* evalTry(rest: SchemeValue, ctx: EvalContext): EvalGenerator {
       // this module: a static `import ... from "./bridge.js"` pulls bridge's
       // eager `set_interaction_env` into evaluator init and breaks the
       // SchemePromise circular-init ordering (bridge.ts documents that it must
-      // not be imported during lips.ts init). By the time a `try` body has
+      // not be imported during stdlib bootstrap init). By the time a `try` body has
       // actually thrown, every module is fully initialized, so the dynamic
       // import resolves synchronously from the registry.
       if (errorValue instanceof Error) {
@@ -2433,16 +2405,16 @@ const SPECIAL_FORMS: Record<string, (rest: SchemeValue, ctx: EvalContext) => Eva
   unless: evalUnless,
   do: evalDo,
   while: evalWhile,
-  // delay / force — OMITTED by the purity invariant; doored in bootstrap.ts
+  // delay / force — OMITTED by the purity invariant; doored in core.ts
   // (removed from the special-form table so env lookup reaches the door).
   // Error handling
   // NOTE: `raise` and `error` are deliberately NOT special forms. They are
-  // defined in bootstrap.ts as R7RS procedures that walk
+  // defined in core.ts as R7RS procedures that walk
   // *current-exception-handlers* (§6.11). Special-form dispatch precedes env
   // lookup, so shadowing them here made the entire exception tower inert
   // (with-exception-handler / guard / raise-continuable never saw the value).
   try: evalTry,
-  // parameterize — OMITTED by the purity invariant; doored in bootstrap.ts.
+  // parameterize — OMITTED by the purity invariant; doored in core.ts.
 };
 
 /**

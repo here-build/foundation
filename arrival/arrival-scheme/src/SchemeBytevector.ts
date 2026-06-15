@@ -1,14 +1,14 @@
-// -------------------------------------------------------------------------
-// :: Bytevector wrapper — boxes a raw Uint8Array into the AValue kernel so it
-// :: can carry provenance and host Fantasy Land algebra instances.
-// -------------------------------------------------------------------------
-// Modeled on SchemeString (SchemeString.ts). Bytevectors are MUTABLE
-// (bytevector-u8-set!/copy!), so the payload stays writable — unlike a frozen
-// string literal. The asBytevector coercion (ArrayBuffer/DataView/Buffer) that
-// previously lived in bridge.ts moves into the constructor, so a SchemeBytevector
-// always normalizes to a single Uint8Array payload.
-//
-// Boxing track: docs/plan-2026-06-10-boxing-track.md (S1 — pilot, unused).
+/**
+ * Boxes a raw Uint8Array into the AValue kernel so it carries provenance and
+ * hosts Fantasy Land algebra instances. Modeled on SchemeString.
+ *
+ * Bytevectors are MUTABLE (bytevector-u8-set!/copy!) — the payload stays
+ * writable, unlike a frozen string literal. The ArrayBuffer/DataView/Buffer
+ * coercion is co-located in the constructor, so a SchemeBytevector always
+ * normalizes to a single Uint8Array payload.
+ *
+ * Boxing track: docs/plan-2026-06-10-boxing-track.md (S1).
+ */
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 

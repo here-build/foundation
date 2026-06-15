@@ -646,7 +646,7 @@ describe("Generator Evaluator with Real LIPS Types", () => {
 
     // delay/force — OMITTED by the purity invariant (delayed evaluation defers a
     // value's identity to force-time, severing construction-rooted provenance).
-    // Removed from the special-form table; doored in bootstrap.ts. The full door
+    // Removed from the special-form table; doored in core.ts. The full door
     // surface (delay/force/make-promise/delay-force) is pinned in
     // purity-doors.test.ts; here we just confirm the special form is gone.
     describe("delay/force — omitted by the purity invariant", () => {

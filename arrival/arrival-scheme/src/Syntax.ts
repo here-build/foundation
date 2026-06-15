@@ -4,6 +4,12 @@ import { Macro, MacroInvokeContext } from "./Macro.js";
 // Type for syntax object (can be Syntax or Function)
 type SyntaxLike = Syntax | Function;
 
+/**
+ * A `syntax-rules` transformer. Unlike a plain `Macro`, it captures its
+ * definition env (`__env__`) for hygiene and returns a quoted-already expansion
+ * (evaluatePair forwards Syntax results without re-evaluating — see the
+ * `is_syntax` branch there).
+ */
 export class Syntax extends Macro {
   static __class__ = "syntax";
   static __merge_env__ = Symbol.for("merge");

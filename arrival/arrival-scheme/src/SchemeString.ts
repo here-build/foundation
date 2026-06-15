@@ -1,25 +1,13 @@
-// -------------------------------------------------------------------------
-// :: String wrapper that handles copy and in-place change
-// -------------------------------------------------------------------------
+// String wrapper — copy + in-place mutation (string-set!/string-fill!) over a
+// code-point view, with provenance and Fantasy Land algebras on the instance.
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import type { SchemeNumeric } from "./numbers.js";
 import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 import { SchemeCharacter } from "./types.js";
 import { typecheck } from "./utils/typecheck.js";
 
-/**
- * Types that can be converted to a string value.
- */
 type StringLike = string | SchemeString | { valueOf(): string };
-
-/**
- * Types that can be used as numeric indices.
- */
 type NumberLike = number | SchemeNumeric | { valueOf(): number };
-
-/**
- * Types that can be used as characters.
- */
 type CharLike = string | SchemeCharacter | { valueOf(): string };
 
 export class SchemeString extends AValue {
@@ -120,8 +108,7 @@ export class SchemeString extends AValue {
   // Functor (Fantasy Land) — map over the characters. Iterates by code point
   // (spread), so astral chars map as single graphemes. `f` receives and returns
   // a string char; the result is the joined string. (Migrated from the
-  // fantasy-land-lips.ts monkey-patch — plan-2026-06-10-algebras-in-entities.md
-  // wave 2.)
+  // fantasy-land.ts monkey-patch — plan-2026-06-10-algebras-in-entities.md wave 2.)
   ["fantasy-land/map"](f: (char: string) => string): SchemeString {
     return new SchemeString([...this.__string__].map(f).join(""));
   }

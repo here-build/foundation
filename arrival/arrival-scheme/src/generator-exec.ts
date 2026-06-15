@@ -1,8 +1,7 @@
 /**
- * Generator-Based Exec Entry Point
- *
- * This module bridges the LIPS parser with the generator-based evaluator,
- * providing an API compatible with the existing LIPS exec function.
+ * Public `exec`/`parse` entry point: bridges the parser (in stdlib.ts, the
+ * upstream-LIPS-derived reader) to the generator-based evaluator. Self-bootstraps
+ * the runtime on first use, then drives each top-level form through `run()`.
  *
  * Usage:
  *   import { exec } from "./generator-exec.js";
@@ -102,7 +101,7 @@ export async function exec(
 
   // Self-initialize the runtime bootstrap (TS builtins + Scheme prelude) lazily,
   // so embedders never call initBridge() manually. The realm-level flag makes the
-  // re-entrant inner exec(BOOTSTRAP_SCHEME) a no-op (see Environment.init / boot.ts).
+  // re-entrant inner prelude exec a no-op (see Environment.init / boot.ts).
   if (!actualEnv.initialized) await actualEnv.init();
 
   // Parse if string, otherwise wrap single value in array
@@ -156,8 +155,8 @@ export async function exec(
 }
 
 /**
- * Parse Scheme code without evaluating.
- * Re-exported from LIPS for convenience. `source` (a filename / module path) is
+ * Parse Scheme code without evaluating (delegates to stdlib's reader).
+ * `source` (a filename / module path) is
  * stamped onto every produced location, so frames built from these forms read as
  * `file:line` — used by `(require …)` to attribute a module's throws to its file.
  */

@@ -1,6 +1,3 @@
-// -------------------------------------------------------------------------
-// :: SchemeSymbol - Lisp symbol type
-// -------------------------------------------------------------------------
 import { AValue, EMPTY_PROVENANCE } from "./AValue.js";
 import { markAsSandboxBoundary } from "./sandbox-boundary.js";
 import type { SchemeStringLike } from "./types.js";
@@ -53,7 +50,6 @@ export class SchemeSymbol extends AValue {
     }
   }
 
-  // Check if symbol matches a name (string, SchemeSymbol, or RegExp)
   static is(symbol: unknown, name: string | SchemeSymbol | RegExp): boolean {
     return (
       symbol instanceof SchemeSymbol &&
@@ -127,9 +123,7 @@ export class SchemeSymbol extends AValue {
   }
 }
 
-// -------------------------------------------------------------------------
-// :: Helper functions for symbols
-// -------------------------------------------------------------------------
+// ── Symbol helpers ──
 function isSymbol(x: unknown): x is symbol {
   return typeof x === "symbol" || (typeof x === "object" && Object.prototype.toString.call(x) === "[object Symbol]");
 }

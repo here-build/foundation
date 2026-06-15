@@ -1,8 +1,6 @@
-// ----------------------------------------------------------------------
-// return last S-Expression
-// @param tokens - array of tokens (objects from tokenizer or strings)
-// @param sexp - number of expression to look behind
-// ----------------------------------------------------------------------
+// Scheme source pretty-printer / re-indenter. Works purely off the tokenizer's metadata (col/line per
+// token) — the indentation model follows the community Scheme style guide and GNU Emacs scheme-mode,
+// encoded as the token-pattern `rules` table. Originates from the LIPS formatter.
 import { is_special, is_symbol_string } from "./guards.js";
 import { tokenize } from "./stdlib.js";
 import { SchemeString } from "./SchemeString.js";
@@ -22,9 +20,6 @@ import {
 import { balanced } from "./utils/balanced.js";
 import invariant from "tiny-invariant";
 
-// ----------------------------------------------------------------------
-// :: Type definitions for Formatter
-// ----------------------------------------------------------------------
 export interface TokenMeta {
   token: string;
   col: number;
@@ -47,6 +42,8 @@ type PatternFlag = "+" | "*" | "?";
 type PatternElement = RegExp | string | symbol | PatternElement[];
 type PatternType = PatternElement | InstanceType<typeof Formatter.Pattern>;
 
+/** Slice off the last `sexp` complete s-expressions from the END of `tokens`, by counting `(`/`)`
+ *  depth backwards. Used to recover the enclosing form when deciding a line's indent. */
 function previousSexp<T extends string | TokenMeta>(tokens: T[], sexp = 1): T[] {
   let i = tokens.length;
   invariant(sexp > 0, `previousSexp: Invalid argument sexp = ${sexp}`);
@@ -69,9 +66,8 @@ function previousSexp<T extends string | TokenMeta>(tokens: T[], sexp = 1): T[] 
   return tokens.slice(i + 1);
 }
 
-// ----------------------------------------------------------------------
-// :: Find the number of spaces in line
-// ----------------------------------------------------------------------
+/** Leading-space count of the current (last) line — the whitespace token that follows the trailing
+ *  newline. Returns 0 when the line is empty or unindented. */
 function lineIndent(tokens: TokenMeta[]): number {
   if (!tokens?.length) {
     return 0;

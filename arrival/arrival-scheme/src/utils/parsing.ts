@@ -1,6 +1,6 @@
-// -------------------------------------------------------------------------
-// :: Pure parsing functions for numbers, strings, and symbols
-// -------------------------------------------------------------------------
+// Pure token→value parsers for the Scheme numeric tower (exact/inexact, rational, complex, radix
+// prefixes), string literals, characters, and symbols. No I/O, no lexer state — given a token string,
+// returns the boxed value. Numeric-grammar helpers originate from the LIPS reader.
 import invariant from "tiny-invariant";
 import { is_exact, is_inexact, is_int } from "../guards.js";
 import { schemeFalse, schemeTrue } from "../SchemeBool.js";
@@ -347,15 +347,11 @@ export const parse_symbol = (arg: string): SchemeSymbol =>
       : arg,
   );
 
-// ----------------------------------------------------------------------
-// :: Constants map for parsing literal values
-// ----------------------------------------------------------------------
-// Hoisted to module level so every `+inf.0` / `-inf.0` / `+nan.0` literal in
-// the source resolves to the same instance — mirrors `nan`'s pattern. The
-// inf entries previously returned raw JS primitives, which leaked an
-// un-AValue past the parser and broke downstream code that expects every
-// numeric to be a SchemeExact/SchemeInexact (e.g. `is_inexact`, the bridge
-// wrapOperator, provenance algebra at L2+).
+// ── Self-evaluating literal constants ──
+// Hoisted to module scope so every `+inf.0` / `-inf.0` / `+nan.0` in source shares ONE instance.
+// These MUST stay boxed SchemeInexact, not raw JS numbers: a bare primitive leaks an un-AValue past
+// the parser and breaks every downstream consumer that assumes numerics are SchemeExact/SchemeInexact
+// (`is_inexact`, the bridge's wrapOperator, the L2+ provenance algebra).
 const nan = new SchemeInexact(Number.NaN);
 const posInf = new SchemeInexact(Number.POSITIVE_INFINITY);
 const negInf = new SchemeInexact(Number.NEGATIVE_INFINITY);
@@ -372,9 +368,10 @@ const constants: Record<string, unknown> = {
   ...parsable_contants,
 };
 
-// ----------------------------------------------------------------------
-// :: Main token→value parser
-// ----------------------------------------------------------------------
+// ── Token → value dispatch ──
+// Constants first, then string, then the `#`-prefixed family (regex/char), then the numeric tower;
+// anything that falls through is a symbol. Order matters — the cheap `Object.hasOwn` and prefix tests
+// gate the expensive numeric regexes.
 export function parse_argument(arg: string): unknown {
   if (Object.hasOwn(constants, arg)) {
     return constants[arg];

@@ -63,7 +63,7 @@ const HANGING_SPECS: Record<string, string> = {
  * skipped file are temporarily dormant — recovered at re-baseline.
  */
 // W6 (2026-06-09): the `s.__name__` blocker is FIXED at root — `symbol->string`
-// in bootstrap.ts no longer uses the broken `obj.prop` reader sugar (it uses the
+// in core.ts no longer uses the broken `obj.prop` reader sugar (it uses the
 // explicit `(. s '__name__)` accessor). That sugar resolved a symbol literally
 // named "s.__name__" and reached the trampoline evaluator's `env_get`, which calls
 // `_lookupWithResolvers` directly and (unlike `Environment.get`) does NOT split
