@@ -24,7 +24,7 @@ import { __data__ } from "./values/primitives.js";
 import { eqv } from "./values/structural-equal.js";
 import { nil, type SchemeValue } from "./values/types.js";
 import { type } from "./utils/typecheck.js";
-import { gensym, hidden_prop, is_atom, is_gensym, quote } from "./values-repr.js";
+import { gensym, hidden_prop, is_atom, is_gensym, quote } from "./reader/values-repr.js";
 
 type SchemeFunction = (...args: any[]) => any;
 

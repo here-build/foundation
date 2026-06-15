@@ -10,11 +10,11 @@
 // distribution, and non-regression of `()`/`[]` list reading.
 import { describe, expect, it } from "vitest";
 import { eof } from "../values/EOF.js";
-import { Lexer } from "../Lexer.js";
+import { Lexer } from "../reader/Lexer.js";
 import { EOF } from "../values/EOF.js";
-import { Parser } from "../Parser.js";
+import { Parser } from "../reader/Parser.js";
 import { SchemeSymbol } from "../values/SchemeSymbol.js";
-import { canonicalizeCurly, FIXITY } from "../curly-infix.js";
+import { canonicalizeCurly, FIXITY } from "../reader/curly-infix.js";
 import type { SchemeValue } from "../values/types.js";
 
 function lex(input: string): string[] {

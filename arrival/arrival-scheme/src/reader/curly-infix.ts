@@ -11,11 +11,11 @@
 // involved). Precedence is granted only where it is overlearned (PEMDAS); every other operator mix
 // is an errors-as-door `ParseError`. See docs/working-proposals/arrival-sweet-extension-design-ideation-2026-06-15.md §5.2.
 
-import type { SourceLocation } from "./errors.js";
-import { ParseError } from "./errors.js";
-import { Pair } from "./values/Pair.js";
-import { SchemeSymbol } from "./values/SchemeSymbol.js";
-import { nil, type SchemeValue } from "./values/types.js";
+import type { SourceLocation } from "../errors.js";
+import { ParseError } from "../errors.js";
+import { Pair } from "../values/Pair.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
+import { nil, type SchemeValue } from "../values/types.js";
 
 type Loc = SourceLocation | null | undefined;
 

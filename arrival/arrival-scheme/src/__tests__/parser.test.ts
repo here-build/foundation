@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { EOF } from "../values/EOF.js";
 import { SchemeVector } from "../values/SchemeVector.js";
-import { Parser } from "../Parser.js";
+import { Parser } from "../reader/Parser.js";
 import type { SchemeValue } from "../values/types.js";
 
 async function readAll(src: string): Promise<SchemeValue[]> {

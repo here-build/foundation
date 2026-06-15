@@ -1,9 +1,9 @@
 // Scheme source pretty-printer / re-indenter. Works purely off the tokenizer's metadata (col/line per
 // token) — the indentation model follows the community Scheme style guide and GNU Emacs scheme-mode,
 // encoded as the token-pattern `rules` table. Originates from the LIPS formatter.
-import { is_special, is_symbol_string } from "./guards.js";
-import { tokenize } from "./stdlib.js";
-import { SchemeString } from "./values/SchemeString.js";
+import { is_special, is_symbol_string } from "../guards.js";
+import { tokenize } from "../stdlib.js";
+import { SchemeString } from "../values/SchemeString.js";
 import {
   def_lambda_re,
   glob,
@@ -16,8 +16,8 @@ import {
   re_re,
   string_re,
   syntax_rules,
-} from "./values/primitives.js";
-import { balanced } from "./utils/balanced.js";
+} from "../values/primitives.js";
+import { balanced } from "../utils/balanced.js";
 import invariant from "tiny-invariant";
 
 export interface TokenMeta {

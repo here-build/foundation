@@ -31,7 +31,7 @@
 // derived structurally from the enclosing form's head where cheaply knowable, defaulting to
 // application/top.
 
-import * as specials from "../specials.js";
+import * as specials from "../reader/specials.js";
 import type {
   CursorPosition,
   FormKind,

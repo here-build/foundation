@@ -1,9 +1,9 @@
-import { is_undef } from "./guards.js";
-import { SchemeString } from "./values/SchemeString.js";
-import { SchemeSymbol } from "./values/SchemeSymbol.js";
-import { SchemeExact, SchemeInexact } from "./values/numbers.js";
-import { Pair } from "./values/Pair.js";
-import { SchemeCharacter, nil } from "./values/types.js";
+import { is_undef } from "../guards.js";
+import { SchemeString } from "../values/SchemeString.js";
+import { SchemeSymbol } from "../values/SchemeSymbol.js";
+import { SchemeExact, SchemeInexact } from "../values/numbers.js";
+import { Pair } from "../values/Pair.js";
+import { SchemeCharacter, nil } from "../values/types.js";
 
 export function parseBigInt(str: string, radix: number = 10): bigint {
   str = str.trim();

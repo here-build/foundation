@@ -9,7 +9,7 @@
 // evaluator, so these run without any environment/stdlib bootstrap.
 import { describe, expect, it } from "vitest";
 import { eof } from "../values/EOF.js";
-import { Lexer } from "../Lexer.js";
+import { Lexer } from "../reader/Lexer.js";
 
 /** Collect every meaningful token (string form) from an input. */
 function lex(input: string): string[] {

@@ -21,7 +21,7 @@ import {
   rational_re,
   re_re,
 } from "../values/primitives.js";
-import { parseBigInt } from "../serialize.js";
+import { parseBigInt } from "../reader/serialize.js";
 import { SchemeCharacter } from "../values/types.js";
 
 // -------------------------------------------------------------------------

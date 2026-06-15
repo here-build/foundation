@@ -2,8 +2,8 @@
 // complete or needs a continuation line. Lexer-driven, so it agrees with the real reader's tokenizer.
 // TODO: have the Parser reuse this Stack rather than its own parentheses counter.
 import { tokenize } from "../stdlib.js";
-import { TokenMeta } from "../Formatter.js";
-import { Parser } from "../Parser.js";
+import { TokenMeta } from "../reader/Formatter.js";
+import { Parser } from "../reader/Parser.js";
 import invariant from "tiny-invariant";
 
 class Stack<T = string> {

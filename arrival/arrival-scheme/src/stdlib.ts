@@ -11,9 +11,9 @@ import { Environment, KEYWORD_ACCESSOR_FIELD, setSchemeRuntime } from "./Environ
 import { findHeapMeter, heapBudgetMessage } from "./heap-budget.js";
 import { eof } from "./values/EOF.js";
 import { HalfBaked, is_half_baked } from "./values/HalfBaked.js";
-import { Lexer } from "./Lexer.js";
+import { Lexer } from "./reader/Lexer.js";
 import { purityDoor } from "./purity.js";
-import { Parser } from "./Parser.js";
+import { Parser } from "./reader/Parser.js";
 import { QuotedPromise } from "./values/QuotedPromise.js";
 import {
   is_env,
@@ -33,7 +33,7 @@ import {
 import { SchemeSymbol } from "./values/SchemeSymbol.js";
 import { eq, eqv } from "./values/structural-equal.js";
 import { clear_gensyms, extract_patterns, transform_syntax } from "./syntax-rules.js";
-import { gensym, hidden_prop, quote } from "./values-repr.js";
+import { gensym, hidden_prop, quote } from "./reader/values-repr.js";
 import {
   __context__,
   __fn__,
@@ -47,13 +47,13 @@ import {
   rational_re,
 } from "./values/primitives.js";
 import { nil, SchemeCharacter } from "./values/types.js";
-import * as specials from "./specials.js";
+import * as specials from "./reader/specials.js";
 import { call_function } from "./call-function.js";
 import { SchemeExact, SchemeInexact } from "./values/numbers.js";
 import { type, typecheck, typeErrorMessage } from "./utils/typecheck.js";
 import { parse_complex, parse_float, parse_integer, parse_rational } from "./utils/parsing.js";
 import { Values } from "./values/Values.js";
-import { available_class, class_map } from "./serialize.js";
+import { available_class, class_map } from "./reader/serialize.js";
 import { Macro } from "./Macro.js";
 import { Syntax } from "./Syntax.js";
 import { isCircularList, Pair } from "./values/Pair.js";

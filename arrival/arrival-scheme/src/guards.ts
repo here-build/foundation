@@ -19,7 +19,7 @@ import {
   re_re,
 } from "./values/primitives.js";
 import { QuotedPromise } from "./values/QuotedPromise.js";
-import * as specials from "./specials.js";
+import * as specials from "./reader/specials.js";
 import { nil } from "./values/types.js";
 // Leaf value-kernel predicates live in value-guards.ts (no Environment/Macro
 // dep) so Pair.ts can import them without dragging the evaluator world in.
