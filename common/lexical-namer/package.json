@@ -36,5 +36,10 @@
     "eslint": "9.39.2",
     "typescript": "6.0.2",
     "vitest": "4.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "common/lexical-namer"
   }
 }

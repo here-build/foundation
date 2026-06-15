@@ -1,14 +1,15 @@
 {
   "name": "@here.build/plexus",
   "version": "0.1.0",
-  "description": "Constraint network for object state superposition through mathematical field dynamics",
+  "description": "Reactive state management with automatic replication: make TypeScript classes sync across clients via Yjs CRDT.",
   "keywords": [
-    "constraint",
-    "field",
-    "mathematics",
-    "model",
-    "proxy",
-    "superposition"
+    "crdt",
+    "yjs",
+    "reactive",
+    "state-management",
+    "collaboration",
+    "mobx",
+    "real-time"
   ],
   "license": "FSL-1.1-MIT",
   "author": "here.build",
@@ -81,5 +82,10 @@
     "mobx": {
       "optional": true
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "plexus"
   }
 }

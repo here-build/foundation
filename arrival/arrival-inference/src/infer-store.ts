@@ -52,13 +52,13 @@ export const noopCache: InferCache = {
  *  a string is itself; anything structured is its JSON. */
 const textOf = (value: unknown): string => (typeof value === "string" ? value : JSON.stringify(value));
 
-// Verbose inference tracing — opt-in via `HOST_DEBUG=1`. Prints every cell's
-// lifecycle (dispatch → first token → settle/abort) with model + timing, so a
-// stall (e.g. LM Studio swapping to a 120B model) is visible as a `→` with no `←`.
-// Lives here, on the single inference plane, so it covers EVERY host path.
+// Verbose inference tracing — opt-in via `ARRIVAL_INFER_DEBUG=1`. Prints every
+// cell's lifecycle (dispatch → first token → settle/abort) with model + timing,
+// so a stall (e.g. LM Studio swapping to a 120B model) is visible as a `→` with
+// no `←`. Lives here, on the single inference plane, so it covers EVERY path.
 const VERBOSE = (() => {
   try {
-    return !!process.env.HOST_DEBUG;
+    return !!process.env.ARRIVAL_INFER_DEBUG;
   } catch {
     return false;
   }

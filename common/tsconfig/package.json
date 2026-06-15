@@ -20,5 +20,10 @@
     "env/*.json",
     "package.json"
   ],
-  "license": "FSL-1.1-MIT"
+  "license": "FSL-1.1-MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "common/tsconfig"
+  }
 }

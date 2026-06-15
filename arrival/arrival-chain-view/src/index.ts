@@ -1,6 +1,6 @@
 /**
  * arrival-chain-view — a faithful, deterministic projection of arrival-chain
- * scheme into a target language. Phase 1: JS (read-view). See SPEC.md.
+ * scheme into a target language. Phase 1: JS (read-view).
  */
 export { projectToJs, projectToJsRaw, type ProjectOptions } from "./project.js";
 export { sliceToTypeScript } from "./slice-to-ts.js";

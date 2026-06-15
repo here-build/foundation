@@ -9,6 +9,11 @@
   ],
   "license": "FSL-1.1-MIT",
   "author": "here.build",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "arrival/arrival-scheme-env-infer"
+  },
   "type": "module",
   "exports": {
     ".": {

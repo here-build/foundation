@@ -1,7 +1,7 @@
 {
   "name": "@here.build/collections",
   "version": "0.1.0",
-  "description": "Collection utilities: DefaultedMap, DefaultedWeakMap, and MobX-reactive variants",
+  "description": "Collection utilities: DefaultedMap, DefaultedWeakMap, Counter, PathMap, multimaps, and MobX-reactive computed variants",
   "license": "FSL-1.1-MIT",
   "author": "here.build",
   "type": "module",
@@ -46,5 +46,10 @@
     "mobx": {
       "optional": true
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "common/collections"
   }
 }

@@ -31,5 +31,10 @@
     "@types/node": "24.0.0",
     "eslint": "9.39.2",
     "typescript": "6.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/foundation.git",
+    "directory": "common/error-invariant"
   }
 }
