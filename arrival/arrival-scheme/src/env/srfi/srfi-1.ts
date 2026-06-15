@@ -4,11 +4,13 @@
 // concatenates it, so this module is the sole definition site. It used to be
 // byte-duplicated inline in bootstrap.ts; the docstrings travelled here with the code.
 //
-// SCOPE: this is the SRFI-1 *completion* set (take-while … length+). The SRFI-1
-// "missing third" (iota, delete-duplicates, filter-map, count, list-index,
-// append-map) plus zip/some/every/unfold still live inline in bootstrap.ts and
-// are slated to join this module in a later phase. The arrival safe-accessors
-// (first?/first-or) and the Ramda-override `remove` deliberately stay in core.
+// SCOPE: the whole SRFI-1 surface lives here in two blocks — the *completion*
+// set (take-while … length+) and the "missing third" + parallel-list utilities
+// (iota, delete-duplicates, filter-map, count, append-map, some/every, zip,
+// list-index, unfold). The arrival safe-accessors (first?/first-or) and the
+// Ramda-override `remove` deliberately stay in core (bootstrap.ts): the
+// accessors are arrival-specific crash-avoidance, and `remove` exists to
+// override the Ramda spread into the sandbox.
 import { EnvCapability } from "../capability.js";
 
 export const SRFI1_SCM = `
@@ -107,6 +109,91 @@ export const SRFI1_SCM = `
           (else
             (let ((slow2 (cdr slow)) (fast2 (cdr (cdr fast))))
               (if (eq? slow2 fast2) #f (loop slow2 fast2 (+ n 2))))))))
+
+;; ============ SRFI-1 (the missing third + parallel-list utilities) ============
+;; Relocated here from bootstrap.ts so the whole SRFI-1 surface is observable in
+;; one module. These retire the hand-rolled dedupe/member?/index-map helpers that
+;; were reinvented across the pipeline.
+
+;; iota — (iota count [start step]); a list of count integers from start by step.
+(define (iota count . rest)
+  (let ((start (if (null? rest) 0 (car rest)))
+        (step (if (or (null? rest) (null? (cdr rest))) 1 (cadr rest))))
+    (let loop ((i 0) (acc '()))
+      (if (>= i count) (reverse acc)
+          (loop (+ i 1) (cons (+ start (* i step)) acc))))))
+
+;; delete-duplicates — order-preserving dedup by equal?. Retires the O(n²) hand-rolled
+;; dedupe reinvented across the pipeline.
+(define (delete-duplicates xs)
+  (let loop ((xs xs) (seen '()) (acc '()))
+    (if (null? xs) (reverse acc)
+        (if (member (car xs) seen)
+            (loop (cdr xs) seen acc)
+            (loop (cdr xs) (cons (car xs) seen) (cons (car xs) acc))))))
+
+;; filter-map — map then drop the falsy results, in one pass the model can't mismatch.
+(define (filter-map fn . lists)
+  (filter (lambda (x) x) (apply map fn lists)))
+
+;; count — how many element-tuples satisfy pred.
+(define (count pred . lists)
+  (length (filter (lambda (b) b) (apply map pred lists))))
+
+;; append-map — map then append the result lists.
+(define (append-map fn . lists)
+  (apply append (apply map fn lists)))
+
+;; some / every — existence and universal quantifiers over parallel lists. (some is
+;; SRFI-1's \`any\`, kept under the Ramda-familiar name.) %any-null?/%some/%every are
+;; private helpers; some must precede zip and list-index, which call it.
+(define (%any-null? lst)
+  (if (null? lst)
+      false
+      (if (null? (car lst))
+          true
+          (%any-null? (cdr lst)))))
+
+(define (%some fn lists)
+  (if (or (null? lists) (%any-null? lists))
+      false
+      (if (apply fn (map car lists))
+          true
+          (%some fn (map cdr lists)))))
+
+(define (some fn . lists)
+  (typecheck "some" fn "function")
+  (%some fn lists))
+
+(define (%every fn lists)
+  (if (or (null? lists) (%any-null? lists))
+      true
+      (and (apply fn (map car lists)) (%every fn (map cdr lists)))))
+
+(define (every fn . lists)
+  (typecheck "every" fn "function")
+  (%every fn lists))
+
+;; zip — transpose parallel lists into a list of tuples; stops at the shortest.
+(define (zip . lists)
+  (if (or (null? lists) (some null? lists))
+      '()
+      (cons (map car lists) (apply zip (map cdr lists)))))
+
+;; list-index — index of the first element-tuple satisfying pred, or #f.
+(define (list-index pred . lists)
+  (let loop ((i 0) (ls lists))
+    (if (some null? ls) #f
+        (if (apply pred (map car ls)) i
+            (loop (+ i 1) (map cdr ls))))))
+
+;; unfold — build a list by iterating fn from init; fn returns (head . next) or #f to stop.
+(define (unfold fn init)
+  (typecheck "unfold" fn "function")
+  (let iter ((pair (fn init)) (result '()))
+    (if (not pair)
+        (reverse result)
+        (iter (fn (cdr pair)) (cons (car pair) result)))))
 `;
 
 export default new EnvCapability("scheme/srfi-1", { prelude: SRFI1_SCM });
