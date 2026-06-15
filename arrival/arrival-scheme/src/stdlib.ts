@@ -68,6 +68,7 @@ import { SchemeBytevector } from "./SchemeBytevector.js";
 import { SchemeString } from "./SchemeString.js";
 import { SchemeVector } from "./SchemeVector.js";
 import { keywordAccessorResolver, NOT_FOUND, sandboxedAccess, SandboxViolationError, SchemeJSFunction, SchemeJSObject } from "./membrane.js";
+import { collapseProvenance, taintString } from "./provenance-collapse.js";
 import genRun, { type EvalContext, evaluate as genEvaluate, isSpeculating, SchemeError } from "./evaluator.js";
 
 // Declare jQuery for browser environments
@@ -1504,7 +1505,11 @@ export const global_env = new Environment(
     join: doc("join", function join(this: Environment, separator, list) {
       typecheck("join", separator, "string");
       typecheck("join", list, ["pair", "nil"]);
-      return (global_env.get("list->array") as SchemeFunction).call(this, list).join(separator);
+      // Collapsing op: fold the list to one string, then re-stamp the DEEP union of
+      // every element's lineage (+ the separator's) — else `(join sep inferred-list)`
+      // strips the provenance the trace wires on. See provenance-collapse.ts.
+      const joined = (global_env.get("list->array") as SchemeFunction).call(this, list).join(separator);
+      return taintString(String(joined), collapseProvenance(separator, list));
     }),
     // ------------------------------------------------------------------
     split: doc("split", function split(separator, string) {

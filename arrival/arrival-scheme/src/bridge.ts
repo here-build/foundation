@@ -28,6 +28,7 @@ import { SchemeExact, SchemeInexact } from "./numbers.js";
 import * as ops from "./operators/index.js";
 // Import directly from source files to avoid circular dependency during init
 import { isCircularList, Pair } from "./Pair.js";
+import { collapseProvenance, taintString } from "./provenance-collapse.js";
 import { structuralEqual } from "./structural-equal.js";
 import { Nil, SchemeCharacter, nil, type SchemeValue } from "./types.js";
 import { type } from "./utils/typecheck.js";
@@ -1044,11 +1045,12 @@ export const wrappedOps = {
     return true;
   },
 
-  "string-append"(...strs: unknown[]): SchemeString {
-    // Result strings inherit lineage from every concatenated input — without
-    // this, `(string-append prefix user-name suffix)` would forget where the
-    // user-name came from at the next `define` binding.
-    return withInputProvenance(strs, new SchemeString(strs.map(stringValue).join("")));
+  "string-append"(...strs: unknown[]): string | SchemeString {
+    // Collapsing op: the result inherits lineage from every input — and DEEP, so a
+    // nested structure (a list/vector/array of inference-stamped values) is hoisted,
+    // not just the top-level AValue args. Without this, `(string-append prefix
+    // (join "" parts))` forgets where `parts` came from. See provenance-collapse.ts.
+    return taintString(strs.map(stringValue).join(""), collapseProvenance(...strs));
   },
 
   "string->list"(str: unknown, start?: unknown, end?: unknown): unknown {
