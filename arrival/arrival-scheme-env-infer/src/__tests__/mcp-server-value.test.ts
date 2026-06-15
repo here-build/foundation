@@ -10,18 +10,11 @@
 import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
 import { describe, expect, it } from "vitest";
 
+import { DerivableEntity, isDerivableEntity } from "@here.build/arrival-inference";
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
-import { arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
 
-import {
-  inertMcpResolver,
-  isDerivableEntity,
-  DerivableEntity,
-  resolveTools,
-  type McpEffect,
-  type McpEffectResolver,
-} from "../mcp-effects.js";
+import { arrivalMcpCapability, inertMcpResolver, type McpEffect, type McpEffectResolver, resolveTools } from "../mcp.js";
 
 const ctx = {};
 

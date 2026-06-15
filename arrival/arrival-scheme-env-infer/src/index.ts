@@ -30,11 +30,9 @@ export {
   arrivalAgenticCapability,
   arrivalMcpCapability,
   describeMcpEffect,
-  dispatchThroughChain,
   inertMcpResolver,
   type McpEffect,
   type McpEffectResolver,
   type McpMethod,
-  resolveTools,
   runAgenticInfer,
 } from "./mcp.js";

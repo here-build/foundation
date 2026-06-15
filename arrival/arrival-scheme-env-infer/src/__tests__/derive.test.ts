@@ -12,13 +12,13 @@
  * This is the value+verb surface only — the infer-path wiring that runs an llm entity's
  * chain around the model call is the next increment. Here we prove the algebra in isolation.
  */
+import { DerivableEntity } from "@here.build/arrival-inference";
 import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
-import { arrivalDeriveCapability } from "@here.build/arrival-scheme-env-infer";
 import { describe, expect, it } from "vitest";
 
-import { DerivableEntity } from "../mcp-effects.js";
+import { arrivalDeriveCapability } from "../derive.js";
 
 /** Run scheme against an env with the derive-algebra verbs wired (the config-less
  *  `arrivalDeriveCapability` — these are PURE value constructions, no dispatch crosses the

@@ -4,22 +4,18 @@
  * re-encode responses / force-halt). The membrane crossing (scheme λ ↔ JS next ↔ break
  * sentinel) is exercised through real scheme middlewares.
  */
+import {
+  DerivableEntity,
+  type EntityMiddleware,
+  MCP_BREAK,
+  runMiddlewareChain,
+} from "@here.build/arrival-inference";
 import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
-import { describe, expect, it } from "vitest";
-
 import { assembleEnv } from "@here.build/arrival-scheme/env";
 import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
-import { arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
+import { describe, expect, it } from "vitest";
 
-import {
-  dispatchThroughChain,
-  MCP_BREAK,
-  DerivableEntity,
-  runMiddlewareChain,
-  type McpEffect,
-  type McpEffectResolver,
-  type EntityMiddleware,
-} from "../mcp-effects.js";
+import { arrivalMcpCapability, dispatchThroughChain, type McpEffect, type McpEffectResolver } from "../mcp.js";
 
 /** Wire the mcp dispatch + derive verbs onto an env (arrivalMcpCapability deps derive). */
 const wireMcp = (env: unknown, resolve: McpEffectResolver): Promise<unknown> =>

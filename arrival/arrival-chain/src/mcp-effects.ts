@@ -119,28 +119,18 @@ export function wrapMcpResolver(inner: McpEffectResolver, seam: McpTapeSeam): Mc
   };
 }
 
-// ── re-exports: the MCP membrane (env-infer) + the derive algebra (arrival-inference) ──
+// ── re-exports: the MCP membrane seam types (from env-infer) ──────────────────
 //
-// Both relocated out of arrival-chain — the membrane into the inference package, the
-// algebra into the engine. Re-exported here so existing `./mcp-effects.js` import paths
-// across arrival-chain (and the chain barrel) keep resolving unchanged.
+// The server-tape (above) is chain's; the seam types + inert default it builds on live in
+// the env-infer package. Re-exported so chain's own consumers (project / chain-env /
+// effect-log / the barrel) keep importing them from `./mcp-effects.js`. The derive algebra
+// (DerivableEntity, runMiddlewareChain, …) is imported straight from arrival-inference where
+// chain needs it — not laundered through here.
 
 export {
   describeMcpEffect,
-  dispatchThroughChain,
   inertMcpResolver,
   type McpEffect,
   type McpEffectResolver,
   type McpMethod,
-  resolveTools,
 } from "@here.build/arrival-scheme-env-infer";
-
-export {
-  DerivableEntity,
-  type EntityMiddleware,
-  isDerivableEntity,
-  isMcpBreak,
-  MCP_BREAK,
-  type McpDefinedMethod,
-  runMiddlewareChain,
-} from "@here.build/arrival-inference";
