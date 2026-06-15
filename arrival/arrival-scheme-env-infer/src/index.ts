@@ -35,5 +35,7 @@ export {
   type McpEffect,
   type McpEffectResolver,
   type McpMethod,
+  type McpServerSpec,
+  type McpRoster,
   runAgenticInfer,
 } from "./mcp.js";

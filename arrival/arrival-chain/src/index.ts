@@ -160,6 +160,8 @@ export {
   type McpEffect,
   type McpEffectResolver,
   type McpMethod,
+  type McpServerSpec,
+  type McpRoster,
   describeMcpEffect,
   inertMcpResolver,
   wrapMcpResolver,

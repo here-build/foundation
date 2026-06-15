@@ -133,4 +133,6 @@ export {
   type McpEffect,
   type McpEffectResolver,
   type McpMethod,
+  type McpServerSpec,
+  type McpRoster,
 } from "@here.build/arrival-scheme-env-infer";
