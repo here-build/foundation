@@ -14,14 +14,41 @@
 //                  the eval membrane — a run can't reach it, so session/other-call state stays out.
 //   • describe-time → infra closed over when the host built the capability (the welcome).
 
-import { type Environment, execSerialized, jsToScheme, sandboxedEnv, schemeToJs, tokenize } from "@here.build/arrival";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { type Environment, exec, jsToScheme, sandboxedEnv, schemeToJs, tokenize } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival/env";
+import { toSExprString } from "@here.build/arrival-serializer";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { format } from "date-fns";
 import dedent from "dedent";
 import * as z from "zod";
 
 import type { McpAnnotation, McpCapabilitySpec, McpEnvCapability } from "./McpEnvCapability.js";
+
+// ── execSerialized: run scheme, serialize each top-level form's value (inlined from the
+// former @here.build/arrival umbrella — its only consumer was this tool). ──
+
+// Total serialized-output budget for one MCP tool result (~10k tokens). Motivated by the
+// 158k-char "exceeds maximum allowed tokens" drop: the serializer streams per-element caps
+// and shrinks them to fit this budget rather than emitting an oversized payload the client
+// rejects. Split across the result elements so the SUM stays bounded.
+const MCP_OUTPUT_BUDGET = 40_000;
+const perElementBudget = (count: number): number => Math.max(2_000, Math.floor(MCP_OUTPUT_BUDGET / Math.max(1, count)));
+
+/**
+ * Execute scheme source and serialize each top-level form's value under the MCP output budget.
+ * `exec` already returns one `SchemeValue` per top-level form, and the caller's REPL split
+ * (`splitTopLevel` → one form per call) means there's nothing to coalesce: serialize the
+ * results directly. No `(list …)` wrap-and-unwrap — that round-trip predated the REPL split.
+ */
+async function execSerialized(expr: string, options?: any): Promise<string[]> {
+  const results = await exec(expr, {
+    env: options?.env?.__env__ ? options?.env : sandboxedEnv.inherit("sandbox", options?.env),
+    budgetMs: options?.budgetMs,
+    signal: options?.signal,
+  });
+  const per = perElementBudget(results.length);
+  return results.map((element) => toSExprString(element, { maxTotalChars: per }));
+}
 
 /** One positional zod arg rendered as a Scheme-doc type token for the catalog. */
 function argTypeName(item: z.ZodType): string {
