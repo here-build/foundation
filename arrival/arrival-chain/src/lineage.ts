@@ -16,7 +16,7 @@
 import { createInferStore, InferBinding } from "@here.build/arrival-inference";
 import type { ModelRouter } from "@here.build/arrival-inference";
 import { EvalTrace, Invocation } from "@here.build/arrival-provenance";
-import { schemeToJs, type Pair } from "@here.build/arrival-scheme";
+import { schemeToJs, type Pair } from "@here.build/arrival";
 import { reaction } from "mobx";
 
 import { ArrivalChain } from "./arrival-chain.js";
