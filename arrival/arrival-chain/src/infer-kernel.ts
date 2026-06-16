@@ -7,7 +7,7 @@ import {
   sandboxedEnv,
   schemeToJs,
   Nil,
-} from "@here.build/arrival-scheme";
+} from "@here.build/arrival";
 import Handlebars from "handlebars";
 import invariant from "tiny-invariant";
 import { parse as parseYaml } from "yaml";
@@ -18,7 +18,7 @@ import type { ChatMessage, Completion, LlmParams, ToolCall, ToolDescriptor } fro
 
 import { type DataEffectResolver } from "./data-effects.js";
 import { stableJson } from "./effect-log.js";
-import { type EnvPack, type RuntimeAssembler } from "@here.build/arrival-scheme/env";
+import { type EnvPack, type RuntimeAssembler } from "@here.build/arrival/env";
 import type { OnExpose } from "./expose.js";
 import { type Loader } from "./loader.js";
 import { type McpEffectResolver } from "./mcp-effects.js";
@@ -40,7 +40,7 @@ import type { EvalTrace } from "@here.build/arrival-provenance";
 // The brand arrival-scheme tags keyword-accessor pluck functions with (see
 // Environment.ts). Read via the same registered symbol so it matches across the
 // package boundary — an explicit check, not a valueOf/string-shape heuristic.
-const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
+const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival/keyword-accessor-field");
 
 /**
  * Resolve a `dict` key. A keyword key (e.g. `:tagline`) evaluates to a branded

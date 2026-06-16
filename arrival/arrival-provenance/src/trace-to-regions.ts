@@ -43,7 +43,7 @@
  * `addPointToHasse`, `regionsAt`, `attributeFieldEdges`, `derivePorts`, …) rather than
  * re-deriving them, so the two paths cannot drift.
  */
-import { schemeToJs } from "@here.build/arrival-scheme";
+import { schemeToJs } from "@here.build/arrival";
 import { schemeToSweet } from "@here.build/arrival-sweet";
 
 import { snapshotTrace, type PlainInv, type PlainTrace } from "./trace-snapshot.js";

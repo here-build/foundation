@@ -67,7 +67,7 @@
  * handled, `node` itself can be dropped from the posted payload. The read-site
  * rewrite co-designs with `trace-to-regions.ts`, so it is A2's edit, not A1's.
  */
-import { schemeToJs, type Pair } from "@here.build/arrival-scheme";
+import { schemeToJs, type Pair } from "@here.build/arrival";
 
 import { scopeId } from "./scope-id.js";
 import type { EvalTrace, InvocationState } from "./trace.js";

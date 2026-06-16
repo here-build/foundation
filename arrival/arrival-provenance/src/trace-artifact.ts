@@ -22,7 +22,7 @@
  * version-gating here; downstream consumers take `{ graph }` and never branch on
  * the wire shape.
  */
-import { schemeToJs } from "@here.build/arrival-scheme";
+import { schemeToJs } from "@here.build/arrival";
 import invariant from "tiny-invariant";
 
 import { traceToRegions, type Region, type RegionGraph } from "./trace-to-regions.js";

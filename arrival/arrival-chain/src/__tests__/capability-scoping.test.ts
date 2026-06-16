@@ -3,9 +3,9 @@
 // didn't assemble are simply not bound (the membrane is the pack list).
 
 import { EvalTrace } from "@here.build/arrival-provenance";
-import { execGeneratorFromString, schemeToJs, sandboxedEnv } from "@here.build/arrival-scheme";
-import { type EnvCapability } from "@here.build/arrival-scheme/capability";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { execGeneratorFromString, schemeToJs, sandboxedEnv } from "@here.build/arrival";
+import { type EnvCapability } from "@here.build/arrival/capability";
+import { assembleEnv } from "@here.build/arrival/env";
 import { describe, expect, it } from "vitest";
 
 import { type BuildArrivalEnvOpts } from "../infer-kernel.js";

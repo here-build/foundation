@@ -24,7 +24,7 @@
  * "Capability optional, verb always present": with no `onMcp` sink the form still evaluates and
  * returns its handler — it just registers nowhere. Same posture as `onExpose`/`onOverridable`.
  */
-import type { Environment } from "@here.build/arrival-scheme";
+import type { Environment } from "@here.build/arrival";
 import invariant from "tiny-invariant";
 
 /** The form head the preamble macro lowers to. */

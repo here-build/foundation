@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import polyglot from "../polyglot.js";
 
-describe("@here.build/arrival-scheme/polyglot", () => {
+describe("@here.build/arrival/polyglot", () => {
   it("installs the idiom macros and they thread correctly", async () => {
     const env = sandboxedEnv.inherit("polyglot-test");
     const evalScheme = (e: SchemeEnv, src: string) => exec(src, { env: e as never });

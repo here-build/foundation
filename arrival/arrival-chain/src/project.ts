@@ -8,14 +8,14 @@ import {
   sandboxedEnv,
   schemeToJs,
   type Environment,
-} from "@here.build/arrival-scheme";
+} from "@here.build/arrival";
 import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
 import invariant from "tiny-invariant";
 
 import type { DataEffectResolver, DataEffectResult } from "./data-effects.js";
 import { Draft } from "./draft.js";
 import { DataBinding, dataEffectKey, type EffectLog, inferEffectKey } from "./effect-log.js";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { assembleEnv } from "@here.build/arrival/env";
 import type { OnExpose } from "./expose.js";
 import { InferBinding, type InferStoreLike } from "@here.build/arrival-inference";
 

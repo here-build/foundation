@@ -30,7 +30,7 @@
  * `traceToRegions` does. Absorbing those live reads into the snapshot mirror is a
  * deferred Phase-2 concern (the worker boundary); see `trace-snapshot.ts`'s header.
  */
-import { schemeToJs, type Pair } from "@here.build/arrival-scheme";
+import { schemeToJs, type Pair } from "@here.build/arrival";
 
 import type { PlainInv } from "./trace-snapshot.js";
 import { scopeId, staticLoopBodyScopes, staticRecursiveHeads, STRUCTURAL_FORMS } from "./trace-to-forest.js";

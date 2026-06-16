@@ -26,7 +26,7 @@
  * LOCAL-FIRST: when no real approver is wired (`onApprovalRequest` absent), the
  * request auto-approves immediately so local/sandbox runs never block.
  */
-import type { Environment } from "@here.build/arrival-scheme";
+import type { Environment } from "@here.build/arrival";
 import { action, makeObservable, observable, when } from "mobx";
 
 /** The form head the preamble macro lowers to. */

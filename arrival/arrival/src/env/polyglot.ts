@@ -1,4 +1,4 @@
-// @here.build/arrival-scheme/polyglot — the polyglot idiom pack.
+// @here.build/arrival/polyglot — the polyglot idiom pack.
 //
 // One principle: LLMs and humans reach for whichever Lisp/FP idiom they already
 // know, so accept the whole family rather than forcing one dialect. Today that

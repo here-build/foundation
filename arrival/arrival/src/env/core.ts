@@ -1,4 +1,4 @@
-// @here.build/arrival-scheme/core — the irreducible scheme core pack.
+// @here.build/arrival/core — the irreducible scheme core pack.
 //
 // The base-most scheme defs that every other pack expands against: the essential
 // constants, the PURITY DOORS (the mutators + dynamics arrival omits by design,

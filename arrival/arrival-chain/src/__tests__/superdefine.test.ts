@@ -13,7 +13,7 @@
  *   2. STATIC: `extractReachableOverridables` derives, per exposed function, the
  *      transitively-referenced overridables — its argument surface.
  */
-import { execGeneratorFromString as exec, schemeToJs } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, schemeToJs } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 /** Evaluate a program and bridge the LAST top-level form's value to plain JS.

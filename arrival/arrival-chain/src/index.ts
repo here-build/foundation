@@ -47,17 +47,17 @@ export {
   EMPTY_PROVENANCE,
   pointProvenance,
   unionProvenance,
-} from "@here.build/arrival-scheme";
+} from "@here.build/arrival";
 // Re-export the LIPS→JS membrane so studio consumers can convert raw scheme
 // values (Pair / cons cells captured in trace.Invocation.value) into plain JS
 // without taking a direct dep on arrival-scheme.
-export { schemeToJs } from "@here.build/arrival-scheme";
+export { schemeToJs } from "@here.build/arrival";
 // NOTE: schemeToJs above is from arrival-scheme (stays). The inference-runtime and
 // provenance-analysis clusters are NOT re-exported here — import them directly from
 // `@here.build/arrival-inference` and `@here.build/arrival-provenance`.
 // `@arrival.private` — seal a host class opaque to Scheme (re-exported so `@here.build/arrival`
 // consumers like sift can brand entities with the correct boundary symbol, not the forgeable hack).
-export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "@here.build/arrival-scheme";
+export { arrival, markSandboxPrivate, markAsSandboxBoundary } from "@here.build/arrival";
 export { Program, ProgramVersion } from "./program.js";
 // Provenance trace-capture + analysis (EvalTrace, extractDefines, traceTo*, collapseMDL,
 // slice/uneval, region tooling, trace-artifact, snapshotTrace) lives in
@@ -125,7 +125,7 @@ export {
   AssembleLinearizationError,
   AssemblePackError,
   AssemblePackTimeoutError,
-} from "@here.build/arrival-scheme/env";
+} from "@here.build/arrival/env";
 // The capability authoring kit: the `EnvCapability` class + `captureSymbols` (run an imperative
 // `defineXRosettas` helper against a recording host, capture its wiring as a declarative symbol
 // record). A consumer authoring its own host capability (e.g. sift's L0 bridge) reaches them via
@@ -137,7 +137,7 @@ export {
   type CapabilitySpec,
   type LoweredPack,
   type SymbolDef,
-} from "@here.build/arrival-scheme/capability";
+} from "@here.build/arrival/capability";
 export { defineRequireExtensionRosetta } from "./require-extension.js";
 export {
   buildChainEnv,

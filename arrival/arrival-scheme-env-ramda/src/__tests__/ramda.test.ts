@@ -1,7 +1,7 @@
 // ramda palette pack — assemble the capability; verbs run through the membrane.
-import { exec, sandboxedEnv } from "@here.build/arrival-scheme";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { exec, sandboxedEnv } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival/env";
+import { type SchemeEnv } from "@here.build/arrival/scheme-env";
 import { describe, expect, it } from "vitest";
 
 import ramda, { ramdaVerbs } from "../index.js";

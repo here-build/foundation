@@ -3,8 +3,8 @@
 // The host sinks are all optional; with none supplied the verbs still bind (capability-optional,
 // verb-always-present). Asserts the three declaration-family rosettas land on the assembled env.
 
-import { sandboxedEnv } from "@here.build/arrival-scheme";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { sandboxedEnv } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival/env";
 import { describe, expect, it } from "vitest";
 
 import { APPROVAL_FORM } from "../approval.js";

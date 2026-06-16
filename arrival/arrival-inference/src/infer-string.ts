@@ -22,7 +22,7 @@
  * correct (a concatenation of two completions has no single reasoning) — read
  * `chunks`/`reasoning` off the RAW `(infer …)` result, which survives binding.
  */
-import { AString } from "@here.build/arrival-scheme";
+import { AString } from "@here.build/arrival";
 
 import type { Chunk, ToolCall } from "./model.js";
 

@@ -3,7 +3,7 @@
  * scheme form. Combined with the live trace, the detector produces the
  * semantic-collapse layer for trace visualization.
  */
-import { parseGenerator } from "@here.build/arrival-scheme";
+import { parseGenerator } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { detectShape, isTailRecursive, type Shape } from "../ast-shapes.js";

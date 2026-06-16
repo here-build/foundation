@@ -3,8 +3,8 @@
 // The Project is opaque to wiring (verbs only forward it to runNamed/runNamedCall at CALL time),
 // so a cast stub is enough to assert the rosettas are bound onto the assembled env.
 
-import { sandboxedEnv } from "@here.build/arrival-scheme";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { sandboxedEnv } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival/env";
 import { describe, expect, it } from "vitest";
 
 import { arrivalRunCapability } from "../packs/run.js";

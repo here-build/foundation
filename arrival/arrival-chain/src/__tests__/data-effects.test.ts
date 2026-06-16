@@ -11,7 +11,7 @@
  *      with `label`/`path`/`method` (http) and `query`/`params` SEPARATE from text.
  *   3. The result crosses the membrane back into scheme (raw value → scheme value).
  */
-import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it, vi } from "vitest";
 
 import {

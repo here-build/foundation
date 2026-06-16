@@ -1,4 +1,4 @@
-import { port, type Resource } from "@here.build/arrival-scheme/resources";
+import { port, type Resource } from "@here.build/arrival/resources";
 import { describe, expect, it, vi } from "vitest";
 import * as z from "zod";
 

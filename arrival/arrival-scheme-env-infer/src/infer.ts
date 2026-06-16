@@ -10,7 +10,7 @@
 // (asLlmModel / inferThroughChain / coercions) is co-located here; the dependent mcp pack
 // (./mcp) and arrival-chain reuse it from this package.
 
-import { type Activation, EnvCapability } from "@here.build/arrival-scheme/capability";
+import { type Activation, EnvCapability } from "@here.build/arrival/capability";
 import {
   DerivableEntity,
   type EntityMiddleware,

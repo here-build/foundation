@@ -4,7 +4,7 @@ import {
   schemeToJs,
   parseGenerator,
   sandboxedEnv,
-} from "@here.build/arrival-scheme";
+} from "@here.build/arrival";
 
 import { extractOverridables, extractRequires, type ExposeInfo } from "./extract-expose.js";
 import { BUILTIN_PREAMBLE } from "./project.js";

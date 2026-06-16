@@ -11,7 +11,7 @@
  *   - The thunk does NOT run before approval (proven with a side-effect counter).
  *   - Fan-out: an auto-approving branch completes while another is parked.
  */
-import { execGeneratorFromString as exec, schemeToJs } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, schemeToJs } from "@here.build/arrival";
 import { describe, expect, it, vi } from "vitest";
 
 import { type FunctionRunApprovalRequest, type OnApprovalRequest } from "../approval.js";

@@ -13,7 +13,7 @@
 // sealPromptUnit) is precisely what lets prompt-sealing live as a capability rather than as
 // loader-core plumbing: the env is reached at CALL time via ctx, not baked at wire time.
 
-import { type Activation, EnvCapability } from "@here.build/arrival-scheme/capability";
+import { type Activation, EnvCapability } from "@here.build/arrival/capability";
 import { z } from "zod";
 
 import { type InferFn, parsePromptUnit, sealPromptUnit } from "../infer-kernel.js";

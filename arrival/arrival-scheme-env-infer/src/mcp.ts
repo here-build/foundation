@@ -12,7 +12,7 @@
 // record/replay over the effect-log). That is run orchestration, not the capability; it
 // imports the seam types from here, one-way.
 
-import { type Activation, EnvCapability } from "@here.build/arrival-scheme/capability";
+import { type Activation, EnvCapability } from "@here.build/arrival/capability";
 import {
   type ChatMessage,
   DerivableEntity,
@@ -25,7 +25,7 @@ import {
   runMiddlewareChain,
   type ToolDescriptor,
 } from "@here.build/arrival-inference";
-import { schemeToJs, Nil } from "@here.build/arrival-scheme";
+import { schemeToJs, Nil } from "@here.build/arrival";
 import invariant from "tiny-invariant";
 import { z } from "zod";
 

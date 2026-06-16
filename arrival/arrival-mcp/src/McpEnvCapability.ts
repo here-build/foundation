@@ -17,8 +17,8 @@ import {
   type CapabilitySpec,
   EnvCapability,
   type SymbolDef,
-} from "@here.build/arrival-scheme/capability";
-import type { Resource } from "@here.build/arrival-scheme/resources";
+} from "@here.build/arrival/capability";
+import type { Resource } from "@here.build/arrival/resources";
 import * as z from "zod";
 
 type AnyActivation = Activation<any, any>;

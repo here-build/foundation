@@ -12,7 +12,7 @@
 
 import { type InferStoreLike } from "@here.build/arrival-inference";
 import { EvalTrace } from "@here.build/arrival-provenance";
-import type { Environment } from "@here.build/arrival-scheme";
+import type { Environment } from "@here.build/arrival";
 import * as z from "zod";
 
 import { compileExposeSig } from "./compile-expose-sig.js";

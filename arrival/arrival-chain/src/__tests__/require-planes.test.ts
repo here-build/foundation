@@ -1,9 +1,9 @@
 import { createInferStore, type ModelSpec, singletonRouter } from "@here.build/arrival-inference";
-import { exec, schemeToJs, sandboxedEnv } from "@here.build/arrival-scheme";
+import { exec, schemeToJs, sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it, vi } from "vitest";
 
 import { ArrivalChain } from "../arrival-chain.js";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { assembleEnv } from "@here.build/arrival/env";
 import { discoveryCapabilities } from "../packs/index.js";
 import { Project } from "../project.js";
 

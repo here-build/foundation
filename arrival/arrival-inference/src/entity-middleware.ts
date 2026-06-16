@@ -9,7 +9,7 @@
 // arrival-chain's `mcp-effects` under the monolith; that was a layer inversion — the
 // substrate sat above the capabilities standing on it.)
 
-import { schemeToJs } from "@here.build/arrival-scheme";
+import { schemeToJs } from "@here.build/arrival";
 
 import type { LlmParams } from "./model.js";
 

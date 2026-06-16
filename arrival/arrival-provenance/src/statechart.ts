@@ -38,7 +38,7 @@
  * Distinguishing parallel-region-within-loop-region needs the §5.4 mark
  * hierarchy and is the v1 follow-up; this v0 is the flat collapsed causal DAG.
  */
-import type { Pair, SchemeSymbol } from "@here.build/arrival-scheme";
+import type { Pair, SchemeSymbol } from "@here.build/arrival";
 
 import { snapshotTrace, type PlainInv, type PlainTrace } from "./trace-snapshot.js";
 import type { EvalTrace } from "./trace.js";

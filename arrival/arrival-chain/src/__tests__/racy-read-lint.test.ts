@@ -3,7 +3,7 @@
  * the fold over the run's own inference history is meaningless ("spent relative to
  * which sibling?"). Allowed at a sequence point (top level, a fold/loop arm).
  */
-import { parseGenerator } from "@here.build/arrival-scheme";
+import { parseGenerator } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { lintRacyReads } from "../racy-read-lint.js";

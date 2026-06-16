@@ -7,7 +7,7 @@
  * touches nothing) — no button. Only a later `(ask "x")` penetrates. We assert both halves, and
  * the cross-cell thread (helper defined in one cell, called in the next) that option B was for.
  */
-import { parseGenerator } from "@here.build/arrival-scheme";
+import { parseGenerator } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { cellRunnable, cellTriggers, formsRunnable, formsTrigger, rootEffectEnv } from "../effect-analysis.js";

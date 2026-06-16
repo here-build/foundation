@@ -7,12 +7,12 @@
  *   - `resolveTools` lists each server's tools → the neutral model tool set + the
  *     toolName→serverName dispatch routing (first-server-wins on a collision).
  */
-import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { DerivableEntity, isDerivableEntity } from "@here.build/arrival-inference";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { assembleEnv } from "@here.build/arrival/env";
+import { type SchemeEnv } from "@here.build/arrival/scheme-env";
 
 import { arrivalMcpCapability, inertMcpResolver, type McpEffect, type McpEffectResolver, resolveTools } from "../mcp.js";
 

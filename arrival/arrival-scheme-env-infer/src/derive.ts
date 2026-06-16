@@ -15,7 +15,7 @@
 // verbs HERE touch no resolver and take no config, so they can be rooted alone; the dispatch verbs
 // (`mcp/call` / `mcp/list`), which DO need the credentialed resolver, stay in ./mcp.
 
-import { EnvCapability } from "@here.build/arrival-scheme/capability";
+import { EnvCapability } from "@here.build/arrival/capability";
 import {
   DerivableEntity,
   type EntityMiddleware,
@@ -28,7 +28,7 @@ import invariant from "tiny-invariant";
 
 /** The brand arrival-scheme stamps on a keyword's accessor function. A global registered symbol
  *  (Symbol.for), so it's reconstructable here without importing it across the package boundary. */
-const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
+const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival/keyword-accessor-field");
 
 /** Coerce a server/param-name argument to its string name. A keyword (`:linear`) evaluates
  *  to a branded accessor function carrying its field; a string/symbol stringifies directly. */

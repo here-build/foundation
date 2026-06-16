@@ -5,7 +5,7 @@
 // (run-launchers in arrival/run, readers here) is what lets the read plane be rooted without the
 // project/infer config the launchers need.
 
-import { EnvCapability } from "@here.build/arrival-scheme/capability";
+import { EnvCapability } from "@here.build/arrival/capability";
 import { dagOf, howOf, whereOf, whyOf } from "../handle-provenance.js";
 import { is_result_handle, type ResultHandle } from "../result-handle.js";
 

@@ -11,7 +11,7 @@
 // form (`captureSymbols`) to keep them as the single source. `buildDict` is a module-level fold, not
 // a per-env knob, so it stays a plain import.
 
-import { captureSymbols, EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
+import { captureSymbols, EnvCapability, type Activation } from "@here.build/arrival/capability";
 import { z } from "zod";
 
 import { defineApprovalRosetta, type OnApprovalRequest, type ResolveApproval } from "../approval.js";

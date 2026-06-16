@@ -1,4 +1,4 @@
-import { port, type Resource } from "@here.build/arrival-scheme/resources";
+import { port, type Resource } from "@here.build/arrival/resources";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

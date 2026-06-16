@@ -8,7 +8,7 @@
  *   - in the interpreter the value is string-transparent, but the `__`-prefixed payload
  *     is GATED from the program by the sandbox `@` accessor (external-only).
  */
-import { AString, execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
+import { AString, execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { InferString } from "../infer-string.js";

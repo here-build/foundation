@@ -18,10 +18,10 @@
 import { InferString, createInferStore } from "@here.build/arrival-inference";
 import type { ModelRouter, ModelBackend } from "@here.build/arrival-inference";
 import { EvalTrace } from "@here.build/arrival-provenance";
-import { execGeneratorFromString, schemeToJs } from "@here.build/arrival-scheme";
+import { execGeneratorFromString, schemeToJs } from "@here.build/arrival";
 import invariant from "tiny-invariant";
 
-import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "@here.build/arrival-scheme/env";
+import { assembleEnv, type AssembledEnv, type EnvPack, type RuntimeAssembler } from "@here.build/arrival/env";
 import type { Loader } from "./loader.js";
 import type { McpEffectResolver } from "./mcp-effects.js";
 import { buildArrivalEnv, type BuildArrivalEnvOpts, BUILTIN_PREAMBLE, inferIdentityKey, type InferFn } from "./project.js";

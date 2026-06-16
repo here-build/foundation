@@ -19,7 +19,7 @@ import {
   AValue,
   schemeToJs,
   type Environment,
-} from "@here.build/arrival-scheme";
+} from "@here.build/arrival";
 
 import { buildSlice, writeForm, defineNameOf, lastTopLevelForm } from "./slice.js";
 import type { EvalTrace } from "./trace.js";

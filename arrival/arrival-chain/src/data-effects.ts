@@ -44,7 +44,7 @@
 // positional param list MUST recognise it (the same `instanceof Nil` discipline
 // `project.ts`'s `isNilLike` uses). This couples only to the engine's own value
 // type, which arrival-chain already depends on package-wide.
-import { Nil } from "@here.build/arrival-scheme";
+import { Nil } from "@here.build/arrival";
 
 /**
  * The HTTP request methods a `(http/*)` verb can carry. Read methods (`GET`,

@@ -18,7 +18,7 @@
  * (`Symbol.for("__location__")`) so we can read it without importing
  * `arrival-scheme/primitives.js`.
  */
-import { parseGenerator } from "@here.build/arrival-scheme";
+import { parseGenerator } from "@here.build/arrival";
 
 /**
  * Source location of a parsed form. Mirrors arrival-scheme's internal

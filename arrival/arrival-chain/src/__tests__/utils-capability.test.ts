@@ -1,10 +1,10 @@
 // utils-capability.test.ts — assemble arrivalUtilsCapability onto a sandboxed base and assert
 // each verb binds.
 
-import { sandboxedEnv } from "@here.build/arrival-scheme";
+import { sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { assembleEnv } from "@here.build/arrival/env";
 import { arrivalUtilsCapability } from "../packs/utils.js";
 
 describe("arrivalUtilsCapability", () => {

@@ -36,7 +36,7 @@ import {
   execGeneratorExpr as execExpr,
   jsToScheme,
   parseGenerator as parse,
-} from "@here.build/arrival-scheme";
+} from "@here.build/arrival";
 import { parse as parseToml } from "smol-toml";
 import invariant from "tiny-invariant";
 import { parse as parseYaml } from "yaml";

@@ -9,7 +9,7 @@
 // the BUILDER form (`captureSymbols`): run that helper against a recording env and capture what it
 // sets — the helper stays the single source of the verbs, with zero re-homing into a method map.
 
-import { captureSymbols, EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
+import { captureSymbols, EnvCapability, type Activation } from "@here.build/arrival/capability";
 import { z } from "zod";
 
 import { type DataEffectResolver, defineDataEffectRosettas, inertDataResolver } from "../data-effects.js";

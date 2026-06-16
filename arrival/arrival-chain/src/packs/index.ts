@@ -1,4 +1,4 @@
-import type { EnvCapability } from "@here.build/arrival-scheme/capability";
+import type { EnvCapability } from "@here.build/arrival/capability";
 import { arrivalAgenticCapability } from "@here.build/arrival-scheme-env-infer";
 
 import { arrivalBudgetCapability } from "./budget.js";

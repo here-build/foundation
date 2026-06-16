@@ -1,10 +1,10 @@
 // reflect-capability.test.ts — assemble arrivalReflectCapability onto a sandboxed base and assert
 // each provenance verb binds.
 
-import { sandboxedEnv } from "@here.build/arrival-scheme";
+import { sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { assembleEnv } from "@here.build/arrival/env";
 import { arrivalReflectCapability } from "../packs/reflect.js";
 
 describe("arrivalReflectCapability", () => {

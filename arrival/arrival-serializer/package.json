@@ -53,7 +53,7 @@
     "@here.build/arrival-env": "workspace:^"
   },
   "devDependencies": {
-    "@here.build/arrival-scheme": "workspace:^",
+    "@here.build/arrival": "workspace:^",
     "@here.build/eslint-configs": "workspace:^",
     "@here.build/tsconfig": "workspace:^",
     "@types/node": "24.0.0",

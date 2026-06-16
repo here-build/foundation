@@ -3,12 +3,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { execGeneratorFromString, schemeToJs } from "@here.build/arrival-scheme";
+import { execGeneratorFromString, schemeToJs } from "@here.build/arrival";
 
 import { EvalTrace } from "@here.build/arrival-provenance";
 import { buildArrivalEnv } from "../project.js";
 import { loaderFromResolver } from "../loader.js";
-import type { EnvPack } from "@here.build/arrival-scheme/env";
+import type { EnvPack } from "@here.build/arrival/env";
 
 type EnvHandle = Awaited<ReturnType<typeof buildArrivalEnv>>;
 

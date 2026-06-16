@@ -50,7 +50,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@here.build/arrival-scheme": "workspace:^",
+    "@here.build/arrival": "workspace:^",
     "@here.build/arrival-sweet": "workspace:^",
     "mobx": "6.15.0",
     "tiny-invariant": "1.3.3",

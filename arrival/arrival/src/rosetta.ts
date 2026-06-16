@@ -437,7 +437,7 @@ export const createRosettaWrapper = ({ fn, options = {}, withContext = false }: 
   return rosettaWrapper;
 };
 
-declare module "@here.build/arrival-scheme" {
+declare module "@here.build/arrival" {
   interface Environment {
     defineRosetta(name: string, config: RosettaFunction): void;
   }

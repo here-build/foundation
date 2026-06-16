@@ -1,7 +1,7 @@
 // infer palette pack — arm with a fake InferFn, assemble, verify the verbs wire.
-import { sandboxedEnv } from "@here.build/arrival-scheme";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { sandboxedEnv } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival/env";
+import { type SchemeEnv } from "@here.build/arrival/scheme-env";
 import { describe, expect, it, vi } from "vitest";
 
 import { arrivalInferCapability } from "../index.js";

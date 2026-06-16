@@ -5,8 +5,8 @@
 // next to the provenance readers — separate from the run-launchers (arrival/run), whose isolation
 // machinery they don't need. `Project` is opaque config (the host owns the substrate).
 
-import { type Environment, parse } from "@here.build/arrival-scheme";
-import { EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
+import { type Environment, parse } from "@here.build/arrival";
+import { EnvCapability, type Activation } from "@here.build/arrival/capability";
 import { z } from "zod";
 
 import { makeProjectLoader } from "../loader.js";

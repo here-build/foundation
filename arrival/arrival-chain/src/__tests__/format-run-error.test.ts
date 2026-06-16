@@ -1,4 +1,4 @@
-import { SchemeError, type StackFrame } from "@here.build/arrival-scheme";
+import { SchemeError, type StackFrame } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { formatRunError } from "../run.js";

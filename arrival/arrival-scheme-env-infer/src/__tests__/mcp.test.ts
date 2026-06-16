@@ -1,7 +1,7 @@
 // mcp pack — the dependent capability: mcp dispatch verbs + the agentic loop, deps on infer.
-import { sandboxedEnv } from "@here.build/arrival-scheme";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { sandboxedEnv } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival/env";
+import { type SchemeEnv } from "@here.build/arrival/scheme-env";
 import { describe, expect, it } from "vitest";
 
 import { type InferFn } from "../infer.js";

@@ -36,7 +36,7 @@
  *
  * `schema` is REQUIRED. Keys/credentials are never in scope here.
  */
-import type { Environment } from "@here.build/arrival-scheme";
+import type { Environment } from "@here.build/arrival";
 import invariant from "tiny-invariant";
 
 import { schemaToZod } from "./schema-to-zod.js";

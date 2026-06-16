@@ -4,8 +4,8 @@
 // so a discovery session can't reach into the calling env. The `Project` is opaque config (the host
 // owns the file substrate); the launch is by NAME, never by program-supplied source.
 
-import { KEYWORD_ACCESSOR_FIELD } from "@here.build/arrival-scheme";
-import { EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
+import { KEYWORD_ACCESSOR_FIELD } from "@here.build/arrival";
+import { EnvCapability, type Activation } from "@here.build/arrival/capability";
 import { z } from "zod";
 
 import type { Project } from "../project.js";

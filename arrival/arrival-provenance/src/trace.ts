@@ -25,7 +25,7 @@
  * `docs/foundations/arrival-scheme/reference/provenance-model.md` — read it before changing
  * `computeProvenance`, the authoritative-set forwarding, or `fieldPoint`.
  */
-import { AValue, EMPTY_PROVENANCE, type EvalTap, type Pair, type SchemeSymbol } from "@here.build/arrival-scheme";
+import { AValue, EMPTY_PROVENANCE, type EvalTap, type Pair, type SchemeSymbol } from "@here.build/arrival";
 import { action, observable } from "mobx";
 import invariant from "tiny-invariant";
 

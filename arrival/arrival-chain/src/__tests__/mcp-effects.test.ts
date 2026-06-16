@@ -13,11 +13,11 @@
  *   - DIVERGENCE is caught: a replay whose nth call differs from the record stops
  *     (crash or host-supplied answer), never silently serves a stale value
  */
-import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it, vi } from "vitest";
 
-import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { assembleEnv } from "@here.build/arrival/env";
+import { type SchemeEnv } from "@here.build/arrival/scheme-env";
 import { arrivalMcpCapability } from "@here.build/arrival-scheme-env-infer";
 
 import { ArrivalChain } from "../arrival-chain.js";

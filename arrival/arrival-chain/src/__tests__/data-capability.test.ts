@@ -4,8 +4,8 @@
 // not arming, is what this asserts — the capability surface is identical whether a
 // host wired a resolver.
 
-import { sandboxedEnv } from "@here.build/arrival-scheme";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { sandboxedEnv } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival/env";
 import { describe, expect, it } from "vitest";
 
 import { arrivalDataCapability } from "../packs/data.js";

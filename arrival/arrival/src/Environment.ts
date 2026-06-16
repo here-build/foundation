@@ -31,7 +31,7 @@ import { fromJS, isSchemeValue } from "./membrane.js";
  * so it matches across the package boundary — arrival-chain's `dict` reads the
  * same key (project.ts).
  */
-export const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
+export const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival/keyword-accessor-field");
 
 // -------------------------------------------------------------------------
 // :: Runtime dependencies - deferred loading to break circular dependency

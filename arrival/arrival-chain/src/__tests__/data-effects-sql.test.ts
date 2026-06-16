@@ -13,7 +13,7 @@
  * run / effect-log wiring (kept a separate file from the http fan so the two A3
  * instances never collide on one source — the FAN-OUT file-per-instance rule).
  */
-import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { type DataEffect, type DataEffectResolver, defineDataEffectRosettas } from "../data-effects.js";

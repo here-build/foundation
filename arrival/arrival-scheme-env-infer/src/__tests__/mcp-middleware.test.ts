@@ -10,9 +10,9 @@ import {
   MCP_BREAK,
   runMiddlewareChain,
 } from "@here.build/arrival-inference";
-import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
-import { assembleEnv } from "@here.build/arrival-scheme/env";
-import { type SchemeEnv } from "@here.build/arrival-scheme/scheme-env";
+import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival";
+import { assembleEnv } from "@here.build/arrival/env";
+import { type SchemeEnv } from "@here.build/arrival/scheme-env";
 import { describe, expect, it } from "vitest";
 
 import { arrivalMcpCapability, dispatchThroughChain, type McpEffect, type McpEffectResolver } from "../mcp.js";

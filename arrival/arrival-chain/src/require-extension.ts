@@ -11,16 +11,16 @@
 // require of the same extension is a no-op; two concurrent requires share one apply. Unknown name →
 // a teaching error listing the armed `:names` (errors-as-doors).
 
-import type { sandboxedEnv } from "@here.build/arrival-scheme";
+import type { sandboxedEnv } from "@here.build/arrival";
 import invariant from "tiny-invariant";
 
-import type { EnvPack, RuntimeAssembler } from "@here.build/arrival-scheme/env";
+import type { EnvPack, RuntimeAssembler } from "@here.build/arrival/env";
 
 type EnvHandle = ReturnType<typeof sandboxedEnv.inherit>;
 
 /** The brand arrival-scheme tags keyword-accessor pluck functions with (see Environment.ts). A
  *  `:sql` arg evaluates to such a function carrying its bare field name. */
-const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival-scheme/keyword-accessor-field");
+const KEYWORD_ACCESSOR_FIELD = Symbol.for("@here.build/arrival/keyword-accessor-field");
 
 /** Resolve a `(require/extension :name)` argument to the bare extension name. A keyword (`:sql`)
  *  evaluates to a branded pluck function → read its field; a bare string passes through (so

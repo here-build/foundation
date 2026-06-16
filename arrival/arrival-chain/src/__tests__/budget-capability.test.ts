@@ -1,10 +1,10 @@
 // budget-capability.test.ts — assemble arrivalBudgetCapability onto a sandboxed base and assert
 // the budget verbs bind, both armed and inert.
 
-import { sandboxedEnv } from "@here.build/arrival-scheme";
+import { sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
-import { assembleEnv } from "@here.build/arrival-scheme/env";
+import { assembleEnv } from "@here.build/arrival/env";
 import { arrivalBudgetCapability } from "../packs/budget.js";
 
 describe("arrivalBudgetCapability", () => {

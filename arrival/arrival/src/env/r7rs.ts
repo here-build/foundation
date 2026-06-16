@@ -1,4 +1,4 @@
-// @here.build/arrival-scheme/r7rs — standard R7RS derived-syntax pack.
+// @here.build/arrival/r7rs — standard R7RS derived-syntax pack.
 //
 // The portable Scheme control forms arrival supports as macros, expanded from
 // the small special-form core: cond / case / when / unless, let-values /

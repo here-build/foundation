@@ -31,7 +31,7 @@
  * (`Symbol.for("__location__")`) read off Pairs without importing primitives.
  */
 import type { SourceLocation } from "@here.build/arrival-provenance";
-import { parseGenerator } from "@here.build/arrival-scheme";
+import { parseGenerator } from "@here.build/arrival";
 
 export type { SourceLocation } from "@here.build/arrival-provenance";
 

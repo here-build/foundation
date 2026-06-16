@@ -15,7 +15,7 @@ async function withCap(cap: { lower: (o: { evalScheme: typeof evalScheme }) => u
   return async (src: string) => Number((await exec(src, { env }))[0]);
 }
 
-describe("@here.build/arrival-scheme/srfi", () => {
+describe("@here.build/arrival/srfi", () => {
   it("SRFI-1 list library", async () => {
     const num = await withCap(srfi1, "s1");
     expect(await num("(length+ (list 1 2 3 4))")).toBe(4);

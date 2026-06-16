@@ -7,7 +7,7 @@
 
 import type { RunSpend } from "@here.build/arrival-inference";
 
-import { EnvCapability, type Activation } from "@here.build/arrival-scheme/capability";
+import { EnvCapability, type Activation } from "@here.build/arrival/capability";
 import { z } from "zod";
 
 type BudgetActivation = Activation<{ spend: z.ZodType<RunSpend | undefined> }, Record<string, never>>;

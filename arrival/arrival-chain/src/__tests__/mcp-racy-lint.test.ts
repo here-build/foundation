@@ -5,7 +5,7 @@
  * (`mcp/call` / `mcp/list` / `infer/agentic/end-to-end`) in parallel arms; allowed at a
  * sequence point (top level, a fold/loop arm). Same class as the reflective-read lint.
  */
-import { parseGenerator } from "@here.build/arrival-scheme";
+import { parseGenerator } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { lintRacyMcpCalls } from "../racy-read-lint.js";

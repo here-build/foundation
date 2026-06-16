@@ -1,4 +1,4 @@
-// @here.build/arrival-scheme/arrival-extensions — arrival core extensions pack.
+// @here.build/arrival/arrival-extensions — arrival core extensions pack.
 //
 // The non-R7RS, non-SRFI, non-polyglot procedures that arrival adds on top of
 // the portable Scheme base. All host-interop or arrival-specific:

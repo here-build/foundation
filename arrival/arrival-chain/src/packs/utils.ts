@@ -4,7 +4,7 @@
 
 import dedent from "dedent";
 
-import { EnvCapability } from "@here.build/arrival-scheme/capability";
+import { EnvCapability } from "@here.build/arrival/capability";
 import { renderTemplateCall } from "../infer-kernel.js";
 
 // No `json/parse`: arrival-scheme is platonic — a value inside the program is already a value,

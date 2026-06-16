@@ -1,5 +1,5 @@
 {
-  "name": "@here.build/arrival-scheme",
+  "name": "@here.build/arrival",
   "version": "0.1.0",
   "description": "Scheme/LIPS interpreter for Arrival constraint-based execution",
   "keywords": [
@@ -17,7 +17,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/here-build/foundation.git",
-    "directory": "arrival/arrival-scheme"
+    "directory": "arrival/arrival"
   },
   "license": "FSL-1.1-MIT",
   "author": "here.build",

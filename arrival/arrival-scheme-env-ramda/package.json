@@ -41,7 +41,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@here.build/arrival-scheme": "workspace:^",
+    "@here.build/arrival": "workspace:^",
     "ramda": "0.31.3"
   },
   "devDependencies": {

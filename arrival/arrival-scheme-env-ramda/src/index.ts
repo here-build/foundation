@@ -11,7 +11,7 @@
 // vocabulary, not an API. `prop`/`get`/`access`/`fetch` all resolve to `R.prop` so the program reads
 // in whatever mental model its author thinks in; the aliases below are intentional, not redundant.
 
-import { EnvCapability } from "@here.build/arrival-scheme/capability";
+import { EnvCapability } from "@here.build/arrival/capability";
 import * as R from "ramda";
 
 const RAMDA: Record<string, (...args: never[]) => unknown> = {

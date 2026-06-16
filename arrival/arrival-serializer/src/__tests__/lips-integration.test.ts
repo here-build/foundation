@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { toSExprString } from "../serializer";
 // Import what we can from lips
-import { exec, SchemeExact, schemeToJs, SchemeString, SchemeSymbol, Nil, Pair, sandboxedEnv } from "@here.build/arrival-scheme";
+import { exec, SchemeExact, schemeToJs, SchemeString, SchemeSymbol, Nil, Pair, sandboxedEnv } from "@here.build/arrival";
 // Import custom matchers
-import "@here.build/arrival-scheme";
+import "@here.build/arrival";
 
 describe("LIPS Integration", () => {
   it("should handle simple lips evaluation results", async () => {

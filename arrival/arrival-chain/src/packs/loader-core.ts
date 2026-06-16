@@ -1,4 +1,4 @@
-import { createRuntimeAssembler, type EnvPack } from "@here.build/arrival-scheme/env";
+import { createRuntimeAssembler, type EnvPack } from "@here.build/arrival/env";
 import { type ArrivalEnv, type BuildArrivalEnvOpts } from "../infer-kernel.js";
 import { defineRequireRosetta } from "../loader.js";
 import { defineRequireExtensionRosetta } from "../require-extension.js";
