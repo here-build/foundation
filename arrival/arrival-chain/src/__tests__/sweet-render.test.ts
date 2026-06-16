@@ -6,11 +6,11 @@
  *                   law: store flat, view paired, read back flat, lose nothing).
  *                   Failures show a classic-printed diff of the offending form.
  *   2. units      — focused render assertions (curly-infix, colon/=> pairing,
- *                   positional-not-paired). Add cases here to probe behaviour.
+ *                   positional-not-paired). Add cases here to probe behavior.
  *   3. dump       — console.logs the full sweet rendering of each fixture+example
  *                   so you can eyeball it in the run output (always passes).
  *
- * Run + SEE the dumps:  npx vitest run sweet-render --disableConsoleIntercept
+ * Run and SEE the dumps:  npx vitest run sweet-render --disableConsoleIntercept
  * Watch while editing:  npx vitest sweet-render --disableConsoleIntercept
  *
  * The flag matters: vitest 4 SWALLOWS console.log by default in this package, so

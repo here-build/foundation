@@ -10,10 +10,10 @@
 // resolver is bound as a `{ value }` so `require` gets the raw fn back (no rosetta
 // marshalling) and calls it `(contents, {path}) → ResolverResult`.
 
-import { parseGenerator as parse } from "@here.build/arrival-scheme";
-import { EnvCapability } from "@here.build/arrival-scheme/capability";
+import { parseGenerator as parse } from "@here.build/arrival";
+import { EnvCapability } from "@here.build/arrival/capability";
 
-import { type ContentResolver, type ResolverResult } from "../loader.js";
+import { type ContentResolver } from "../loader.js";
 import { arrivalUtilsCapability } from "./utils.js";
 
 const RESOLVE = "ext/handlebars/resolve";

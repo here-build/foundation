@@ -14,7 +14,6 @@
  * LangChains) reproduce the authored prompt verbatim, pre-rendering `{{#each}}`
  * loops to a joined string at call time (f-string templates don't iterate).
  */
-import { cleanName } from "./names.js";
 import { type LoopSeg, parsePrompt, pascal, type PromptInput, renderMessages } from "./prompt-ir.js";
 import { pyName } from "./python.js";
 

@@ -31,7 +31,7 @@ export interface LowerCtx {
   asyncNames: Set<string>;
   /** Cleaned `.prompt`-require locals — the async inference primitives (run-view). */
   inferReqs: Set<string>;
-  /** Scope-resolved JS name per BOUND identifier occurrence (binding + ref), from the
+  /** Scope-resolved JS name per BOUND identifier occurrence (binding and ref), from the
    *  lexical namer (#76). Absent for free refs / stdlib → fall back to `cleanName`.
    *  Both EMIT and the PARAM-scope await machinery (`inParams`) use this resolved name, so
    *  a call's await decision matches what's emitted; the GLOBAL `asyncNames`/`inferReqs`
@@ -47,7 +47,7 @@ export interface Lowerer extends Emit {
 
 export function makeLowerer(ctx: LowerCtx): Lowerer {
   // Stack of scheme→js name overrides, used to inline a unary lambda's body in
-  // place (e.g. inside `max-by`). Empty in the common case; resolution then falls
+  // place (e.g., inside `max-by`). Empty in the common case; resolution then falls
   // through to the pure `cleanName`.
   const substStack: Map<string, string>[] = [];
 

@@ -2,7 +2,7 @@
  * Browser-safe projection entry — for the studio's `js` tab. Reuses the pure
  * `assemble` core and formats with **prettier standalone** (browser-bundleable),
  * NOT the Node `ESLint` class. The tradeoff vs the Node path: no eslint --fix, so
- * `{ x: x }` isn't collapsed to `{ x }` — but layout + wrapping (the legibility
+ * `{ x: x }` isn't collapsed to `{ x }` — but layout and wrapping (the legibility
  * that matters for a read-view) are fully applied.
  */
 import * as babel from "prettier/plugins/babel";

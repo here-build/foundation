@@ -28,7 +28,7 @@ describe("extractFormSpec", () => {
       { kind: "integer" },
       { kind: "boolean" },
     ]);
-    // Defaults seed the controls. Number repr (number vs bigint) is normalised away.
+    // Defaults seed the controls. Number repr (number vs bigint) is normalized away.
     expect(spec[0]!.default).toBe("Build faster");
     expect(spec[1]!.default).toBe("gpt-4o");
     expect(Number(spec[2]!.default)).toBe(3);

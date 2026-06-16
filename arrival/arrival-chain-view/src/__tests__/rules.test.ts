@@ -1,6 +1,6 @@
 /**
  * Per-rule unit coverage for the scheme→JS read-view projection. Assertions are
- * against the FORMATTED output (eslint --fix + prettier), so they're stable
+ * against the FORMATTED output (eslint --fix and prettier), so they're stable
  * against emitter spacing and exercise the whole pipeline.
  */
 import { describe, expect, it } from "vitest";

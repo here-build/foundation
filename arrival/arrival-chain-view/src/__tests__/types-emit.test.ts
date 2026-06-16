@@ -68,9 +68,12 @@ describe("emitTypes — snapshots (R6 divergence guard)", () => {
   });
 
   it("dict + keyword accessor", () => {
+    // A dict is a primitive object, not an alist — it lowers to a DIRECT object
+    // literal (`{ name: …, age: … }`), the fast TS path, not a `Dict<Pairs>` mapped
+    // remap. Keys use raw keywordName so they match the `(:name row)` index read.
     const { ts } = emitTypes(`(define row (dict :name "alice" :age 30))\n(:name row)`);
     expect(ts).toMatchInlineSnapshot(`
-      "const row = __arr.dict([["name", "alice"], ["age", 30]] as const);
+      "const row = { name: "alice", age: 30 };
       (row)["name"];
       export {};
       "

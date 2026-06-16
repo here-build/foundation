@@ -11,7 +11,7 @@
  *      schemas + a JS-bridged handler — and returns the handler so the function
  *      is usable in-program in the same draft.
  */
-import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival-scheme";
+import { execGeneratorFromString as exec, sandboxedEnv } from "@here.build/arrival";
 import { describe, expect, it } from "vitest";
 
 import { type ExposeDeclaration, defineExposeRosetta } from "../expose.js";
@@ -201,9 +201,9 @@ describe("declare/expose (runtime form)", () => {
 
   it("throws a teaching error when :handler is missing", async () => {
     const { env } = await envWithExpose();
-    await expect(
-      exec(`(declare/expose "no-handler" :input (s/object (s/field/string "x")))`, { env }),
-    ).rejects.toThrow(/missing a :handler/i);
+    await expect(exec(`(declare/expose "no-handler" :input (s/object (s/field/string "x")))`, { env })).rejects.toThrow(
+      /missing a :handler/i,
+    );
   });
 
   it("static extraction and runtime registration agree on name (the correlation key)", async () => {
@@ -234,10 +234,7 @@ describe("declare/expose (runtime form)", () => {
       }),
     });
     await exec(BUILTIN_PREAMBLE, { env });
-    const results = await exec(
-      `(define f (declare/expose "x" :handler (lambda (i) i))) (f "echo")`,
-      { env },
-    );
+    const results = await exec(`(define f (declare/expose "x" :handler (lambda (i) i))) (f "echo")`, { env });
     const last = results.at(-1);
     const resolved = last && typeof (last as { then?: unknown }).then === "function" ? await last : last;
     expect(JSON.stringify(resolved)).toContain("echo");
