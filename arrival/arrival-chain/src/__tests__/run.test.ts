@@ -204,6 +204,23 @@ describe("Project.sandboxRunTraced — studio sandbox with userForms", () => {
     await finished;
     expect(userForms.length).toBe(2);
   });
+
+  it("resolves a relative require against the entry file's dir (subdir entry — the studio path)", async () => {
+    // Regression: the studio editor runs via `sandboxRunTraced({ file, source })`,
+    // bypassing `Program.run`. The entry's dir must be derived from `opts.file` so a
+    // subdir file's `(require "lib.scm")` hits `pkg/lib.scm`, not a root-level
+    // `lib.scm`. Pre-fix this threw "require: file not found in project: lib.scm".
+    const { project } = fresh();
+    project.addFile("pkg/lib.scm", `(define answer 7)`);
+    project.addFile("pkg/main.scm", `(require "lib.scm")\nanswer`);
+    const { finished } = await project.sandboxRunTraced({
+      id: "rel",
+      file: "pkg/main.scm",
+      source: `(require "lib.scm")\nanswer`,
+      trace: new EvalTrace(),
+    });
+    expect(await finished).toBe(7);
+  });
 });
 
 describe("Project.runHypothesis — counterfactual replay", () => {

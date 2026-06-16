@@ -251,4 +251,19 @@ describe("require — Plexus VFS preamble", () => {
     expect(err).toBeDefined();
     expect(String(err)).toContain("util.scm");
   });
+
+  it("resolves a relative require in a subdir entry against the ENTRY's own dir, not the project root", async () => {
+    // Regression: entry programs run via `Program.run()` (runPipeline / CLI / model
+    // API) must derive their `dirname` from their own path. Two files share a
+    // subdir; the entry's `(require "config.scm")` must hit `app/config.scm`, not a
+    // (nonexistent) root-level `config.scm`. Pre-fix this resolved root-absolute and
+    // threw "not found". Note: this MUST go through the entry Program's `.run()` —
+    // a direct `project.run(source)` has no path to derive a dir from.
+    const project = ArrivalChain.bootstrap(new Project()).root;
+    project.bindInfer(createInferStore(neverBackend));
+    project.addFile("app/config.scm", `(define answer 42)`);
+    const entry = project.addProgram("app/main.scm", `(require "config.scm")\nanswer`);
+
+    expect(await entry.run()).toBe(42);
+  });
 });
