@@ -48,6 +48,15 @@ let builtinFilter: Callable | undefined;
 let builtinMap: Callable | undefined;
 let builtinReduce: Callable | undefined;
 
+// Comparison builtins — bridged Operators (=/</>/<=/>=). Captured lazily for the
+// nil-tolerant overrides below (the operator membrane throws on a nil operand at
+// codec-match time, before the op body runs; we intercept that one case).
+let builtinNumEq: Callable | undefined;
+let builtinLt: Callable | undefined;
+let builtinGt: Callable | undefined;
+let builtinLte: Callable | undefined;
+let builtinGte: Callable | undefined;
+
 function captureBuiltins(): void {
   if (builtinCar !== undefined) return;
   builtinCar = global_env.get("car", { throwError: false }) as Callable;
@@ -55,6 +64,18 @@ function captureBuiltins(): void {
   builtinFilter = global_env.get("filter", { throwError: false }) as Callable;
   builtinMap = global_env.get("map", { throwError: false }) as Callable;
   builtinReduce = global_env.get("reduce", { throwError: false }) as Callable;
+  builtinNumEq = global_env.get("=", { throwError: false }) as Callable;
+  builtinLt = global_env.get("<", { throwError: false }) as Callable;
+  builtinGt = global_env.get(">", { throwError: false }) as Callable;
+  builtinLte = global_env.get("<=", { throwError: false }) as Callable;
+  builtinGte = global_env.get(">=", { throwError: false }) as Callable;
+}
+
+// nil/'() is truthy in Scheme, so `is_false` does NOT catch it — a nil operand must
+// be detected structurally. A null/undefined JS value or a Scheme Nil counts as the
+// "absent value" that should compare to #f rather than crash the whole proof.
+function isNilOperand(v: unknown): boolean {
+  return v == null || (v as { constructor?: { name?: string } })?.constructor?.name === "Nil";
 }
 
 // ── FL async-dispatch helpers (module-private) ───────────────────────────────
@@ -169,6 +190,40 @@ export const FL_INTEROP_OPS = {
       return asyncFLReduce(fn, init, collection as FantasyLand);
     }
     return builtinReduce!.call(this, fn, init, collection);
+  },
+
+  // ── Nil-tolerant comparisons (plane-local) ──────────────────────────────────
+  // The operator membrane rejects a nil operand at codec-match time (the `=`/`<`/…
+  // Operators declare `in: [SchemeNum]`), so a comparison against an absent value
+  // (a nil PID, an unmatched lookup) throws before the body runs — forcing models
+  // to write defensive `(if (nil? x) … (= x …))` guards. Completing the plane's
+  // existing nil-tolerance grain (see filter/map): a nil operand resolves the
+  // comparison to #f rather than crashing the proof. Non-nil operands delegate to
+  // the bridged builtin unchanged (provenance flows through the operator path).
+  "=": function numEq(...args: unknown[]) {
+    captureBuiltins();
+    if (args.some(isNilOperand)) return false;
+    return builtinNumEq!(...args);
+  },
+  "<": function lt(...args: unknown[]) {
+    captureBuiltins();
+    if (args.some(isNilOperand)) return false;
+    return builtinLt!(...args);
+  },
+  ">": function gt(...args: unknown[]) {
+    captureBuiltins();
+    if (args.some(isNilOperand)) return false;
+    return builtinGt!(...args);
+  },
+  "<=": function lte(...args: unknown[]) {
+    captureBuiltins();
+    if (args.some(isNilOperand)) return false;
+    return builtinLte!(...args);
+  },
+  ">=": function gte(...args: unknown[]) {
+    captureBuiltins();
+    if (args.some(isNilOperand)) return false;
+    return builtinGte!(...args);
   },
 
   // ── Array-aware list accessors ───────────────────────────────────────────────
