@@ -220,7 +220,11 @@ export const FL_INTEROP_OPS = {
     } else {
       arr.sort();
     }
-    return arr;
+    // Return a Scheme LIST, not a raw JS array — a Lisp `sort` whose result the sibling
+    // `map`/`filter` reject ("Expecting pair or nil, got array") is an inconsistency. The elements
+    // are already Scheme values (we just reordered them), so build the list shallow (no re-boxing);
+    // an empty result is nil.
+    return Pair.fromArray(arr, false);
   },
 
   length: (collection: any) => {
