@@ -945,10 +945,19 @@ function genMacroWrapper(name: string): Macro {
 }
 
 /**
- * Stamp `result` with the union of `args`' provenances. Boxes raw JS strings
- * via `AValue.fromJs` so provenance has somewhere to live — bool/number/bigint
- * deliberately excluded (boxing bool broke `find`'s `!== false` checks in the
- * L2 trace.ts kludge; we keep that landmine sealed here for the same reason).
+ * Stamp `result` with the union of `args`' provenances. In provenanced/teleological
+ * mode (`prov.size > 0`) NO scalar is excluded — string/number/bigint/boolean all
+ * get boxed via `AValue.fromJs` so provenance has somewhere to live. A derived
+ * scalar that drops its grounding (a `(count …)` the seal can't sign even though
+ * every input was grounded) is exactly the hole the teleological seal must not have.
+ *
+ * The historical exclusion ("boxing bool broke `find`'s `!== false` checks in the
+ * L2 trace.ts kludge") is RETIRED: that kludge is deleted and `find`/`member`/
+ * `assoc` now route truthiness through `is_false`, which is representation-blind to
+ * a boxed `SchemeBool`. We still skip non-scalars (Pair / vector / object): those
+ * carry provenance structurally, and routing them through `AValue.fromJs` would
+ * double-wrap a Pair via the "object" boxer. Empty provenance still returns raw —
+ * there is nothing to carry, and that is the non-provenanced (ordinary-scheme) path.
  */
 function withInputProvenance<T>(args: readonly unknown[], result: T): T {
   const inputs = args.filter((a): a is AValue => a instanceof AValue);
@@ -956,7 +965,10 @@ function withInputProvenance<T>(args: readonly unknown[], result: T): T {
   const prov = unionProvenance(inputs);
   if (prov.size === 0) return result;
   if (result instanceof AValue) return result.withProvenance(prov) as T;
-  if (typeof result === "string") return AValue.fromJs(result, prov) as T;
+  const t = typeof result;
+  if (t === "string" || t === "number" || t === "bigint" || t === "boolean") {
+    return AValue.fromJs(result, prov) as T;
+  }
   return result;
 }
 

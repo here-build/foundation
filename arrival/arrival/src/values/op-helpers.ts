@@ -272,10 +272,12 @@ export function isSchemeNumber(value: unknown): boolean {
  * produce fresh AValue / array / Uint8Array results whose provenance must
  * inherit from their inputs.
  *
- * Like the lips.ts twin, we deliberately don't box raw JS bool/number/bigint —
- * boxing bool here would break the same `!== false` callers that withInputProvenance
- * keeps sealed. Raw JS strings get boxed via `AValue.fromJs` so provenance has
- * somewhere to live (mirrors lips.ts:2052).
+ * Like the lips.ts twin, in provenanced mode (`prov.size > 0`) every scalar is
+ * boxed — string/number/bigint/boolean — so no derived scalar drops its grounding.
+ * The old bool/number/bigint exclusion (it "broke `!== false` callers") is retired
+ * along with its twin: the HOFs route truthiness through `is_false`, which is blind
+ * to a boxed `SchemeBool`. Non-scalars (Pair / vector / object) stay raw — they
+ * carry provenance structurally and `AValue.fromJs` would double-wrap them.
  */
 export function withInputProvenance<T>(args: readonly unknown[], result: T): T {
   const inputs = args.filter((a): a is AValue => a instanceof AValue);
@@ -283,7 +285,10 @@ export function withInputProvenance<T>(args: readonly unknown[], result: T): T {
   const prov = unionProvenance(inputs);
   if (prov.size === 0) return result;
   if (result instanceof AValue) return result.withProvenance(prov) as T;
-  if (typeof result === "string") return AValue.fromJs(result, prov) as T;
+  const t = typeof result;
+  if (t === "string" || t === "number" || t === "bigint" || t === "boolean") {
+    return AValue.fromJs(result, prov) as T;
+  }
   return result;
 }
 

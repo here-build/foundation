@@ -28,6 +28,7 @@ import { nil } from "../values/types.js";
 import { SchemeJSArray } from "../membrane.js";
 import { is_false } from "../eval/guards.js";
 import { Pair } from "../values/Pair.js";
+import { AValue, unionProvenance } from "../values/AValue.js";
 
 // ── FL protocol surface ──────────────────────────────────────────────────────
 // Fantasy-Land structures are opaque carriers — we only ever touch their FL
@@ -283,19 +284,31 @@ export const FL_INTEROP_OPS = {
   },
 
   length: (collection: any) => {
-    // LIPS lists have their own length calculation
+    // Collect elements so the count can carry their provenance (V: "provenance
+    // everything; exclusion should not be possible in teleological mode"). A
+    // `(count …)`/`(length …)` the seal can't sign — even though every row that
+    // produced it was grounded — is exactly the hole the teleological seal forbids.
+    const elements: unknown[] = [];
     if (collection && typeof collection === "object" && "car" in collection) {
-      // Count LIPS list elements manually
-      let count = 0;
+      // LIPS list — walk the spine.
       let current = collection;
       while (current?.constructor && current.constructor.name !== "Nil") {
-        count++;
+        elements.push(current.car);
         current = current.cdr;
       }
-      return count;
+    } else if (collection instanceof SchemeJSArray) {
+      // Lazy JS-array wrapper (what `@`/the membrane hand the inference plane).
+      // `.source` is raw JS — its elements carry no provenance — but the count
+      // is still correct (the old code returned 0 here, a latent miscount).
+      elements.push(...collection.source);
+    } else if (Array.isArray(collection)) {
+      elements.push(...collection);
     }
-    // JS arrays and other collections
-    return Array.isArray(collection) ? collection.length : 0;
+    const count = elements.length;
+    const inputs = elements.filter((e): e is AValue => e instanceof AValue);
+    if (inputs.length === 0) return count;
+    const prov = unionProvenance(inputs);
+    return prov.size === 0 ? count : AValue.fromJs(count, prov);
   },
 };
 
