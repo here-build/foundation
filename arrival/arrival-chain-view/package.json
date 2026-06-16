@@ -1,7 +1,7 @@
 {
   "name": "@here.build/arrival-chain-view",
   "version": "0.1.0",
-  "description": "Faithful, deterministic projection of arrival-chain scheme into a target language (JS first, Python next) \u2014 the read-view 'glass' over a chain program.",
+  "description": "Faithful, deterministic projection of arrival-chain scheme into a target language (JS first, Python next) — the read-view 'glass' over a chain program.",
   "license": "FSL-1.1-MIT",
   "author": "here.build",
   "repository": {
@@ -28,7 +28,14 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "src"
+    "src",
+    "!**/__tests__",
+    "!**/__research__",
+    "!**/__benchmarks__",
+    "!**/__custdev__",
+    "!**/__visual__",
+    "!**/*.test.*",
+    "!**/*.stories.*"
   ],
   "scripts": {
     "build": "tsc",
